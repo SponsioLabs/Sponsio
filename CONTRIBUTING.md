@@ -209,9 +209,10 @@ The test path is `tests/test_sto_*.py`.
 
 ## Reporting security issues
 
-Do **not** open a public issue for security vulnerabilities. Instead,
-email `security@sponsio.dev` with a description and a reproduction
-path. We'll acknowledge within 72 hours and coordinate disclosure.
+Do **not** open a public issue for security vulnerabilities. See
+[`SECURITY.md`](SECURITY.md) for the disclosure process — the preferred
+channel is a private [GitHub Security Advisory](https://github.com/SponsioLabs/Sponsio/security/advisories/new),
+with email as a fallback. We acknowledge within 48 hours.
 
 ---
 
