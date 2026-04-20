@@ -11,7 +11,6 @@ build/
 .pytest_cache/
 .ruff_cache/
 .hypothesis/
-.DS_Store
 *.env
 .venv/
 venv/
@@ -24,8 +23,14 @@ data/scores.db
 data/scores.db-wal
 data/scores.db-shm
 
-# Internal docs — do not push to GitHub
-agent_docs/
+# Internal docs — do NOT commit to public repo
+# Canonical home for launch prep, internal planning, handoffs, reviews, etc.
+# Anything that is not meant for public OSS users goes under internal/.
+# New rule: any future internal doc goes here. Do not add more exceptions below.
+internal/
+
+# Internal files that intentionally live outside internal/ (kept colocated
+# with the subsystems they describe). All others should go under internal/.
 PLAN.md
 STATUS.md
 docs/demo-video-script.md
@@ -35,9 +40,3 @@ examples/scan_test_agent_run_debug.py
 # Claude Code
 .claude/
 ts-sdk/node_modules/
-LAUNCH_PLAN.md
-
-# Internal-only docs — do NOT commit to public repo
-LAUNCH_HANDOFF.md
-sponsio-code-review.md
-PYPI_RELEASE.md
