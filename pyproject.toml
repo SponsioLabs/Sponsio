@@ -1,0 +1,92 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sponsio"
+version = "0.1.0a2"
+description = "Runtime contract enforcement for LLM agent systems"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Sponsio Contributors"},
+]
+keywords = [
+    "llm",
+    "agents",
+    "safety",
+    "contracts",
+    "ltl",
+    "runtime-verification",
+    "langgraph",
+    "mcp",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = ["click>=8.0"]
+
+[project.scripts]
+sponsio = "sponsio.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/SponsioLabs/Sponsio"
+Repository = "https://github.com/SponsioLabs/Sponsio"
+Issues = "https://github.com/SponsioLabs/Sponsio/issues"
+Documentation = "https://github.com/SponsioLabs/Sponsio/tree/main/docs"
+Changelog = "https://github.com/SponsioLabs/Sponsio/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+langgraph = ["langgraph", "langchain-core"]
+llm = ["openai>=1.0"]
+crewai = ["crewai"]
+agents = ["openai-agents"]
+claude-agent = ["claude-agent-sdk"]
+# NOTE: `vercel-ai` extra removed — the Vercel AI SDK is JavaScript-only; the
+# Python integration (`sponsio/integrations/vercel_ai.py`) is kept as a stub for
+# cross-language API parity but has no installable Python dependency.
+web = ["fastapi>=0.100", "uvicorn[standard]>=0.20", "python-multipart>=0.0.6"]
+config = ["pyyaml>=6.0"]
+otel = [
+    "opentelemetry-api>=1.20",
+    "opentelemetry-sdk>=1.20",
+    "opentelemetry-exporter-otlp-proto-http>=1.20",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1.0",
+    "build>=1.0",
+    "twine>=4.0",
+]
+all = [
+    "langgraph", "langchain-core",
+    "openai>=1.0",
+    "crewai",
+    "openai-agents",
+    "claude-agent-sdk",
+    "fastapi>=0.100", "uvicorn[standard]>=0.20", "python-multipart>=0.0.6",
+    "opentelemetry-api>=1.20",
+    "opentelemetry-sdk>=1.20",
+    "opentelemetry-exporter-otlp-proto-http>=1.20",
+    "pyyaml>=6.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["sponsio*"]
+
+[tool.setuptools.package-data]
+sponsio = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

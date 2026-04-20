@@ -1,0 +1,46 @@
+{
+  "name": "@sponsio/sdk",
+  "version": "0.1.0",
+  "description": "Runtime contract enforcement for LLM agents — native TypeScript",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./claude-agent": "./dist/integrations/claude-agent.js",
+    "./vercel-ai": "./dist/integrations/vercel-ai.js",
+    "./openai": "./dist/integrations/openai.js",
+    "./langchain": "./dist/integrations/langchain.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test dist/__tests__/*.test.js",
+    "test:src": "npx tsx src/__tests__/core.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0"
+  },
+  "peerDependencies": {
+    "@langchain/core": ">=0.3.0",
+    "ai": ">=4.0.0",
+    "claude-agent-sdk": ">=0.1.0",
+    "openai": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "claude-agent-sdk": {
+      "optional": true
+    },
+    "ai": {
+      "optional": true
+    },
+    "openai": {
+      "optional": true
+    },
+    "@langchain/core": {
+      "optional": true
+    }
+  },
+  "license": "Apache-2.0"
+}

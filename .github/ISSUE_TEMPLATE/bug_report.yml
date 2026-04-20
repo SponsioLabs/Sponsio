@@ -1,0 +1,61 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: "e.g. ContractGuard blocks a tool call that should be allowed"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimal code or steps to reproduce the issue.
+      render: python
+      placeholder: |
+        from sponsio.integrations.langgraph import ContractGuard
+
+        guard = ContractGuard(contracts=["tool `A` must precede `B`"])
+        guard.pre_check("A")
+        result = guard.pre_check("B")
+        print(result.blocked)  # Expected: False, Got: True
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: integration
+    attributes:
+      label: Integration
+      options:
+        - Core (no framework)
+        - LangGraph
+        - MCP
+        - OpenAI
+        - Dashboard (API/frontend)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Sponsio version
+      placeholder: "0.1.0-alpha"
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: "3.12"

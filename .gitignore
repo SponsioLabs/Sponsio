@@ -1,0 +1,43 @@
+.DS_Store
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.egg-info
+dist/
+build/
+.eggs/
+*.so
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.DS_Store
+*.env
+.venv/
+venv/
+web/node_modules/
+web/dist/
+web-reference/
+claude_cowork/
+twitter-scout/
+data/scores.db
+data/scores.db-wal
+data/scores.db-shm
+
+# Internal docs — do not push to GitHub
+agent_docs/
+PLAN.md
+STATUS.md
+docs/demo-video-script.md
+docs/launch/
+examples/scan_test_agent_run_debug.py
+
+# Claude Code
+.claude/
+ts-sdk/node_modules/
+LAUNCH_PLAN.md
+
+# Internal-only docs — do NOT commit to public repo
+LAUNCH_HANDOFF.md
+sponsio-code-review.md
+PYPI_RELEASE.md

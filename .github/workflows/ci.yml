@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install core package
+        run: pip install -e .
+
+      - name: Install test + integration dependencies
+        run: |
+          pip install pytest pytest-cov langgraph langchain-core fastapi pydantic uvicorn python-multipart httpx opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http
+          pip install claude-agent-sdk vercel-ai-sdk || echo "Optional SDK install failed (platform-specific), tests will skip"
+
+      - name: Run tests
+        run: pytest --cov=sponsio --cov-report=term-missing -v
+
+  test-typescript:
+    name: Test (TypeScript — native)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install + Build TS SDK
+        working-directory: ts-sdk
+        run: npm install && npx tsc
+
+      - name: Run cross-language tests
+        working-directory: ts-sdk
+        run: node dist/__tests__/core.test.js
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install ruff and dependencies
+        run: pip install ruff fastapi pydantic -e .
+
+      - name: Check formatting
+        run: ruff format --check sponsio/ api/ tests/
+
+      - name: Check linting
+        run: ruff check sponsio/ api/ tests/

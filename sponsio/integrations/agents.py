@@ -1,0 +1,227 @@
+"""OpenAI Agents SDK integration — enforce contracts on function tools.
+
+Wraps ``@function_tool`` decorated tools with contract enforcement,
+using the SDK's native tool execution flow.
+
+Usage::
+
+    from sponsio.integrations.agents import AgentsSDKGuard
+
+    guard = AgentsSDKGuard(contracts=[
+        "tool `check_policy` must precede `issue_refund`",
+        "tool `issue_refund` must not be called more than once",
+    ])
+
+    # Wrap tools — contract enforcement is transparent
+    agent = Agent(
+        name="support_bot",
+        tools=guard.wrap([check_policy, issue_refund]),
+    )
+
+    result = Runner.run_sync(agent, input="process my refund")
+
+    # Check results
+    guard.violations       # all violations
+    guard.last_check       # most recent CheckResult
+    guard.summary()        # human-readable summary
+
+When a tool call violates a contract, the wrapped tool raises a
+``ToolCallBlocked`` error which the SDK surfaces to the model,
+allowing it to self-correct.
+"""
+
+from __future__ import annotations
+
+import functools
+import inspect
+from typing import Any, Callable
+
+from sponsio.integrations.base import BaseGuard, CheckResult
+from sponsio.models.contract import Contract
+from sponsio.models.system import System
+from sponsio.runtime.evaluators import StoEvaluator
+from sponsio.runtime.strategies import EnforcementStrategy
+
+
+class ToolCallBlocked(Exception):
+    """Raised when a tool call violates a hard contract."""
+
+    def __init__(self, tool_name: str, constraint: str, message: str):
+        self.tool_name = tool_name
+        self.constraint = constraint
+        super().__init__(message)
+
+
+class AgentsSDKGuard(BaseGuard):
+    """Contract guard for the OpenAI Agents SDK.
+
+    Wraps ``@function_tool`` decorated tools so that every invocation
+    is checked against contracts before and after execution.
+
+    Attributes:
+        last_check: The CheckResult from the most recent tool call.
+    """
+
+    def __init__(
+        self,
+        agent_id: str = "agent",
+        contracts: list[dict | Contract | str] | None = None,
+        system: System | None = None,
+        policy: dict[str, EnforcementStrategy] | None = None,
+        sto_evaluator: StoEvaluator | None = None,
+        store: Any = None,
+        **kwargs: Any,
+    ):
+        super().__init__(
+            agent_id=agent_id,
+            contracts=contracts,
+            system=system,
+            policy=policy,
+            sto_evaluator=sto_evaluator,
+            store=store,
+            **kwargs,
+        )
+        self.last_check: CheckResult | None = None
+
+    def wrap_tool(self, tool: Any) -> Any:
+        """Wrap a single ``@function_tool`` with contract enforcement.
+
+        The returned tool has the same name, description, and schema
+        as the original, but runs guard_before before execution and
+        guard_after after.
+
+        Args:
+            tool: A ``FunctionTool`` object (from ``@function_tool``).
+
+        Returns:
+            A new ``FunctionTool`` with contract enforcement.
+
+        Raises:
+            ImportError: If ``openai-agents`` is not installed.
+        """
+        try:
+            from agents import function_tool
+        except ImportError:
+            raise ImportError(
+                "openai-agents is required. Install with: pip install openai-agents"
+            )
+
+        guard = self
+        tool_name = getattr(tool, "name", getattr(tool, "__name__", str(tool)))
+
+        # Get the original callable
+        original_fn = _extract_function(tool)
+
+        if inspect.iscoroutinefunction(original_fn):
+
+            @functools.wraps(original_fn)
+            async def guarded_async(*args: Any, **kwargs: Any) -> Any:
+                check = guard.guard_before(tool_name, kwargs)
+                guard.last_check = check
+                if check.blocked:
+                    msg = (
+                        check.det_violations[0].message
+                        if check.det_violations
+                        else "Contract violation"
+                    )
+                    raise ToolCallBlocked(tool_name, msg, f"BLOCKED by contract: {msg}")
+
+                result = await original_fn(*args, **kwargs)
+
+                post = guard.guard_after(tool_name, str(result))
+                if post.needs_retry and post.feedback:
+                    return f"Tool succeeded but quality check failed. Feedback: {post.feedback}. Original: {result}"
+
+                return result
+
+            return function_tool(name=tool_name)(guarded_async)
+        else:
+
+            @functools.wraps(original_fn)
+            def guarded_sync(*args: Any, **kwargs: Any) -> Any:
+                check = guard.guard_before(tool_name, kwargs)
+                guard.last_check = check
+                if check.blocked:
+                    msg = (
+                        check.det_violations[0].message
+                        if check.det_violations
+                        else "Contract violation"
+                    )
+                    raise ToolCallBlocked(tool_name, msg, f"BLOCKED by contract: {msg}")
+
+                result = original_fn(*args, **kwargs)
+
+                post = guard.guard_after(tool_name, str(result))
+                if post.needs_retry and post.feedback:
+                    return f"Tool succeeded but quality check failed. Feedback: {post.feedback}. Original: {result}"
+
+                return result
+
+            return function_tool(name=tool_name)(guarded_sync)
+
+    def wrap(self, tools: list[Any]) -> list[Any]:
+        """Wrap tools with contract enforcement for OpenAI Agents SDK.
+
+        Example::
+
+            guard = sponsio.init(config="sponsio.yaml", framework="agents_sdk")
+            agent = Agent(tools=guard.wrap(tools), instructions=...)
+
+        Args:
+            tools: List of ``FunctionTool`` objects.
+
+        Returns:
+            List of wrapped tools with contract enforcement.
+        """
+        return [self.wrap_tool(t) for t in tools]
+
+    def wrap_tools(self, *args, **kwargs):
+        """Deprecated: use ``wrap()`` instead."""
+        return self.wrap(*args, **kwargs)
+
+    def tools(self, *args, **kwargs):
+        """Deprecated: use ``wrap()`` instead."""
+        return self.wrap(*args, **kwargs)
+
+    def check_tool_call(self, tool_name: str, args: dict | None = None) -> CheckResult:
+        """Manually check a tool call without wrapping.
+
+        Useful for custom execution flows or testing.
+
+        Args:
+            tool_name: Name of the tool being called.
+            args: Tool arguments.
+
+        Returns:
+            CheckResult with allowed/blocked status.
+        """
+        check = self.guard_before(tool_name, args)
+        self.last_check = check
+        return check
+
+
+def _extract_function(tool: Any) -> Callable:
+    """Extract the underlying callable from a FunctionTool or decorated function.
+
+    Args:
+        tool: A FunctionTool object, decorated function, or plain callable.
+
+    Returns:
+        The underlying callable.
+    """
+    # FunctionTool objects store the function in various attributes
+    for attr in ("fn", "_fn", "func", "_func", "on_invoke_tool"):
+        if hasattr(tool, attr):
+            fn = getattr(tool, attr)
+            if callable(fn):
+                return fn
+
+    # If it's already a callable (plain function), return it
+    if callable(tool):
+        return tool
+
+    raise TypeError(f"Cannot extract function from {type(tool)}: {tool}")
+
+
+# Backward compatibility alias (deprecated)
+AgentsGuard = AgentsSDKGuard

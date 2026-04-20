@@ -1,0 +1,66 @@
+# Sponsio
+
+> Runtime contract enforcement for LLM agent systems. Users write
+> safety rules in natural language; Sponsio compiles them to Linear
+> Temporal Logic (LTL) and enforces them at runtime on a grounded
+> event trace. Deterministic rules block unsafe actions with **zero
+> LLM calls** (<1 ms per check); stochastic rules use an LLM-as-judge
+> pipeline for quality properties (tone, PII, format). Works with
+> LangGraph, MCP, OpenAI SDK, OpenAI Agents SDK, CrewAI, Vercel AI
+> SDK, and the Claude Agent SDK. Zero core dependencies, Apache 2.0.
+
+## Quick usage
+
+```bash
+pip install sponsio
+```
+
+```python
+import sponsio
+
+guard = sponsio.init(
+    framework="langgraph",
+    agent_id="bot",
+    contracts=[
+        "tool `check_policy` must precede `issue_refund`",
+        "tool `issue_refund` at most 3 times",
+        "response must not contain PII",
+    ],
+)
+agent = create_react_agent(model, guard.wrap(tools))
+```
+
+## Shadow mode (zero-risk onboarding)
+
+```python
+guard = sponsio.init(framework="langgraph", mode="observe", contracts=[...])
+# Every contract is still evaluated — nothing is blocked.
+# Every would-have-blocked decision is logged to
+# ~/.sponsio/sessions/<agent_id>/*.jsonl
+# The SPONSIO_MODE env var overrides the kwarg for staged rollouts.
+```
+
+## Docs
+
+- [Getting Started](https://github.com/SponsioLabs/Sponsio/blob/main/docs/getting-started.md) — install, configure, integrate
+- [Contract DSL](https://github.com/SponsioLabs/Sponsio/blob/main/docs/contracts.md) — natural-language syntax, YAML schema, assume/enforce pairs
+- [Input Formats](https://github.com/SponsioLabs/Sponsio/blob/main/docs/input-formats.md) — every way to express a contract
+- [Integrations](https://github.com/SponsioLabs/Sponsio/blob/main/docs/integrations.md) — per-framework guide (LangGraph, MCP, OpenAI, CrewAI, Agents SDK, Vercel AI, Claude Agent)
+- [CLI Reference](https://github.com/SponsioLabs/Sponsio/blob/main/docs/cli.md) — `scan`, `validate`, `check`, `serve`, `demo`, `patterns`, `report`
+
+## Concepts
+
+- **Contract** — one `(assumption, enforcement)` pair. Multiple rules per agent = multiple contracts. Each contract is evaluated independently.
+- **Det pipeline** — LTL evaluation on grounded trace. Binary verdict. Violations route to `DetBlock` or `EscalateToHuman`. No LLM.
+- **Sto pipeline** — LLM-as-judge on response content. Graded verdict (0–1). Violations route to `RetryWithConstraint` or `RedirectToSafe`.
+- **Pattern library** — 29 deterministic patterns (`must_precede`, `rate_limit`, `arg_blacklist`, `scope_limit`, …) + 7 stochastic (PII, tone, format, length, relevance, content_prohibition, relevance).
+
+## Optional
+
+- [Architecture](https://github.com/SponsioLabs/Sponsio/blob/main/docs/architecture.md) — formula engine, grounding, dual pipeline, span tree observability
+- [Benchmark Results](https://github.com/SponsioLabs/Sponsio/blob/main/docs/benchmark-results.md) — ODCV-Bench (80% protection), RedCode-Exec (80% bash / 52% python), tau2-bench (76–100% recall)
+- [CHANGELOG](https://github.com/SponsioLabs/Sponsio/blob/main/CHANGELOG.md) — every version
+
+## License
+
+Apache 2.0. Zero core dependencies. <https://github.com/SponsioLabs/Sponsio>

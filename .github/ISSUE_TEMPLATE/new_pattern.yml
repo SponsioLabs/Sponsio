@@ -1,0 +1,42 @@
+name: New Constraint Pattern
+description: Propose a new constraint pattern for the pattern library
+labels: ["enhancement", "pattern"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Pattern description
+      description: What safety property does this pattern enforce?
+      placeholder: "e.g. Enforce that tool A is called at most N times within a sliding window of K steps"
+    validations:
+      required: true
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Natural language examples
+      description: How would a user describe this constraint?
+      placeholder: |
+        - "tool `send_email` must not be called more than 3 times in 10 steps"
+        - "limit `api_call` to 5 invocations per window of 20"
+    validations:
+      required: true
+
+  - type: textarea
+    id: formula
+    attributes:
+      label: Proposed LTL formula (optional)
+      description: If you know the LTL encoding, include it here.
+      render: python
+      placeholder: |
+        # Example:
+        # G(window_count("send_email", 10) <= 3)
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: A real scenario where this pattern is needed.
+      placeholder: "e.g. Preventing an agent from spamming an external API during a multi-turn conversation"
+    validations:
+      required: true

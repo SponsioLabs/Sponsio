@@ -1,0 +1,52 @@
+{
+  "_comment": "Canonical test scenarios for cross-language validation. Both Python and TS tests must produce identical block/allow decisions for each step.",
+  "scenarios": [
+    {
+      "name": "must_precede_violation_and_recovery",
+      "contracts": [
+        "tool `check_policy` must precede `issue_refund`"
+      ],
+      "steps": [
+        {"tool": "issue_refund", "args": {"order_id": "#123"}, "expect_blocked": true,  "reason": "check_policy not called yet"},
+        {"tool": "check_policy", "args": {"order_id": "#123"}, "expect_blocked": false, "reason": "check_policy is always allowed"},
+        {"tool": "issue_refund", "args": {"order_id": "#123"}, "expect_blocked": false, "reason": "check_policy was called"}
+      ]
+    },
+    {
+      "name": "rate_limit",
+      "contracts": [
+        "tool `send_email` at most 2 times"
+      ],
+      "steps": [
+        {"tool": "send_email", "args": {"to": "a@b.com"}, "expect_blocked": false, "reason": "first call (limit=2)"},
+        {"tool": "send_email", "args": {"to": "c@d.com"}, "expect_blocked": false, "reason": "second call (limit=2)"},
+        {"tool": "send_email", "args": {"to": "e@f.com"}, "expect_blocked": true,  "reason": "third call exceeds limit"},
+        {"tool": "get_inbox",  "args": {},                "expect_blocked": false, "reason": "different tool, not limited"}
+      ]
+    },
+    {
+      "name": "mutual_exclusion",
+      "contracts": [
+        "tools `approve` and `reject` are mutually exclusive"
+      ],
+      "steps": [
+        {"tool": "approve", "args": {"id": "1"}, "expect_blocked": false, "reason": "first call, either is fine"},
+        {"tool": "reject",  "args": {"id": "1"}, "expect_blocked": true,  "reason": "approve already called"},
+        {"tool": "approve", "args": {"id": "2"}, "expect_blocked": false, "reason": "approve still allowed (same tool)"}
+      ]
+    },
+    {
+      "name": "multiple_contracts",
+      "contracts": [
+        "tool `auth` must precede `transfer`",
+        "tool `transfer` at most 1 times"
+      ],
+      "steps": [
+        {"tool": "transfer", "args": {"amount": 100}, "expect_blocked": true,  "reason": "auth not called"},
+        {"tool": "auth",     "args": {"user": "bob"}, "expect_blocked": false, "reason": "auth is allowed"},
+        {"tool": "transfer", "args": {"amount": 100}, "expect_blocked": false, "reason": "auth done, first transfer"},
+        {"tool": "transfer", "args": {"amount": 200}, "expect_blocked": true,  "reason": "rate limit: at most 1"}
+      ]
+    }
+  ]
+}

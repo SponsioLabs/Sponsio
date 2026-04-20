@@ -1,0 +1,687 @@
+"""Formal LTL verifier — the pure "does this trace satisfy this formula?" layer.
+
+``Verifier`` is a stateful wrapper around the two pieces of the formal
+pipeline:
+
+1. :func:`sponsio.tracer.grounding.ground` — translates a ``Trace`` into
+   per-timestep predicate valuations.
+2. :func:`sponsio.formulas.evaluator.evaluate` — runs LTL / arithmetic
+   evaluation on those valuations.
+
+The runtime monitor owns one ``TraceVerifier`` per session and delegates
+all formal work to it. Callers who just want to **query** whether a
+formula holds on a trace — without involving enforcement strategies,
+spans, or trace mutation — can use a ``TraceVerifier`` directly::
+
+    from sponsio.runtime.verifier import TraceVerifier
+    from sponsio.patterns.library import must_precede
+
+    v = TraceVerifier()
+    v.sync(trace)                                 # ground the trace
+    v.check(must_precede("verify", "transfer"))   # Verdict(holds=True|False, desc=...)
+
+The canonical input type for ``check`` is a raw LTL-family ``Formula``
+AST (``G``/``F``/``U``/``X``/``And``/``Or``/``Not``/``Atom``/``Le``/…)
+from :mod:`sponsio.formulas.formula`. The pattern library
+(:mod:`sponsio.patterns.library`) is a convenience factory that
+produces :class:`~sponsio.patterns.library.DetFormula` wrappers around
+those raw ASTs — ``check`` accepts them too and unwraps internally.
+
+Outputs are :class:`Verdict` / :class:`ContractVerdict` dataclasses —
+pure facts, no ``EnforcementResult``, no side effects, no spans.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Literal
+
+from sponsio.formulas.evaluator import evaluate as eval_formula
+from sponsio.tracer.grounding import (
+    GroundingState,
+    collect_content_atoms,
+    ground_event,
+)
+
+if TYPE_CHECKING:
+    from sponsio.models.contract import Contract
+    from sponsio.models.trace import Trace
+
+
+# ---------------------------------------------------------------------------
+# Result types
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Verdict:
+    """Result of evaluating a single formula on a trace.
+
+    A pure fact — no enforcement decision, no side effect.
+
+    Attributes:
+        holds: Whether the formula is satisfied on the current trace.
+        desc: Human-readable description of the formula (from
+            ``DetFormula.desc`` or ``str(formula)``).
+        kind: ``"assumption"`` or ``"enforcement"``. Defaults to
+            ``"enforcement"`` for free-standing ``Verifier.check`` calls.
+        formula: The original constraint object (``DetFormula`` or
+            raw ``Formula``) kept for reporting / ``Violation``
+            construction. ``None`` for trivially-true results.
+    """
+
+    holds: bool
+    desc: str
+    kind: str = "enforcement"
+    formula: Any = None
+
+    def __bool__(self) -> bool:
+        return self.holds
+
+
+@dataclass
+class ContractVerdict:
+    """Result of evaluating a whole :class:`Contract`.
+
+    Contains one :class:`Verdict` per assumption (short-circuited on
+    first failure) and one per enforcement (all evaluated if the
+    assumption holds; empty list if assumption failed).
+
+    Use the convenience properties ``holds`` / ``assumption_holds`` /
+    ``enforcement_violations`` instead of iterating the raw lists when
+    you just want a yes/no.
+    """
+
+    assumptions: list[Verdict] = field(default_factory=list)
+    enforcements: list[Verdict] = field(default_factory=list)
+
+    @property
+    def assumption_holds(self) -> bool:
+        """True iff every det assumption evaluated True (or there are none)."""
+        return all(r.holds for r in self.assumptions)
+
+    @property
+    def first_assumption_failure(self) -> Verdict | None:
+        """The first failing assumption, or ``None`` if all hold."""
+        for r in self.assumptions:
+            if not r.holds:
+                return r
+        return None
+
+    @property
+    def enforcement_violations(self) -> list[Verdict]:
+        """Enforcements that evaluated False."""
+        return [r for r in self.enforcements if not r.holds]
+
+    @property
+    def holds(self) -> bool:
+        """True iff assumption holds AND no enforcement is violated."""
+        return self.assumption_holds and not self.enforcement_violations
+
+    def __bool__(self) -> bool:
+        return self.holds
+
+
+# ---------------------------------------------------------------------------
+# Helpers (duplicated from monitor.py — kept local so Verifier has no
+# dependency on monitor.py)
+# ---------------------------------------------------------------------------
+
+
+def _is_det(constraint: Any) -> bool:
+    """True if the constraint is a det formula (not a sto evaluator)."""
+    from sponsio.patterns.library import DetFormula
+
+    if isinstance(constraint, DetFormula):
+        return True
+    return not hasattr(constraint, "evaluator_fn")
+
+
+def _is_det_formula(constraint: Any) -> bool:
+    from sponsio.patterns.library import DetFormula
+
+    return isinstance(constraint, DetFormula)
+
+
+def _raw_formula(constraint: Any) -> Any:
+    """Strip ``DetFormula`` wrapper to get the underlying ``Formula`` AST."""
+    from sponsio.patterns.library import DetFormula
+
+    if isinstance(constraint, DetFormula):
+        return constraint.formula
+    return constraint
+
+
+def _desc(constraint: Any) -> str:
+    return getattr(constraint, "desc", str(constraint))
+
+
+def _collect_det_formulas(contracts: list[Contract]) -> list:
+    out: list = []
+    for c in contracts:
+        for constraint in c.enforcements + c.assumptions:
+            if _is_det(constraint):
+                out.append(constraint)
+    return out
+
+
+def _is_temporally_flat(node: Any) -> bool:
+    """True if ``node`` contains no nested temporal operator (G/F/U/X).
+
+    The Verifier's G-cache assumes that previously-verified prefix
+    positions stay verified as the trace grows. That assumption is
+    **wrong** when the G-child contains a nested temporal operator:
+    e.g. in ``G(A -> G(!B))``, evaluating the outer G at an old
+    position requires re-evaluating the inner G over a now-longer
+    suffix. So we only cache G(φ) when φ is temporally flat —
+    propositional or arithmetic only.
+
+    Common G-rooted patterns that are temporally flat:
+
+    * ``rate_limit(X, K)``      = ``G(count(X) <= K)``
+    * ``scope_limit(X, paths)`` = ``G(arg_paths_within(X, *paths))``
+    * ``arg_blacklist(...)``    = ``G(!arg_field_has(...))``
+    * ``idempotent(X)``         = ``G(count(X) <= 1)``
+    * ``bounded_retry(X, N)``   = ``G(count(X) <= N)``
+
+    ``no_reversal`` / ``must_confirm`` / ``cooldown`` / ``mutual_exclusion``
+    contain nested temporal operators and fall through to full eval.
+    """
+    from sponsio.formulas.formula import F, G, U, X
+
+    if isinstance(node, (G, F, U, X)):
+        return False
+    for attr in ("child", "left", "right"):
+        child = getattr(node, attr, None)
+        if child is not None and not _is_temporally_flat(child):
+            return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# TraceVerifier
+# ---------------------------------------------------------------------------
+
+
+class TraceVerifier:
+    """Stateful LTL verifier over a :class:`Trace`.
+
+    One instance per session / per set of contracts. The verifier owns
+    the last-grounded valuations so :meth:`check` and :meth:`check_contract`
+    are fast pure lookups; call :meth:`sync` when the trace gains new
+    events.
+
+    Args:
+        agents: Optional mapping of ``agent_id`` to ``Agent`` objects,
+            used by grounding for permission predicates.
+        backend: Evaluation strategy. One of:
+
+            - ``"recursive"`` (default) — stateless recursive LTL
+              evaluator from :mod:`sponsio.formulas.evaluator` with a
+              G-node cache. Battle-tested; used by all existing tests.
+            - ``"dfa"`` — formula-progression LTL monitor from
+              :mod:`sponsio.formulas.dfa_evaluator`. Handles nested
+              temporal operators (``no_reversal``, ``mutual_exclusion``)
+              without the flatness guard the recursive backend needs.
+              Stateful per-formula: each formula gets its own
+              :class:`~sponsio.formulas.dfa_evaluator.DFAEvaluator` that
+              is stepped forward as events arrive, giving O(1)
+              per-event cost regardless of trace length or formula
+              complexity.
+
+            Both backends produce identical :class:`Verdict` objects
+            for the same ``(formula, trace)`` input — ``"dfa"`` is a
+            drop-in replacement. The recursive backend stays as ground
+            truth for differential testing.
+
+    Typical callers:
+
+    * :class:`sponsio.runtime.monitor.RuntimeMonitor` wraps one of these
+      internally and syncs after every ``check_action`` mutation.
+    * Ad-hoc scripts / offline checks: ``v = TraceVerifier(); v.sync(trace); v.check(f)``.
+    """
+
+    def __init__(
+        self,
+        agents: dict[str, Any] | None = None,
+        backend: Literal["recursive", "dfa"] = "recursive",
+    ) -> None:
+        self._agents: dict[str, Any] = agents or {}
+        self._valuations: list[dict] = []
+        self._state = GroundingState()
+        self._grounded_upto: int = 0
+        # Cached content_atoms from the last sync. If the caller passes
+        # a different value, we re-ground from scratch because different
+        # content atoms mean different per-event work.
+        self._last_content_atoms: dict | None = None
+        # Per-``G`` node memo: G_node -> (scanned_upto, result)
+        # Used only by the ``"recursive"`` backend. We use the
+        # formula object itself as the key (frozen dataclasses are
+        # hashable) rather than id() — otherwise Python GC can reuse
+        # an id after the original formula is collected, leading to
+        # a stale cache hit on a structurally different formula.
+        self._g_cache: dict[Any, tuple[int, bool]] = {}
+        # --- DFA backend state ---
+        self._backend: Literal["recursive", "dfa"] = backend
+        # Per-formula DFAEvaluator instances, lazily constructed the
+        # first time a formula is checked. Keyed by the formula object
+        # itself (hashable frozen dataclass) — structurally equal
+        # formulas share a DFA, which is both correct and an extra win.
+        self._dfas: dict[Any, Any] = {}
+        # How many valuations each DFA has already consumed. Used by
+        # ``_dfa_eval`` to step forward only the new events.
+        self._dfa_consumed: dict[Any, int] = {}
+
+    # -----------------------------------------------------------------
+    # State management
+    # -----------------------------------------------------------------
+
+    def set_agents(self, agents: dict[str, Any]) -> None:
+        """Update the agent map used by grounding for permission lookups."""
+        self._agents = agents
+
+    def reset(self) -> None:
+        """Drop all cached valuations + accumulators.
+
+        Call this when the trace is reset (e.g. ``RuntimeMonitor.reset``)
+        or when the contract set changes in a way that invalidates the
+        cached content atoms.
+
+        Trace rollback (``DetBlock`` popping a blocked event) is handled
+        automatically by :meth:`sync` — it sees the shrunken length and
+        calls this method. You shouldn't need to call it by hand from
+        the monitor's hot path.
+        """
+        self._valuations = []
+        self._state.reset()
+        self._grounded_upto = 0
+        self._last_content_atoms = None
+        self._g_cache.clear()
+        # DFA backend: rewind every DFA to its initial state. We keep
+        # the per-formula instances (compile cost was already paid)
+        # but discard their progress on the now-gone trace.
+        for dfa in self._dfas.values():
+            dfa.reset()
+        self._dfa_consumed.clear()
+
+    def sync(
+        self,
+        trace: Trace,
+        content_atoms: dict | None = None,
+    ) -> None:
+        """Incrementally re-ground the trace.
+
+        Only events strictly after ``self._grounded_upto`` are processed
+        — their valuations are appended to ``self._valuations`` and the
+        internal :class:`GroundingState` accumulators are updated in
+        place. This turns per-check work from O(N) to O(ΔN) where ΔN is
+        the number of events added since the last sync (typically 1).
+
+        If the trace has **shrunk** (e.g. the monitor popped the last
+        event on a ``DetBlock`` rollback), or if ``content_atoms`` has
+        changed relative to the last call, the state is reset and the
+        trace is re-grounded from scratch. Both cases are uncommon.
+
+        Args:
+            trace: The execution trace to ground.
+            content_atoms: Optional dict from
+                :func:`sponsio.tracer.grounding.collect_content_atoms`,
+                telling grounding which parameterized atoms (``arg_has``,
+                ``llm_said``, etc.) to evaluate.
+        """
+        n = len(trace.events)
+
+        # Roll back if trace shrank or content_atoms changed.
+        if n < self._grounded_upto or content_atoms != self._last_content_atoms:
+            self.reset()
+
+        self._last_content_atoms = content_atoms
+
+        for i in range(self._grounded_upto, n):
+            v = ground_event(
+                trace.events[i],
+                i,
+                self._state,
+                content_atoms=content_atoms,
+                agents=self._agents,
+            )
+            self._valuations.append(v)
+
+        self._grounded_upto = n
+
+    def sync_from_contracts(
+        self,
+        trace: Trace,
+        contracts: list[Contract],
+    ) -> None:
+        """Convenience: collect content atoms from ``contracts`` and sync.
+
+        Most callers that want to verify against a fixed contract set
+        should use this — it wires grounding to see exactly the atoms
+        those contracts need.
+        """
+        det_formulas = _collect_det_formulas(contracts)
+        content_atoms = collect_content_atoms(det_formulas) or None
+        self.sync(trace, content_atoms)
+
+    # -----------------------------------------------------------------
+    # Queries (read-only, against currently-synced valuations)
+    # -----------------------------------------------------------------
+
+    def check(self, formula: Any) -> Verdict:
+        """Evaluate a single formula on the currently-synced trace.
+
+        Accepts either a raw ``Formula`` or a ``DetFormula`` wrapper.
+        Does not distinguish assumption vs enforcement — this is the
+        generic "does ``formula`` hold now?" query.
+
+        Uses incremental G-cache where possible (see
+        :meth:`_incremental_eval`). Falls back to full evaluation for
+        formulas whose root is not decomposable.
+        """
+        raw = _raw_formula(formula)
+        holds = self._incremental_eval(raw)
+        return Verdict(
+            holds=holds,
+            desc=_desc(formula),
+            formula=formula,
+        )
+
+    def check_nl(self, nl: str) -> Verdict:
+        """Parse a natural-language rule and check it on the synced trace.
+
+        Convenience for REPL / notebook / quick-script use. Delegates to
+        :func:`sponsio.generation.nl_to_contract.parse_nl_unified` for
+        the full "NL string → pattern → raw LTL AST" compile chain, then
+        hands the resulting formula to :meth:`check`.
+
+        Only det (formal) NL rules are supported. Soft / sto rules
+        (e.g. "response must be empathetic") raise ``ValueError`` —
+        those need to go through a :class:`StoEvaluator`, not the
+        verifier.
+
+        Example::
+
+            v = TraceVerifier()
+            v.sync(my_trace)
+            v.check_nl("tool `verify_identity` must precede `transfer_funds`")
+            # -> Verdict(holds=True, ...)
+
+        The NL parser is imported lazily so ``TraceVerifier`` itself
+        stays independent of ``sponsio.generation`` (which pulls in an
+        optional LLM backend). If you never call this method you pay
+        no cost.
+
+        Args:
+            nl: Natural-language rule string. Must be parseable by
+                ``parse_nl_unified`` into a det formula.
+
+        Returns:
+            A :class:`Verdict` identical to what :meth:`check` would
+            return for the compiled formula.
+
+        Raises:
+            ValueError: If the NL string cannot be parsed as a det rule
+                (e.g. unsupported pattern, ambiguous, or sto-only text).
+        """
+        from sponsio.generation.nl_to_contract import parse_nl_unified
+
+        result = parse_nl_unified(nl)
+        if result.is_det:
+            return self.check(result.hard)
+        if result.is_sto:
+            raise ValueError(
+                f"check_nl() only supports det (formal) rules; "
+                f"{nl!r} parsed as a sto constraint. "
+                f"Use a StoEvaluator for sto checking."
+            )
+        raise ValueError(
+            f"check_nl() could not parse {nl!r} as a det rule. "
+            f"Parse error: {result.error or 'unknown'}"
+        )
+
+    def _incremental_eval(self, node: Any, finalize: bool = False) -> bool:
+        """Dispatch to the selected backend.
+
+        When ``self._backend == "dfa"``, delegates to :meth:`_dfa_eval`
+        which runs a per-formula :class:`DFAEvaluator` (formula-
+        progression monitor). When ``self._backend == "recursive"``,
+        falls back to the G-cached recursive walk.
+
+        ``finalize`` is used by the sto / session-end check path to ask
+        "give me the final verdict assuming the trace is complete"
+        (``DFAEvaluator.finalize`` — collapses ``"?"`` to ``"⊥"``).
+        The recursive backend ignores this flag since it uses weak
+        finite-trace semantics uniformly.
+        """
+        if self._backend == "dfa":
+            return self._dfa_eval(node, finalize=finalize)
+
+        # --- Recursive backend (default) ---
+        from sponsio.formulas.formula import And, G, Implies, Not, Or
+
+        if isinstance(node, G):
+            return self._cached_g_eval(node)
+        if isinstance(node, And):
+            return self._incremental_eval(node.left) and self._incremental_eval(
+                node.right
+            )
+        if isinstance(node, Or):
+            return self._incremental_eval(node.left) or self._incremental_eval(
+                node.right
+            )
+        if isinstance(node, Implies):
+            return (not self._incremental_eval(node.left)) or self._incremental_eval(
+                node.right
+            )
+        if isinstance(node, Not):
+            return not self._incremental_eval(node.child)
+
+        # Everything else (U, F, X, Atom, Le/Lt/Ge/Gt/Eq, Subset) —
+        # use the stateless evaluator, which scans from pos=0.
+        return eval_formula(node, self._valuations)
+
+    def _dfa_eval(self, node: Any, finalize: bool = False) -> bool:
+        """DFA backend: lazy per-formula :class:`DFAEvaluator`.
+
+        On first call for a given formula, construct a fresh
+        ``DFAEvaluator`` and replay any already-grounded events through
+        it (catch-up). On subsequent calls, step forward only the new
+        events since the last call.
+
+        The ``finalize`` flag asks the DFA to collapse any pending
+        ``?`` verdict using weak finite-trace semantics (used by
+        session-end checks). Runtime checks leave ``?`` as ``True``
+        (i.e., "not yet violated, keep going") to match the current
+        monitor's "skip liveness at runtime" behavior.
+        """
+        from sponsio.formulas.dfa_evaluator import DFAEvaluator
+
+        key = node  # frozen dataclass, hashable — stable across GC
+        dfa = self._dfas.get(key)
+        if dfa is None:
+            dfa = DFAEvaluator(node)
+            self._dfas[key] = dfa
+            self._dfa_consumed[key] = 0
+
+        # Step the DFA forward for any valuations it hasn't yet seen.
+        consumed = self._dfa_consumed.get(key, 0)
+        for i in range(consumed, len(self._valuations)):
+            dfa.step(self._valuations[i])
+        self._dfa_consumed[key] = len(self._valuations)
+
+        if finalize:
+            verdict = dfa.finalize()
+            return verdict == "⊤"
+
+        # Runtime semantics:
+        #   ⊤  → holds
+        #   ⊥  → violated
+        #   ?  → not yet decided (treat as "not violated yet", don't block)
+        verdict = dfa.peek()
+        return verdict != "⊥"
+
+    def _cached_g_eval(self, g_node: Any) -> bool:
+        """Evaluate ``G(child)`` with incremental caching when safe.
+
+        Cache shape: ``{g_node: (scanned_upto, result)}``. The key is
+        the formula object itself (frozen dataclass, hashable) to avoid
+        id() collisions when Python GC reuses addresses across calls.
+        Only fires when ``child`` is temporally flat (see
+        :func:`_is_temporally_flat`) — otherwise falls through to the
+        stateless evaluator.
+
+        When cacheable:
+
+        * If previously decided ``False`` → stable false (``G`` is
+          monotone-decreasing over growing traces), return cached.
+        * If previously ``True`` and the trace hasn't grown, return
+          cached.
+        * If previously ``True`` and there are new positions, check
+          ``child`` only at those new positions, AND with the cached
+          result.
+        * On first evaluation, do a full scan and memoize.
+        """
+        n = len(self._valuations)
+
+        # Nested temporal operators invalidate the "old positions stay
+        # verified" assumption. Fall back to stateless eval.
+        if not _is_temporally_flat(g_node.child):
+            return eval_formula(g_node, self._valuations)
+
+        key = g_node  # frozen dataclass, hashable and stable
+        cached = self._g_cache.get(key)
+        if cached is not None:
+            scanned_upto, prev_result = cached
+            if not prev_result:
+                return False  # stable-false
+            if scanned_upto == n:
+                return True  # nothing new to check
+            child = g_node.child
+            for i in range(scanned_upto, n):
+                if not eval_formula(child, self._valuations, i):
+                    self._g_cache[key] = (n, False)
+                    return False
+            self._g_cache[key] = (n, True)
+            return True
+
+        # First call — full scan, then cache.
+        result = eval_formula(g_node, self._valuations)
+        self._g_cache[key] = (n, result)
+        return result
+
+    def check_assumption(self, contract: Contract) -> Verdict:
+        """Evaluate a contract's assumption conjunction.
+
+        Short-circuits on the first failing assumption and returns that
+        verdict. Sto assumptions are skipped silently (they're handled
+        by the sto pipeline, not the verifier).
+
+        Returns a trivially-true verdict (``holds=True``,
+        ``desc="true"``) if the contract has no det assumptions or all
+        of them pass.
+        """
+        for a in contract.assumptions:
+            if not _is_det(a):
+                continue
+            raw = _raw_formula(a)
+            if not self._incremental_eval(raw):
+                return Verdict(
+                    holds=False,
+                    desc=_desc(a),
+                    kind="assumption",
+                    formula=a,
+                )
+        return Verdict(holds=True, desc="true", kind="assumption")
+
+    def check_contract(
+        self,
+        contract: Contract,
+        include_liveness: bool = False,
+    ) -> ContractVerdict:
+        """Evaluate a whole contract: assumptions, then enforcements.
+
+        Semantics match the runtime monitor:
+
+        * **Assumptions** are evaluated left-to-right. On the first
+          failure, evaluation stops (short-circuit) and the returned
+          ``assumptions`` list ends with that failing verdict.
+        * **Enforcements** are all evaluated (even if some fail) — but
+          only if every assumption held. If the assumption failed, the
+          ``enforcements`` list is empty.
+        * Sto constraints (those without a ``formula`` attribute) are
+          skipped — they go through the sto pipeline, not here.
+        * Liveness formulas (``DetFormula.liveness == True``) are
+          skipped by default — at runtime they can't be enforced by
+          blocking, so the monitor ignores them mid-session. Pass
+          ``include_liveness=True`` for offline / end-of-session checks
+          where pending obligations should be definitively judged.
+
+        Args:
+            contract: The contract to evaluate.
+            include_liveness: Whether to evaluate liveness enforcements.
+
+        Returns:
+            A :class:`ContractVerdict` with per-constraint verdicts.
+        """
+        # Assumption phase (short-circuit)
+        a_results: list[Verdict] = []
+        for a in contract.assumptions:
+            if not _is_det(a):
+                continue
+            raw = _raw_formula(a)
+            holds = self._incremental_eval(raw)
+            a_results.append(
+                Verdict(
+                    holds=holds,
+                    desc=_desc(a),
+                    kind="assumption",
+                    formula=a,
+                )
+            )
+            if not holds:
+                break
+
+        assumption_holds = all(r.holds for r in a_results)
+
+        # Enforcement phase (only if assumption holds)
+        e_results: list[Verdict] = []
+        if assumption_holds:
+            for e in contract.enforcements:
+                if not _is_det(e):
+                    continue
+                is_liveness = _is_det_formula(e) and getattr(e, "liveness", False)
+                if not include_liveness and is_liveness:
+                    continue
+                raw = _raw_formula(e)
+                # Session-end checks on liveness formulas need the DFA
+                # to collapse pending "?" to "⊥" (weak finite-trace).
+                # The recursive backend already uses weak semantics
+                # uniformly, so the ``finalize`` flag is a no-op there.
+                holds = self._incremental_eval(
+                    raw, finalize=(include_liveness and is_liveness)
+                )
+                e_results.append(
+                    Verdict(
+                        holds=holds,
+                        desc=_desc(e),
+                        kind="enforcement",
+                        formula=e,
+                    )
+                )
+
+        return ContractVerdict(assumptions=a_results, enforcements=e_results)
+
+    # -----------------------------------------------------------------
+    # Introspection
+    # -----------------------------------------------------------------
+
+    @property
+    def valuations(self) -> list[dict]:
+        """Current grounded valuations. Read-only view; do not mutate."""
+        return self._valuations
+
+
+# Backward-compatible alias for the original prototype name.
+# Prefer ``TraceVerifier`` in new code.
+Verifier = TraceVerifier

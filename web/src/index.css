@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-muted: #3f3f46;  /* zinc-700 — secondary text on white */
+  }
+  .dark {
+    --color-muted: #d4d4d8;  /* zinc-300 — secondary text on dark surfaces */
+  }
+
+  body {
+    @apply bg-white text-stone-900 antialiased text-base font-sans;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  .dark body,
+  html.dark body {
+    @apply bg-surface-950 text-zinc-100;
+  }
+
+  ::selection {
+    @apply bg-brand/30;
+  }
+
+  .dark ::selection {
+    @apply bg-brand/20;
+  }
+
+  .dark ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .dark ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    @apply bg-surface-700 rounded-full;
+  }
+  .dark ::-webkit-scrollbar-thumb:hover {
+    @apply bg-surface-600;
+  }
+}

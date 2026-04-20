@@ -1,0 +1,30 @@
+{
+  "resourceSpans": [{
+    "resource": {
+      "attributes": [
+        {"key": "service.name", "value": {"stringValue": "customer_bot"}}
+      ]
+    },
+    "scopeSpans": [{
+      "scope": {"name": "sponsio"},
+      "spans": [
+        {
+          "traceId": "example002",
+          "spanId": "s1",
+          "name": "issue_refund",
+          "startTimeUnixNano": "1000000000",
+          "endTimeUnixNano": "2000000000",
+          "status": {"code": 1}
+        },
+        {
+          "traceId": "example002",
+          "spanId": "s2",
+          "name": "check_policy",
+          "startTimeUnixNano": "3000000000",
+          "endTimeUnixNano": "4000000000",
+          "status": {"code": 1}
+        }
+      ]
+    }]
+  }]
+}
