@@ -970,24 +970,11 @@ class UnifiedExtractor:
             if client is not None:
                 self._client = client
             else:
-                try:
-                    import openai
-                except ImportError:
-                    raise ImportError(
-                        "openai is required for LLM extraction. "
-                        "Install with: pip install 'sponsio[llm]'"
-                    )
-                kwargs: dict = {}
-                if api_key:
-                    kwargs["api_key"] = api_key
-                if base_url:
-                    # Many OpenAI-compatible endpoints (Ollama, vLLM)
-                    # don't actually require a key but the SDK insists
-                    # on one being present; pass a placeholder so
-                    # construction doesn't blow up.
-                    kwargs["base_url"] = base_url
-                    kwargs.setdefault("api_key", api_key or "sk-no-key-required")
-                self._client = openai.OpenAI(**kwargs)
+                # Defer ``import openai`` until the first call so tests (and
+                # callers that only inspect provider/base_url) work without
+                # the optional SDK installed.
+                self._client = None
+                self._openai_lazy_api_key = api_key
         self._last_discovered_tools: list[dict] = []
         self._use_ir = use_structured_ir
 
@@ -1033,7 +1020,32 @@ class UnifiedExtractor:
             logger.error("LLM extraction call failed: %s", e)
             return [], []
 
+    def _ensure_openai_client(self) -> None:
+        if self._client is not None:
+            return
+        try:
+            import openai
+        except ImportError as exc:
+            raise ImportError(
+                "openai is required for LLM extraction. "
+                "Install with: pip install 'sponsio[llm]'"
+            ) from exc
+        kwargs: dict = {}
+        api_key = self._openai_lazy_api_key
+        base_url = self._base_url
+        if api_key:
+            kwargs["api_key"] = api_key
+        if base_url:
+            # Many OpenAI-compatible endpoints (Ollama, vLLM)
+            # don't actually require a key but the SDK insists
+            # on one being present; pass a placeholder so
+            # construction doesn't blow up.
+            kwargs["base_url"] = base_url
+            kwargs.setdefault("api_key", api_key or "sk-no-key-required")
+        self._client = openai.OpenAI(**kwargs)
+
     def _call_openai(self, system_prompt: str, user_content: str) -> str:
+        self._ensure_openai_client()
         response = self._client.chat.completions.create(
             model=self._model,
             messages=[

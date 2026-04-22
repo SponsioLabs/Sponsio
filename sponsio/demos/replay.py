@@ -76,9 +76,7 @@ def _run_steps(
         # "Sponsio blocks unsafe action" visual is visible regardless
         # of the user's ``SPONSIO_MODE`` env — the observe-mode default
         # hides the VIOLATED line and makes the demo look like a no-op.
-        guard = sponsio.Sponsio(
-            agent_id=agent_id, contracts=contracts, mode="enforce"
-        )
+        guard = sponsio.Sponsio(agent_id=agent_id, contracts=contracts, mode="enforce")
 
     for step in steps:
         emit(f"  {DIM}-> {step.tool}({_fmt_args(step.args)}){RESET}")

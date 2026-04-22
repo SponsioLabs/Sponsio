@@ -1602,9 +1602,7 @@ class BaseGuard:
             for v in self._violations
             if v.get("action") in ("BLOCKED", "OBSERVED", "RETRY")
         ]
-        hard_v = sum(
-            1 for v in shown if v.get("action") in ("BLOCKED", "OBSERVED")
-        )
+        hard_v = sum(1 for v in shown if v.get("action") in ("BLOCKED", "OBSERVED"))
         observed_v = sum(1 for v in shown if v.get("action") == "OBSERVED")
         soft_v = sum(1 for v in shown if v.get("action") == "RETRY")
         colorize = sys.stderr.isatty()
@@ -1648,9 +1646,7 @@ class BaseGuard:
                     )
                 )
             else:
-                lines.append(
-                    f"  {summary_icon} {len(shown)} violation(s) detected"
-                )
+                lines.append(f"  {summary_icon} {len(shown)} violation(s) detected")
         else:
             lines.append(_c("32", "  \u2713 All contracts satisfied"))
         lines.append("")

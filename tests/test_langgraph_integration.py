@@ -186,9 +186,7 @@ def test_tool_node_allows_correct_order():
 
 
 def _data_writes(guard):
-    return [
-        e for e in guard._monitor.trace.events if e.event_type == "data_write"
-    ]
+    return [e for e in guard._monitor.trace.events if e.event_type == "data_write"]
 
 
 def test_wrap_tool_auto_emits_data_write_with_contains():

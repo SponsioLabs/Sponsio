@@ -45,6 +45,7 @@ def _is_non_interactive() -> bool:
     except (AttributeError, ValueError):
         return True
 
+
 # ---------------------------------------------------------------------------
 # Provider catalogue
 # ---------------------------------------------------------------------------
@@ -368,9 +369,7 @@ def run_with_example(
     click.echo()
     for p in written:
         click.secho("  ✓ ", fg="green", nl=False)
-        click.echo(
-            p.resolve().relative_to(cwd_resolved) if _is_under_cwd(p) else p
-        )
+        click.echo(p.resolve().relative_to(cwd_resolved) if _is_under_cwd(p) else p)
 
     click.echo()
     click.secho("Next steps:", bold=True)
@@ -424,9 +423,7 @@ def run_wizard(
         if _is_non_interactive():
             # No TTY to confirm on — safer to abort than to silently
             # overwrite. Users who actually want overwrite pass --force.
-            click.echo(
-                "Aborted (non-interactive); pass --force to overwrite."
-            )
+            click.echo("Aborted (non-interactive); pass --force to overwrite.")
             raise click.Abort()
         if not click.confirm("Overwrite?", default=False):
             click.echo("Aborted; no file written.")

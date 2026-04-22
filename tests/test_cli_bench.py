@@ -1,9 +1,8 @@
 """CLI tests for ``sponsio bench``.
 
 Uses Click's ``CliRunner`` (in-process) so the test is fast and
-doesn't spawn a Python subprocess per case.  That also means we
-can inspect ``result.output`` / ``result.exit_code`` directly and
-don't need to parse stderr separately from stdout.
+doesn't spawn a Python subprocess per case.  Parse ``--json`` via ``result.stdout`` — Click 8.2+ keeps stderr
+separate; ``result.output`` interleaves both and breaks ``json.loads``.
 
 What we cover:
 
@@ -115,12 +114,8 @@ def test_bench_json_has_required_keys(config_path):
             "--json",
         ],
     )
-    assert result.exit_code == 0, result.output
-    # The banner went to stderr (via click.echo(..., err=True)) — strip it.
-    # With CliRunner default, err is mixed into output unless we opted out;
-    # parse defensively by finding the first `{`.
-    brace = result.output.index("{")
-    payload = json.loads(result.output[brace:])
+    assert result.exit_code == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout.strip())
     for key in (
         "total_checks",
         "n_pure_det",
@@ -161,9 +156,8 @@ def test_bench_warmup_discarded_from_summary(config_path):
             "--json",
         ],
     )
-    assert result.exit_code == 0, result.output
-    brace = result.output.index("{")
-    payload = json.loads(result.output[brace:])
+    assert result.exit_code == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout.strip())
     # Warmup is excluded: 200 iters recorded (not 250).
     assert payload["total_checks"] == 200
 
@@ -187,9 +181,8 @@ def test_bench_rotates_through_provided_actions(config_path, tmp_path):
             "--json",
         ],
     )
-    assert result.exit_code == 0, result.output
-    brace = result.output.index("{")
-    payload = json.loads(result.output[brace:])
+    assert result.exit_code == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout.strip())
     assert payload["tools"] == ["custom_tool_not_in_config"]
 
 
@@ -283,7 +276,6 @@ def test_bench_no_actions_falls_back_to_extracted_tools(config_path):
             "--json",
         ],
     )
-    assert result.exit_code == 0, result.output
-    brace = result.output.index("{")
-    payload = json.loads(result.output[brace:])
+    assert result.exit_code == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout.strip())
     assert set(payload["tools"]) == {"search_web", "send_email"}
