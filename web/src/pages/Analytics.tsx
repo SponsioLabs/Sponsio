@@ -47,8 +47,10 @@ export default function Analytics() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    setLoading(true);
-    setError('');
+    queueMicrotask(() => {
+      setLoading(true);
+      setError('');
+    });
     getAnalytics(period)
       .then((d: AnalyticsData) => setData(d))
       .catch(() => {

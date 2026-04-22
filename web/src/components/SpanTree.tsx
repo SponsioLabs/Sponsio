@@ -261,14 +261,15 @@ export default function SpanTree({ span, defaultLevel = 1, compact = false }: Sp
 
   useEffect(() => {
     if (compact) return;
-    if (hasChildViolation(span)) {
+    if (!hasChildViolation(span)) return;
+    queueMicrotask(() => {
       setExpandedLevel(2);
       const contracts = getContractChecks(span);
       if (contracts.length === 1) {
         setExpandedContracts(new Set([0]));
         setExpandedLevel(2);
       }
-    }
+    });
   }, [span, compact]);
 
   const toggleContract = (i: number) => {

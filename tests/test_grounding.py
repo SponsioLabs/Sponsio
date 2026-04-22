@@ -156,6 +156,85 @@ def test_flow_propagates_forward():
 
 
 # ---------------------------------------------------------------------------
+# Contains forward-propagation
+# ---------------------------------------------------------------------------
+
+
+def test_contains_propagates_forward():
+    """contains(field) must stay True after the data_write event.
+
+    Without this, ``no_data_leak`` —
+    ``G(contains(x) -> !flow(x, ext))`` — would never fire because
+    the read/send happens on a *later* timestep than the write, so
+    the implication's antecedent would be false everywhere except the
+    write timestep.
+    """
+    trace = make_trace(
+        write_event(0, "agent_a", "cache", ["pii"]),
+        tool_event(1, "agent_a", "do_stuff"),
+        read_event(2, "agent_b", "cache"),
+        tool_event(3, "agent_b", "post_to_slack"),
+    )
+    vals = ground(trace)
+    # contains(pii) was set at ts=0 and must stay True at every later ts
+    assert vals[0].get("contains(pii)") is True
+    assert vals[1].get("contains(pii)") is True
+    assert vals[2].get("contains(pii)") is True
+    assert vals[3].get("contains(pii)") is True
+    # flow only becomes true at ts=2, but it sticks too
+    assert vals[2].get("flow(agent_a, agent_b)") is True
+    assert vals[3].get("flow(agent_a, agent_b)") is True
+
+
+def test_no_data_leak_actually_fires_on_late_exfil():
+    """End-to-end: ``no_data_leak`` violation when write precedes exfil.
+
+    This is the scenario that motivated the contains-stickiness fix.
+    Before the fix, the formula evaluated to True at every timestep
+    because ``contains(agent_a)`` was only True at ts=0 and
+    ``flow(agent_a, agent_b)`` was only True at ts=1 — they never
+    overlapped, so the implication's antecedent was false everywhere
+    and the formula trivially passed.
+
+    Convention: the ``no_data_leak(source, external)`` formula uses
+    ``contains(source)`` AND ``flow(source, external)``, so ``source``
+    must match both — the canonical usage is to tag a write with the
+    writer agent's name (``contains=[agent_a]``) and then ``source``
+    is that agent name.
+    """
+    from sponsio.formulas.evaluator import evaluate
+    from sponsio.patterns.library import no_data_leak
+
+    trace = make_trace(
+        write_event(0, "agent_a", "cache", ["agent_a"]),
+        read_event(1, "agent_b", "cache"),
+        tool_event(2, "agent_b", "exfil"),
+    )
+    contract = no_data_leak("agent_a", "agent_b")
+    vals = ground(trace)
+
+    verdict = evaluate(contract.formula, vals)
+    assert verdict is False, (
+        "no_data_leak should detect the late exfil now that contains() "
+        "is forward-propagated; got verdict=True (the old buggy result)."
+    )
+
+
+def test_no_data_leak_passes_when_no_exfil_happens():
+    """Sanity: writing PII without exfiltrating it must NOT violate."""
+    from sponsio.formulas.evaluator import evaluate
+    from sponsio.patterns.library import no_data_leak
+
+    trace = make_trace(
+        write_event(0, "agent_a", "cache", ["agent_a"]),
+        tool_event(1, "agent_a", "process_locally"),
+    )
+    contract = no_data_leak("agent_a", "agent_b")
+    vals = ground(trace)
+    assert evaluate(contract.formula, vals) is True
+
+
+# ---------------------------------------------------------------------------
 # Empty trace
 # ---------------------------------------------------------------------------
 

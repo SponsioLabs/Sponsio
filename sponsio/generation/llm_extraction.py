@@ -98,6 +98,65 @@ IMPORTANT — tool:pattern format for logical operations:
     arg_blacklist("bash", "command", ["rm -rf", "chmod.*\\+x"])
 """
 
+
+_STO_ATOM_PREAMBLE = """\
+Sto atoms (fired on output/LLM content, return confidence ∈ [0,1] —
+build them with atom_type="sto" inside a Formula AST, e.g.
+G(Atom("injection_free", atom_type="sto", output_type="classify",
+        context_scope="event"))):
+
+"""
+
+
+def _render_sto_atoms() -> str:
+    """Auto-generate the sto-atom section of the LLM prompt from the
+    :mod:`sponsio.patterns.sto_registry` metadata.
+
+    Adding a new atom with ``@register_sto_atom(..., description=...,
+    required_args=..., default_context_scope=...)`` auto-populates this
+    section — the LLM sees the new atom without touching this module.
+    """
+    try:
+        from sponsio.patterns.sto_registry import list_sto_atom_infos
+    except ImportError:
+        return ""
+
+    infos = list_sto_atom_infos()
+    if not infos:
+        return ""
+
+    argless = [i for i in infos if i.required_args == 0]
+    argful = [i for i in infos if i.required_args > 0]
+
+    lines: list[str] = [_STO_ATOM_PREAMBLE.rstrip()]
+    lines.append("")
+
+    if argless:
+        lines.append("  Arg-less atoms (score the last response directly):")
+        for info in argless:
+            desc = info.description or "(no description registered)"
+            lines.append(f"    {info.predicate:<22s} — {desc}")
+        lines.append("")
+
+    if argful:
+        lines.append("  Arg-ful atoms (embed the required value as Atom's first arg):")
+        for info in argful:
+            arity = "arg" if info.required_args == 1 else f"{info.required_args} args"
+            desc = info.description or "(no description registered)"
+            scope = info.default_context_scope
+            scope_hint = f" [context_scope={scope!r}]" if scope != "event" else ""
+            lines.append(f"    {info.predicate:<18s}({arity})  — {desc}{scope_hint}")
+        lines.append("")
+
+    lines.append(
+        "  Prefer these over 'custom LLM judge' whenever the constraint fits one\n"
+        "  of the above shapes — they have hand-tuned prompts and the right\n"
+        '  default context_scope. Use context_scope="full_trace" for cross-turn\n'
+        '  checks; "event" (the default) for single-response checks.'
+    )
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Extensible atom registry
 # ---------------------------------------------------------------------------
@@ -156,13 +215,29 @@ def clear_custom_atoms() -> None:
 
 
 def _build_atom_vocabulary() -> str:
-    """Build the full atom vocabulary text (built-in + custom)."""
+    """Build the full atom vocabulary text (built-in + sto-registry +
+    custom).
+
+    Sections:
+
+    * ``_BUILTIN_ATOMS`` — hand-curated det atoms (tool / data-flow /
+      content-observation) with the ``tool:pattern`` idiom notes.
+    * Auto-rendered sto atoms — one entry per
+      :func:`sponsio.patterns.sto_registry.register_sto_atom` call,
+      grouped by arg-count. Adding a new atom requires no edit here.
+    * Custom user-registered atoms via :func:`register_atom` /
+      :func:`register_atoms`.
+    """
     header = (
         "The runtime monitor observes agent execution as a linear trace of events.\n"
         "Each event is grounded into atomic predicates.  These are ALL the atoms\n"
         "the system can observe — do NOT invent atoms outside this list:\n\n"
     )
     text = header + _BUILTIN_ATOMS
+
+    sto_section = _render_sto_atoms()
+    if sto_section:
+        text += "\n" + sto_section + "\n"
 
     if _custom_atoms:
         lines = ["Custom atoms (domain-specific, registered by the user):"]
@@ -300,6 +375,7 @@ class ExtractionResult:
     source_quote: str = ""
     compiled: Any = None  # DetFormula | StoFormula | None
     compiled_assumption: Any = None  # DetFormula | None — assumption formula
+    assumption_raw: str = ""  # Raw assumption string (LTL or NL) for round-tripping
     error: str = ""
 
     @property
@@ -402,6 +478,9 @@ def _compile_det(item: dict) -> ExtractionResult:
                         desc=f"assumes: {assumption_nl}",
                         pattern_name="assumption",
                     )
+                    # Keep the raw form so downstream emitters (e.g.
+                    # generate_yaml) can round-trip it as `A:`.
+                    result.assumption_raw = assumption_str
                 except Exception as e:
                     logger.warning(
                         "Assumption parse failed: %s — %s", assumption_str, e
@@ -796,10 +875,34 @@ class UnifiedExtractor:
     Uses the Atom vocabulary and Pattern catalog to guide the LLM toward
     outputs that can be compiled into enforceable formulas.
 
+    Supports four provider families:
+
+    * ``"openai"`` (default) — OpenAI's official ``chat.completions``.
+    * ``"anthropic"`` — Claude via the ``anthropic`` SDK.
+    * ``"gemini"`` — Google's Gemini via ``google-genai`` (1500 req/day
+      free tier makes this the lowest-friction on-ramp).
+    * **OpenAI-compatible endpoints** — pass ``base_url=...`` (or set
+      ``OPENAI_BASE_URL``).  This single switch covers Ollama (local),
+      OpenRouter, DeepSeek, Together, Groq, Cerebras, Fireworks, vLLM,
+      Azure OpenAI — anything that speaks the OpenAI chat API.
+
     Args:
-        model: OpenAI model name.
-        api_key: OpenAI API key. If None, uses ``OPENAI_API_KEY`` env var.
-        client: Pre-configured ``openai.OpenAI`` client (overrides model/api_key).
+        model: Provider-specific model name.  Defaults: ``gpt-4o-mini``,
+            ``claude-3-5-sonnet-latest``, ``gemini-2.0-flash``.
+        api_key: API key for the chosen provider.  If ``None``, picked
+            up from ``OPENAI_API_KEY`` / ``ANTHROPIC_API_KEY`` /
+            ``GOOGLE_API_KEY`` / ``GEMINI_API_KEY``.
+        base_url: Custom HTTP endpoint for OpenAI-compatible providers.
+            Reads from ``OPENAI_BASE_URL`` env if not given.  Forces
+            provider to ``"openai"`` (i.e. uses the ``openai`` SDK
+            against the custom endpoint).
+        client: Pre-configured ``openai.OpenAI`` / ``anthropic.Anthropic``
+            client.  Overrides ``model`` / ``api_key`` / ``base_url``.
+        provider: One of ``openai``, ``anthropic``, ``gemini``.  If
+            unset, auto-detected from env vars (precedence: explicit
+            ``base_url`` → openai, ``ANTHROPIC_API_KEY`` → anthropic,
+            ``GOOGLE_API_KEY``/``GEMINI_API_KEY`` → gemini, else
+            openai).
     """
 
     def __init__(
@@ -809,13 +912,26 @@ class UnifiedExtractor:
         client: Any = None,
         provider: str | None = None,
         use_structured_ir: bool = False,
+        base_url: str | None = None,
     ) -> None:
-        # Auto-detect provider from env if not specified
+        # ``base_url`` (explicit or via env) implies the OpenAI client
+        # talking to a custom endpoint.  We resolve it early so it
+        # influences provider auto-detection.
+        if base_url is None:
+            base_url = os.environ.get("OPENAI_BASE_URL")
+
+        # Auto-detect provider from env / hints, in priority order.
         if provider is None:
             if client is not None:
                 provider = "openai"
-            elif api_key and "gemini" not in (model or ""):
+            elif base_url:
                 provider = "openai"
+            elif api_key and "gemini" in (model or ""):
+                provider = "gemini"
+            elif api_key and "claude" in (model or ""):
+                provider = "anthropic"
+            elif os.environ.get("ANTHROPIC_API_KEY"):
+                provider = "anthropic"
             elif os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY"):
                 provider = "gemini"
             elif os.environ.get("OPENAI_API_KEY"):
@@ -824,6 +940,7 @@ class UnifiedExtractor:
                 provider = "openai"  # default, will fail with clear error
 
         self._provider = provider
+        self._base_url = base_url
 
         if provider == "gemini":
             self._model = model or "gemini-2.0-flash"
@@ -833,21 +950,44 @@ class UnifiedExtractor:
                 or os.environ.get("GEMINI_API_KEY")
             )
             self._client = None  # use google.genai directly
-        else:
+        elif provider == "anthropic":
+            self._model = model or "claude-3-5-sonnet-latest"
+            self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+            if client is not None:
+                self._client = client
+            else:
+                try:
+                    import anthropic
+                except ImportError:
+                    raise ImportError(
+                        "anthropic is required for --provider anthropic. "
+                        "Install with: pip install anthropic"
+                    )
+                kwargs = {"api_key": self._api_key} if self._api_key else {}
+                self._client = anthropic.Anthropic(**kwargs)
+        else:  # "openai" — also covers OpenAI-compatible base_url providers
             self._model = model or "gpt-4o-mini"
             if client is not None:
                 self._client = client
             else:
                 try:
                     import openai
-
-                    kwargs = {"api_key": api_key} if api_key else {}
-                    self._client = openai.OpenAI(**kwargs)
                 except ImportError:
                     raise ImportError(
                         "openai is required for LLM extraction. "
                         "Install with: pip install 'sponsio[llm]'"
                     )
+                kwargs: dict = {}
+                if api_key:
+                    kwargs["api_key"] = api_key
+                if base_url:
+                    # Many OpenAI-compatible endpoints (Ollama, vLLM)
+                    # don't actually require a key but the SDK insists
+                    # on one being present; pass a placeholder so
+                    # construction doesn't blow up.
+                    kwargs["base_url"] = base_url
+                    kwargs.setdefault("api_key", api_key or "sk-no-key-required")
+                self._client = openai.OpenAI(**kwargs)
         self._last_discovered_tools: list[dict] = []
         self._use_ir = use_structured_ir
 
@@ -870,6 +1010,8 @@ class UnifiedExtractor:
         try:
             if self._provider == "gemini":
                 content = self._call_gemini(system_prompt, user_content)
+            elif self._provider == "anthropic":
+                content = self._call_anthropic(system_prompt, user_content)
             else:
                 content = self._call_openai(system_prompt, user_content)
 
@@ -918,6 +1060,35 @@ class UnifiedExtractor:
             ),
         )
         return response.text or "{}"
+
+    def _call_anthropic(self, system_prompt: str, user_content: str) -> str:
+        # Anthropic Messages API doesn't have a native ``json_object``
+        # response_format, so we lean on the existing prompt's
+        # ``Output JSON only`` instruction (already present in every
+        # extractor system prompt).  Temperature 0 keeps it deterministic.
+        msg = self._client.messages.create(
+            model=self._model,
+            max_tokens=4096,
+            temperature=0.0,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        # ``msg.content`` is a list of content blocks; the first text
+        # block is the JSON payload.  Models occasionally wrap JSON in a
+        # ```json fenced block — strip that defensively so the caller's
+        # ``json.loads`` doesn't fail.
+        text = ""
+        for block in msg.content:
+            if getattr(block, "type", None) == "text":
+                text = block.text
+                break
+        text = text.strip()
+        if text.startswith("```"):
+            # Strip leading ```json (or ```) and trailing ```
+            text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+        return text or "{}"
 
     def _extract(
         self,
@@ -1032,6 +1203,7 @@ class UnifiedExtractor:
                 source_quote=ir_r.source_quote,
                 compiled=ir_r.compiled,
                 compiled_assumption=ir_r.compiled_assumption,
+                assumption_raw=ir_r.assumption_raw,
                 error=ir_r.error,
             )
             results.append(result)

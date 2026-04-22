@@ -259,6 +259,7 @@ interface OtelTraceSummary {
 }
 
 export async function listTraces(_filters?: TraceFilters): Promise<TraceSummary[]> {
+  void _filters; // reserved for when /api/otel/traces accepts query filters
   const summaries = await json<OtelTraceSummary[]>('/otel/traces');
   return summaries.map(s => ({
     traceId: s.trace_id,

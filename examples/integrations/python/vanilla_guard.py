@@ -17,15 +17,21 @@ import warnings
 warnings.filterwarnings("ignore")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from shared import USE_MOCK
+from shared import USE_MOCK  # noqa: E402  (path hack above)
+from sponsio import contract  # noqa: E402
 
 CONTRACTS = [
-    "tool `verify_identity` must precede `transfer_funds`",
-    "tool `transfer_funds` at most 3 times",
+    # Conditional (A, E) pair — assumption triggers the enforcement
+    contract("identity check before transfer")
+    .assume("called `transfer_funds`")
+    .enforce("must call `verify_identity` before `transfer_funds`"),
+    # Unconditional rate limit — no .assume(), only .enforce()
+    contract("transfer rate limit").enforce("tool `transfer_funds` at most 3 times"),
 ]
 
 
 # -- Tool implementations (unchanged) ---------------------------------------
+
 
 def lookup_account(account_id: str) -> str:
     return f"Account {account_id}: balance=$5,200, status=active"
@@ -48,6 +54,7 @@ TOOLS = {
 
 # -- Mock mode ---------------------------------------------------------------
 
+
 def run_mock(guard):
     planned_actions = [
         ("lookup_account", {"account_id": "ACC-001"}),
@@ -69,6 +76,7 @@ def run_mock(guard):
 
 # -- Real LLM mode (Gemini function calling) --------------------------------
 
+
 def run_real(guard):
     from google import genai
     from google.genai import types
@@ -80,30 +88,46 @@ def run_real(guard):
 
     client = genai.Client(api_key=api_key)
 
-    gemini_tools = [types.Tool(function_declarations=[
-        types.FunctionDeclaration(
-            name="lookup_account",
-            description="Look up account details by ID",
-            parameters=types.Schema(type="OBJECT", properties={
-                "account_id": types.Schema(type="STRING"),
-            }, required=["account_id"]),
-        ),
-        types.FunctionDeclaration(
-            name="verify_identity",
-            description="Verify identity for an account before financial operations",
-            parameters=types.Schema(type="OBJECT", properties={
-                "account_id": types.Schema(type="STRING"),
-            }, required=["account_id"]),
-        ),
-        types.FunctionDeclaration(
-            name="transfer_funds",
-            description="Transfer money to another account",
-            parameters=types.Schema(type="OBJECT", properties={
-                "to": types.Schema(type="STRING"),
-                "amount": types.Schema(type="NUMBER"),
-            }, required=["to", "amount"]),
-        ),
-    ])]
+    gemini_tools = [
+        types.Tool(
+            function_declarations=[
+                types.FunctionDeclaration(
+                    name="lookup_account",
+                    description="Look up account details by ID",
+                    parameters=types.Schema(
+                        type="OBJECT",
+                        properties={
+                            "account_id": types.Schema(type="STRING"),
+                        },
+                        required=["account_id"],
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="verify_identity",
+                    description="Verify identity for an account before financial operations",
+                    parameters=types.Schema(
+                        type="OBJECT",
+                        properties={
+                            "account_id": types.Schema(type="STRING"),
+                        },
+                        required=["account_id"],
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="transfer_funds",
+                    description="Transfer money to another account",
+                    parameters=types.Schema(
+                        type="OBJECT",
+                        properties={
+                            "to": types.Schema(type="STRING"),
+                            "amount": types.Schema(type="NUMBER"),
+                        },
+                        required=["to", "amount"],
+                    ),
+                ),
+            ]
+        )
+    ]
 
     config = types.GenerateContentConfig(
         tools=gemini_tools,
@@ -124,7 +148,9 @@ def run_real(guard):
     # Agent loop: LLM decides tools, we execute with Sponsio guard
     for _turn in range(10):
         resp = client.models.generate_content(
-            model="gemini-2.0-flash", contents=history, config=config,
+            model="gemini-2.0-flash",
+            contents=history,
+            config=config,
         )
 
         parts = resp.candidates[0].content.parts
@@ -148,18 +174,34 @@ def run_real(guard):
             # ======== Sponsio: check before tool call ========
             check = guard.guard_before(fc.name, args)
             if check.blocked:
-                reason = check.det_violations[0].message if check.det_violations else "contract violated"
-                tool_results.append(types.Part(function_response=types.FunctionResponse(
-                    name=fc.name, response={"error": f"BLOCKED: {reason}. Fix: call the required tool first."},
-                )))
+                reason = (
+                    check.det_violations[0].message
+                    if check.det_violations
+                    else "contract violated"
+                )
+                tool_results.append(
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            name=fc.name,
+                            response={
+                                "error": f"BLOCKED: {reason}. Fix: call the required tool first."
+                            },
+                        )
+                    )
+                )
                 continue
             # =================================================
 
             output = TOOLS[fc.name](**args)
             guard.guard_after(fc.name, output)
-            tool_results.append(types.Part(function_response=types.FunctionResponse(
-                name=fc.name, response={"result": output},
-            )))
+            tool_results.append(
+                types.Part(
+                    function_response=types.FunctionResponse(
+                        name=fc.name,
+                        response={"result": output},
+                    )
+                )
+            )
 
         history.append(resp.candidates[0].content)
         history.append(types.Content(role="user", parts=tool_results))
@@ -167,11 +209,12 @@ def run_real(guard):
 
 # -- Main --------------------------------------------------------------------
 
+
 def main():
     # ======== Add Sponsio: 2 lines ========
     import sponsio
 
-    guard = sponsio.init(
+    guard = sponsio.Sponsio(
         agent_id="bank_bot",
         contracts=CONTRACTS,
     )

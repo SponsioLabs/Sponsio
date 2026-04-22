@@ -18,8 +18,6 @@ from typing import Any, Callable, Protocol, runtime_checkable
 from sponsio.formulas.evaluator import evaluate
 from sponsio.models.agent import Agent
 from sponsio.models.contract import Contract
-from sponsio.models.trace import Trace
-from sponsio.runtime.evaluators import StoResult
 from sponsio.patterns.library import (
     DetFormula,
     always_followed_by,
@@ -879,19 +877,361 @@ def _build_error(
     )
 
 
-def parse_nl_rule_based(nl_line: str) -> ParsedConstraint:
-    """Parses a single NL constraint using keyword matching.
+# Response-content NL patterns — matched BEFORE the generic keyword rules so
+# that length / PII / content-prohibition constraints route to the det pipeline
+# (see P2 of sto-refactor.md).
+_LENGTH_PATTERN = re.compile(
+    r"(?:response|output)\s+(?:must\s+be\s+)?(?:under|at\s+most|no\s+more\s+than|fewer\s+than|max(?:imum)?)\s+(\d+)\s+(words?|characters?|chars?)",
+    re.IGNORECASE,
+)
+_NO_PII_PATTERN = re.compile(
+    r"(?:response|output).*(?:must|should)\s+not\s+contain\s+(?:any\s+)?(pii|personal\s+info(?:rmation)?|ssns?|credit[\s-]?cards?|emails?(?:\s+address(?:es)?)?|phones?(?:\s+numbers?)?)",
+    re.IGNORECASE,
+)
+
+# Map a user-mentioned PII keyword to a concrete field list for
+# ``no_pii(fields=[...])``. The NL parser previously captured but
+# discarded the keyword, so "response must not contain emails"
+# silently expanded to the full SSN/CC/email/phone union — a
+# lossy and confusing false positive.
+_PII_KEYWORD_TO_FIELDS: dict[str, list[str]] = {
+    "ssn": ["ssn"],
+    "ssns": ["ssn"],
+    "credit card": ["credit_card"],
+    "credit cards": ["credit_card"],
+    "credit-card": ["credit_card"],
+    "credit-cards": ["credit_card"],
+    "email": ["email"],
+    "emails": ["email"],
+    "email address": ["email"],
+    "email addresses": ["email"],
+    "phone": ["phone"],
+    "phones": ["phone"],
+    "phone number": ["phone"],
+    "phone numbers": ["phone"],
+}
+_NO_KEYWORD_PATTERN = re.compile(
+    # Must be specific to (response|output) to avoid shadowing arg_blacklist /
+    # generic must-not-contain rules. Also skips if the phrase says "pii" etc.
+    r"(?:response|output)\s+(?:must|should)\s+not\s+(?:contain|include|mention)\s+(?:the\s+)?(?:words?|keywords?|terms?|phrase)\s+[`\"']?([^`\"']+)[`\"']?",
+    re.IGNORECASE,
+)
+
+
+# ---------------------------------------------------------------------------
+# Bare-word structural ordering patterns
+# ---------------------------------------------------------------------------
+#
+# "X before Y" and "no Y after X" without backticks. We restrict these to
+# short, whole-input matches so casual English ("delivered before christmas
+# in the morning") doesn't get mis-routed. Both candidate words are
+# stop-word filtered.
+
+# Single-word or snake_case identifier.
+_IDENT = r"[a-zA-Z][a-zA-Z0-9_]*"
+
+# Full-input "<ident> before <ident>" — tolerates light modal fluff on
+# either side ("must", "should", "always", "be", "called", "run") but
+# requires the whole line to reduce to the pair of identifiers.
+_BARE_PRECEDE_RE = re.compile(
+    rf"""
+    ^\s*
+    (?:tool\s+)?
+    (?P<before>{_IDENT})
+    \s+
+    (?:
+        (?:must|should|always|needs?\s+to|has\s+to)\s+
+        (?:be\s+)?(?:called\s+|run\s+|executed\s+)?
+        (?:come\s+)?
+    )?
+    before
+    \s+
+    (?:tool\s+)?
+    (?:calling\s+|running\s+|executing\s+)?
+    (?P<after>{_IDENT})
+    \s*\.?\s*$
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+# "no X after Y" / "cannot X after Y" — a shorthand for no_reversal.
+_BARE_NO_REVERSAL_RE = re.compile(
+    rf"""
+    ^\s*
+    (?:no|don'?t|cannot|can\s+not|must\s+not)\s+
+    (?P<after>{_IDENT})
+    \s+after\s+
+    (?P<before>{_IDENT})
+    \s*\.?\s*$
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _is_plausible_tool_name(w: str) -> bool:
+    """Filter for words extracted from bare-word patterns.
+
+    Snake_case names are always accepted. Single English words are only
+    accepted when they're not known stop words or common discourse
+    fillers — this keeps "refund" and "cancel" in, but keeps out "it",
+    "the", "this", etc.
+    """
+    if "_" in w:
+        return True  # snake_case wins
+    lw = w.lower()
+    if lw in _STOP_WORDS or lw in _BARE_STOP:
+        return False
+    # Reject common English verbs/adverbs that read as ordering but
+    # aren't tool names.
+    if lw in {
+        "then",
+        "now",
+        "later",
+        "soon",
+        "always",
+        "ever",
+        "never",
+        "anything",
+        "everything",
+        "nothing",
+        "something",
+    }:
+        return False
+    return True
+
+
+def _try_bare_ordering_patterns(text: str, nl_line: str) -> ParsedConstraint | None:
+    """Recognise short "X before Y" / "no X after Y" without requiring
+    backticks around the tool names.
+
+    Returns a populated ``ParsedConstraint`` on a confident match, else
+    ``None`` so the caller can fall through.
+    """
+    m = _BARE_PRECEDE_RE.match(text)
+    if m:
+        before, after = m.group("before"), m.group("after")
+        if _is_plausible_tool_name(before) and _is_plausible_tool_name(after):
+            try:
+                formula = must_precede(before, after, desc=text)
+            except Exception as e:
+                return _build_error(nl_line, "must_precede", str(e), (before, after))
+            return _build_constraint(nl_line, "must_precede", (before, after), formula)
+
+    m = _BARE_NO_REVERSAL_RE.match(text)
+    if m:
+        before, after = m.group("before"), m.group("after")
+        if _is_plausible_tool_name(before) and _is_plausible_tool_name(after):
+            try:
+                formula = no_reversal(before, after, desc=text)
+            except Exception as e:
+                return _build_error(nl_line, "no_reversal", str(e), (before, after))
+            return _build_constraint(nl_line, "no_reversal", (before, after), formula)
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Trigger-atom patterns — "called `X`" and close variants
+# ---------------------------------------------------------------------------
+#
+# Used as the assumption (``A`` side) of conditional contracts:
+#
+#     .assume("called `issue_refund`").enforce("must call `check_policy` before `issue_refund`")
+#
+# Semantically "some time in the trace, X was invoked" — compiled to
+# ``F(Atom("called", X))``. Wrapping in ``F`` matches the hand-written
+# form used by the packaged demos (``sponsio/demos/replay.py``) so the
+# public NL builders and the internal demo contracts stay in sync.
+#
+# We intentionally keep these patterns narrow: the whole input must be
+# a single trigger clause, otherwise we'd steal matches from the
+# temporal keyword rules further down.
+
+# Short list of phrasings that mean "X was called":
+#   called `X`
+#   `X` was called / is called / has been called
+#   tool `X` was called / is called / has been called
+#   once `X` is called / after `X` was called  (common .assume prose)
+_TRIGGER_CALLED_PATTERNS = [
+    re.compile(
+        r"""^\s*(?:once\s+|after\s+|when\s+)?
+            (?:tool\s+|action\s+)?
+            `(?P<name>[^`]+)`
+            \s+(?:was|is|has\s+been|gets?)\s+
+            (?:called|invoked|run|executed|used)\s*\.?\s*$""",
+        re.IGNORECASE | re.VERBOSE,
+    ),
+    re.compile(
+        r"""^\s*(?:once\s+|after\s+|when\s+)?
+            (?:called|invoked|ran|executed|used)
+            \s+(?:tool\s+|action\s+)?
+            `(?P<name>[^`]+)`\s*\.?\s*$""",
+        re.IGNORECASE | re.VERBOSE,
+    ),
+]
+
+# Negated trigger: "X has not been called" / "`X` was never called".
+# Compiled to ``G(Not(called(X)))`` — the assumption holds iff X never
+# appears in the trace.
+_TRIGGER_NOT_CALLED_PATTERNS = [
+    re.compile(
+        r"""^\s*(?:tool\s+|action\s+)?
+            `(?P<name>[^`]+)`
+            \s+(?:was|is|has\s+been|gets?)\s+
+            (?:never|not)\s+
+            (?:called|invoked|run|executed|used)\s*\.?\s*$""",
+        re.IGNORECASE | re.VERBOSE,
+    ),
+    re.compile(
+        r"""^\s*(?:never|not)\s+
+            (?:called|invoked|ran|executed|used)
+            \s+(?:tool\s+|action\s+)?
+            `(?P<name>[^`]+)`\s*\.?\s*$""",
+        re.IGNORECASE | re.VERBOSE,
+    ),
+]
+
+
+def _try_trigger_atom_patterns(text: str) -> ParsedConstraint | None:
+    """Parse text as a trigger-atom assumption/enforcement.
+
+    Matches short "``called `X```" / "``tool `X` was called``" phrases
+    and compiles them to ``F(Atom("called", X))``. Returns ``None`` if
+    no rule matches so the caller falls through to the temporal rules.
+    """
+    from sponsio.formulas.formula import Atom, F, G, Not
+
+    for rx in _TRIGGER_CALLED_PATTERNS:
+        m = rx.match(text)
+        if m:
+            name = m.group("name").strip()
+            if not name:
+                continue
+            formula = DetFormula(
+                formula=F(Atom("called", name)),
+                desc=text,
+                pattern_name="trigger_called",
+            )
+            return _build_constraint(text, "trigger_called", (name,), formula)
+
+    for rx in _TRIGGER_NOT_CALLED_PATTERNS:
+        m = rx.match(text)
+        if m:
+            name = m.group("name").strip()
+            if not name:
+                continue
+            formula = DetFormula(
+                formula=G(Not(Atom("called", name))),
+                desc=text,
+                pattern_name="trigger_not_called",
+            )
+            return _build_constraint(text, "trigger_not_called", (name,), formula)
+
+    return None
+
+
+def _try_response_content_patterns(text: str) -> ParsedConstraint | None:
+    """Attempt to parse text as a response-content det pattern.
+
+    Returns a populated ``ParsedConstraint`` on match, else ``None`` so
+    the caller can fall through to the generic keyword rules.
+    """
+    from sponsio.patterns.library import max_length, no_keywords, no_pii
+
+    # max_length — "response under 200 words" / "output at most 500 chars"
+    m = _LENGTH_PATTERN.search(text)
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2).lower()
+        try:
+            if "char" in unit:
+                formula = max_length(max_chars=n, desc=text)
+            else:
+                formula = max_length(max_words=n, desc=text)
+        except Exception as e:
+            return _build_error(text, "max_length", str(e), (n, unit))
+        return _build_constraint(text, "max_length", (n, unit), formula)
+
+    # no_pii — "response must not contain PII" / "... emails" / "... SSN"
+    #
+    # When the user names a specific PII category (email, phone, SSN,
+    # credit card), narrow ``fields=`` to just that one so the resulting
+    # regex doesn't silently false-positive on the other three. Bare
+    # "PII" / "personal information" keeps the full default union.
+    m = _NO_PII_PATTERN.search(text)
+    if m:
+        raw_kw = re.sub(r"\s+", " ", m.group(1).lower().replace("-", " ")).strip()
+        fields = _PII_KEYWORD_TO_FIELDS.get(raw_kw)
+        try:
+            formula = no_pii(fields=fields, desc=text)
+        except Exception as e:
+            return _build_error(text, "no_pii", str(e), tuple(fields or ()))
+        return _build_constraint(text, "no_pii", tuple(fields or ()), formula)
+
+    # no_keywords — "response must not mention the words 'password, secret'"
+    m = _NO_KEYWORD_PATTERN.search(text)
+    if m:
+        raw = m.group(1).strip().rstrip(".")
+        words = [w.strip() for w in re.split(r"[,\s]+", raw) if w.strip()]
+        if not words:
+            return None
+        try:
+            formula = no_keywords(words, desc=text)
+        except Exception as e:
+            return _build_error(text, "no_keywords", str(e), tuple(words))
+        return _build_constraint(text, "no_keywords", tuple(words), formula)
+
+    return None
+
+
+def parse_dsl(expr: str) -> ParsedConstraint:
+    """Parse a single contract expression in the Sponsio DSL.
+
+    Sponsio's contract DSL is a bounded set of phrasings that map to
+    pattern functions in :mod:`sponsio.patterns.library`. This parser
+    is pure rule-based (regex cascade over tool-name extractors and
+    keyword rules) — no grammar, no LLM.
+
+    For free-form NL, use :func:`parse_contract` with an
+    ``llm_extractor``; that path translates NL into the DSL then
+    re-enters this parser.
 
     Args:
-        nl_line: A single natural language constraint description.
+        expr: A single contract expression (DSL string).
 
     Returns:
-        A ParsedConstraint with the matched pattern and compiled formula,
-        or an error if no pattern matched.
+        A ParsedConstraint with the matched pattern and compiled
+        formula, or ``.error`` set if no rule matched.
     """
+    # Alias kept so the body below (which grew up around the old
+    # `nl_line` parameter name) stays readable after the rename.
+    nl_line = expr
     text = nl_line.strip()
     if not text:
         return ParsedConstraint(original_nl=nl_line, error="Empty input")
+
+    # --- Trigger atoms (``called \`X\``` and variants) ---
+    # Used as the ``A`` side of .assume()/.enforce() A-E pairs: "once X
+    # has been called, enforce E". These are short, standalone phrases
+    # that don't compose with other DSL verbs, so we match them before
+    # the heavier temporal patterns to avoid spurious false negatives.
+    trigger_result = _try_trigger_atom_patterns(text)
+    if trigger_result is not None:
+        return trigger_result
+
+    # --- P2 response-content patterns (must run before general rules to
+    # override the sto keyword matcher in parse_nl_unified) ---
+    response_result = _try_response_content_patterns(text)
+    if response_result is not None:
+        return response_result
+
+    # --- Bare-word structural patterns (no backticks required) ---
+    # Cover the common, short "X before Y" / "no Y after X" phrasings a user
+    # types without bothering with backticks. Stopword-filtered to avoid
+    # false positives like "delivered before christmas".
+    bare_result = _try_bare_ordering_patterns(text, nl_line)
+    if bare_result is not None:
+        return bare_result
 
     match = _match_keyword_rule(text)
     if match is None:
@@ -1156,6 +1496,14 @@ def parse_nl_rule_based(nl_line: str) -> ParsedConstraint:
     return _build_constraint(nl_line, pattern_name, args, formula)
 
 
+# Backward-compatibility alias.  The rule-based parser was renamed from
+# ``parse_nl_rule_based`` to ``parse_dsl`` during a refactor, but the
+# old name is re-exported from :mod:`sponsio.generation.__init__` and
+# used internally by the LLM-fallback path — keep both names wired up
+# so no caller breaks.
+parse_nl_rule_based = parse_dsl
+
+
 # ---------------------------------------------------------------------------
 # Main API
 # ---------------------------------------------------------------------------
@@ -1288,10 +1636,15 @@ def _validate_formula(constraint: ParsedConstraint) -> None:
 # Unified parse: auto-detect det vs sto
 # ---------------------------------------------------------------------------
 
-# Keyword rules for sto category classification
+# Keyword rules for sto category classification — LEGACY closure categories
+# only. The atom-registered evaluators (injection_free, jailbreak_free,
+# toxic_free, harmful, semantic_pii_free, …) carry their NL keywords on
+# their own registry entries — see
+# :func:`sponsio.patterns.sto_registry.list_sto_atom_infos`. Adding a
+# new atom-registered evaluator auto-wires NL routing here via
+# :func:`_iter_atom_keyword_rules` without needing to edit this file.
 _STO_KEYWORDS: list[tuple[str, str, dict]] = [
-    # (category, keyword_pattern, extra_params)
-    # PII
+    # PII (regex-based, fast)
     ("pii", r"\bpii\b|personal\s+information|ssn|credit\s+card|social\s+security", {}),
     ("pii", r"not\s+contain\s+(?:any\s+)?(?:pii|personal|sensitive)", {}),
     # Length
@@ -1325,9 +1678,83 @@ _STO_KEYWORDS: list[tuple[str, str, dict]] = [
 ]
 
 
+def _iter_atom_keyword_rules() -> list[tuple[str, str, dict]]:
+    """Auto-generate ``(predicate, keyword_regex, extra)`` tuples from the
+    sto atom registry for any atom with ``required_args == 0`` and at
+    least one ``nl_keywords`` entry.
+
+    Adding a new arg-less atom requires only registering it with
+    ``@register_sto_atom(..., nl_keywords=[...])`` — this iterator
+    surfaces it to the rule-based NL parser automatically.
+    """
+    from sponsio.patterns.sto_registry import list_sto_atom_infos
+
+    rules: list[tuple[str, str, dict]] = []
+    for info in list_sto_atom_infos():
+        if info.required_args != 0 or not info.nl_keywords:
+            continue
+        pattern = "|".join(info.nl_keywords)
+        rules.append((info.predicate, pattern, {}))
+    return rules
+
+
+def _build_atom_sto_formula(category: str, nl_text: str) -> Any:
+    """Wrap an atom-registered evaluator in a ``StoFormula(formula=...)``.
+
+    Uses the atom's registered ``default_context_scope`` /
+    ``default_output_type`` so each atom declares its own preferred
+    shape once (in :mod:`sponsio.patterns.sto_catalog`) and the parser
+    respects it automatically.
+    """
+    from sponsio.formulas.formula import Atom, G
+    from sponsio.patterns.sto import StoFormula
+    from sponsio.patterns.sto_registry import get_sto_atom_info
+
+    info = get_sto_atom_info(category)
+    atom = Atom(
+        category,
+        atom_type="sto",
+        output_type=info.default_output_type,
+        context_scope=info.default_context_scope,
+    )
+    return StoFormula(
+        desc=nl_text,
+        category=category,
+        formula=G(atom),
+        threshold=0.7,
+        requires_llm=True,
+    )
+
+
+class ContractSyntaxError(ValueError):
+    """Raised when a contract expression doesn't match the Sponsio
+    contract DSL and no LLM extractor is available to translate free-form
+    NL into DSL.
+
+    Sponsio's rule-based contract parser is a DSL (see
+    :mod:`sponsio.generation.nl_to_contract`) — a bounded set of phrasings
+    that map to patterns in :mod:`sponsio.patterns.library`. Input that
+    doesn't match any rule is a syntax error in that DSL, not a "probably
+    sto, let's no-op it" situation. Raising is the only way to prevent
+    silently-dead contracts from slipping into production.
+
+    Attributes:
+        expr: The offending contract expression.
+        hint: Human-readable suggestion (e.g. "did you mean `A` precedes `B`?").
+    """
+
+    def __init__(self, expr: str, hint: str = "") -> None:
+        self.expr = expr
+        self.hint = hint
+        msg = f"Unparseable contract: {expr!r}"
+        if hint:
+            msg += f". {hint}"
+        super().__init__(msg)
+
+
 @dataclass
-class UnifiedParseResult:
-    """Result of parsing an NL constraint that can be either det or sto."""
+class ContractParseResult:
+    """Result of parsing a contract expression (DSL or LLM-translated NL)."""
 
     original_nl: str
     hard: DetFormula | None = None
@@ -1347,18 +1774,34 @@ class UnifiedParseResult:
         return self.hard is not None or self.sto is not None
 
 
+# Backwards-compatible alias. New code should use ``ContractParseResult``.
+UnifiedParseResult = ContractParseResult
+
+
+# Backwards-compatible alias. New code should use :func:`parse_dsl`.
+parse_nl_rule_based = parse_dsl
+
+
 def classify_sto(nl_text: str, llm_client: Any = None) -> Any:
     """Classify an NL string as a sto constraint.
 
-    Tries keyword matching first (zero dependencies), then falls back
-    to LLM judge if available.
+    Tries keyword matching first (zero dependencies), then — if an
+    ``llm_client`` is available — falls back to a generic
+    :func:`llm_judge_evaluator` wrapper.
+
+    Returns ``None`` if no keyword category matches and no LLM client
+    is available. The caller (:func:`parse_contract`) turns that
+    ``None`` into a :class:`ContractSyntaxError`; there is no longer a
+    "silently return a no-op stub" path — stubs were the single
+    biggest silent-wrong failure mode and have been removed.
 
     Args:
         nl_text: Natural language constraint text.
         llm_client: Optional OpenAI client for LLM-based evaluators.
 
     Returns:
-        A StoFormula instance.
+        A :class:`StoFormula`, or ``None`` if classification fell
+        through and no LLM client was provided.
     """
     from sponsio.patterns.sto import StoFormula
     from sponsio.patterns.sto_catalog import (
@@ -1373,6 +1816,16 @@ def classify_sto(nl_text: str, llm_client: Any = None) -> Any:
 
     text_lower = nl_text.lower()
 
+    # Phase 1 — atom-registered evaluators (self-described via the
+    # sto registry's ``nl_keywords`` metadata). Checked first so newly
+    # added atoms get auto-routing without touching this function.
+    for category, pattern, _extra in _iter_atom_keyword_rules():
+        if re.search(pattern, text_lower):
+            return _build_atom_sto_formula(category, nl_text)
+
+    # Phase 2 — legacy closure categories (hardcoded below for tight
+    # arg extraction: length numbers, tone adjectives, format variants
+    # etc. that need per-category parsing logic).
     for category, pattern, extra in _STO_KEYWORDS:
         match = re.search(pattern, text_lower)
         if not match:
@@ -1462,7 +1915,9 @@ def classify_sto(nl_text: str, llm_client: Any = None) -> Any:
                     requires_llm=False,
                 )
 
-    # Fallback: generic LLM judge or stub
+    # Fallback: generic LLM judge if a client is available. Otherwise
+    # signal that we couldn't classify this text — the caller decides
+    # what to do (parse_contract turns it into a ContractSyntaxError).
     if llm_client is not None:
         return StoFormula(
             desc=nl_text,
@@ -1471,90 +1926,132 @@ def classify_sto(nl_text: str, llm_client: Any = None) -> Any:
             threshold=0.6,
             requires_llm=True,
         )
-
-    # No LLM available — create stub
-    def _stub_evaluator(trace: Trace) -> StoResult:
-        from sponsio.runtime.evaluators import StoResult as SR
-
-        return SR(
-            score=0.5,
-            evidence="No evaluator available for this constraint",
-            suggestion="Configure an LLM backend for semantic evaluation",
-        )
-
-    return StoFormula(
-        desc=nl_text,
-        category="custom",
-        evaluator_fn=_stub_evaluator,
-        threshold=0.6,
-        requires_llm=True,
-    )
+    return None
 
 
-def parse_nl_unified(
-    nl_line: str,
+def parse_contract(
+    expr: str,
     llm_client: Any = None,
     llm_extractor: Any = None,
     tool_inventory: list[dict] | None = None,
-) -> UnifiedParseResult:
-    """Parse NL text, auto-routing to det pattern or sto constraint.
+) -> ContractParseResult:
+    """Parse a contract expression into either a det or sto Formula.
 
-    Parsing pipeline (cheapest first, LLM as last resort):
+    Sponsio's rule-based contract parser is a DSL on top of
+    :mod:`sponsio.patterns.library` — a bounded set of phrasings that map
+    to the pattern library. The two built-in stages are pure regex/keyword
+    matching; the optional third stage is an LLM translator from free-form
+    NL → DSL.
 
-    1. **Rule-based det** — keyword matching against ``_KEYWORD_RULES``.
-    2. **Sto keyword** — ``classify_sto()`` keyword matcher (free, fast).
-    3. **LLM** — ``UnifiedExtractor`` classifies as det or sto using the
-       Atom vocabulary and full pattern catalog. Only called when the
-       first two stages fail and ``llm_extractor`` is provided.
+    Parsing pipeline (cheapest first, strict-by-default):
+
+    1. **DSL det patterns** — :func:`parse_dsl` matches against
+       ``_KEYWORD_RULES`` (and the bare-word ordering rules).
+    2. **DSL sto patterns** — :func:`classify_sto` matches against
+       ``_STO_KEYWORDS`` (pii / injection_free / jailbreak_free / …).
+    3. **LLM translator** — :class:`UnifiedExtractor` turns free-form NL
+       into DSL patterns. Only invoked when ``llm_extractor`` is passed.
+
+    If none of the above yields a match the parser raises
+    :class:`ContractSyntaxError`. It does **not** return a silent no-op
+    stub — a contract that compiles but enforces nothing is the single
+    worst failure mode of a contract system.
 
     Args:
-        nl_line: A single NL constraint description.
-        llm_client: Optional OpenAI client for LLM-based sto evaluators
-            (used by ``classify_sto``).
-        llm_extractor: Optional ``UnifiedExtractor`` instance.  Only
-            called when rule-based and keyword stages both fail.
+        expr: A single contract expression (DSL string or free-form NL).
+        llm_client: Optional OpenAI client used by ``classify_sto`` to
+            build a generic ``llm_judge`` evaluator as a sto fallback.
+        llm_extractor: Optional :class:`UnifiedExtractor`. When set,
+            free-form NL that doesn't match the rule-based DSL is sent
+            to the LLM to be translated into DSL patterns.
         tool_inventory: Optional known tool names (passed to the LLM).
 
     Returns:
-        UnifiedParseResult with either .hard or .sto populated.
+        A :class:`ContractParseResult` with either ``.hard`` or ``.sto``
+        populated.
+
+    Raises:
+        ContractSyntaxError: If nothing matched and no LLM extractor is
+            available to translate.
     """
-    # Stage 1: rule-based det pattern (free, milliseconds)
-    parsed = parse_nl_rule_based(nl_line)
+    # Stage 1: DSL det pattern (regex, milliseconds)
+    parsed = parse_dsl(expr)
     if parsed.ok:
-        return UnifiedParseResult(original_nl=nl_line, hard=parsed.formula)
+        return ContractParseResult(original_nl=expr, hard=parsed.formula)
 
-    # Stage 2: sto keyword classification (free, milliseconds)
-    sto_result = classify_sto(nl_line, llm_client=llm_client)
-    if sto_result.category != "custom":
-        # Matched a known sto category (pii, length, format, tone, etc.)
-        return UnifiedParseResult(original_nl=nl_line, sto=sto_result)
+    # Stage 2: DSL sto pattern (regex, milliseconds)
+    sto_result = classify_sto(expr, llm_client=llm_client)
+    if sto_result is not None:
+        return ContractParseResult(original_nl=expr, sto=sto_result)
 
-    # Stage 3: LLM (expensive, seconds — only if both above failed)
+    # Stage 3: LLM translator (seconds, only if provided)
     if llm_extractor is not None:
         try:
             from sponsio.generation.llm_extraction import ExtractionResult
 
             results: list[ExtractionResult] = llm_extractor.extract_from_nl(
-                nl_line,
+                expr,
                 tool_inventory=tool_inventory,
             )
             for r in results:
                 if r.ok:
                     if r.constraint_type == "det":
-                        return UnifiedParseResult(original_nl=nl_line, hard=r.compiled)
+                        return ContractParseResult(original_nl=expr, hard=r.compiled)
                     else:
-                        return UnifiedParseResult(original_nl=nl_line, sto=r.compiled)
+                        return ContractParseResult(original_nl=expr, sto=r.compiled)
         except Exception as e:
             import logging
 
             logging.getLogger(__name__).debug(
-                "LLM fallback failed for '%s': %s",
-                nl_line,
-                e,
+                "LLM translation failed for %r: %s", expr, e
             )
 
-    # Nothing matched — return the generic sto stub
-    return UnifiedParseResult(original_nl=nl_line, sto=sto_result)
+    # Strict: nothing matched — raise with a targeted hint.
+    raise ContractSyntaxError(expr, hint=_syntax_hint(expr))
+
+
+# Backwards-compatible alias. New code should use :func:`parse_contract`.
+def parse_nl_unified(
+    nl_line: str,
+    llm_client: Any = None,
+    llm_extractor: Any = None,
+    tool_inventory: list[dict] | None = None,
+) -> ContractParseResult:
+    """Deprecated alias for :func:`parse_contract`.
+
+    Preserved so existing callers keep working. New code should use
+    ``parse_contract(expr, ...)`` and catch :class:`ContractSyntaxError`.
+    """
+    return parse_contract(
+        nl_line,
+        llm_client=llm_client,
+        llm_extractor=llm_extractor,
+        tool_inventory=tool_inventory,
+    )
+
+
+def _syntax_hint(expr: str) -> str:
+    """Return a targeted suggestion for an unparseable contract expression."""
+    lower = expr.lower()
+    # Ordering-without-backticks is the single most common miss.
+    if "before" in lower or " after " in lower or "precede" in lower:
+        return (
+            "If this is an ordering rule, wrap tool names in backticks: "
+            "``tool `A` must precede `B```, or use snake_case identifiers so "
+            "the bare-word matcher can pick them up."
+        )
+    if "at most" in lower or "at least" in lower or "times" in lower:
+        return "If this is a rate limit, use the form ``tool `X` at most N times``."
+    if "not contain" in lower or "must not" in lower:
+        return (
+            "If this is a content rule, see sponsio patterns (e.g. PII, "
+            "toxic_free, injection_free) or wrap tool names in backticks."
+        )
+    return (
+        "Expected a contract expression that matches one of the patterns "
+        "listed by `sponsio patterns`. Pass `llm_extractor=...` to "
+        "`parse_contract` to allow free-form NL → DSL translation."
+    )
 
 
 def build_contracts(

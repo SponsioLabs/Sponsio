@@ -1,6 +1,6 @@
 # Input Formats & Contract Sources
 
-Sponsio accepts contracts from three sources. All sources produce the same result — enforceable contracts loaded via `sponsio.init()`.
+Sponsio accepts contracts from three sources. All sources produce the same result — enforceable contracts loaded via a framework namespace `Sponsio()` factory.
 
 ---
 
@@ -17,7 +17,7 @@ Source 3: Engineer hand-write  (edit sponsio.yaml directly)
                               └────────┬────────┘
                                        │
                                        ▼
-                              guard = sponsio.init(
+                              guard = Sponsio(
                                   config="sponsio.yaml",
                                   agent_id="bot",
                               )
@@ -121,7 +121,7 @@ agents:
 Each entry under `contracts:` is one independent `(assumption, enforcement)` pair. `A` (or `assumption`) is optional; `E` (or `enforcement`) is required. Each field may be a scalar or a list — a list is ANDed.
 
 Sponsio parses these through a three-stage cascade:
-1. **Rule-based** — keyword matching against 16 det patterns (free, milliseconds)
+1. **Rule-based** — keyword matching against the deterministic pattern library (free, milliseconds)
 2. **Sto keyword** — keyword matching against sto categories (free, milliseconds)
 3. **LLM fallback** — if configured, catches everything else (requires API key)
 
@@ -232,13 +232,12 @@ The `tools` section is informational — it records the tool inventory for conte
 
 ## Loading Config in Python
 
-### With `sponsio.init()` (recommended)
+### With a framework namespace `Sponsio()` (recommended)
 
 ```python
-import sponsio
+from sponsio.langgraph import Sponsio
 
-guard = sponsio.init(
-    framework="langgraph",
+guard = Sponsio(
     config="sponsio.yaml",
     agent_id="customer_bot",
 )
@@ -251,7 +250,7 @@ agent = create_react_agent(model, guard.wrap(tools))
 
 ```python
 from sponsio.config import load_config, config_to_guard_kwargs
-from sponsio import LangGraphGuard
+from sponsio.langgraph import LangGraphGuard
 
 config = load_config("sponsio.yaml")
 kwargs = config_to_guard_kwargs(config, "customer_bot")
@@ -261,9 +260,10 @@ guard = LangGraphGuard(**kwargs)
 ### Inline + config combined
 
 ```python
+from sponsio.langgraph import Sponsio
+
 # Config provides base contracts, inline adds more
-guard = sponsio.init(
-    framework="langgraph",
+guard = Sponsio(
     config="sponsio.yaml",
     agent_id="customer_bot",
     # These are added ON TOP of config contracts:
@@ -323,5 +323,5 @@ sponsio scan src/agents/ --policy compliance.md --llm -o sponsio.yaml --append
 sponsio validate --config sponsio.yaml
 
 # 5. Use in agent
-python my_agent.py  # calls sponsio.init(config="sponsio.yaml")
+python my_agent.py  # calls Sponsio(config="sponsio.yaml")
 ```

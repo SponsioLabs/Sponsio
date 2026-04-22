@@ -13,7 +13,7 @@ Both types are defined in natural language and compiled to formal representation
 
 Det constraints are formal temporal logic (LTL) formulas over **atoms** — observable facts extracted from the agent's execution trace. They are evaluated before each tool call and can **block** the action if violated.
 
-### Pattern Library (16 patterns)
+### Pattern Library (selected deterministic patterns)
 
 #### Safety
 

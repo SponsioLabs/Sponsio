@@ -34,7 +34,6 @@ FILES = [
     "docs/integrations.md",
     "docs/cli.md",
     "docs/architecture.md",
-    "docs/benchmark-results.md",
     "CHANGELOG.md",
 ]
 

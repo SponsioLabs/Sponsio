@@ -31,8 +31,20 @@ def _clear_env_mode(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_mode_defaults_to_enforce():
-    assert _resolve_mode(None) == "enforce"
+def test_resolve_mode_defaults_to_observe():
+    """Default flipped from ``enforce`` to ``observe`` so that
+    installing Sponsio is never the change that blocks production
+    traffic — users opt *into* enforcement deliberately, after
+    running ``sponsio eval`` to verify their FPR is acceptable.
+    Mirrors CrabTrap's "passthrough by default" stance for the same
+    reason."""
+    assert _resolve_mode(None) == "observe"
+
+
+def test_resolve_mode_explicit_arg_wins_over_default():
+    """Caller can still ask for ``enforce`` directly — the new
+    default only changes the *unset* path, not the explicit one."""
+    assert _resolve_mode("enforce") == "enforce"
 
 
 def test_resolve_mode_passes_through_explicit():
@@ -185,12 +197,12 @@ def test_observe_preserves_trace_across_multiple_calls(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# sponsio.init() wiring
+# sponsio.Sponsio() wiring
 # ---------------------------------------------------------------------------
 
 
 def test_sponsio_init_accepts_mode(tmp_path):
-    guard = sponsio.init(
+    guard = sponsio.Sponsio(
         agent_id="bot",
         contracts=["tool `X` at most 0 times"],
         mode="observe",

@@ -924,7 +924,9 @@ function HistoryTraceDetail({ trace, showReVerify, onToggleReVerify }: { trace: 
     // quickly. Without this, the detail panel can show events from a
     // previously-selected trace because of out-of-order resolution.
     let cancelled = false;
-    setLoading(true);
+    queueMicrotask(() => {
+      if (!cancelled) setLoading(true);
+    });
     getTrace()
       .then(d => { if (!cancelled) setEvents(d.events); })
       .catch(() => { if (!cancelled) setEvents(MOCK_TRACE_EVENTS.filter(e => e.agent === trace.agentId)); })

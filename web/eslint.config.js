@@ -20,4 +20,11 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  // Context + keyboard module export hooks/helpers next to components on purpose.
+  {
+    files: ['src/context/AppContext.tsx', 'src/components/KeyboardShortcuts.tsx'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])

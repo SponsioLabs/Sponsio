@@ -456,7 +456,7 @@ class TestDFAMatchesFinishSessionBehavior:
     def test_finish_session_via_dfa(self):
         import sponsio
 
-        guard = sponsio.init(
+        guard = sponsio.Sponsio(
             agent_id="bot",
             contracts=["tool `A` must always be followed by `B`"],
             verbose=False,

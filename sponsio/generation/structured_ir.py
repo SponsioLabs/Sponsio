@@ -212,6 +212,11 @@ class IRCompilationResult:
             parts.append(self.ir.quantifier)
         return parts
 
+    @property
+    def assumption_raw(self) -> str:
+        """Raw assumption text (the NL guard) for round-tripping into YAML."""
+        return self.ir.guard or ""
+
 
 # ---------------------------------------------------------------------------
 # LTL primitives — thin wrappers for readability

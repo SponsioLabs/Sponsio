@@ -68,15 +68,35 @@ class Verdict:
         formula: The original constraint object (``DetFormula`` or
             raw ``Formula``) kept for reporting / ``Violation``
             construction. ``None`` for trivially-true results.
+        score: For sto verdicts — the raw confidence in [0, 1] computed
+            by ``eval_sto_confidence``. ``None`` for det verdicts.
+        threshold: For sto verdicts — the α (assumption) or β (enforcement)
+            threshold the score was compared against. ``None`` for det.
+        evidence: Optional one-line explanation from the judge / evaluator
+            (e.g. ``"judge answered 'no' (conf=0.42)"``).
+        suggestion: Optional fix hint surfaced into retry prompts.
     """
 
     holds: bool
     desc: str
     kind: str = "enforcement"
     formula: Any = None
+    score: float | None = None
+    threshold: float | None = None
+    evidence: str = ""
+    suggestion: str = ""
 
     def __bool__(self) -> bool:
         return self.holds
+
+    @property
+    def is_sto(self) -> bool:
+        """True iff this verdict came from the probabilistic-lifting path.
+
+        Used by the monitor to dispatch to sto-aware enforcement
+        (``RetryWithConstraint`` + lesson) vs the det ``DetBlock`` path.
+        """
+        return self.score is not None
 
 
 @dataclass

@@ -7,13 +7,13 @@ Get Sponsio enforcing contracts on your agent in 5 minutes.
 ## Install
 
 ```bash
-pip install -e .
+pip install sponsio
 
 # Optional extras
-pip install -e ".[config]"    # YAML config support
-pip install -e ".[llm]"      # LLM-powered contract discovery
-pip install -e ".[otel]"     # OpenTelemetry span export
-pip install -e ".[all]"      # everything
+pip install "sponsio[config]"       # YAML config support
+pip install "sponsio[llm]"          # LLM-powered contract discovery
+pip install "sponsio[otel]"         # OpenTelemetry span export
+pip install "sponsio[all]"          # everything
 ```
 
 ---
@@ -23,14 +23,21 @@ pip install -e ".[all]"      # everything
 Add 3 lines to your existing agent:
 
 ```python
-import sponsio
+from langgraph.prebuilt import create_react_agent
 
-guard = sponsio.init(
-    framework="langgraph",          # or "openai", "crewai", "agents_sdk"
+from sponsio import contract
+from sponsio.langgraph import Sponsio
+
+guard = Sponsio(
     agent_id="my_bot",
     contracts=[
-        "tool `check_policy` must precede `issue_refund`",
-        "tool `issue_refund` at most 3 times",
+        # Conditional (A, E) pair — assumption triggers the enforcement
+        contract("refund needs prior policy check")
+            .assume("called `issue_refund`")
+            .enforce("must call `check_policy` before `issue_refund`"),
+        # Unconditional rule — no .assume(), only .enforce()
+        contract("refund rate limit")
+            .enforce("tool `issue_refund` at most 3 times"),
     ],
 )
 
@@ -85,10 +92,9 @@ sponsio validate --config sponsio.yaml
 ### Step 4: Use
 
 ```python
-import sponsio
+from sponsio.langgraph import Sponsio
 
-guard = sponsio.init(
-    framework="langgraph",
+guard = Sponsio(
     config="sponsio.yaml",
     agent_id="my_bot",
 )

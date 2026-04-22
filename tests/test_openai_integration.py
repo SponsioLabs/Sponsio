@@ -255,3 +255,168 @@ class TestPatchUnpatch:
                 sys.modules["openai"] = openai_module
             else:
                 sys.modules.pop("openai", None)
+
+
+# ---------------------------------------------------------------------------
+# guard_after: observe_tool_result + auto-scan of tool messages
+# ---------------------------------------------------------------------------
+
+
+def _data_writes(guard: OpenAIGuard):
+    return [e for e in guard._monitor.trace.events if e.event_type == "data_write"]
+
+
+class TestObserveToolResult:
+    """The OpenAI integration used to only cover ``guard_before`` (i.e.
+    the model's *intent* to call a tool).  These tests lock in the new
+    ``guard_after`` path so ``no_data_leak`` and BaseGuard auto-tag
+    work for OpenAI users at parity with LangGraph / CrewAI."""
+
+    def test_check_response_captures_tool_call_ids(self):
+        guard = OpenAIGuard(contracts=["tool `A` must precede `B`"])
+        response = make_response("lookup_customer")
+        guard.check_response(response)
+        # The id from ``make_response`` is ``call_0``.
+        assert guard._pending_tool_calls == {"call_0": "lookup_customer"}
+
+    def test_observe_tool_result_emits_contains(self):
+        guard = OpenAIGuard(agent_id="bot")
+        guard.check_response(make_response("lookup_customer"))
+        guard.observe_tool_result("call_0", "customer record for 42")
+
+        writes = _data_writes(guard)
+        assert len(writes) == 1
+        assert writes[0].contains == ["lookup_customer"]
+
+    def test_observe_tool_result_explicit_name_bypasses_pending(self):
+        """Explicit ``tool_name`` wins — useful when the user builds
+        the trace by hand without going through ``check_response``."""
+        guard = OpenAIGuard(agent_id="bot")
+        guard.observe_tool_result(
+            tool_call_id="manual_1",
+            output="pong",
+            tool_name="ping",
+        )
+        writes = _data_writes(guard)
+        assert len(writes) == 1
+        assert writes[0].contains == ["ping"]
+
+    def test_observe_tool_result_is_idempotent(self):
+        """Calling twice for the same id should no-op — prevents the
+        auto-scan path from re-firing on every subsequent turn."""
+        guard = OpenAIGuard(agent_id="bot")
+        guard.check_response(make_response("lookup_customer"))
+
+        guard.observe_tool_result("call_0", "first")
+        guard.observe_tool_result("call_0", "second")  # should no-op
+
+        assert len(_data_writes(guard)) == 1
+
+    def test_observe_tool_result_without_known_tool_name_noops(self):
+        """If no id→name binding exists AND no explicit name is given,
+        we silently produce no data_write rather than crashing or
+        emitting an empty-name event."""
+        guard = OpenAIGuard(agent_id="bot")
+        res = guard.observe_tool_result("unknown_id", "output")
+        assert res.allowed is True
+        assert _data_writes(guard) == []
+
+
+class TestAutoScanToolMessages:
+    """The OpenAI tool-calling loop feeds results back into the next
+    ``chat.completions.create`` as ``{"role": "tool", ...}`` messages.
+    The patch scans those on the outbound path so
+    ``BaseGuard.guard_after`` runs without the user lifting a finger.
+    """
+
+    def test_dict_message_triggers_guard_after(self):
+        guard = OpenAIGuard(agent_id="bot")
+        guard.check_response(make_response("lookup_customer"))
+
+        messages = [
+            {"role": "user", "content": "Look up user 42"},
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {"id": "call_0", "function": {"name": "lookup_customer"}}
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_0",
+                "content": "customer record",
+            },
+        ]
+        guard._auto_observe_tool_messages(messages)
+        writes = _data_writes(guard)
+        assert len(writes) == 1
+        assert writes[0].contains == ["lookup_customer"]
+
+    def test_list_of_parts_content_is_flattened(self):
+        """OpenAI allows ``content: [{type: text, text: "..."}, ...]``.
+        The PII detector needs a plain string, so the scanner must
+        flatten parts before handing to ``guard_after``."""
+        guard = OpenAIGuard(agent_id="bot", tag_pii=True)
+        guard.check_response(make_response("lookup_customer"))
+
+        messages = [
+            {
+                "role": "tool",
+                "tool_call_id": "call_0",
+                "content": [
+                    {"type": "text", "text": "Alice, SSN 123-45-6789,"},
+                    {"type": "text", "text": " alice@example.com"},
+                ],
+            },
+        ]
+        guard._auto_observe_tool_messages(messages)
+        writes = _data_writes(guard)
+        assert len(writes) == 1
+        contains = writes[0].contains
+        assert "ssn" in contains
+        assert "email" in contains
+        assert "pii" in contains
+
+    def test_already_observed_tool_call_is_skipped(self):
+        """Message history replayed across turns must not double-fire."""
+        guard = OpenAIGuard(agent_id="bot")
+        guard.check_response(make_response("lookup_customer"))
+
+        msgs = [{"role": "tool", "tool_call_id": "call_0", "content": "result"}]
+        guard._auto_observe_tool_messages(msgs)
+        # Simulate a second turn: the user rebuilds ``messages`` with
+        # the same historical tool message still in it.
+        guard._auto_observe_tool_messages(msgs)
+
+        assert len(_data_writes(guard)) == 1
+
+    def test_missing_or_malformed_messages_does_not_crash(self):
+        guard = OpenAIGuard(agent_id="bot")
+        # None
+        guard._auto_observe_tool_messages(None)
+        # Not a list
+        guard._auto_observe_tool_messages("oops")
+        # Tool message missing id
+        guard._auto_observe_tool_messages([{"role": "tool", "content": "orphan"}])
+        assert _data_writes(guard) == []
+
+    def test_pydantic_like_message_objects_work(self):
+        """Users sometimes pass the pydantic ``ChatCompletionMessage``
+        objects straight from a previous response — auto-scan must
+        tolerate attribute access as well as dict access."""
+
+        class Msg:
+            def __init__(self, role, tool_call_id=None, content=None):
+                self.role = role
+                self.tool_call_id = tool_call_id
+                self.content = content
+
+        guard = OpenAIGuard(agent_id="bot")
+        guard.check_response(make_response("lookup_customer"))
+
+        guard._auto_observe_tool_messages(
+            [Msg(role="tool", tool_call_id="call_0", content="pydantic-shape")]
+        )
+        writes = _data_writes(guard)
+        assert len(writes) == 1
+        assert writes[0].contains == ["lookup_customer"]

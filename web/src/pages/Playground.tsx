@@ -138,7 +138,7 @@ export default function Playground() {
     for (const step of scenario.steps) {
       if (abortRef.current) break;
       if (step.type === 'tool_call') {
-        try { await simulateAction({ agent_id: step.agent_id!, action: step.action! }); } catch {}
+        try { await simulateAction({ agent_id: step.agent_id!, action: step.action! }); } catch { /* optional demo */ }
         await refreshTrace(); await delay(500);
       } else { await delay(300); }
     }

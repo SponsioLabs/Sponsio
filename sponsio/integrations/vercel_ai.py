@@ -6,11 +6,15 @@ transparently inside the agent loop.
 
 Usage::
 
-    from sponsio.integrations.vercel_ai import VercelAIGuard
+    from sponsio import contract
+    from sponsio.vercel_ai import Sponsio
 
-    guard = VercelAIGuard(contracts=[
-        "tool `check_policy` must precede `issue_refund`",
-        "tool `issue_refund` must not be called more than once",
+    guard = Sponsio(contracts=[
+        contract("policy gate before refund")
+            .assume("called `issue_refund`")
+            .enforce("must call `check_policy` before `issue_refund`"),
+        contract("refund rate limit")
+            .enforce("tool `issue_refund` at most 1 times"),
     ])
 
     agent = ai.agent(tools=[check_policy, issue_refund])
@@ -19,12 +23,11 @@ Usage::
     async for msg in agent.run(model, messages, middleware=[guard.wrap()]):
         print(msg.text_delta or "", end="")
 
-Or via ``sponsio.init()``::
+Or explicitly::
 
-    import sponsio
+    from sponsio.vercel_ai import Sponsio
 
-    guard = sponsio.init(
-        framework="vercel_ai",
+    guard = Sponsio(
         agent_id="bot",
         contracts=[...],
     )
@@ -40,7 +43,6 @@ from __future__ import annotations
 from typing import Any
 
 from sponsio.integrations.base import BaseGuard, CheckResult
-from sponsio.models.contract import Contract
 from sponsio.models.system import System
 from sponsio.runtime.evaluators import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
@@ -60,7 +62,7 @@ class VercelAIGuard(BaseGuard):
     def __init__(
         self,
         agent_id: str = "agent",
-        contracts: list[dict | Contract | str] | None = None,
+        contracts: list[Any] | None = None,
         system: System | None = None,
         policy: dict[str, EnforcementStrategy] | None = None,
         sto_evaluator: StoEvaluator | None = None,

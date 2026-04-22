@@ -19,6 +19,11 @@ from sponsio.patterns.library import (
     scope_limit,
 )
 
+# NOTE: sto_catalog is not imported here to avoid a circular import
+# (sto_catalog → runtime → models → patterns). Instead,
+# :func:`sponsio.patterns.sto_registry.resolve_sto_evaluator` does a
+# lazy one-shot import on first miss so decorators fire when needed.
+
 __all__ = [
     "always_followed_by",
     "arg_blacklist",

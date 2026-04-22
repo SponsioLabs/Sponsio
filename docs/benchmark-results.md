@@ -1,5 +1,7 @@
 # Benchmark Results
 
+This file records **reproducible offline evals** (methodology, commands, and numbers). It is meant for transparency with contributors, not as a marketing guarantee — models and the scan pipeline change over time, and some rows include candid regression analysis.
+
 ## ODCV-Bench Evaluation (2026-04-11)
 
 ### Method

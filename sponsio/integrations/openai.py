@@ -5,11 +5,15 @@ an agent framework like LangGraph or CrewAI.
 
 Usage::
 
-    from sponsio.integrations.openai import patch_openai
+    from sponsio import contract
+    from sponsio.openai import patch_openai
 
     guard = patch_openai(contracts=[
-        "tool `check_policy` must precede `issue_refund`",
-        "tool `issue_refund` must not be called more than once",
+        contract("policy gate before refund")
+            .assume("called `issue_refund`")
+            .enforce("must call `check_policy` before `issue_refund`"),
+        contract("refund rate limit")
+            .enforce("tool `issue_refund` at most 1 times"),
     ])
 
     # All tool_calls are now auto-monitored
@@ -21,6 +25,23 @@ Usage::
     )
     # If a tool_call violates a contract, it is marked in guard.violations
 
+Two enforcement hooks run automatically:
+
+* **Before** the tool executes — ``check_response`` inspects every
+  ``tool_call`` in the model's output and enforces det contracts
+  (``must_precede``, ``rate_limit``, ``mutual_exclusion``, …).
+* **After** the tool executes — when the user feeds the tool result
+  back in as a ``{"role": "tool", "tool_call_id": ..., "content": ...}``
+  message on the next ``chat.completions.create``, the patch scans
+  those messages and runs ``guard_after`` on each.  This powers sto
+  constraints (``tone_professional``, ``injection_free``) and the
+  ``BaseGuard`` auto-tag layer (``contains(tool_name)``, optional
+  PII detection) without the user touching anything.
+
+If you're not going through ``patch_openai`` — e.g. you use the raw
+response plus your own executor — call ``guard.observe_tool_result``
+explicitly after each tool execution.
+
 You can also check results programmatically::
 
     guard.violations       # list of all violations
@@ -29,7 +50,7 @@ You can also check results programmatically::
 
 To restore the original behavior::
 
-    from sponsio.integrations.openai import unpatch_openai
+    from sponsio.openai import unpatch_openai
     unpatch_openai()
 """
 
@@ -39,7 +60,6 @@ import json
 from typing import Any
 
 from sponsio.integrations.base import BaseGuard, CheckResult
-from sponsio.models.contract import Contract
 from sponsio.models.system import System
 from sponsio.runtime.evaluators import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
@@ -68,7 +88,7 @@ class OpenAIGuard(BaseGuard):
     def __init__(
         self,
         agent_id: str = "agent",
-        contracts: list[dict | Contract | str] | None = None,
+        contracts: list[Any] | None = None,
         system: System | None = None,
         policy: dict[str, EnforcementStrategy] | None = None,
         sto_evaluator: StoEvaluator | None = None,
@@ -87,6 +107,19 @@ class OpenAIGuard(BaseGuard):
         )
         self.last_check: CheckResult | None = None
         self.on_violation = on_violation
+        # Map of ``tool_call_id`` → ``tool_name`` captured from the
+        # assistant response, used so that
+        # :meth:`observe_tool_result` can resolve the original tool
+        # name when the user only has the OpenAI-style
+        # ``{"role": "tool", "tool_call_id": ..., "content": ...}``
+        # message to hand back.  Populated by :meth:`check_response`,
+        # drained by :meth:`observe_tool_result`.
+        self._pending_tool_calls: dict[str, str] = {}
+        # Deduplication set for the auto-scan path — the user's message
+        # history grows across turns and typically contains the same
+        # tool messages repeatedly; without this we'd run
+        # ``guard_after`` once per turn per historical result.
+        self._observed_tool_call_ids: set[str] = set()
 
     def check_response(self, response: Any) -> list[CheckResult]:
         """Check all tool_calls in an OpenAI ChatCompletion response.
@@ -132,11 +165,127 @@ class OpenAIGuard(BaseGuard):
                 check = self.guard_before(tool_name, args)
                 results.append(check)
 
+                # Remember (tool_call_id → tool_name) so the user can
+                # hand back just the tool-role message later and
+                # :meth:`observe_tool_result` / the auto-scan can
+                # still resolve the original tool name.
+                tool_call_id = getattr(tc, "id", None)
+                if tool_call_id:
+                    self._pending_tool_calls[tool_call_id] = tool_name
+
                 if check.blocked and self.on_violation:
                     self.on_violation(tool_name, args, check)
 
         self.last_check = results[-1] if results else None
         return results
+
+    def observe_tool_result(
+        self,
+        tool_call_id: str | None,
+        output: Any,
+        tool_name: str | None = None,
+    ) -> CheckResult:
+        """Record a tool result and run ``guard_after``.
+
+        Call this after executing a tool_call returned by
+        ``chat.completions.create`` so the trace has the output
+        visible to sto constraints and the BaseGuard auto-tag layer
+        (``contains(tool_name)``, optional PII tags).  Without this,
+        ``no_data_leak`` and similar contracts can never fire on
+        OpenAI-hosted agents — the OpenAI guard only sees the model's
+        *intent* to call a tool, not the tool's actual output.
+
+        Two usage patterns:
+
+        1. **Explicit** — you already know the tool name::
+
+             guard.observe_tool_result("call_abc", result, tool_name="lookup_customer")
+
+        2. **Implicit** — use the id captured from the last response::
+
+             for tc in response.choices[0].message.tool_calls:
+                 result = run_tool(tc)
+                 guard.observe_tool_result(tc.id, result)
+
+        Calling this is idempotent for a given ``tool_call_id`` —
+        subsequent calls with the same id are no-ops so the auto-scan
+        path in the SDK patch can safely re-enter.
+        """
+        if tool_call_id is not None and tool_call_id in self._observed_tool_call_ids:
+            return CheckResult(allowed=True)
+
+        if tool_name is None and tool_call_id is not None:
+            tool_name = self._pending_tool_calls.get(tool_call_id)
+        if not tool_name:
+            # Falling back to ``guard_after("", ...)`` would silently
+            # skip the auto-tag (empty name is rejected there).  Return
+            # a no-op CheckResult and tell the user what happened.
+            return CheckResult(
+                allowed=True,
+                feedback=(
+                    "sponsio: no tool_name resolvable for tool_call_id="
+                    f"{tool_call_id!r} — skipping guard_after"
+                ),
+            )
+
+        if tool_call_id is not None:
+            self._observed_tool_call_ids.add(tool_call_id)
+            self._pending_tool_calls.pop(tool_call_id, None)
+
+        return self.guard_after(tool_name, output)
+
+    def _auto_observe_tool_messages(self, messages: Any) -> None:
+        """Scan an outbound ``messages`` list and observe any tool
+        results we haven't already seen.
+
+        This runs on every ``chat.completions.create`` call *before*
+        the request is forwarded to OpenAI, so the auto-tag + sto
+        pipeline sees tool outputs from the previous turn even when
+        the user never touched ``observe_tool_result`` explicitly —
+        the whole point of matching LangGraph / CrewAI ergonomics.
+
+        Extracts content from both the string shape and the OpenAI
+        list-of-parts shape (``[{"type": "text", "text": "..."}]``).
+        """
+        if not isinstance(messages, list):
+            return
+        for msg in messages:
+            # Tolerate both dicts and pydantic message objects.
+            if isinstance(msg, dict):
+                role = msg.get("role")
+                tcid = msg.get("tool_call_id")
+                content = msg.get("content")
+            else:
+                role = getattr(msg, "role", None)
+                tcid = getattr(msg, "tool_call_id", None)
+                content = getattr(msg, "content", None)
+
+            if role != "tool" or not tcid:
+                continue
+            if tcid in self._observed_tool_call_ids:
+                continue
+
+            # Normalise content: OpenAI allows string OR list-of-parts.
+            if isinstance(content, list):
+                parts: list[str] = []
+                for p in content:
+                    if isinstance(p, dict) and p.get("type") == "text":
+                        parts.append(str(p.get("text", "")))
+                    elif isinstance(p, str):
+                        parts.append(p)
+                content_str = "".join(parts)
+            elif content is None:
+                content_str = ""
+            else:
+                content_str = str(content)
+
+            try:
+                self.observe_tool_result(tcid, content_str)
+            except Exception:
+                # Matching the defensive posture of
+                # ``BaseGuard._autotag_tool_output`` — never let a
+                # bookkeeping failure break the model call.
+                pass
 
     def _filter_blocked_calls(self, response: Any, results: list[CheckResult]) -> Any:
         """Remove blocked tool_calls from response so they won't be executed.
@@ -182,10 +331,11 @@ class OpenAIGuard(BaseGuard):
 
 def patch_openai(
     agent_id: str = "agent",
-    contracts: list[str | Contract] | None = None,
+    contracts: list[Any] | None = None,
     system: System | None = None,
     policy: dict[str, EnforcementStrategy] | None = None,
     sto_evaluator: StoEvaluator | None = None,
+    sto_judge: Any | None = None,
     on_violation: Any | None = None,
 ) -> OpenAIGuard:
     """Monkey-patch the OpenAI SDK to auto-enforce contracts on tool_calls.
@@ -199,6 +349,7 @@ def patch_openai(
         system: Pre-built System (alternative to contracts list).
         policy: Per-constraint enforcement strategy overrides.
         sto_evaluator: Optional StoEvaluator for sto constraints.
+        sto_judge: Optional judge used by sto atom evaluators.
         on_violation: Optional callback ``(tool_name, args, check_result) -> None``
             invoked on each violation.
 
@@ -222,6 +373,7 @@ def patch_openai(
         system=system,
         policy=policy,
         sto_evaluator=sto_evaluator,
+        sto_judge=sto_judge,
         on_violation=on_violation,
     )
     _active_guard = guard
@@ -237,6 +389,11 @@ def patch_openai(
 
     # --- Sync wrapper ---
     def patched_create(self_completions: Any, *args: Any, **kwargs: Any) -> Any:
+        # Pre-flight: scan the outbound ``messages`` for tool results
+        # returning from the previous turn and run them through
+        # ``guard_after`` so the trace reflects real execution.  This
+        # is the OpenAI equivalent of LangGraph's post-execution hook.
+        guard._auto_observe_tool_messages(kwargs.get("messages"))
         response = _original_create(self_completions, *args, **kwargs)
         results = guard.check_response(response)
         if any(r.blocked for r in results):
@@ -247,6 +404,7 @@ def patch_openai(
     async def patched_async_create(
         self_completions: Any, *args: Any, **kwargs: Any
     ) -> Any:
+        guard._auto_observe_tool_messages(kwargs.get("messages"))
         response = await _original_async_create(self_completions, *args, **kwargs)
         results = guard.check_response(response)
         if any(r.blocked for r in results):

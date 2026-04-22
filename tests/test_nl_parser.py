@@ -315,21 +315,29 @@ class TestParseNLRuleBased:
         assert r.is_det
         assert r.hard.pattern_name == "must_precede"
 
-    def test_unified_soft_pii(self):
+    def test_unified_pii_is_now_det(self):
+        # P2 reclassification: regex-based PII is det, not sto.
         r = parse_nl_unified("response must not contain PII")
-        assert r.is_sto
-        assert r.sto.category == "pii"
+        assert r.is_det
+        assert r.hard.pattern_name == "no_pii"
 
     def test_unified_soft_tone(self):
         r = parse_nl_unified("response must be professional")
         assert r.is_sto
         assert r.sto.category == "tone"
 
-    def test_unified_unknown_falls_to_soft_stub(self):
-        """Unrecognized NL without LLM → sto stub."""
-        r = parse_nl_unified("do something completely novel and weird")
-        assert r.is_sto
-        assert r.sto.category == "custom"
+    def test_unified_unknown_raises_syntax_error(self):
+        """Unrecognized NL without LLM translator → ContractSyntaxError.
+
+        Previously the parser silently produced a ``category="custom"``
+        sto stub here — a contract object that passed every downstream
+        check but enforced nothing at runtime. Raising is the only way
+        to stop silent no-ops from slipping into production.
+        """
+        from sponsio.generation.nl_to_contract import ContractSyntaxError
+
+        with pytest.raises(ContractSyntaxError):
+            parse_nl_unified("do something completely novel and weird")
 
 
 # ---------------------------------------------------------------------------

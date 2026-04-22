@@ -178,13 +178,16 @@ class TestClassifySoft:
         assert sc.category == "content_prohibition"
         assert sc.requires_llm is False
 
-    def test_unknown_no_llm_returns_stub(self):
-        sc = classify_sto("response must be creative and inspiring")
-        assert sc.category == "custom"
-        assert sc.requires_llm is True
-        # Stub evaluator should return 0.5
-        result = sc.evaluator_fn(Trace(events=[]))
-        assert result.score == 0.5
+    def test_unknown_no_llm_returns_none(self):
+        """``classify_sto`` returns None when no keyword category matches
+        and no LLM client is available.
+
+        Before the DSL rename, this path produced a no-op ``category=
+        "custom"`` stub — a silent no-op that passed every downstream
+        check but enforced nothing. Callers (``parse_contract``) now
+        convert the ``None`` into a :class:`ContractSyntaxError`.
+        """
+        assert classify_sto("response must be creative and inspiring") is None
 
 
 # ---------------------------------------------------------------------------
@@ -205,17 +208,19 @@ class TestParseNLUnified:
         assert not result.is_det
         assert result.ok
 
-    def test_pii_soft(self):
+    def test_pii_is_now_det(self):
+        # P2 reclassification: regex-based PII is det, not sto.
         result = parse_nl_unified(
             "response must not contain PII or personal information"
         )
-        assert result.is_sto
-        assert result.sto.category == "pii"
+        assert result.is_det
+        assert result.hard.pattern_name == "no_pii"
 
-    def test_length_soft(self):
+    def test_length_is_now_det(self):
+        # P2 reclassification: length is precisely computable, routes to det.
         result = parse_nl_unified("response must be under 50 words")
-        assert result.is_sto
-        assert result.sto.category == "length"
+        assert result.is_det
+        assert result.hard.pattern_name == "max_length"
 
 
 # ---------------------------------------------------------------------------

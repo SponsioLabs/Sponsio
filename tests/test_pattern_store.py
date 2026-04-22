@@ -143,10 +143,11 @@ class TestPatternStorePersistence:
 
 
 class TestPatternStoreBuiltins:
-    def test_with_builtins_loads_14(self):
+    def test_with_builtins_loads_seeded_families(self):
         store = PatternStore.with_builtins()
         entries = store.list_all()
-        assert len(entries) == 14
+        # One row per active pattern family; deprecated ``never_together`` is not seeded
+        assert len(entries) == 13
 
     def test_builtins_all_verified(self):
         store = PatternStore.with_builtins()
@@ -157,6 +158,6 @@ class TestPatternStoreBuiltins:
     def test_builtins_can_reconstruct_formulas(self):
         store = PatternStore.with_builtins()
         verified = store.get_verified()
-        assert len(verified) == 14
+        assert len(verified) == 13
         for f in verified:
             assert f.pattern_name != ""

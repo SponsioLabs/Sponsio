@@ -7,10 +7,11 @@ This is the only integration where you don't need guard.wrap(tools).
 The SDK's native hooks system can deny tool execution directly.
 
 Usage:
-    python examples/integrations/claude_agent_guard.py                    # Mock mode
-    USE_MOCK=0 ANTHROPIC_API_KEY=... python examples/integrations/claude_agent_guard.py
+    python examples/integrations/python/claude_agent_guard.py                    # Mock mode
+    USE_MOCK=0 ANTHROPIC_API_KEY=... python examples/integrations/python/claude_agent_guard.py
 
-Note: Real mode requires claude-agent-sdk installed.
+Note: Mock mode does not import or call the Claude Agent SDK. Real mode
+requires claude-agent-sdk installed.
 """
 
 from __future__ import annotations
@@ -21,10 +22,15 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 from shared import USE_MOCK
+from sponsio import contract
 
 CONTRACTS = [
-    "tool `check_policy` must precede `issue_refund`",
-    "tool `issue_refund` at most 1 times",
+    # Conditional (A, E) pair — assumption triggers the enforcement
+    contract("refund needs prior policy check")
+    .assume("called `issue_refund`")
+    .enforce("must call `check_policy` before `issue_refund`"),
+    # Unconditional rate limit — no .assume(), only .enforce()
+    contract("refund rate limit").enforce("tool `issue_refund` at most 1 times"),
 ]
 
 
@@ -59,11 +65,10 @@ def run_real():
         print("  pip install claude-agent-sdk")
         sys.exit(1)
 
-    import sponsio
+    from sponsio.claude_agent import Sponsio
 
     # ======== Add Sponsio: 2 lines ========
-    guard = sponsio.init(
-        framework="claude_agent",
+    guard = Sponsio(
         agent_id="support_bot",
         contracts=CONTRACTS,
     )
@@ -93,21 +98,17 @@ def run_real():
 
 
 def run_mock():
-    import asyncio
-    import sponsio
+    from sponsio.claude_agent import Sponsio
 
     # ======== Add Sponsio: 2 lines ========
-    guard = sponsio.init(
-        framework="claude_agent",
+    guard = Sponsio(
         agent_id="support_bot",
         contracts=CONTRACTS,
     )
-    hooks_dict = guard.hooks()
     # ======================================
 
-    pre_hook = hooks_dict["PreToolUse"][0].hooks[0]
-
-    # Simulate what the Claude Agent SDK does: call hooks before each tool
+    # Mock mode exercises the same Sponsio boundary without importing or
+    # calling the Claude Agent SDK.
     mock_calls = [
         # Agent tries to issue refund directly (should be BLOCKED)
         ("issue_refund", {"order_id": "#W456"}),
@@ -126,27 +127,16 @@ def run_mock():
     }
 
     for tool_name, args in mock_calls:
-        input_data = {
-            "hook_event_name": "PreToolUse",
-            "tool_name": tool_name,
-            "tool_input": args,
-            "session_id": "mock",
-            "cwd": "/tmp",
-            "tool_use_id": f"id_{tool_name}",
-            "agent_id": "support_bot",
-            "agent_type": "main",
-        }
+        check = guard.guard_before(tool_name, args)
 
-        result = asyncio.get_event_loop().run_until_complete(
-            pre_hook(input_data, input_data["tool_use_id"], None)
-        )
-
-        if result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny":
-            # Hook denied — tool won't execute
-            reason = result["hookSpecificOutput"].get("permissionDecisionReason", "")
+        if check.blocked:
+            reason = (
+                check.det_violations[0].message
+                if check.det_violations
+                else "Contract violation"
+            )
             print(f"  [DENIED] {tool_name}: {reason}")
         else:
-            # Hook allowed — execute tool
             output = tools[tool_name](**args)
             guard.guard_after(tool_name, output)
             print(f"  [OK]     {tool_name}: {output}")

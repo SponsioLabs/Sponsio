@@ -43,41 +43,26 @@ function buildYaml(contracts: Contract[]): string {
 
 // ─── Integration snippets ─────────────────────────────────────────────────────
 
-const FRAMEWORKS = [
-  'LangGraph',
-  'Claude Agent SDK',
-  'OpenAI SDK',
-  'Vercel AI SDK',
-  'Agents SDK',
-  'CrewAI',
-  'MCP',
-  'LangGraph (TS)',
-  'Claude Agent (TS)',
-  'OpenAI (TS)',
-  'Vercel AI (TS)',
-] as const;
-type Framework = (typeof FRAMEWORKS)[number];
-
 // Code snippets for each supported framework — Python and TypeScript.
-const SNIPPETS: Record<Framework, string> = {
+const SNIPPETS = {
   // ── Python ──
   LangGraph: `import sponsio
 from langgraph.prebuilt import create_react_agent
 
-guard = sponsio.init(framework="langgraph", config="sponsio.yaml")
+guard = sponsio.Sponsio(framework="langgraph", config="sponsio.yaml")
 agent = create_react_agent(model, guard.wrap(tools))`,
 
   'Claude Agent SDK': `import sponsio
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
 
-guard = sponsio.init(framework="claude_agent", config="sponsio.yaml")
+guard = sponsio.Sponsio(framework="claude_agent", config="sponsio.yaml")
 options = ClaudeAgentOptions(hooks=guard.hooks())
 # Zero tool wrapping — hooks deny violations natively`,
 
   'OpenAI SDK': `import sponsio
 
 # Monkey-patches openai.chat.completions.create
-sponsio.init(framework="openai", config="sponsio.yaml")
+sponsio.Sponsio(framework="openai", config="sponsio.yaml")
 
 from openai import OpenAI
 client = OpenAI()
@@ -85,7 +70,7 @@ client = OpenAI()
 
   'Vercel AI SDK': `import sponsio
 
-guard = sponsio.init(framework="vercel_ai", config="sponsio.yaml")
+guard = sponsio.Sponsio(framework="vercel_ai", config="sponsio.yaml")
 # guard.wrap() returns an ai.Middleware
 async for msg in agent.run(model, messages, middleware=[guard.wrap()]):
     print(msg)`,
@@ -93,13 +78,13 @@ async for msg in agent.run(model, messages, middleware=[guard.wrap()]):
   'Agents SDK': `import sponsio
 from agents import Agent
 
-guard = sponsio.init(framework="agents_sdk", config="sponsio.yaml")
+guard = sponsio.Sponsio(framework="agents_sdk", config="sponsio.yaml")
 agent = Agent(name="bot", tools=guard.wrap(tools))`,
 
   CrewAI: `import sponsio
 from crewai import Crew
 
-guard = sponsio.init(framework="crewai", config="sponsio.yaml")
+guard = sponsio.Sponsio(framework="crewai", config="sponsio.yaml")
 crew = Crew(agents=[...], tasks=[...], tools=guard.wrap(tools))`,
 
   MCP: `from sponsio.integrations.mcp import MCPContractProxy, scan_mcp_tools
@@ -108,24 +93,34 @@ system = scan_mcp_tools(await client.list_tools(), agent_id="bot")
 proxy = MCPContractProxy(mcp_client=client, system=system)
 result = await proxy.call_tool("process_refund", {"order_id": "123"})`,
 
-  // ── TypeScript (via Pyodide) ──
+  // ── TypeScript — same Sponsio class, native TS SDK ──
   'LangGraph (TS)': `import { Sponsio } from "@sponsio/sdk"
 import { wrapTools } from "@sponsio/sdk/langchain"
+import { ToolNode } from "@langchain/langgraph/prebuilt"
 
-const guard = await Sponsio.init({ config: "sponsio.yaml" })
+const guard = new Sponsio({
+  agentId: "bot",
+  contracts: ["tool \`check_policy\` must precede \`issue_refund\`"],
+})
 const toolNode = new ToolNode(wrapTools(tools, guard))`,
 
   'Claude Agent (TS)': `import { Sponsio } from "@sponsio/sdk"
 import { sponsioHooks } from "@sponsio/sdk/claude-agent"
 
-const guard = await Sponsio.init({ config: "sponsio.yaml" })
+const guard = new Sponsio({
+  agentId: "bot",
+  contracts: ["tool \`check_policy\` must precede \`issue_refund\`"],
+})
 const options = { hooks: sponsioHooks(guard) }
 // Zero wrapping — hooks deny violations natively`,
 
   'OpenAI (TS)': `import { Sponsio } from "@sponsio/sdk"
 import { wrapOpenAI } from "@sponsio/sdk/openai"
 
-const guard = await Sponsio.init({ config: "sponsio.yaml" })
+const guard = new Sponsio({
+  agentId: "bot",
+  contracts: ["tool \`check_policy\` must precede \`issue_refund\`"],
+})
 const client = wrapOpenAI(new OpenAI(), guard)
 // Blocked tool_calls removed from response`,
 
@@ -133,9 +128,14 @@ const client = wrapOpenAI(new OpenAI(), guard)
 import { sponsioMiddleware } from "@sponsio/sdk/vercel-ai"
 import { wrapLanguageModel } from "ai"
 
-const guard = await Sponsio.init({ config: "sponsio.yaml" })
+const guard = new Sponsio({
+  agentId: "bot",
+  contracts: ["tool \`check_policy\` must precede \`issue_refund\`"],
+})
 const model = wrapLanguageModel({ model: openai("gpt-4"), middleware: sponsioMiddleware(guard) })`,
-};
+} as const;
+
+type Framework = keyof typeof SNIPPETS;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

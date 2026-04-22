@@ -57,6 +57,8 @@ Usage::
 
 from __future__ import annotations
 
+import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -92,11 +94,18 @@ class ContractEntry:
     Each field may hold None, one ``ConstraintEntry``, or a list of
     them (= logical AND). ``assumption`` is optional; ``enforcement`` is
     required.
+
+    ``alpha`` and ``beta`` are resolved at parse time from one of three
+    mutually-exclusive YAML specs: explicit ``alpha``/``beta``,
+    ``risk_profile``, or ``costs``. Defaults (1.0, 1.0) preserve existing
+    det semantics.
     """
 
     enforcement: ConstraintEntry | list[ConstraintEntry] = None  # type: ignore[assignment]
     assumption: ConstraintEntry | list[ConstraintEntry] | None = None
     desc: str | None = None
+    alpha: float = 1.0
+    beta: float = 1.0
 
 
 @dataclass
@@ -108,6 +117,87 @@ class AgentConfig:
 
 
 @dataclass
+class ExtractorSection:
+    """Parse-time LLM config (used by ``sponsio scan`` /
+    ``UnifiedExtractor``).
+
+    Parse-time work is offline and one-shot: latency is irrelevant,
+    accuracy matters.  Most users want their best model here (e.g.
+    ``gpt-4o``, ``claude-3-5-sonnet``).  Separate from ``judge``
+    because the judge is on the agent's hot path and has very
+    different requirements.
+    """
+
+    provider: str | None = None
+    model: str | None = None
+    api_key: str | None = None
+    base_url: str | None = None
+
+
+@dataclass
+class JudgeSection:
+    """Runtime sto-judge config (used by ``StoEvaluator``).
+
+    Runtime judging happens on every guarded turn — latency, cost,
+    and resilience matter.  Most users want a *cheaper, faster* model
+    here (e.g. ``gpt-4o-mini``, ``gemini-2.0-flash``) and care about
+    the fault-tolerance knobs.
+
+    Defaults match :class:`sponsio.runtime.evaluators.StoEvaluator`'s
+    own defaults so an empty section behaves exactly like the
+    programmatic default.
+    """
+
+    provider: str | None = None
+    model: str | None = None
+    api_key: str | None = None
+    base_url: str | None = None
+    fallback_mode: str = "allow"  # allow|deny|skip
+    circuit_breaker: bool = True
+    failure_threshold: int = 5
+    cooldown_seconds: float = 10.0
+
+
+@dataclass
+class PerformanceSection:
+    """Runtime performance reporting config.
+
+    Mirrors competitor-style caching config blocks in YAML position
+    and naming (``performance:``) but reports a structurally
+    different story: we don't need a judge cache — most checks are
+    DFA and never touch an LLM in the first place.  This section
+    controls *how that story gets surfaced*, not whether the speedup
+    happens.
+
+    Fields:
+      * ``report``: when to print the human-readable performance
+        table.  ``auto`` (default) prints at process exit only when
+        the guard is ``verbose=True`` and stderr is a TTY — same
+        rules as the existing session summary, so we don't clutter
+        CI logs.  ``always`` forces a print even in non-TTY contexts
+        (useful when redirecting to a file).  ``never`` suppresses.
+      * ``export_path``: optional JSON dump path.  When set, the
+        guard writes ``perf.json`` (shaped like
+        :meth:`BaseGuard.performance_stats`) at process exit.
+        Great for pipelines that diff perf run-over-run.
+      * ``warn_slow_dfa_us``: if the pure-DFA p99 exceeds this
+        threshold in μs, print a stderr warning.  Default **500μs**
+        leaves headroom for GC, load, and p99 noise on healthy runs
+        (typical p99s are often single-digit μs) while still firing
+        well before accidental sto/LLM paths (usually ms+).  Use
+        ``0`` (or any value ≤0) to disable this warning entirely.
+      * ``histogram_size``: per-contract ring buffer size.  Larger
+        = more accurate tail percentiles (p99 over 10k samples has
+        ~3% noise; over 100k it's ~1%), at linear memory cost.
+    """
+
+    report: str = "auto"  # auto | always | never
+    export_path: str | None = None
+    warn_slow_dfa_us: float = 500.0
+    histogram_size: int = 10_000
+
+
+@dataclass
 class SponsoConfig:
     """Top-level parsed config."""
 
@@ -115,10 +205,111 @@ class SponsoConfig:
     defaults: dict[str, Any] = field(default_factory=dict)
     tools: list[ToolEntry] = field(default_factory=list)
     agents: dict[str, AgentConfig] = field(default_factory=dict)
+    extractor: ExtractorSection = field(default_factory=ExtractorSection)
+    judge: JudgeSection = field(default_factory=JudgeSection)
+    performance: PerformanceSection = field(default_factory=PerformanceSection)
 
 
 class ConfigError(Exception):
     """Raised when a config file is invalid."""
+
+
+# ---------------------------------------------------------------------------
+# ${ENV_VAR} interpolation
+# ---------------------------------------------------------------------------
+
+# Bash-style: ``${VAR}`` or ``${VAR:-default}``.  We deliberately do
+# NOT support the bare ``$VAR`` shorthand because YAML strings
+# routinely contain naked dollar signs (template vars, regex,
+# currency) and we don't want to accidentally munch those.
+_ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+
+
+def _interpolate_env(value: Any) -> Any:
+    """Recursively expand ``${VAR}`` / ``${VAR:-default}`` in strings.
+
+    Walks through dicts and lists in place — anything non-string /
+    non-container is returned unchanged.  Missing env vars without a
+    default expand to the empty string (matching shell semantics) so
+    a missing key simply becomes ``api_key: ""`` rather than blowing
+    up the loader; the constructor that consumes the value gets to
+    decide whether empty is fatal.
+    """
+    if isinstance(value, str):
+
+        def _sub(m: re.Match) -> str:
+            name, default = m.group(1), m.group(2)
+            return os.environ.get(name, default if default is not None else "")
+
+        return _ENV_VAR_RE.sub(_sub, value)
+    if isinstance(value, dict):
+        return {k: _interpolate_env(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_interpolate_env(v) for v in value]
+    return value
+
+
+def _parse_extractor_section(raw: Any) -> ExtractorSection:
+    if raw is None:
+        return ExtractorSection()
+    if not isinstance(raw, dict):
+        raise ConfigError(f"'extractor' must be a mapping, got {type(raw).__name__}")
+    return ExtractorSection(
+        provider=raw.get("provider"),
+        model=raw.get("model"),
+        api_key=raw.get("api_key") or None,  # empty string → None
+        base_url=raw.get("base_url") or None,
+    )
+
+
+def _parse_performance_section(raw: Any) -> PerformanceSection:
+    if raw is None:
+        return PerformanceSection()
+    if not isinstance(raw, dict):
+        raise ConfigError(f"'performance' must be a mapping, got {type(raw).__name__}")
+    report = raw.get("report", "auto")
+    if report not in ("auto", "always", "never"):
+        raise ConfigError(
+            f"performance.report must be one of auto|always|never, got {report!r}"
+        )
+    try:
+        hs = int(raw.get("histogram_size", 10_000))
+    except (TypeError, ValueError):
+        raise ConfigError("performance.histogram_size must be an integer")
+    if hs < 1:
+        raise ConfigError("performance.histogram_size must be >= 1")
+    try:
+        warn = float(raw.get("warn_slow_dfa_us", 500.0))
+    except (TypeError, ValueError):
+        raise ConfigError("performance.warn_slow_dfa_us must be a number")
+    return PerformanceSection(
+        report=report,
+        export_path=raw.get("export_path") or None,
+        warn_slow_dfa_us=warn,
+        histogram_size=hs,
+    )
+
+
+def _parse_judge_section(raw: Any) -> JudgeSection:
+    if raw is None:
+        return JudgeSection()
+    if not isinstance(raw, dict):
+        raise ConfigError(f"'judge' must be a mapping, got {type(raw).__name__}")
+    fb = raw.get("fallback_mode", "allow")
+    if fb not in ("allow", "deny", "skip"):
+        raise ConfigError(
+            f"judge.fallback_mode must be one of allow|deny|skip, got {fb!r}"
+        )
+    return JudgeSection(
+        provider=raw.get("provider"),
+        model=raw.get("model"),
+        api_key=raw.get("api_key") or None,
+        base_url=raw.get("base_url") or None,
+        fallback_mode=fb,
+        circuit_breaker=bool(raw.get("circuit_breaker", True)),
+        failure_threshold=int(raw.get("failure_threshold", 5)),
+        cooldown_seconds=float(raw.get("cooldown_seconds", 10.0)),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -202,11 +393,43 @@ def _parse_contract_entry(item: Any, agent_id: str) -> ContractEntry:
     a_raw = item.get("A") if has_short_a else item.get("assumption")
     desc = item.get("desc")
 
+    alpha, beta = _parse_thresholds(item, agent_id)
+
     return ContractEntry(
         enforcement=_parse_constraint_field(e_raw),  # type: ignore[arg-type]
         assumption=_parse_constraint_field(a_raw),
         desc=desc,
+        alpha=alpha,
+        beta=beta,
     )
+
+
+def _parse_thresholds(item: dict, agent_id: str) -> tuple[float, float]:
+    """Resolve ``(alpha, beta)`` from the three mutually-exclusive YAML specs.
+
+    Forms accepted:
+
+    * explicit ``alpha`` / ``beta`` (either may be set; unset defaults to 1.0)
+    * ``risk_profile: <name>``
+    * ``costs: {fp: N, fn: M}`` (α falls back to per-category default)
+    """
+    from sponsio.models.thresholds import resolve_thresholds
+
+    alpha = item.get("alpha")
+    beta = item.get("beta")
+    risk_profile = item.get("risk_profile")
+    costs = item.get("costs")
+
+    try:
+        return resolve_thresholds(
+            alpha=alpha,
+            beta=beta,
+            risk_profile=risk_profile,
+            costs=costs,
+            atom_category=None,
+        )
+    except ValueError as e:
+        raise ConfigError(f"Agent '{agent_id}': {e}") from e
 
 
 def load_config(path: str | Path) -> SponsoConfig:
@@ -243,9 +466,17 @@ def load_config(path: str | Path) -> SponsoConfig:
     if not isinstance(raw, dict):
         raise ConfigError("Config must be a YAML mapping (dict)")
 
+    # ``${ENV_VAR}`` interpolation runs *after* YAML parse so users
+    # can put secrets in env vars instead of committing them.  We
+    # walk the whole tree once — keeps the rest of the loader naive.
+    raw = _interpolate_env(raw)
+
     config = SponsoConfig(
         version=str(raw.get("version", "1")),
         defaults=raw.get("defaults", {}),
+        extractor=_parse_extractor_section(raw.get("extractor")),
+        judge=_parse_judge_section(raw.get("judge")),
+        performance=_parse_performance_section(raw.get("performance")),
     )
 
     # Parse tools section
@@ -349,16 +580,26 @@ def _compile_single(
     llm_extractor: Any = None,
     tool_inventory: list[dict] | None = None,
 ) -> Any:
-    from sponsio.generation.nl_to_contract import parse_nl_unified
+    from sponsio.generation.nl_to_contract import (
+        ContractSyntaxError,
+        parse_nl_unified,
+    )
 
     if entry.is_structured:
         return _compile_structured(entry)
 
-    result = parse_nl_unified(
-        entry.nl,
-        llm_extractor=llm_extractor,
-        tool_inventory=tool_inventory,
-    )
+    try:
+        result = parse_nl_unified(
+            entry.nl,
+            llm_extractor=llm_extractor,
+            tool_inventory=tool_inventory,
+        )
+    except ContractSyntaxError:
+        # Config-driven path — a malformed DSL entry in a yaml file is
+        # an op-level problem. Surface as a compile failure (None)
+        # rather than crashing the loader; validators decide whether
+        # to treat None as fatal.
+        return None
     if result.is_det:
         return result.hard
     if result.is_sto:
@@ -413,6 +654,12 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
             )
         if ce.desc:
             entry["desc"] = ce.desc
+        # Pass alpha/beta through only if non-default (avoids noise for
+        # pure-det contracts; Contract constructor defaults are 1.0/1.0).
+        if ce.alpha != 1.0:
+            entry["alpha"] = ce.alpha
+        if ce.beta != 1.0:
+            entry["beta"] = ce.beta
         contract_dicts.append(entry)
 
     kwargs: dict[str, Any] = {
@@ -426,6 +673,46 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
         kwargs["verbosity"] = config.defaults["verbosity"]
 
     return kwargs
+
+
+def build_extractor(section: ExtractorSection) -> Any:
+    """Construct a :class:`UnifiedExtractor` from an ``extractor:`` section.
+
+    Returns ``None`` if no provider is configured — callers fall
+    back to rule-based parsing in that case.  Imported lazily so
+    ``import sponsio.config`` doesn't pull in optional LLM SDKs.
+    """
+    if section.provider is None and section.model is None and section.api_key is None:
+        return None
+    from sponsio.generation.llm_extraction import UnifiedExtractor
+
+    return UnifiedExtractor(
+        provider=section.provider,
+        model=section.model,
+        api_key=section.api_key,
+        base_url=section.base_url,
+    )
+
+
+def build_sto_evaluator(section: JudgeSection) -> Any:
+    """Construct a :class:`StoEvaluator` from a ``judge:`` section.
+
+    Wires the fault-tolerance knobs (fallback / breaker) from YAML
+    straight through; the LLM ``provider``/``model``/``api_key``
+    fields are *advisory* — individual sto atoms read them through
+    their own client construction (we don't centralise judge-client
+    instantiation here because different atoms may want different
+    models, e.g. a fast model for ``tone`` and a thinking model for
+    ``injection_free``).
+    """
+    from sponsio.runtime.evaluators import StoEvaluator
+
+    return StoEvaluator(
+        fallback_mode=section.fallback_mode,  # type: ignore[arg-type]
+        circuit_breaker=section.circuit_breaker,
+        failure_threshold=section.failure_threshold,
+        cooldown_seconds=section.cooldown_seconds,
+    )
 
 
 def config_to_system(
@@ -471,6 +758,8 @@ def config_to_system(
                     enforcement=e,
                     assumption=a,
                     desc=ce.desc,
+                    alpha=ce.alpha,
+                    beta=ce.beta,
                 )
             )
 

@@ -13,7 +13,7 @@ from sponsio.runtime.verifier import Verdict
 
 
 def _make_guard(contracts):
-    return sponsio.init(
+    return sponsio.Sponsio(
         agent_id="bot",
         contracts=contracts,
         verbose=False,
@@ -131,7 +131,7 @@ class TestFinishSessionIdempotency:
 class TestFinishSessionAssumptionGating:
     def test_failed_assumption_hides_liveness_violation(self):
         """Contract: assumption fails → liveness obligation doesn't apply."""
-        guard = sponsio.init(
+        guard = sponsio.Sponsio(
             agent_id="bot",
             contracts=[
                 {
@@ -325,7 +325,7 @@ class TestFinishSessionOTelExport:
             def export(self, span):
                 exported_spans.append(span)
 
-        guard = sponsio.init(
+        guard = sponsio.Sponsio(
             agent_id="bot",
             contracts=["tool `A` must always be followed by `B`"],
             otel_exporter=FakeExporter(),

@@ -22,14 +22,10 @@ def _rate_limit_contracts(n_contracts: int) -> list[str]:
 def _must_precede_contracts(n_contracts: int) -> list[str]:
     # Always satisfied (prefix_i always precedes tool_i), so the formula
     # stays True and must be re-evaluated every turn.
-    return [
-        f"tool `prefix_{i}` must precede `tool_{i}`" for i in range(n_contracts)
-    ]
+    return [f"tool `prefix_{i}` must precede `tool_{i}`" for i in range(n_contracts)]
 
 
-def simulate_session(
-    n_actions: int, n_contracts: int, contract_factory
-) -> float:
+def simulate_session(n_actions: int, n_contracts: int, contract_factory) -> float:
     contracts = contract_factory(n_contracts)
     guard = BaseGuard(agent_id="bench", contracts=contracts, verbose=False)
 
@@ -57,7 +53,9 @@ def main() -> None:
         ("must_precede (U-rooted, fall-through)", _must_precede_contracts),
     ]:
         print(f"\n=== {label} ===")
-        print(f"{'n_actions':>10} {'n_contracts':>12} {'seconds':>10} {'per_call_ms':>14}")
+        print(
+            f"{'n_actions':>10} {'n_contracts':>12} {'seconds':>10} {'per_call_ms':>14}"
+        )
         print("-" * 50)
         for n_actions in [50, 100, 200, 500]:
             for n_contracts in [1, 5, 10]:

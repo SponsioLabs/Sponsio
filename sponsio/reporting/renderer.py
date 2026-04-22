@@ -148,7 +148,7 @@ def _recommendations(report: Report) -> list[str]:
     if report.total_events == 0:
         return [
             "No shadow-mode events yet. Start your agent with "
-            '`sponsio.init(..., mode="observe")` and run some traffic, '
+            '`sponsio.Sponsio(..., mode="observe")` and run some traffic, '
             "then re-run `sponsio report`."
         ]
     if report.observed > 0:

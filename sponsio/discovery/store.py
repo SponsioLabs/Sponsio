@@ -83,7 +83,7 @@ class PatternEntry:
 
 
 def _get_full_registry() -> dict:
-    """Get the full pattern registry with all 14 patterns."""
+    """Get the full pattern registry (constructors for every pattern name)."""
     from sponsio.patterns.library import (
         always_followed_by,
         bounded_retry,
@@ -145,7 +145,9 @@ class PatternStore:
         """Load or create the default store at ``~/.sponsio/patterns.json``.
 
         If the file exists, loads it. Otherwise creates a new store
-        pre-populated with the 14 builtin patterns and saves it.
+        pre-populated with builtin sample rows (one per active pattern
+        family; ``never_together`` is omitted here because it is deprecated
+        in favour of ``mutual_exclusion``) and saves it.
         """
         if _DEFAULT_STORE_FILE.exists():
             return cls.load(_DEFAULT_STORE_FILE)
@@ -414,7 +416,13 @@ class PatternStore:
 
     @classmethod
     def with_builtins(cls, path: Optional[Path] = None) -> PatternStore:
-        """Create a store pre-populated with all 14 builtin patterns."""
+        """Create a store pre-populated with one sample row per *active* pattern.
+
+        ``never_together`` is not seeded: it is deprecated and delegates to
+        ``mutual_exclusion``; including both would be redundant and would emit
+        deprecation noise when formulas are materialised. The name remains in
+        :func:`_get_full_registry` for legacy :class:`PatternEntry` records.
+        """
         store = cls(path=path)
         now = _now_iso()
         registry = _get_full_registry()
@@ -423,7 +431,6 @@ class PatternStore:
         _BUILTIN_SAMPLES = {
             "must_precede": ("A", "B"),
             "always_followed_by": ("A", "B"),
-            "never_together": ("A", "B"),
             "no_reversal": ("A", "B"),
             "requires_permission": ("tool", "perm"),
             "no_data_leak": ("src", "ext"),

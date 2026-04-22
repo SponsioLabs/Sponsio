@@ -1,0 +1,61 @@
+{
+  "name": "@sponsio/scan-ts",
+  "version": "0.1.0",
+  "description": "Static scanner for TypeScript/JavaScript agent tool definitions. Emits OpenAI function-calling JSON consumable by `sponsio scan`.",
+  "license": "Apache-2.0",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "sponsio-scan-ts": "bin/scan.js"
+  },
+  "files": [
+    "dist/",
+    "bin/",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sponsio-ai/sponsio.git",
+    "directory": "ts-scanner"
+  },
+  "bugs": {
+    "url": "https://github.com/sponsio-ai/sponsio/issues"
+  },
+  "homepage": "https://github.com/sponsio-ai/sponsio/tree/main/ts-scanner#readme",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build && npm test",
+    "test": "vitest run",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "release:dry": "npm pack --dry-run"
+  },
+  "keywords": [
+    "sponsio",
+    "agent",
+    "contracts",
+    "langchain",
+    "vercel-ai",
+    "ast",
+    "typescript"
+  ],
+  "dependencies": {
+    "fast-glob": "^3.3.2",
+    "js-yaml": "^4.1.1",
+    "ts-morph": "^23.0.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

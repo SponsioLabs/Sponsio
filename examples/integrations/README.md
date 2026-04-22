@@ -31,11 +31,11 @@ integrations/
 
 ```bash
 # Mock mode — no API key needed
-python examples/integrations/python/vanilla_guard.py
-python examples/integrations/python/claude_agent_guard.py
+python3 examples/integrations/python/vanilla_guard.py
+python3 examples/integrations/python/claude_agent_guard.py
 
 # Real LLM mode
-USE_MOCK=0 GOOGLE_API_KEY=... python examples/integrations/python/langgraph_guard.py
+USE_MOCK=0 GOOGLE_API_KEY=... python3 examples/integrations/python/langgraph_guard.py
 ```
 
 ### TypeScript

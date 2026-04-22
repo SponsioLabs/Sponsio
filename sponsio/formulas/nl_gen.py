@@ -145,6 +145,64 @@ def _to_nl(node) -> str:
     return str(node)
 
 
+# Built-in PII regex fragments (kept in sync with
+# ``sponsio.patterns.library._DEFAULT_PII_PATTERNS``). If every fragment
+# of a user-supplied regex matches one of these — in any order — we
+# render the human labels instead of the raw alternation. Used only by
+# :func:`_atom_nl` to make the `compiled:` banner line readable.
+_PII_FRAGMENTS: dict[str, str] = {
+    "ssn": r"\b\d{3}-\d{2}-\d{4}\b",
+    "credit_card": r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b",
+    "email": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
+    "phone": r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b",
+}
+
+
+def _match_pii_bundle(pattern: str) -> list[str] | None:
+    """If ``pattern`` is exactly an alternation of built-in PII
+    fragments, return the matched labels (in the order they appear).
+    Otherwise return ``None``.
+
+    Splitting on ``|`` is unsafe here because the email fragment
+    contains ``[A-Z|a-z]`` (a pipe inside a character class). Instead
+    we check structurally: find each known fragment in the pattern,
+    verify the matches are non-overlapping, cover the entire pattern
+    (modulo the ``|`` separators), and leave nothing unaccounted for.
+    """
+    frags = list(_PII_FRAGMENTS.items())
+    spans: list[tuple[int, int, str]] = []  # (start, end, name)
+    for name, frag in frags:
+        start = 0
+        while True:
+            idx = pattern.find(frag, start)
+            if idx == -1:
+                break
+            spans.append((idx, idx + len(frag), name))
+            start = idx + len(frag)
+    if not spans:
+        return None
+    spans.sort()
+
+    # Walk the pattern and require: fragment, optional `|`, fragment, ...
+    # with no leftover characters.
+    pos = 0
+    labels: list[str] = []
+    for s, e, name in spans:
+        if s < pos:
+            continue  # overlapping match — skip (shouldn't happen for our set)
+        if s == pos:
+            pass  # tight — first fragment or follows `|`
+        elif s == pos + 1 and pattern[pos] == "|":
+            pass  # separator then fragment
+        else:
+            return None  # gap with unexpected content
+        labels.append(name)
+        pos = e
+    if pos != len(pattern):
+        return None
+    return labels
+
+
 def _atom_nl(atom: Atom) -> str:
     """Generate NL for an atom."""
     pred = atom.predicate
@@ -172,6 +230,12 @@ def _atom_nl(atom: Atom) -> str:
     if pred == "flow" and len(args) == 2:
         return f"data flows from `{args[0]}` to `{args[1]}`"
     if pred == "llm_said" and len(args) == 1:
+        # Special-case the built-in PII regex bundle: dumping the raw
+        # alternation regex in a banner is a wall of backslashes that
+        # looks broken. Detect it and render the human labels instead.
+        pii_labels = _match_pii_bundle(args[0])
+        if pii_labels:
+            return f"LLM output matches PII ({', '.join(pii_labels)})"
         return f"LLM output matches `{args[0]}`"
     if pred == "prompt_contains" and len(args) == 1:
         return f"prompt contains `{args[0]}`"

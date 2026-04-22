@@ -340,7 +340,7 @@ class TestOTelExporter:
         provider, memory = _make_provider_and_memory()
         exporter = OTelExporter(tracer_provider=provider)
 
-        guard = sponsio.init(
+        guard = sponsio.Sponsio(
             agent_id="bot",
             contracts=["tool `A` must always be followed by `B`"],
             otel_exporter=exporter,
@@ -374,7 +374,7 @@ class TestOTelExporter:
         provider, memory = _make_provider_and_memory()
         exporter = OTelExporter(tracer_provider=provider)
 
-        guard = sponsio.init(
+        guard = sponsio.Sponsio(
             agent_id="bot",
             contracts=["tool `A` must always be followed by `B`"],
             otel_exporter=exporter,

@@ -298,7 +298,7 @@ class TestAgainstMonitor:
     def test_verifier_matches_monitor_on_rate_limit(self):
         import sponsio
 
-        guard = sponsio.init(
+        guard = sponsio.Sponsio(
             agent_id="bot",
             contracts=["tool `X` at most 2 times"],
             verbose=False,
@@ -321,7 +321,7 @@ class TestAgainstMonitor:
     def test_verifier_accessible_from_monitor_property(self):
         import sponsio
 
-        guard = sponsio.init(
+        guard = sponsio.Sponsio(
             agent_id="bot",
             contracts=["tool `X` at most 2 times"],
             verbose=False,
@@ -353,8 +353,11 @@ class TestCheckNL:
 
         v = TraceVerifier()
         v.sync(_trace("X"))
+        # Use a truly sto rule — "empathetic" routes through the tone
+        # evaluator (LLM-judged). Per-P2 the regex/length rules are now
+        # det and wouldn't trigger this path.
         with pytest.raises(ValueError, match="sto"):
-            v.check_nl("response must not contain PII")
+            v.check_nl("response must be empathetic")
 
     def test_check_nl_rejects_garbage(self):
         import pytest
@@ -373,7 +376,7 @@ class TestBaseGuardCheckNL:
         """Default behavior: no spans, no side effects."""
         import sponsio
 
-        guard = sponsio.init(
+        guard = sponsio.Sponsio(
             agent_id="bot",
             contracts=["tool `X` at most 3 times"],
             verbose=False,
@@ -390,7 +393,7 @@ class TestBaseGuardCheckNL:
         """emit_spans=True adds a synthetic <check_nl> turn to check_spans."""
         import sponsio
 
-        guard = sponsio.init(
+        guard = sponsio.Sponsio(
             agent_id="bot",
             contracts=["tool `X` at most 3 times"],
             verbose=False,
@@ -411,7 +414,7 @@ class TestBaseGuardCheckNL:
         import sponsio
         from sponsio.models.spans import GuaranteeSpan, ViolationSpan
 
-        guard = sponsio.init(
+        guard = sponsio.Sponsio(
             agent_id="bot",
             contracts=["tool `X` at most 10 times"],
             verbose=False,
@@ -442,7 +445,7 @@ class TestBaseGuardCheckNL:
         """check_nl must never apply a strategy — blocked=False always."""
         import sponsio
 
-        guard = sponsio.init(
+        guard = sponsio.Sponsio(
             agent_id="bot",
             contracts=["tool `X` at most 10 times"],
             verbose=False,
@@ -464,7 +467,7 @@ class TestBaseGuardCheckNL:
             def export(self, span):
                 exported.append(span)
 
-        guard = sponsio.init(
+        guard = sponsio.Sponsio(
             agent_id="bot",
             contracts=["tool `X` at most 3 times"],
             otel_exporter=FakeExporter(),
@@ -488,7 +491,7 @@ class TestBaseGuardCheckNL:
             def export(self, span):
                 exported.append(span)
 
-        guard = sponsio.init(
+        guard = sponsio.Sponsio(
             agent_id="bot",
             contracts=["tool `X` at most 3 times"],
             otel_exporter=FakeExporter(),

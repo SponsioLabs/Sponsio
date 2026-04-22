@@ -56,6 +56,8 @@ export default function Leaderboard() {
     const today = new Date().toDateString();
     filtered = filtered.filter(e => new Date(e.timestamp).toDateString() === today);
   } else if (period === 'week') {
+    // Rolling 7d window from "now" (intentionally wall-clock relative).
+    // eslint-disable-next-line react-hooks/purity -- time-relative filter, not render-idempotent
     const weekAgo = Date.now() - 7 * 86400000;
     filtered = filtered.filter(e => new Date(e.timestamp).getTime() > weekAgo);
   }

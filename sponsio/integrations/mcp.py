@@ -5,7 +5,7 @@ Provides two capabilities:
 2. scan_mcp_tools: generates baseline contracts from MCP server tool definitions.
 
 Usage:
-    from sponsio.integrations.mcp import MCPContractProxy, scan_mcp_tools
+    from sponsio.mcp import MCPContractProxy, scan_mcp_tools
 
     # Auto-generate contracts from MCP tool definitions
     system = scan_mcp_tools(tools_list, agent_id="my_agent")
@@ -100,10 +100,17 @@ class MCPContractProxy:
         mcp_client: Any,
         system: System,
         agent_id: str = "mcp_agent",
+        tag_outputs: bool = True,
+        tag_pii: bool = False,
     ) -> None:
         self._client = mcp_client
         self._monitor = RuntimeMonitor(system=system)
         self._agent_id = agent_id
+        # Auto-tagging of tool outputs — same semantics as BaseGuard
+        # but inlined here because ``MCPContractProxy`` is a standalone
+        # proxy (not a BaseGuard subclass).
+        self._tag_outputs = tag_outputs
+        self._tag_pii = tag_pii
 
     async def call_tool(self, tool_name: str, arguments: dict | None = None) -> dict:
         """Call an MCP tool with contract verification.
@@ -148,6 +155,26 @@ class MCPContractProxy:
             event_type="tool_call",
             metadata={"args": arguments, "content": result},
         )
+
+        # Auto-tag the tool output so ``contains()`` / ``no_data_leak``
+        # contracts bind without manual instrumentation.
+        if self._tag_outputs:
+            from sponsio.integrations.base import _detect_pii_classes
+
+            try:
+                fields = [tool_name]
+                if self._tag_pii:
+                    fields.extend(
+                        cls for cls in _detect_pii_classes(result) if cls not in fields
+                    )
+                self._monitor.check_action(
+                    agent_id=self._agent_id,
+                    action=f"<data_write:{tool_name}>",
+                    event_type="data_write",
+                    metadata={"key": tool_name, "contains": fields},
+                )
+            except Exception:
+                pass
 
         return result
 

@@ -81,6 +81,14 @@ class GroundingState:
     data_stores: dict[str, dict] = field(default_factory=dict)
     flow_pairs: set[tuple[str, str]] = field(default_factory=set)
     active_flows: set[str] = field(default_factory=set)
+    # Pre-encoded ``"contains(field)"`` keys that should be
+    # forward-propagated to every future timestep.  ``contains`` is
+    # set on a ``data_write`` event; without forward propagation the
+    # predicate would be true for exactly that one timestep, which
+    # makes formulas like ``no_data_leak`` —
+    # ``G(contains(x) -> !flow(x, ext))`` — practically unfireable
+    # because the read/send happens on a *later* timestep.
+    active_contains: set[str] = field(default_factory=set)
     # Layer 2 accumulators
     token_count: dict[str, int] = field(default_factory=dict)  # L2.1
     delegation_depth: int = 0  # L2.4
@@ -94,6 +102,7 @@ class GroundingState:
         self.data_stores.clear()
         self.flow_pairs.clear()
         self.active_flows.clear()
+        self.active_contains.clear()
         self.token_count.clear()
         self.delegation_depth = 0
         self.consecutive_counts.clear()
@@ -398,6 +407,12 @@ def ground_event(
                     pattern = args_tuple[0]
                     matched = bool(re.search(pattern, content_str))
                     v[pred_key("llm_said", *args_tuple)] = matched
+        # P2: Response length — always populated on llm_response events.
+        # These are unparameterized Var keys consumed by max_length() pattern.
+        if event.content:
+            content_str = str(event.content)
+            v["response_words"] = len(content_str.split())
+            v["response_chars"] = len(content_str)
 
     # ── P2: LLM request — prompt_contains(pattern) + structural ─
     elif event.event_type == "llm_request":
@@ -503,15 +518,22 @@ def ground_event(
     for tool, cnt in state.consecutive_counts.items():
         v[pred_key("consecutive_count", tool)] = cnt
 
-    # ── flow forward-propagation ───────────────────────────────
-    # First capture any new flows this event added to active set,
-    # then write *all* active flows into this valuation (they stay
-    # true from their introduction onwards).
+    # ── flow / contains forward-propagation ────────────────────
+    # First capture any new flows / contains predicates this event
+    # added, then write *all* active ones into this valuation —
+    # both stay true from their introduction onwards.  This makes
+    # ``no_data_leak`` (``G(contains(x) -> !flow(x, ext))``) actually
+    # fire when the write at t=N is followed by an exfil at t=M>N.
     for key, val in list(v.items()):
-        if key.startswith("flow(") and val:
-            state.active_flows.add(key)
+        if val:
+            if key.startswith("flow("):
+                state.active_flows.add(key)
+            elif key.startswith("contains("):
+                state.active_contains.add(key)
     for fk in state.active_flows:
         v[fk] = True
+    for ck in state.active_contains:
+        v[ck] = True
 
     return v
 

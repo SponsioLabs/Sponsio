@@ -8,9 +8,9 @@ a system message explaining why.
 Usage::
 
     from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
-    from sponsio.integrations.claude_agent import ClaudeAgentGuard
+    from sponsio.claude_agent import Sponsio
 
-    guard = ClaudeAgentGuard(config="sponsio.yaml")
+    guard = Sponsio(config="sponsio.yaml")
 
     options = ClaudeAgentOptions(hooks=guard.hooks())
 
@@ -19,14 +19,11 @@ Usage::
         async for message in client.receive_response():
             print(message)
 
-Or via ``sponsio.init()``::
+Or explicitly::
 
-    import sponsio
+    from sponsio.claude_agent import Sponsio
 
-    guard = sponsio.init(
-        framework="claude_agent",
-        config="sponsio.yaml",
-    )
+    guard = Sponsio(config="sponsio.yaml")
     options = ClaudeAgentOptions(hooks=guard.hooks())
 """
 
@@ -35,7 +32,6 @@ from __future__ import annotations
 from typing import Any
 
 from sponsio.integrations.base import BaseGuard, CheckResult
-from sponsio.models.contract import Contract
 from sponsio.models.system import System
 from sponsio.runtime.evaluators import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
@@ -64,7 +60,7 @@ class ClaudeAgentGuard(BaseGuard):
     def __init__(
         self,
         agent_id: str = "agent",
-        contracts: list[dict | Contract | str] | None = None,
+        contracts: list[Any] | None = None,
         config: str | None = None,
         system: System | None = None,
         policy: dict[str, EnforcementStrategy] | None = None,
@@ -160,6 +156,100 @@ class ClaudeAgentGuard(BaseGuard):
             "PreToolUse": [HookMatcher(hooks=[pre_tool_hook])],
             "PostToolUse": [HookMatcher(hooks=[post_tool_hook])],
         }
+
+    # -----------------------------------------------------------------
+    # LLM response observation — needed for sto atoms like injection_free
+    # whose context_scope="event" / "full_trace" expect llm_response
+    # events in the trace. PreToolUse / PostToolUse hooks only cover
+    # tool calls, not model-produced messages. Users must stream
+    # assistant messages into the guard via observe_message().
+    # -----------------------------------------------------------------
+
+    def observe_message(self, message: Any) -> None:
+        """Feed an assistant message from ``client.receive_response()`` into
+        the guard's trace so sto atoms can evaluate LLM output.
+
+        The Claude Agent SDK delivers model responses through a message
+        stream, not through hooks. Call this on each ``AssistantMessage``
+        you receive so sto atoms like ``injection_free`` /
+        ``scope_respect`` / ``toxic_free`` actually fire:
+
+        .. code-block:: python
+
+            from claude_agent_sdk import AssistantMessage, ClaudeSDKClient, query
+
+            async for msg in client.receive_response():
+                if isinstance(msg, AssistantMessage):
+                    guard.observe_message(msg)
+                # user keeps processing msg as normal...
+
+        Non-assistant messages and messages without text content are
+        silently ignored — safe to call on every message from the stream.
+
+        Args:
+            message: An SDK message object; expected to be an
+                ``AssistantMessage`` with ``.content`` (list of text
+                blocks). Strings are also accepted as a shortcut for
+                ad-hoc content.
+        """
+        # Extract text from the message. The SDK's AssistantMessage
+        # carries .content as a list of TextBlock / ToolUseBlock /
+        # ThinkingBlock; we take text blocks only.
+        text = ""
+        if isinstance(message, str):
+            text = message
+        else:
+            content = getattr(message, "content", None)
+            if isinstance(content, str):
+                text = content
+            elif isinstance(content, list):
+                parts = []
+                for block in content:
+                    # Handle TextBlock-like (text attribute) or dicts
+                    block_text = getattr(block, "text", None)
+                    if block_text is None and isinstance(block, dict):
+                        block_text = block.get("text")
+                    if block_text:
+                        parts.append(str(block_text))
+                text = "\n\n".join(parts)
+        if not text:
+            return
+        try:
+            self.observe_llm_call(response=text)
+        except Exception:
+            # Swallow — sto failures shouldn't crash the agent loop.
+            # Violations are already in the monitor's event log.
+            pass
+
+    def observe_stream(self, stream):
+        """Wrap an assistant-message stream to transparently observe
+        each message.
+
+        Usage::
+
+            async for msg in guard.observe_stream(client.receive_response()):
+                # msg is yielded unchanged; guard has already observed it
+                ...
+
+        Works with both sync and async iterables.
+        """
+        import inspect
+
+        if inspect.isasyncgen(stream) or hasattr(stream, "__anext__"):
+
+            async def _agen():
+                async for msg in stream:
+                    self.observe_message(msg)
+                    yield msg
+
+            return _agen()
+
+        def _gen():
+            for msg in stream:
+                self.observe_message(msg)
+                yield msg
+
+        return _gen()
 
     def wrap(self, tools: Any = None) -> dict:
         """Return hooks dict (alias for :meth:`hooks`).

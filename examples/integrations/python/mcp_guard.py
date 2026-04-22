@@ -8,7 +8,7 @@ Usage:
     python examples/integrations/mcp_guard.py                            # Mock mode
     USE_MOCK=0 GOOGLE_API_KEY=... python examples/integrations/mcp_guard.py
 
-Note: MCP is an async protocol. In mock mode, we use sponsio.init() with
+Note: MCP is an async protocol. In mock mode, we use sponsio.Sponsio() with
 guard_before/guard_after (same as all other integrations). In real mode,
 MCPContractProxy wraps the MCP client for transparent enforcement.
 """
@@ -23,47 +23,64 @@ import warnings
 warnings.filterwarnings("ignore")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from shared import USE_MOCK
+from shared import USE_MOCK  # noqa: E402  (path hack above)
+from sponsio import contract  # noqa: E402
 
 CONTRACTS = [
-    "tool `read_database` must precede `write_external_api`",
-    "tool `send_email` at most 2 times",
+    # Conditional (A, E) pair — assumption triggers the enforcement
+    contract("read DB before writing to external API")
+    .assume("called `write_external_api`")
+    .enforce("must call `read_database` before `write_external_api`"),
+    # Unconditional rate limit — no .assume(), only .enforce()
+    contract("email rate limit").enforce("tool `send_email` at most 2 times"),
 ]
 
 
 # -- Mock MCP tools (plain functions) -----------------------------------------
 
+
 def read_database(table: str) -> dict:
     return {"rows": 42, "table": table}
+
 
 def write_external_api(data: str) -> dict:
     return {"status": "ok", "data": data}
 
+
 def send_email(to: str) -> dict:
     return {"sent": True, "to": to}
 
-TOOLS = {"read_database": read_database, "write_external_api": write_external_api, "send_email": send_email}
+
+TOOLS = {
+    "read_database": read_database,
+    "write_external_api": write_external_api,
+    "send_email": send_email,
+}
 
 
-# -- Mock mode: sponsio.init() + guard_before/after ---------------------------
+# -- Mock mode: sponsio.Sponsio() + guard_before/after ------------------------
+
 
 def run_mock():
     import sponsio
 
     # ======== Add Sponsio: 3 lines ========
-    guard = sponsio.init(
+    guard = sponsio.Sponsio(
         agent_id="mcp_agent",
         contracts=CONTRACTS,
     )
     # =======================================
 
     calls = [
-        ("write_external_api", {"data": "batch_1"}),   # blocked: read_database not called
-        ("read_database", {"table": "customers"}),      # allowed
-        ("write_external_api", {"data": "batch_1"}),   # allowed
-        ("send_email", {"to": "alice@corp.com"}),       # allowed (1/2)
-        ("send_email", {"to": "bob@corp.com"}),         # allowed (2/2)
-        ("send_email", {"to": "carol@corp.com"}),       # blocked: rate limit
+        (
+            "write_external_api",
+            {"data": "batch_1"},
+        ),  # blocked: read_database not called
+        ("read_database", {"table": "customers"}),  # allowed
+        ("write_external_api", {"data": "batch_1"}),  # allowed
+        ("send_email", {"to": "alice@corp.com"}),  # allowed (1/2)
+        ("send_email", {"to": "bob@corp.com"}),  # allowed (2/2)
+        ("send_email", {"to": "carol@corp.com"}),  # blocked: rate limit
     ]
 
     for tool_name, args in calls:
@@ -77,11 +94,14 @@ def run_mock():
 
 # -- Real mode: MCPContractProxy wraps MCP client -----------------------------
 
+
 class MockMCPClient:
     """Simulates an MCP server with 3 tools."""
 
     async def call_tool(self, tool_name: str, arguments: dict) -> dict:
-        return TOOLS.get(tool_name, lambda **kw: {"error": f"Unknown: {tool_name}"})(**arguments)
+        return TOOLS.get(tool_name, lambda **kw: {"error": f"Unknown: {tool_name}"})(
+            **arguments
+        )
 
     async def list_tools(self) -> list:
         return [
@@ -94,7 +114,7 @@ class MockMCPClient:
 async def run_real():
     from google import genai
     from google.genai import types
-    from sponsio.integrations.mcp import MCPContractProxy
+    from sponsio.mcp import MCPContractProxy
     from sponsio.models.agent import Agent
     from sponsio.models.contract import Contract
     from sponsio.models.system import System
@@ -116,48 +136,74 @@ async def run_real():
     proxy = MCPContractProxy(mcp_client=MockMCPClient(), system=system)
     client = genai.Client(api_key=api_key)
 
-    gemini_tools = [types.Tool(function_declarations=[
-        types.FunctionDeclaration(
-            name="read_database",
-            description="Read data from the internal database",
-            parameters=types.Schema(type="OBJECT", properties={
-                "table": types.Schema(type="STRING"),
-            }, required=["table"]),
-        ),
-        types.FunctionDeclaration(
-            name="write_external_api",
-            description="Write data to the external partner API",
-            parameters=types.Schema(type="OBJECT", properties={
-                "data": types.Schema(type="STRING"),
-            }, required=["data"]),
-        ),
-        types.FunctionDeclaration(
-            name="send_email",
-            description="Send an email notification",
-            parameters=types.Schema(type="OBJECT", properties={
-                "to": types.Schema(type="STRING"),
-            }, required=["to"]),
-        ),
-    ])]
+    gemini_tools = [
+        types.Tool(
+            function_declarations=[
+                types.FunctionDeclaration(
+                    name="read_database",
+                    description="Read data from the internal database",
+                    parameters=types.Schema(
+                        type="OBJECT",
+                        properties={
+                            "table": types.Schema(type="STRING"),
+                        },
+                        required=["table"],
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="write_external_api",
+                    description="Write data to the external partner API",
+                    parameters=types.Schema(
+                        type="OBJECT",
+                        properties={
+                            "data": types.Schema(type="STRING"),
+                        },
+                        required=["data"],
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="send_email",
+                    description="Send an email notification",
+                    parameters=types.Schema(
+                        type="OBJECT",
+                        properties={
+                            "to": types.Schema(type="STRING"),
+                        },
+                        required=["to"],
+                    ),
+                ),
+            ]
+        )
+    ]
 
     config = types.GenerateContentConfig(
-        tools=gemini_tools, temperature=0.0,
+        tools=gemini_tools,
+        temperature=0.0,
         system_instruction=(
             "You are a data pipeline agent. Execute requested operations. "
             "If a tool is blocked, read the error and call the required tool first."
         ),
     )
 
-    history = [types.Content(role="user", parts=[
-        types.Part(text=(
-            "Sync customer data to partner API and email alice@corp.com, "
-            "bob@corp.com, and carol@corp.com. Write to API first, skip the database read."
-        )),
-    ])]
+    history = [
+        types.Content(
+            role="user",
+            parts=[
+                types.Part(
+                    text=(
+                        "Sync customer data to partner API and email alice@corp.com, "
+                        "bob@corp.com, and carol@corp.com. Write to API first, skip the database read."
+                    )
+                ),
+            ],
+        )
+    ]
 
     for _turn in range(10):
         resp = client.models.generate_content(
-            model="gemini-2.0-flash", contents=history, config=config,
+            model="gemini-2.0-flash",
+            contents=history,
+            config=config,
         )
         parts = resp.candidates[0].content.parts
 
@@ -179,21 +225,33 @@ async def run_real():
 
             if isinstance(result, dict) and result.get("error"):
                 print(f"  \033[91m\u2717 BLOCKED\033[0m {result['error']}")
-                tool_results.append(types.Part(function_response=types.FunctionResponse(
-                    name=fc.name,
-                    response={"error": f"{result['error']}. Fix: call required tool first."},
-                )))
+                tool_results.append(
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            name=fc.name,
+                            response={
+                                "error": f"{result['error']}. Fix: call required tool first."
+                            },
+                        )
+                    )
+                )
             else:
                 print(f"  \033[92m\u2713 OK\033[0m {result}")
-                tool_results.append(types.Part(function_response=types.FunctionResponse(
-                    name=fc.name, response={"result": result},
-                )))
+                tool_results.append(
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            name=fc.name,
+                            response={"result": result},
+                        )
+                    )
+                )
 
         history.append(resp.candidates[0].content)
         history.append(types.Content(role="user", parts=tool_results))
 
 
 # -- Main --------------------------------------------------------------------
+
 
 def main():
     if USE_MOCK:

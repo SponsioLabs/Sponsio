@@ -5,11 +5,15 @@ using the SDK's native tool execution flow.
 
 Usage::
 
-    from sponsio.integrations.agents import AgentsSDKGuard
+    from sponsio import contract
+    from sponsio.agents import Sponsio
 
-    guard = AgentsSDKGuard(contracts=[
-        "tool `check_policy` must precede `issue_refund`",
-        "tool `issue_refund` must not be called more than once",
+    guard = Sponsio(contracts=[
+        contract("policy gate before refund")
+            .assume("called `issue_refund`")
+            .enforce("must call `check_policy` before `issue_refund`"),
+        contract("refund rate limit")
+            .enforce("tool `issue_refund` at most 1 times"),
     ])
 
     # Wrap tools — contract enforcement is transparent
@@ -37,7 +41,6 @@ import inspect
 from typing import Any, Callable
 
 from sponsio.integrations.base import BaseGuard, CheckResult
-from sponsio.models.contract import Contract
 from sponsio.models.system import System
 from sponsio.runtime.evaluators import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
@@ -65,7 +68,7 @@ class AgentsSDKGuard(BaseGuard):
     def __init__(
         self,
         agent_id: str = "agent",
-        contracts: list[dict | Contract | str] | None = None,
+        contracts: list[Any] | None = None,
         system: System | None = None,
         policy: dict[str, EnforcementStrategy] | None = None,
         sto_evaluator: StoEvaluator | None = None,
@@ -164,7 +167,9 @@ class AgentsSDKGuard(BaseGuard):
 
         Example::
 
-            guard = sponsio.init(config="sponsio.yaml", framework="agents_sdk")
+            from sponsio.agents import Sponsio
+
+            guard = Sponsio(config="sponsio.yaml")
             agent = Agent(tools=guard.wrap(tools), instructions=...)
 
         Args:

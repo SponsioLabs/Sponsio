@@ -147,7 +147,7 @@ class TestFrameworkRegistry:
     def test_init_vercel_ai(self):
         import sponsio
 
-        guard = sponsio.init(
+        guard = sponsio.Sponsio(
             framework="vercel_ai",
             agent_id="test_bot",
             contracts=["tool `A` must precede `B`"],
@@ -158,7 +158,7 @@ class TestFrameworkRegistry:
     def test_init_vercel_ai_hyphen(self):
         import sponsio
 
-        guard = sponsio.init(
+        guard = sponsio.Sponsio(
             framework="vercel-ai",
             agent_id="test_bot",
             contracts=["tool `A` must precede `B`"],

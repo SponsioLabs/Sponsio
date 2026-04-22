@@ -63,7 +63,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const stored = localStorage.getItem('sponsio_pending_suggestions');
       return stored ? JSON.parse(stored) : [];
-    } catch { return []; }
+    } catch { /* corrupt storage */ return []; }
   });
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -72,20 +72,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const stored = localStorage.getItem('sponsio_scan_form');
       return stored ? JSON.parse(stored) : { agentName: '', displayName: '', isPublic: true, activeTab: 'paste', toolsJson: ''};
-    } catch { return { agentName: '', displayName: '', isPublic: true, activeTab: 'paste', toolsJson: ''}; }
+    } catch { /* corrupt storage */ return { agentName: '', displayName: '', isPublic: true, activeTab: 'paste', toolsJson: ''}; }
   });
 
   const [rulebookForm, setRulebookFormState] = useState<RulebookFormState>(() => {
     try {
       const stored = localStorage.getItem('sponsio_rulebook_form');
       return stored ? JSON.parse(stored) : { agentId: 'bot', nlText: '' };
-    } catch { return { agentId: 'bot', nlText: '' }; }
+    } catch { /* corrupt storage */ return { agentId: 'bot', nlText: '' }; }
   });
 
   const setScanForm = useCallback((partial: Partial<ScanFormState>) => {
     setScanFormState(prev => {
       const next = { ...prev, ...partial };
-      try { localStorage.setItem('sponsio_scan_form', JSON.stringify(next)); } catch {}
+      try { localStorage.setItem('sponsio_scan_form', JSON.stringify(next)); } catch { /* quota / private mode */ }
       return next;
     });
   }, []);
@@ -93,7 +93,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setRulebookForm = useCallback((partial: Partial<RulebookFormState>) => {
     setRulebookFormState(prev => {
       const next = { ...prev, ...partial };
-      try { localStorage.setItem('sponsio_rulebook_form', JSON.stringify(next)); } catch {}
+      try { localStorage.setItem('sponsio_rulebook_form', JSON.stringify(next)); } catch { /* quota / private mode */ }
       return next;
     });
   }, []);
@@ -115,12 +115,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setPendingSuggestions = useCallback((s: SuggestedContract[]) => {
     setPendingSuggestionsState(s);
-    try { localStorage.setItem('sponsio_pending_suggestions', JSON.stringify(s)); } catch {}
+    try { localStorage.setItem('sponsio_pending_suggestions', JSON.stringify(s)); } catch { /* quota / private mode */ }
   }, []);
 
   const clearPendingSuggestions = useCallback(() => {
     setPendingSuggestionsState([]);
-    try { localStorage.removeItem('sponsio_pending_suggestions'); } catch {}
+    try { localStorage.removeItem('sponsio_pending_suggestions'); } catch { /* quota / private mode */ }
   }, []);
 
   const addToast = useCallback((message: string, type: Toast['type'] = 'info') => {
@@ -138,8 +138,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Initial system fetch + periodic health check
   useEffect(() => {
-    refreshSystem();
-    const id = setInterval(refreshSystem, 30000);
+    queueMicrotask(() => {
+      void refreshSystem();
+    });
+    const id = setInterval(() => {
+      void refreshSystem();
+    }, 30000);
     return () => clearInterval(id);
   }, [refreshSystem]);
 

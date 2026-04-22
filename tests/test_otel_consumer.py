@@ -141,7 +141,7 @@ class TestOtelToTrace:
         """Verify the example trace files still parse correctly."""
         import json
 
-        with open("examples/traces/good_trace.json") as f:
+        with open("tests/fixtures/traces/good_trace.json") as f:
             data = json.load(f)
         trace = otel_to_trace(data)
         assert len(trace.events) == 2

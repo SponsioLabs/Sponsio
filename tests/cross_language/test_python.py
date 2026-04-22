@@ -26,7 +26,7 @@ class TestCrossLanguageScenarios:
     @pytest.mark.parametrize("scenario", SCENARIOS, ids=[s["name"] for s in SCENARIOS])
     def test_scenario_guard_before(self, scenario):
         """Test guard_before decisions match expected values."""
-        guard = self._sponsio.init(
+        guard = self._sponsio.Sponsio(
             agent_id="xtest",
             contracts=scenario["contracts"],
             verbose=False,

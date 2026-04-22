@@ -1,0 +1,45 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "customer_bot"
+            }
+          }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "sponsio"
+          },
+          "spans": [
+            {
+              "traceId": "exampletrace0001",
+              "spanId": "span00",
+              "name": "verify_identity",
+              "startTimeUnixNano": "1000000000",
+              "endTimeUnixNano": "1500000000",
+              "status": {
+                "code": 1
+              }
+            },
+            {
+              "traceId": "exampletrace0001",
+              "spanId": "span01",
+              "name": "lookup_order",
+              "startTimeUnixNano": "2000000000",
+              "endTimeUnixNano": "2500000000",
+              "status": {
+                "code": 1
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

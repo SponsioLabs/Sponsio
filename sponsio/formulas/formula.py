@@ -21,7 +21,7 @@ All nodes are frozen dataclasses (immutable, hashable).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Union
+from typing import Literal, Union
 
 from sponsio.formulas._pred_key import pred_key
 
@@ -66,16 +66,56 @@ class Atom(FormulaMixin):
         predicate: Name of the predicate (e.g. ``"called"``).
         args: Positional arguments to the predicate.
         desc: Optional human-readable description.
+        atom_type: ``"det"`` (default) or ``"sto"``. Det atoms ground to
+            bool and are evaluated by the LTL/DFA evaluator. Sto atoms
+            ground to float in [0,1] via a registered evaluator and flow
+            through ``eval_sto_confidence`` lifting. The det execution
+            path does NOT read this field, so existing det contracts are
+            unaffected.
+        output_type: For sto atoms only — ``"classify"`` (yes/no with
+            confidence) or ``"score"`` (continuous magnitude).
+        context_scope: For sto atoms only — what slice of the trace the
+            evaluator needs: single event, last k, full trace, or
+            input-output bundle.
+        context_k: For sto atoms with ``context_scope="last_k"``.
+        prompt_override: For sto atoms only — a domain-specific yes/no
+            question that replaces the evaluator's built-in prompt. The
+            generic prompts in ``sto_catalog`` target single-turn QA; for
+            domain-specific use (e.g. customer-service SOP compliance)
+            they tend to over-fire. Pass a tailored prompt here to
+            narrow the judge's question without having to register a new
+            atom. Non-sto atoms ignore this field.
     """
 
     predicate: str
     args: tuple[str, ...]
     desc: str = ""
+    atom_type: Literal["det", "sto"] = "det"
+    output_type: Literal["classify", "score"] | None = None
+    context_scope: Literal["event", "last_k", "full_trace", "io_bundle"] | None = None
+    context_k: int | None = None
+    prompt_override: str | None = None
 
-    def __init__(self, predicate: str, *args: str, desc: str = ""):
+    def __init__(
+        self,
+        predicate: str,
+        *args: str,
+        desc: str = "",
+        atom_type: Literal["det", "sto"] = "det",
+        output_type: Literal["classify", "score"] | None = None,
+        context_scope: Literal["event", "last_k", "full_trace", "io_bundle"]
+        | None = None,
+        context_k: int | None = None,
+        prompt_override: str | None = None,
+    ):
         object.__setattr__(self, "predicate", predicate)
         object.__setattr__(self, "args", args)
         object.__setattr__(self, "desc", desc)
+        object.__setattr__(self, "atom_type", atom_type)
+        object.__setattr__(self, "output_type", output_type)
+        object.__setattr__(self, "context_scope", context_scope)
+        object.__setattr__(self, "context_k", context_k)
+        object.__setattr__(self, "prompt_override", prompt_override)
 
     def __repr__(self) -> str:
         args_str = ", ".join(repr(a) for a in self.args)

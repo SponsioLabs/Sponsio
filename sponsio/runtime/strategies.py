@@ -60,6 +60,11 @@ class EnforcementResult:
     message: str
     retry_prompt: str | None = None
     fallback_action: Any | None = None
+    # Sto-pipeline extras — populated when a stochastic enforcement
+    # triggered this result. Reporters / dashboards surface these to
+    # explain "violation flagged, confidence 0.42 vs β=0.9".
+    score: float | None = None
+    threshold: float | None = None
 
 
 @runtime_checkable

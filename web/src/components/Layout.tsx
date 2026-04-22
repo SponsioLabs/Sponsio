@@ -112,7 +112,9 @@ export default function Layout() {
   }, [dark]);
 
   useEffect(() => {
-    setSidebarOpen(false);
+    queueMicrotask(() => {
+      setSidebarOpen(false);
+    });
   }, [location.pathname]);
 
   const sidebarWidth = collapsed ? 'w-16' : 'w-56';

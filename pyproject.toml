@@ -1,14 +1,14 @@
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools>=77.0", "packaging>=24.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "sponsio"
-version = "0.1.0a2"
+version = "0.1.0a0"
 description = "Runtime contract enforcement for LLM agent systems"
 readme = "README.md"
-requires-python = ">=3.9"
-license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+license = "Apache-2.0"
 authors = [
     {name = "Sponsio Contributors"},
 ]
@@ -25,9 +25,7 @@ keywords = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -43,31 +41,23 @@ sponsio = "sponsio.cli:main"
 Homepage = "https://github.com/SponsioLabs/Sponsio"
 Repository = "https://github.com/SponsioLabs/Sponsio"
 Issues = "https://github.com/SponsioLabs/Sponsio/issues"
-Documentation = "https://github.com/SponsioLabs/Sponsio/tree/main/docs"
-Changelog = "https://github.com/SponsioLabs/Sponsio/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 langgraph = ["langgraph", "langchain-core"]
 llm = ["openai>=1.0"]
 crewai = ["crewai"]
 agents = ["openai-agents"]
+agents-sdk = ["openai-agents"]
 claude-agent = ["claude-agent-sdk"]
-# NOTE: `vercel-ai` extra removed — the Vercel AI SDK is JavaScript-only; the
-# Python integration (`sponsio/integrations/vercel_ai.py`) is kept as a stub for
-# cross-language API parity but has no installable Python dependency.
+vercel-ai = ["vercel-ai-sdk"]
 web = ["fastapi>=0.100", "uvicorn[standard]>=0.20", "python-multipart>=0.0.6"]
 config = ["pyyaml>=6.0"]
+pdf = ["pdfplumber>=0.10"]
+calibration = ["scikit-learn>=1.3"]
 otel = [
     "opentelemetry-api>=1.20",
     "opentelemetry-sdk>=1.20",
     "opentelemetry-exporter-otlp-proto-http>=1.20",
-]
-dev = [
-    "pytest>=7.0",
-    "pytest-cov>=4.0",
-    "ruff>=0.1.0",
-    "build>=1.0",
-    "twine>=4.0",
 ]
 all = [
     "langgraph", "langchain-core",
@@ -75,18 +65,28 @@ all = [
     "crewai",
     "openai-agents",
     "claude-agent-sdk",
+    "vercel-ai-sdk",
     "fastapi>=0.100", "uvicorn[standard]>=0.20", "python-multipart>=0.0.6",
     "opentelemetry-api>=1.20",
     "opentelemetry-sdk>=1.20",
     "opentelemetry-exporter-otlp-proto-http>=1.20",
     "pyyaml>=6.0",
+    "pdfplumber>=0.10",
+    "scikit-learn>=1.3",
 ]
 
 [tool.setuptools.packages.find]
 include = ["sponsio*"]
 
 [tool.setuptools.package-data]
-sponsio = ["py.typed"]
+sponsio = [
+    "py.typed",
+    # Bundled scaffolding for `sponsio init --with-example`.
+    # Mirror of `examples/eval/` (kept in sync by
+    # `scripts/sync_init_examples.py` + `tests/test_init_examples_sync.py`).
+    "init_examples/eval/*",
+    "init_examples/eval/traces/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

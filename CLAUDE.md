@@ -1,345 +1,193 @@
-# Sponsio
+# Agent Guide for Sponsio
 
-Runtime contract enforcement for LLM agent systems. Natural language → LTL formal contracts → dual-pipeline runtime enforcement.
+This file is for LLM coding agents and repo-reading assistants. It is meant to help you answer questions about Sponsio accurately and make code changes without breaking the architecture.
 
-> This file lives at the root of the **public** `SponsioLabs/Sponsio` repo. Every line here ships to the world. Do NOT reference internal-only files (anything under `internal/`, or `STATUS.md`, `PLAN.md`, `LAUNCH_*.md`, `sponsio-code-review.md`) from this doc — they are gitignored and not visible to OSS contributors.
+## What Sponsio Is
 
-## Repo State
+Sponsio is a runtime contract layer for LLM apps and agents.
 
-- **Latest PyPI release**: `0.1.0a2` (alpha — users install with `pip install --pre sponsio`).
-- **Branch protection on `main`**: direct pushes blocked; all changes go through PRs. Force-push and branch deletion disabled. Required approvals = 0 (maintainers can self-merge after the PR checklist; external PRs need a maintainer to merge).
-- **GitHub defaults enabled**: Secret scanning, push protection, Dependabot alerts.
-- **CI**: `.github/workflows/ci.yml` runs `pytest` + ruff on Python 3.10/3.11/3.12, plus the TypeScript SDK cross-language parity tests. Required before merge.
+Its core job is **pre-execution enforcement for LLM tool/action behavior**:
+before a model-driven system calls a tool, edits a file, hits an API, writes to a database, issues a refund, approves a loan, or triggers any side effect, Sponsio checks the current trace against contracts.
 
-## Build & Test
+The main public entrypoint is:
 
-```bash
-pip install -e ".[all]"          # install with all integrations
-pytest -v                        # run all 789+ tests
-pytest --cov=sponsio -v          # with coverage
-ruff check sponsio/ api/ tests/  # lint
-ruff format sponsio/ api/ tests/ # format
+```python
+import sponsio
+
+guard = sponsio.Sponsio(...)
 ```
 
-Frontend: `cd web && npm install && npm run dev`
-Dashboard: `sponsio serve` (API :8000, Swagger :8000/docs) or `sponsio serve --dev` (+ frontend :5173)
-TS SDK: `cd ts-sdk && npm install && npx tsc && node dist/__tests__/core.test.js`
+Sponsio also supports stochastic constraints for fuzzy properties such as tone, relevance, semantic PII, scope respect, hallucination, and metric integrity. Deterministic contracts are the hot path for blocking unsafe actions; stochastic contracts provide scored feedback/retry behavior for output and semantic checks.
 
-## Architecture Overview
+## Positioning
 
-The package and import path is `sponsio`.
+When explaining Sponsio, emphasize:
 
-```
+- **Action-boundary enforcement**: Sponsio checks tool/action calls before side effects happen.
+- **Temporal trace contracts**: Rules can express ordering and history, such as "A before B", "never B after A", "at most N calls", or "after AML check, loan files are immutable".
+- **Deterministic hot path**: Det checks are pure Python and do not call an LLM at runtime.
+- **Framework optionality**: Users do not need an agent framework. Custom function-calling loops can use `guard.guard_before()` / `guard.guard_after()` directly.
+- **Sto as a second pipeline**: Sponsio also supports LLM-judged stochastic atoms for fuzzy response/trace properties when deterministic checks are not enough.
+
+Do **not** describe Sponsio as only an output assertion library, only a prompt guardrail, or primarily a drift/reliability scoring framework. A concise distinction:
+
+> Sponsio focuses on the action boundary: checking tool calls before they execute, not only auditing outputs after the fact.
+
+## What To Read First
+
+For product-level questions:
+
+- `README.md` — public positioning, quick start, demos, benchmarks
+- `docs/getting-started.md` — install and first integration
+- `docs/cli.md` — `sponsio scan`, `validate`, `check`, `demo`, `report`, `serve`
+- `docs/integrations.md` — framework-specific wiring
+
+For architecture and contract questions:
+
+- `docs/architecture.md` — conceptual model, atoms, patterns, grounding, observation boundaries
+- `docs/contracts.md` — deterministic constraints and atom vocabulary
+- `docs/sto-atoms.md` — stochastic atom catalog and framework wiring
+For implementation:
+
+- `sponsio/core.py` — `sponsio.Sponsio()` factory and framework resolution
+- `sponsio/integrations/base.py` — `BaseGuard`, contract compilation, enforcement hooks
+- `sponsio/runtime/monitor.py` — det/sto dispatch and enforcement routing
+- `sponsio/runtime/verifier.py` — trace-aware contract verification
+- `sponsio/patterns/library.py` — deterministic pattern factories
+- `sponsio/patterns/sto_catalog.py` — built-in stochastic evaluators/atoms
+- `sponsio/generation/nl_to_contract.py` — natural-language parsing
+- `sponsio/tracer/grounding.py` — event-to-atom grounding
+- `sponsio/formulas/formula.py` and `sponsio/formulas/evaluator.py` — formula AST and finite-trace evaluator
+
+## Repository Map
+
+```text
 sponsio/
-├── core.py          # Main entry point: sponsio.init() — auto-selects Guard by framework
-├── config.py        # YAML config loader: load_config(), config_to_guard_kwargs()
-├── cli.py           # CLI: sponsio validate, check, serve, demo, patterns, report
-├── formulas/        # LTL AST + evaluators
-│   ├── formula.py       #   Immutable LTL/propositional/arithmetic AST (G, F, X, U, Atom, etc.)
-│   ├── evaluator.py     #   Finite-trace LTL evaluator (weak semantics)
-│   ├── dfa_evaluator.py #   DFA-based evaluator backend (alternative to tree-walk)
-│   ├── parser.py        #   Formula string parser
-│   ├── nl_gen.py        #   Formula → natural language description
-│   ├── _pred_key.py     #   Canonical predicate key format (shared by formula + grounding)
-│   └── fol.py           #   [DEPRECATED] FOL predicate AST — replaced by Atom system
-├── models/          # Core dataclasses: Agent, Contract, System, Trace, Event
-├── patterns/        # 29 det patterns + sto catalog
-│   ├── library.py       #   DetFormula wrappers (must_precede, rate_limit, arg_blacklist, etc.)
-│   ├── soft.py          #   Soft constraint types
-│   ├── soft_catalog.py  #   Soft constraint catalog helpers
-│   ├── sto.py           #   StoFormula dataclass
-│   └── sto_catalog.py   #   Built-in sto evaluators (PII, length, format, tone, relevance, content_prohibition)
-├── runtime/         # Central enforcement
-│   ├── monitor.py   #   RuntimeMonitor — check_action() dispatches to hard + sto pipelines
-│   ├── evaluators.py#   DetEvaluator (hard, binary) + StoEvaluator (soft, 0-1)
-│   ├── strategies.py#   DetBlock, EscalateToHuman, RetryWithConstraint, RedirectToSafe
-│   ├── feedback.py  #   Discriminative feedback generation for soft retry
-│   ├── terminal.py  #   TerminalReporter — real-time CLI output (assume/enforce labels)
-│   ├── verifier.py  #   TraceVerifier — pure LTL evaluation, incremental grounding + G-cache
-│   └── session_log.py #  Shadow-mode JSONL session logger
-├── reporting/       # sponsio report — shadow-mode log reader (reader/aggregator/renderer)
-├── scoring/         # Safety scoring for agent tool configurations
-│   └── scorer.py    #   score_tools(), ToolDef, ScoringReport
-├── generation/      # NL → contract parsing (keyword-based + optional LLM)
-│   ├── nl_to_contract.py  #  Three-stage cascade: rule → sto keyword → LLM
-│   ├── llm_extraction.py  #  UnifiedExtractor (Gemini / OpenAI)
-│   └── structured_ir.py   #  Structured IR compilation (NL → atom-level formula)
-├── tracer/          # Trace collection + grounding (events → predicate valuations)
-├── integrations/    # Framework adapters — ALL inherit BaseGuard (base.py)
-│   ├── base.py      #   Owns: NL parsing → System → Monitor → pre_check/post_check
-│   ├── langgraph.py #   LangGraphGuard + wrap() + wrap_graph() + monitor_graph()
-│   ├── mcp.py       #   MCPContractProxy + scan_mcp_tools
-│   ├── openai.py    #   patch_openai() / unpatch_openai() / OpenAIGuard
-│   ├── crewai.py    #   CrewAIGuard + wrap() + on_tool_start/on_tool_end hooks
-│   ├── agents.py    #   OpenAI Agents SDK: AgentsSDKGuard + wrap()
-│   ├── vercel_ai.py #   Vercel AI SDK: VercelAIGuard + wrap()
-│   ├── claude_agent.py #  Claude Agent SDK guard
-│   └── otel.py      #   OTelExporter — send span trees to any OTEL backend
-└── discovery/       # Auto-extract contracts from docs/traces/code
-    ├── store.py     #   PatternStore — JSON-backed at ~/.sponsio/patterns.json
-    ├── validation.py#   5-step validation pipeline
-    ├── loaders.py   #   File loaders (.txt, .md, .pdf, .json, .py)
-    └── extractors/  #   document.py, trace_mining.py, code_analysis.py
+├── core.py            public entrypoint: sponsio.Sponsio()
+├── cli.py             CLI: scan, validate, check, serve, demo, patterns, report
+├── config.py          YAML config loader
+├── demos/             packaged mock demos used by `sponsio demo`
+├── discovery/         code/docs/traces -> proposed contracts
+├── formulas/          LTL/propositional/arithmetic AST + evaluators
+├── generation/        NL -> contract parsing and optional LLM extraction
+├── integrations/      framework adapters; all contract logic lives in BaseGuard
+├── models/            Agent, Contract, System, Trace, Event, spans
+├── patterns/          deterministic library + stochastic catalog/registry
+├── reporting/         shadow-mode report aggregation/rendering
+├── runtime/           monitor, verifier, strategies, feedback, session logging
+├── scoring/           tool configuration risk scoring
+└── tracer/            event collection and grounding
+
+api/                   FastAPI dashboard backend
+web/                   dashboard frontend
+ts-sdk/                TypeScript det engine and integrations
+docs/                  user-facing documentation
+examples/              source-checkout demos and integration examples
+tests/                 pytest suite
 ```
 
-## Key Conventions
+## Core Invariants
 
-- **Zero core dependencies**: `sponsio/` has no external packages beyond `click` for the CLI. Framework deps (langgraph, openai, etc.) are optional extras.
-- **Contract = assume-guarantee pair**: Never use bare assertions. All contracts have an `assumption` + `enforcement` (or an unconditional enforcement with `assumption=None`).
-- **Det ≠ Sto**: Det violations MUST use `DetBlock` or `EscalateToHuman`. Sto violations MUST use `RetryWithConstraint` or `RedirectToSafe`. `RuntimeMonitor` enforces this — don't bypass.
-- **Trace is the single source of truth**: Every action appends to a linear trace. Grounding converts events → predicate valuations. Evaluator runs LTL over grounded trace.
-- **BaseGuard owns all contract logic**: Subclasses (LangGraph, MCP, etc.) only implement framework-specific interception. Never duplicate pre_check/post_check logic in subclasses.
-- **Pattern naming**: Use snake_case for pattern functions (`must_precede`, `rate_limit`). NL strings use backtick-wrapped tool names: `` tool `name` ``.
-- **License**: Apache 2.0.
+- `sponsio/` core should avoid hard dependencies on framework packages. Framework deps belong in `[project.optional-dependencies]`.
+- Framework adapters should inherit from `BaseGuard` and keep framework-specific code thin.
+- Det violations route through det strategies such as `DetBlock` or `EscalateToHuman`.
+- Sto violations route through sto strategies such as `RetryWithConstraint` or `RedirectToSafe`.
+- The trace is append-only during a session. In enforce mode, a hard-blocked event may be rolled back so later checks are not poisoned.
+- Grounding produces one valuation dict per timestep; formula evaluators consume valuations, not raw events.
 
-## Python ↔ TypeScript Sync
+## Deterministic vs Stochastic
 
-**Python and TS share a 1:1 module mapping for the Det core.** When you change a Python file on the left, you MUST update the corresponding TS file on the right:
+Use deterministic contracts when the property is structurally observable:
+
+- tool ordering
+- rate limits
+- retries/loops
+- destructive action gates
+- path/argument blacklists
+- exact PII regexes, length, format
+- permissions and allowlists
+
+Use stochastic constraints when the property needs semantic judgment:
+
+- tone
+- relevance
+- semantic PII
+- scope respect
+- hallucination
+- faithfulness
+- metric integrity / omission
+
+Do not suggest a judge call for properties that are exactly checkable with regexes, counters, paths, or ordering.
+
+## Python / TypeScript Parity
+
+Python and TypeScript share the deterministic core. When changing these Python files, check the matching TS files:
 
 | Python | TypeScript (`ts-sdk/src/`) |
-|--------|---------------------------|
+|---|---|
 | `sponsio/formulas/formula.py` | `core/formula.ts` |
 | `sponsio/formulas/evaluator.py` | `core/evaluator.ts` |
 | `sponsio/tracer/grounding.py` | `core/grounding.ts` |
 | `sponsio/patterns/library.py` | `core/patterns.ts` |
 | `sponsio/generation/nl_to_contract.py` | `core/nl-parser.ts` |
-| `sponsio/formulas/_pred_key.py` | (inline in `core/formula.ts`) |
 
-Cross-language parity is verified by `tests/cross_language/scenarios.json` — both Python (`tests/cross_language/test_python.py`) and TS (`ts-sdk/src/__tests__/core.test.ts`) read the same scenarios and must produce identical block/allow decisions.
+Cross-language scenarios live in `tests/cross_language/scenarios.json`.
 
-**TS does NOT have**: Sto pipeline, DFA evaluator, TraceVerifier (incremental), OTEL export, dashboard, YAML config loader, LLM extraction. These are Python-only. The TS SDK covers Det runtime enforcement only.
+The TS SDK covers deterministic runtime enforcement. Python currently has the broader surface: sto pipeline, DFA/verifier work, YAML config, discovery, dashboard, OTEL, and reporting.
 
-## Gotchas — Things Claude Gets Wrong
+## Common Tasks
 
-- IMPORTANT: The import path is `sponsio`. `from sponsio.integrations.langgraph import LangGraphGuard`. Prefer `sponsio.init(framework="langgraph", ...)` for new code.
-- IMPORTANT: `DetFormula` wraps a raw `Formula` + description. Use `.formula` to get the raw LTL, `.desc` for the NL string. (`AnnotatedFormula` is a backward-compatible alias.)
-- Do NOT add external dependencies to `sponsio/` core without explicit approval. Optional deps go in `pyproject.toml [project.optional-dependencies]`.
-- When adding a new LTL pattern: update BOTH `sponsio/patterns/library.py` AND `sponsio/generation/nl_to_contract.py` (the NL parser must know about it), AND `ts-sdk/src/core/patterns.ts` + `ts-sdk/src/core/nl-parser.ts` for the TS SDK.
-- `ground()` returns `list[dict[str, bool]]` — one dict per timestep. The evaluator expects this exact shape. Per-event atoms are stored under the canonical predicate keys (the old `prop.*` namespace was removed).
-- When modifying `BaseGuard`: all integration subclasses depend on it. Run the full test suite after changes.
+### Add a deterministic pattern
 
-## Before Starting Any Task
+1. Add a factory to `sponsio/patterns/library.py`.
+2. If it needs a new observable, add atom extraction in `sponsio/tracer/grounding.py`.
+3. Add NL parsing in `sponsio/generation/nl_to_contract.py`.
+4. Add tests for pattern behavior and NL parsing.
+5. Update README/docs if the pattern is public.
+6. Check TypeScript parity if the pattern belongs in the TS det core.
 
-Read the public docs relevant to what you're touching, BEFORE writing code:
+### Add a stochastic atom
 
-| If the task involves... | Read first |
-|------------------------|------------|
-| Architectural changes | `docs/architecture.md` |
-| Contract DSL / adding patterns | `docs/contracts.md` |
-| New integration adapter | `sponsio/integrations/base.py` (full docstring) |
-| CLI changes | `docs/cli.md` |
-| Contribution process | `CONTRIBUTING.md` |
+1. Register it in `sponsio/patterns/sto_catalog.py` with `@register_sto_atom`.
+2. Decide the context scope: event, last_k, or full_trace.
+3. Add tests around evaluator behavior and prompting.
+4. Document wiring in `docs/sto-atoms.md` if user-facing.
 
-## Security Rules — Hard Blockers
+### Add an integration
 
-This is a **public** repo. Every commit is visible to the world, forever.
+1. Create `sponsio/integrations/<framework>.py`.
+2. Inherit from `BaseGuard`.
+3. Only implement framework interception/wrapping; keep contract logic in `BaseGuard`.
+4. Register the framework in `sponsio/core.py`.
+5. Add optional dependencies in `pyproject.toml`.
+6. Add examples/tests/docs.
 
-**Never commit:**
+## Common Pitfalls for AI Assistants
 
-- Credentials or tokens: `sk-*`, `pypi-*`, `ghp_*`, `github_pat_*`, AWS keys, `-----BEGIN*` private keys, `.env` files.
-- Customer or user PII.
-- Unpublished security vulnerabilities — report those through GitHub Security Advisories (see `SECURITY.md`), not in a commit or public issue.
-- Internal strategy docs: roadmap, pricing plans, launch docs, investor materials, code review notes. Those live under `internal/` which is gitignored.
+- The import path is `sponsio`, not `Sponsio`.
+- Prefer the framework-specific factory for new examples — e.g. `from sponsio.langgraph import Sponsio` then `guard = Sponsio(...)`. The generic `sponsio.Sponsio(framework="langgraph", ...)` works too but is less idiomatic.
+- `DetFormula` wraps a raw formula plus metadata. Use `.formula` for the AST and `.desc` for the human-readable description.
+- Do not claim all constraints are deterministic. Sponsio has both det and sto pipelines.
+- Do not claim sto checks are zero-LLM. Some are lightweight, but LLM-judged sto atoms require a configured judge.
+- Do not claim OTEL ingestion can block actions. OTEL-based observation is post-hoc unless combined with framework hooks.
+- Do not claim prompt engineering is unnecessary. Prompting still defines intent; Sponsio enforces action boundaries.
+- Do not invent benchmark numbers. Cite the root `README.md` § Benchmarks table if present, or internal eval notes — detailed benchmark tables are not maintained in the public documentation tree.
+- Do not rely on internal files such as `STATUS.md` or `PLAN.md`; they are not part of the public guide.
 
-The `Pre-push checklist` section below is how this gets enforced in practice.
-
-## Pre-push checklist
-
-Run through this before every merge to `main` — whether you're merging a PR or (as a maintainer with admin bypass) pushing directly. Steps are fast and skipping them has never saved time in aggregate.
-
-### Hard checks — every push
+## Useful Commands
 
 ```bash
-# 1. What am I about to ship?
-git log --oneline origin/main..HEAD
-git diff --stat origin/main..HEAD
-
-# 2. Secret scan — output MUST be empty.
-git diff origin/main..HEAD | grep -iE "sk-|pypi-|ghp_|github_pat_|api[_-]?key|-----BEGIN|aws_secret"
-
-# 3. Internal / ignored-file scan — output MUST be empty.
-git diff --stat origin/main..HEAD | grep -E "internal/|STATUS\.md|PLAN\.md|\.env($|[^.])"
-
-# 4. Tests + lint.
+pip install -e ".[all]"
 pytest -v
 ruff check sponsio/ api/ tests/
-ruff format --check sponsio/ api/ tests/
-```
-
-### Sanity pass
-
-- Is the diff scope what you expected? Any file you don't remember touching?
-- If `sponsio/__init__.py` or `pyproject.toml` is in the diff, version strings must match: `grep -E '^version|__version__' pyproject.toml sponsio/__init__.py`.
-- Commit message matches the diff intent — no leftover `WIP`, `debug`, `temp`.
-- If the diff adds a public API, pattern, integration, or CLI command: `README.md` and `CHANGELOG.md` updated.
-
-### Pushing via Claude Code
-
-If you're driving the push through Claude Code, start the session with this prompt:
-
-```
-Before pushing, walk through the pre-push checklist in CLAUDE.md:
-
-1. `git status` and `git log --oneline origin/main..HEAD` — what's being shipped?
-2. `git diff --stat origin/main..HEAD` — blast radius.
-3. Run:
-   git diff origin/main..HEAD | grep -iE "sk-|pypi-|ghp_|github_pat_|api[_-]?key|-----BEGIN|aws_secret"
-   If output is non-empty, STOP and show me the hit. Do NOT push.
-4. Run:
-   git diff --stat origin/main..HEAD | grep -E "internal/|STATUS\.md|PLAN\.md|\.env"
-   If output is non-empty, STOP and show me the hit. Do NOT push.
-5. `pytest -v` and `ruff check sponsio/ api/ tests/` — both must be clean.
-6. If `sponsio/__init__.py` or `pyproject.toml` is in the diff, confirm the
-   version strings match each other.
-7. Summarize: files touched, lines +/-, any concerns.
-
-Wait for my explicit "push" before running `git push`. If any step fails,
-surface it and wait — do not "fix and retry" silently.
-```
-
-If any hard check fails, fix the root cause and restart the checklist. Never push through a red step.
-
-## PR Flow
-
-Branch protection requires a pull request before merging to `main` for all contributors. Maintainers hold admin bypass for trivial changes (docs typos, CHANGELOG edits, one-line fixes); anything non-trivial still goes through the standard PR flow below. External contributors always go through a PR.
-
-```bash
-git checkout main && git pull
-git checkout -b <prefix>/<name>      # feat, fix, docs, refactor, test, chore, perf, security
-# ... make changes ...
 ruff format sponsio/ api/ tests/
-ruff check sponsio/ api/ tests/
-pytest -v
-git commit -m "feat(area): description"    # Conventional Commits
-git push -u origin <prefix>/<name>
-gh pr create --fill                   # maintainers can self-merge after checks
-# OR for risky changes, open as Draft:
-gh pr create --draft --fill           # green Merge button disabled until `gh pr ready`
-gh pr merge --squash --delete-branch
+sponsio demo --scenario loan --fast
+sponsio validate "tool `check_policy` must precede `issue_refund`"
 ```
 
-**Use Draft PR when any of these are true:**
-
-- `pyproject.toml` dependencies changed
-- `.github/workflows/*` changed
-- Core runtime (`sponsio/runtime/`, `sponsio/formulas/`) changed
-- Diff deletes > 100 lines or is > 500 lines total
-- Security-adjacent change
-- You're uncertain about any part of the change
-
-## External PR Review Protocol
-
-Treat PRs from outside the core team as **potentially adversarial** until proven otherwise. Any red flag below → request changes and loop in a human maintainer. Never auto-merge external PRs.
-
-**Supply-chain / dependency:**
-
-- New entries in `pyproject.toml` (core or optional extras), `ts-sdk/package.json`, or any lockfile.
-- Typosquat-adjacent package names.
-- Dependencies pinned to a git commit or a pre-release tag.
-
-**CI / release hijack:**
-
-- Any change to `.github/workflows/*`.
-- New entries in `[project.scripts]` or install-time hooks (`setup.py` hooks, `MANIFEST.in` additions, `build-backend` changes).
-
-**Code execution / network / filesystem:**
-
-- `exec`, `eval`, `compile`, `__import__`, `importlib.import_module` with a non-literal argument.
-- `subprocess`, `os.system`, shell-injection-shaped string concatenation.
-- New outbound network calls from runtime code (anything not already in an integration shim).
-- File writes outside the expected path (anything not `~/.sponsio/`, `tests/`, or explicitly user-supplied).
-- User-controlled paths without `Path.resolve()` + an allowed-prefix check.
-
-**Obfuscation:**
-
-- Base64 / hex blobs, long one-liners, pickled objects, non-ASCII comments that obscure intent, binary files that aren't obvious assets.
-
-**Testing red flags:**
-
-- Deletes or disables existing tests.
-- `assert True` tests or trivially passing tests for a non-trivial change.
-- Weakly justified `pytest.mark.skip`.
-
-## Release Protocol
-
-Releases go through a PR — branch protection blocks direct pushes to `main`.
+Frontend/dashboard:
 
 ```bash
-git checkout main && git pull
-git checkout -b release/v<X.Y.Z>
-# 1. Bump version in pyproject.toml AND sponsio/__init__.py (must match)
-# 2. Move CHANGELOG.md [Unreleased] contents under a new [X.Y.Z] - YYYY-MM-DD section
-git commit -am "release: v<X.Y.Z>"
-git push -u origin release/v<X.Y.Z>
-gh pr create --fill --title "release: v<X.Y.Z>"
-# ... CI green, reviewer approves ...
-gh pr merge --squash --delete-branch
-
-# After merge:
-git checkout main && git pull
-git tag v<X.Y.Z> && git push origin v<X.Y.Z>
-rm -rf dist/ build/ *.egg-info/
-python -m build
-twine upload dist/*
+cd web && npm install && npm run dev
+sponsio serve --dev
 ```
-
-**PyPI versions are immutable.** Once a version is uploaded it cannot be overwritten — only yanked (which blocks new installs but leaves existing pins working). Double-check the version in all three places (`pyproject.toml`, `sponsio/__init__.py`, `CHANGELOG.md`) before `twine upload`.
-
-## Task Completion Protocol
-
-After completing any non-trivial task:
-
-### Step 1: Read existing docs before updating
-
-Before modifying any doc, read it first to match its format and avoid duplicating content.
-
-| Doc to update | Read first to understand... |
-|---------------|----------------------------|
-| `README.md` | Pattern table format, architecture diagram style, Quick Start structure |
-| `CHANGELOG.md` | Keep-a-Changelog conventions, what's already in `[Unreleased]` |
-| `CONTRIBUTING.md` | Existing section layout before adding new contributor-facing guidance |
-
-### Step 2: Update public-facing docs
-
-**README.md** — update if:
-
-- New pattern added → update Pattern Library table (match existing row format).
-- New integration → update Architecture diagram + Integrations table.
-- New CLI command → update Quick Start / usage sections.
-- Public API changed → update code examples.
-
-**CHANGELOG.md** — add an entry under `[Unreleased]` if:
-
-- Feature added → `### Added`
-- Bug fixed → `### Fixed`
-- Behavior changed → `### Changed`
-- Something removed → `### Removed`
-- Security fix → `### Security`
-
-Adding a user-visible change without updating `README.md` and `CHANGELOG.md` is an incomplete task.
-
-### Step 3: Output a Task Summary Block
-
-```
-## Task Summary
-**What changed**: [1-2 sentence description]
-**Files modified**: [list of files touched]
-**Files added**: [list of new files, if any]
-**Tests**: [pass/fail + count]
-**Lint**: [clean / N errors]
-**Architecture impact**: [none / low / HIGH — explain if HIGH]
-**Docs updated**: [README.md / CHANGELOG.md / CONTRIBUTING.md / none]
-**Security review**: [N/A / clean / flagged — required for any change touching runtime, integrations, or dependencies]
-**Open items**: [anything left undone or needing follow-up]
-```
-
-## Compaction Rules
-
-When compacting, ALWAYS preserve:
-
-- The full list of modified files from the current session.
-- Any failing test names and error messages.
-- Architecture decisions made during the session.
-- Which public docs (README, CHANGELOG) were or were not updated.
-- Any security flags raised during the session.
-- The last Task Summary Block.

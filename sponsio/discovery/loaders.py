@@ -19,6 +19,57 @@ from typing import Union
 from sponsio.models.trace import Trace
 
 
+# Directory names a code scan should always skip. Without this filter
+# ``sponsio scan my-project/`` recurses into ``.venv`` / ``node_modules``
+# and tries to parse the entire world (reported: 11k .py files on a
+# trivial fresh project). Keep the set conservative — dependency
+# trees, build artifacts, and VCS metadata only.
+_SCAN_EXCLUDE_DIRS: frozenset[str] = frozenset(
+    {
+        ".venv",
+        "venv",
+        ".env",
+        "env",
+        "node_modules",
+        "__pycache__",
+        ".git",
+        ".hg",
+        ".svn",
+        ".tox",
+        ".nox",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        "dist",
+        "build",
+        "site-packages",
+        ".ipynb_checkpoints",
+        ".next",
+        ".turbo",
+        "target",  # Rust / Maven
+    }
+)
+
+
+def _is_excluded(path: Path) -> bool:
+    """True if any path component matches a well-known dependency /
+    build / VCS directory. Works on relative and absolute paths.
+    """
+    return any(part in _SCAN_EXCLUDE_DIRS for part in path.parts)
+
+
+def iter_python_files(root: Path) -> list[Path]:
+    """Recursively collect ``.py`` files under ``root`` while skipping
+    dependency and build directories.
+
+    Shared by :func:`resolve_code_paths`, the AST scanner, and
+    ``sponsio doctor`` so excludes stay in lockstep — previously each
+    site had its own partial filter (or none) and the inconsistency
+    leaked ``.venv``-sourced "tools" into generated sponsio.yaml.
+    """
+    return [p for p in root.rglob("*.py") if not _is_excluded(p)]
+
+
 # ---------------------------------------------------------------------------
 # Document loading
 # ---------------------------------------------------------------------------
@@ -189,7 +240,7 @@ def resolve_code_paths(paths: list[Union[str, Path]]) -> list[Path]:
             if parent.exists():
                 result.extend(sorted(parent.glob(pattern)))
         elif path.is_dir():
-            result.extend(sorted(path.rglob("*.py")))
+            result.extend(sorted(iter_python_files(path)))
         elif path.is_file() and path.suffix == ".py":
             result.append(path)
     return result

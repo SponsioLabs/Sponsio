@@ -169,7 +169,7 @@ class TestClaudeAgentGuard:
     def test_init_via_sponsio_init(self):
         import sponsio
 
-        guard = sponsio.init(
+        guard = sponsio.Sponsio(
             framework="claude_agent",
             agent_id="test",
             contracts=["tool `A` must precede `B`"],

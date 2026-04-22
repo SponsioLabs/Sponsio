@@ -26,7 +26,7 @@ the enforcement of another contract.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any, Callable
 
 from sponsio.models.result import Violation
 from sponsio.models.spans import AgentTurnSpan, SpanCollector
@@ -34,6 +34,7 @@ from sponsio.models.system import System
 from sponsio.models.trace import Event, Trace
 from sponsio.runtime.evaluators import DetEvaluator, StoEvaluator, StoResult
 from sponsio.runtime.feedback import FeedbackGenerator
+from sponsio.runtime.perf import CheckTimer, PerformanceTracker
 from sponsio.runtime.strategies import (
     ActionContext,
     EnforcementResult,
@@ -67,6 +68,69 @@ class MonitorEvent:
     sto_result: StoResult | None = None
 
 
+class LessonFormatter:
+    """Renders a contract-aware retry lesson from a failed sto verdict.
+
+    The lesson is the discriminative signal the model needs on retry:
+    which contract was violated, the measured confidence, the threshold
+    it missed, and any evaluator-supplied evidence / suggestion. Kept
+    as a class (vs a function) so each integration can subclass it to
+    render in the framework's native form — OpenAI system message,
+    LangGraph checkpoint-inject, CrewAI memory note — if plain text
+    isn't the right channel.
+    """
+
+    @staticmethod
+    def build(contract, verdict) -> str:
+        """Produce a plain-text lesson string for a ``retry_prompt`` field.
+
+        Args:
+            contract: The ``Contract`` whose enforcement was violated.
+            verdict: The sto ``Verdict`` with ``score`` and ``threshold``
+                populated.
+
+        Returns:
+            Multi-line plain text suitable for prepending to the next
+            user turn or injecting as a system message.
+        """
+        pieces: list[str] = []
+        label = contract.desc or verdict.desc
+        pieces.append(f"[Contract reminder: {label}]")
+        pieces.append("Your previous attempt did not meet this requirement.")
+        if verdict.score is not None and verdict.threshold is not None:
+            pieces.append(
+                f"Confidence score: {verdict.score:.2f} "
+                f"(needs ≥ {verdict.threshold:.2f})."
+            )
+        if verdict.evidence:
+            pieces.append(f"Evidence: {verdict.evidence}")
+        if verdict.suggestion:
+            pieces.append(f"Suggestion: {verdict.suggestion}")
+        pieces.append("Please revise and retry.")
+        return "\n".join(pieces)
+
+
+def _has_liftable_formulas(contract) -> bool:
+    """True iff every non-empty constraint in the contract wraps (or is)
+    a ``Formula`` AST — meaning it can be evaluated via
+    ``eval_sto_confidence``. Legacy :class:`StoFormula` (closure-based
+    ``evaluator_fn``) returns False; those are handled by
+    :meth:`_check_sto`.
+    """
+    from sponsio.formulas.formula import FormulaMixin
+
+    items = contract.assumptions + contract.enforcements
+    if not items:
+        return False
+    for item in items:
+        if isinstance(item, FormulaMixin):
+            continue
+        inner = getattr(item, "formula", None)
+        if not isinstance(inner, FormulaMixin):
+            return False
+    return True
+
+
 class RuntimeMonitor:
     """Runtime enforcement monitor for multi-agent systems.
 
@@ -95,6 +159,7 @@ class RuntimeMonitor:
         sto_evaluator: StoEvaluator | None = None,
         policy: dict[str, EnforcementStrategy] | None = None,
         mode: str = "enforce",
+        sto_judge: Any = None,
     ) -> None:
         if mode not in ("enforce", "observe"):
             raise ValueError(f"mode must be 'enforce' or 'observe', got {mode!r}")
@@ -103,6 +168,18 @@ class RuntimeMonitor:
         self._sto_evaluator = sto_evaluator
         self._policy = policy or {}
         self._mode = mode
+        # Per-monitor sto judge. None means "fall back to module-level
+        # set_default_judge(), or fail if neither is configured". See
+        # sponsio.patterns.sto_catalog._require_judge.
+        self._sto_judge = sto_judge
+        # Persistent per-contract memo of sto atom evaluations, keyed by
+        # (id(atom), position). Event content at a given position is
+        # immutable once appended, so a deterministic (T=0) judge call
+        # for the same atom at the same position always gives the same
+        # answer. Caching this drops the cost of re-evaluating G/F/U
+        # formulas on every new event from O(n) to O(1) LLM calls per
+        # new event — total linear instead of quadratic over a session.
+        self._atom_caches: dict[int, dict[tuple[int, int], float]] = {}
         self._feedback_generator = FeedbackGenerator()
         import threading
 
@@ -113,6 +190,12 @@ class RuntimeMonitor:
         self._last_turn_span: AgentTurnSpan | None = None
         self._turn_spans: list[AgentTurnSpan] = []
         self._verifier = TraceVerifier()
+        # Per-check timing.  Always-on — cost is a ``perf_counter_ns``
+        # call (≈20ns on modern CPUs) plus a deque.append, both of
+        # which are dominated by the actual contract evaluation.
+        # Users who want it disabled can still access a summary with
+        # n=0 — no code path branches on "tracker is None".
+        self._perf_tracker = PerformanceTracker()
 
     @property
     def mode(self) -> str:
@@ -166,6 +249,17 @@ class RuntimeMonitor:
         return self._trace
 
     @property
+    def performance_tracker(self) -> PerformanceTracker:
+        """The :class:`PerformanceTracker` recording per-check latencies.
+
+        Always present (never ``None``) so consumers can always call
+        ``monitor.performance_tracker.summarize()`` without a
+        guard-clause — an un-used monitor just returns an empty
+        summary.
+        """
+        return self._perf_tracker
+
+    @property
     def log(self) -> list[MonitorEvent]:
         with self._lock:
             return list(self._log)
@@ -192,9 +286,17 @@ class RuntimeMonitor:
         self._last_turn_span = None
         self._turn_spans.clear()
         self._verifier.reset()
+        # Clear the per-contract atom memo — entries are keyed by
+        # (id(atom), position) and positions are about to be reused.
+        self._atom_caches.clear()
         for strategy in self._policy.values():
             if isinstance(strategy, RetryWithConstraint):
                 strategy.reset()
+        # Intentionally DO NOT reset the perf tracker.  Perf is a
+        # session-scoped aggregate; a user resetting the trace to
+        # re-run doesn't want to lose the speed evidence.  If they do
+        # want a clean slate they can call ``performance_tracker.reset()``
+        # explicitly.
 
     def check_action(
         self,
@@ -287,9 +389,44 @@ class RuntimeMonitor:
             a_count = len(contract.assumptions)
             e_count = len(contract.enforcements)
             label = contract.desc or f"{contract.agent.id}: {a_count}A/{e_count}E"
-            collector.start_contract_check(label, pipeline="det")
 
-            verdict = self._verifier.check_contract(contract)
+            # Dispatch:
+            # - pure-det contracts go through the existing LTL evaluator
+            # - contracts whose formulas are Formula ASTs (possibly
+            #   containing sto atoms) take the new probabilistic-lifting
+            #   path with α / β
+            # - legacy StoFormula (closure-based evaluator_fn) are NOT
+            #   our business — they're handled by _check_sto later
+            if contract.is_pure_det:
+                collector.start_contract_check(label, pipeline="det")
+                # ``is_pure_det=True`` is the guarantee we can hand
+                # to the CheckTimer: this branch mathematically
+                # cannot make an LLM call, so the sample will end
+                # up in the ``pure_det`` bucket no matter what.
+                with CheckTimer(self._perf_tracker, label, is_pure_det=True):
+                    verdict = self._verifier.check_contract(contract)
+            elif _has_liftable_formulas(contract):
+                collector.start_contract_check(label, pipeline="sto")
+                # Scope the per-guard judge to the evaluation so
+                # atom-registered evaluators pick it up via ContextVar.
+                from sponsio.patterns.sto_catalog import _use_judge
+
+                # ``is_pure_det=False`` defers bucket selection until
+                # the timer exits — if the TLS LLM-call counter moved
+                # during evaluation the sample goes to ``sto_live``,
+                # otherwise to ``sto_cached`` (meaning: this sto
+                # contract was resolved purely from the atom memo,
+                # zero LLM calls on this turn — which is the common
+                # steady-state path we want to make visible).
+                with CheckTimer(self._perf_tracker, label, is_pure_det=False):
+                    if self._sto_judge is not None:
+                        with _use_judge(self._sto_judge):
+                            verdict = self._check_contract_with_confidence(contract)
+                    else:
+                        verdict = self._check_contract_with_confidence(contract)
+            else:
+                # Legacy StoFormula contract — _check_sto handles it.
+                continue
 
             # --- Assumption phase ---
             assumption_violated = False
@@ -340,19 +477,169 @@ class RuntimeMonitor:
 
                 guar_span.result = False
                 collector.finish_span("violated")
-                results.append(
-                    self._handle_enforcement_failure(
-                        agent_id=agent_id,
-                        context=context,
-                        collector=collector,
-                        e_verdict=e_verdict,
+                if e_verdict.is_sto:
+                    # Sto violation: retry with confidence-aware lesson,
+                    # not a hard block. Matches the probabilistic
+                    # semantics of β — the model can plausibly fix its
+                    # output on retry.
+                    results.append(
+                        self._handle_sto_enforcement_failure(
+                            agent_id=agent_id,
+                            context=context,
+                            collector=collector,
+                            e_verdict=e_verdict,
+                            contract=contract,
+                        )
                     )
-                )
+                else:
+                    results.append(
+                        self._handle_enforcement_failure(
+                            agent_id=agent_id,
+                            context=context,
+                            collector=collector,
+                            e_verdict=e_verdict,
+                        )
+                    )
                 contract_violated = True
 
             collector.finish_span("violated" if contract_violated else "ok")
 
         return results
+
+    def _check_contract_with_confidence(self, contract):
+        """Probabilistic-lifting evaluation for contracts with sto atoms
+        or non-default (α, β) thresholds.
+
+        Returns a :class:`ContractVerdict`-shaped result using synthetic
+        :class:`Verdict` objects so the downstream span / enforcement
+        handling in :meth:`_check_det` works unchanged.
+
+        Semantics (see ``docs/cost-based-thresholds.md`` §2):
+
+        * Assumption triggered iff ``conf(A) ≥ contract.alpha``. When
+          *not* triggered, every enforcement is marked ``holds=True``
+          (vacuously satisfied).
+        * Each enforcement entry is satisfied iff ``conf(E) ≥ contract.beta``.
+        * Lists on either side are treated as independent entries —
+          each gets its own synthetic Verdict. This mirrors the det
+          path and keeps per-entry span output.
+        """
+        from sponsio.runtime.sto_lifting import eval_sto_confidence
+        from sponsio.runtime.verifier import ContractVerdict, Verdict
+        from sponsio.tracer.grounding import collect_content_atoms, ground
+
+        def _unwrap(item):
+            inner = getattr(item, "formula", None)
+            return inner if inner is not None else item
+
+        def _describe(item, fallback: str) -> str:
+            desc = getattr(item, "desc", None)
+            if desc:
+                return desc
+            # Fall back to repr (Atom → "injection_free()", Not → "!(...)")
+            # before the generic fallback string — much more useful for
+            # logs and retry prompts than "enforcement".
+            if item is not None:
+                try:
+                    return repr(item)
+                except Exception:
+                    pass
+            return fallback
+
+        formulas = [_unwrap(x) for x in contract.assumptions + contract.enforcements]
+        content_atoms = collect_content_atoms(formulas)
+        agents = {c.agent.id: c.agent for c in self._system.contracts}
+        valuations = ground(self._trace, agents=agents, content_atoms=content_atoms)
+
+        cache: dict = {}
+        # Persistent per-contract atom cache. Event content at each
+        # position is immutable once appended, so an atom's score at
+        # that position never changes after the first evaluation.
+        # Reusing the cache across check_action calls drops the cost
+        # of formulas like G(atom) from O(n) LLM calls per event to
+        # O(1) — total linear instead of quadratic.
+        atom_cache = self._atom_caches.setdefault(id(contract), {})
+        cv = ContractVerdict()
+
+        # --- Assumption side ---
+        # IMPORTANT — the sto assumption is a *trigger threshold*, not a
+        # precondition. conf(A) < α means "the contract doesn't apply
+        # right now", which is semantically different from a det
+        # assumption violation (upstream flow problem → escalate).
+        # When not triggered we return an empty ContractVerdict so the
+        # monitor skips the contract cleanly, no escalation emitted.
+        triggered = True
+        for a_item in contract.assumptions:
+            formula = _unwrap(a_item)
+            try:
+                conf = eval_sto_confidence(
+                    formula,
+                    valuations,
+                    self._trace,
+                    t=0,
+                    cache=cache,
+                    atom_cache=atom_cache,
+                )
+            except Exception as e:
+                # Missing sto evaluator / bad formula — surface as a
+                # real assumption failure so it escalates to a human.
+                cv.assumptions.append(
+                    Verdict(
+                        holds=False,
+                        desc=f"{_describe(a_item, 'assumption')} [lifting error: {e}]",
+                        kind="assumption",
+                        formula=formula,
+                    )
+                )
+                return cv  # abort — no enforcement side
+            if conf < contract.alpha:
+                triggered = False
+                break  # contract doesn't apply; skip enforcement entirely
+
+        # --- Enforcement side ---
+        if not triggered:
+            # Not triggered → vacuously satisfied. Empty ContractVerdict
+            # tells the monitor "nothing to check for this contract".
+            return cv
+
+        for e_item in contract.enforcements:
+            formula = _unwrap(e_item)
+            try:
+                conf = eval_sto_confidence(
+                    formula,
+                    valuations,
+                    self._trace,
+                    t=0,
+                    cache=cache,
+                    atom_cache=atom_cache,
+                )
+            except Exception as e:
+                cv.enforcements.append(
+                    Verdict(
+                        holds=False,
+                        desc=f"{_describe(e_item, 'enforcement')} [lifting error: {e}]",
+                        kind="enforcement",
+                        formula=formula,
+                    )
+                )
+                continue
+            holds = conf >= contract.beta
+            label = (
+                f"{_describe(e_item, 'enforcement')} "
+                f"[conf={conf:.3f}, β={contract.beta:.3f}]"
+            )
+            cv.enforcements.append(
+                Verdict(
+                    holds=holds,
+                    desc=label,
+                    kind="enforcement",
+                    formula=formula,
+                    score=float(conf),
+                    threshold=float(contract.beta),
+                )
+            )
+
+        return cv
 
     # -----------------------------------------------------------------
     # Det-pipeline helpers (side effects isolated from eval)
@@ -462,6 +749,84 @@ class RuntimeMonitor:
             result=enf_result,
         )
         self._emit(monitor_event)
+        return enf_result
+
+    def _handle_sto_enforcement_failure(
+        self,
+        agent_id: str,
+        context: ActionContext,
+        collector: SpanCollector,
+        e_verdict: Verdict,
+        contract,
+    ) -> EnforcementResult:
+        """Route a stochastic enforcement violation through RetryWithConstraint
+        with a confidence-aware lesson.
+
+        Unlike the det path (which uses ``DetBlock``), sto violations
+        give the model a chance to fix its output. The lesson explains
+        what the judge measured and by how much the response fell short.
+        """
+        violation = Violation(
+            agent_id=agent_id,
+            formula=e_verdict.formula,
+            kind="guarantee",
+            desc=e_verdict.desc,
+            details=(
+                f"Sto violation: {e_verdict.desc}. "
+                f"Confidence {e_verdict.score:.3f} fell short of β={e_verdict.threshold:.3f}."
+            ),
+        )
+
+        # Honor any user-configured strategy override; else default to
+        # RetryWithConstraint. Reject det strategies here — they would
+        # drop the retry prompt.
+        strategy = self._policy.get(e_verdict.desc)
+        if strategy is None or isinstance(strategy, (DetBlock, EscalateToHuman)):
+            strategy = RetryWithConstraint(max_retries=2)
+
+        # Build the discriminative lesson.
+        lesson = LessonFormatter.build(
+            contract=contract,
+            verdict=e_verdict,
+        )
+
+        enf_result = strategy.enforce(violation, context)
+        # Overwrite the strategy's bland retry_prompt with our confidence-
+        # aware version, and attach score/threshold for reporters.
+        enf_result = EnforcementResult(
+            action=enf_result.action,
+            message=enf_result.message,
+            retry_prompt=lesson,
+            fallback_action=enf_result.fallback_action,
+            score=e_verdict.score,
+            threshold=e_verdict.threshold,
+        )
+        enf_result = self._maybe_downgrade(enf_result)
+
+        collector.add_violation(
+            kind="guarantee",
+            severity="MEDIUM",
+            evidence=violation.details,
+        )
+        collector.add_enforcement(
+            strategy=type(strategy).__name__,
+            result_action=enf_result.action,
+        )
+
+        self._emit(
+            MonitorEvent(
+                agent_id=agent_id,
+                action=context.action,
+                pipeline="sto",
+                constraint_name=e_verdict.desc,
+                result=enf_result,
+                sto_result=StoResult(
+                    score=e_verdict.score if e_verdict.score is not None else 0.0,
+                    evidence=e_verdict.evidence or violation.details,
+                    suggestion=e_verdict.suggestion or "",
+                ),
+            )
+        )
         return enf_result
 
     # -----------------------------------------------------------------

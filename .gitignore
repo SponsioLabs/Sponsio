@@ -1,4 +1,7 @@
+# OS/editor noise
 .DS_Store
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
@@ -11,32 +14,43 @@ build/
 .pytest_cache/
 .ruff_cache/
 .hypothesis/
+
+# Local environments and secrets
 *.env
+.env
+.env.*
 .venv/
 venv/
+
+# Frontend build outputs
 web/node_modules/
 web/dist/
+ts-sdk/node_modules/
+ts-sdk/dist/
+ts-scanner/node_modules/
+ts-scanner/dist/
 web-reference/
+
+# Local scratch/workspace copies
 claude_cowork/
 twitter-scout/
-data/scores.db
-data/scores.db-wal
-data/scores.db-shm
 
-# Internal docs — do NOT commit to public repo
-# Canonical home for launch prep, internal planning, handoffs, reviews, etc.
-# Anything that is not meant for public OSS users goes under internal/.
-# New rule: any future internal doc goes here. Do not add more exceptions below.
-internal/
+# Runtime data — entire directory is local-only (scores, WAL, etc.).
+# Only `data/README.md` is tracked so clones know not to commit DB files.
+data/*
+!data/README.md
 
-# Internal files that intentionally live outside internal/ (kept colocated
-# with the subsystems they describe). All others should go under internal/.
+# Internal docs — do not push to GitHub
+agent_docs/
 PLAN.md
 STATUS.md
+LAUNCH_HANDOFF.md
+LAUNCH_PLAN.md
 docs/demo-video-script.md
-docs/launch/
+# Full benchmark write-ups / model-by-model tables — private; do not force-add
+docs/benchmark-results.md
 examples/scan_test_agent_run_debug.py
+sponsio-code-review.md
 
 # Claude Code
 .claude/
-ts-sdk/node_modules/

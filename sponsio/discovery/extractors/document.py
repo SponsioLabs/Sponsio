@@ -49,30 +49,33 @@ class DocumentExtractor:
     the Atom vocabulary and Pattern catalog for Atom-grounded extraction.
 
     Args:
-        model: OpenAI model name.
-        api_key: OpenAI API key. If None, uses OPENAI_API_KEY env var.
-        client: Pre-configured openai.OpenAI client (overrides model/api_key).
+        model: Model name (provider-specific default if ``None``).
+        api_key: Provider API key. Falls back to ``OPENAI_API_KEY`` /
+            ``ANTHROPIC_API_KEY`` / ``GOOGLE_API_KEY`` per provider.
+        client: Pre-configured provider client (overrides model/api_key).
+        provider: ``openai`` / ``anthropic`` / ``gemini``.  Auto-detected
+            from env when ``None``.
+        base_url: OpenAI-compatible HTTP endpoint (Ollama, OpenRouter,
+            DeepSeek, vLLM, Azure, …).
     """
 
     def __init__(
         self,
-        model: str = "gpt-4o-mini",
+        model: str | None = None,
         api_key: Optional[str] = None,
         client: Any = None,
+        provider: str | None = None,
+        base_url: str | None = None,
     ) -> None:
         self._model = model
         self._api_key = api_key
         self._client = client
-
-        # Eagerly validate that openai is available
-        if client is None:
-            try:
-                import openai  # noqa: F401
-            except ImportError:
-                raise ImportError(
-                    "openai is required for document extraction. "
-                    "Install with: pip install 'sponsio[llm]'"
-                )
+        self._provider = provider
+        self._base_url = base_url
+        # Eager dep check is delegated to ``UnifiedExtractor`` (which
+        # imports the right SDK for the resolved provider).  Doing it
+        # here would force ``openai`` to be installed even when the user
+        # only ever runs with ``--provider anthropic``.
 
     def extract(
         self,
@@ -101,9 +104,11 @@ class DocumentExtractor:
                 model=self._model,
                 api_key=self._api_key,
                 client=self._client,
+                provider=self._provider,
+                base_url=self._base_url,
             )
-        except ImportError:
-            logger.error("openai not installed, cannot extract from document")
+        except ImportError as e:
+            logger.error("LLM provider SDK not installed: %s", e)
             return []
 
         results = extractor.extract_from_document(

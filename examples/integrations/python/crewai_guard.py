@@ -17,15 +17,23 @@ import warnings
 warnings.filterwarnings("ignore")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from shared import USE_MOCK
+from shared import USE_MOCK  # noqa: E402  (path hack above)
+from sponsio import contract  # noqa: E402
 
 CONTRACTS = [
-    "tools `flag_content` and `delete_content` must never be called together",
-    "tool `delete_content` requires permission `admin_permission`",
+    # Conditional (A, E) pair — assumption triggers the enforcement
+    contract("delete needs admin permission")
+    .assume("called `delete_content`")
+    .enforce("permission `admin_permission` granted before `delete_content`"),
+    # Unconditional mutual exclusion — no .assume(), only .enforce()
+    contract("flag and delete are mutually exclusive").enforce(
+        "tools `flag_content` and `delete_content` must never be called together"
+    ),
 ]
 
 
 # -- Tool implementations ---------------------------------------------------
+
 
 def flag_content(post_id: str) -> str:
     return f"Post {post_id} flagged for review"
@@ -48,6 +56,7 @@ TOOLS = {
 
 # -- Mock mode ---------------------------------------------------------------
 
+
 def run_mock(guard):
     mock_calls = [
         ("flag_content", {"post_id": "post-123"}),
@@ -63,6 +72,7 @@ def run_mock(guard):
 
 
 # -- Real mode: CrewAI with Gemini via LangChain ----------------------------
+
 
 def run_real(guard):
     api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
@@ -123,12 +133,12 @@ def run_real(guard):
 
 # -- Main --------------------------------------------------------------------
 
+
 def main():
     # ======== Add Sponsio: 2 lines ========
-    import sponsio
+    from sponsio.crewai import Sponsio
 
-    guard = sponsio.init(
-        framework="crewai",
+    guard = Sponsio(
         agent_id="moderator",
         contracts=CONTRACTS,
     )

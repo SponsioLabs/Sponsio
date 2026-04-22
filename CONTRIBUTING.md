@@ -59,7 +59,7 @@ High-level map — the full tour is in [`CLAUDE.md`](CLAUDE.md).
 
 ```
 sponsio/
-├── core.py           entrypoint: sponsio.init()
+├── core.py           entrypoint: sponsio.Sponsio()
 ├── config.py         YAML loader
 ├── cli.py            sponsio scan|validate|check|serve|demo|patterns
 ├── formulas/         LTL AST + evaluators
@@ -198,7 +198,7 @@ The test path is `tests/test_sto_*.py`.
    already owns pre-check, post-check, rollback, trace management,
    contract compilation, mode resolution, and session logging.
 3. Register the framework name in `sponsio/core.py` so
-   `sponsio.init(framework="<name>")` picks up the new class.
+   `sponsio.Sponsio(framework="<name>")` picks up the new class.
 4. Add an optional dep to `[project.optional-dependencies]` in
    `pyproject.toml`.
 5. Add a runnable example under `examples/integrations/<framework>/`.
@@ -209,10 +209,9 @@ The test path is `tests/test_sto_*.py`.
 
 ## Reporting security issues
 
-Do **not** open a public issue for security vulnerabilities. See
-[`SECURITY.md`](SECURITY.md) for the disclosure process — the preferred
-channel is a private [GitHub Security Advisory](https://github.com/SponsioLabs/Sponsio/security/advisories/new),
-with email as a fallback. We acknowledge within 48 hours.
+Do **not** open a public issue for security vulnerabilities. Instead,
+email `security@sponsio.dev` with a description and a reproduction
+path. We'll acknowledge within 72 hours and coordinate disclosure.
 
 ---
 

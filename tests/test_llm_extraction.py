@@ -792,13 +792,16 @@ class TestParseNLUnifiedLLMFallback:
 
         extractor = UnifiedExtractor(client=MockErrorClient())
 
-        # Text that fails both rule-based hard AND LLM, but matches sto keywords
+        # "empathetic" is a genuine sto category (tone → LLM judge). Rule-
+        # based hard parsing can't match it and LLM fails → we fall through
+        # to the sto keyword classifier.
+        # (PII and length used to be sto but were reclassified to det in P2.)
         result = parse_nl_unified(
-            "response must not contain PII",
+            "response must be empathetic",
             llm_extractor=extractor,
         )
         assert result.is_sto
-        assert result.sto.category == "pii"
+        assert result.sto.category == "tone"
 
     def test_llm_no_results_falls_through_to_soft_keywords(self):
         """When LLM returns empty constraints, fall through to sto."""

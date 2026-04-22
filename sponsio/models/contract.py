@@ -9,6 +9,22 @@ no new container type is needed.
 Both ``assumption`` and ``enforcement`` accept either a single constraint
 or a list. A list is interpreted as the logical AND of its elements.
 ``assumption=None`` (the default) means the contract is unconditional.
+
+Stochastic semantics
+--------------------
+
+Contracts carry two threshold fields for stochastic enforcement:
+
+* ``alpha`` (default 1.0) — the assumption triggers when
+  ``conf(A) ≥ alpha``. For pure det assumptions, ``conf(A)`` is strictly
+  0.0 or 1.0, so any ``alpha ∈ (0, 1]`` behaves the same.
+* ``beta`` (default 1.0) — the enforcement is satisfied when
+  ``conf(G) ≥ beta`` (given the assumption is triggered). Default 1.0
+  preserves existing det semantics — an enforcement that evaluates to
+  ``True`` (confidence 1.0) passes; anything less fails.
+
+See ``docs/cost-based-thresholds.md`` for how to pick ``(alpha, beta)``
+from operational costs.
 """
 
 from __future__ import annotations
@@ -44,6 +60,23 @@ def _as_list(value: Any) -> list:
     return [value]
 
 
+def _unwrap(item: Any) -> Any:
+    """Extract the underlying ``Formula`` from a constraint object.
+
+    Constraints may be raw ``Formula`` instances, ``DetFormula`` /
+    ``StoFormula`` wrappers (with a ``.formula`` attribute), or other
+    shapes. Returns ``None`` if the item doesn't carry a ``Formula``.
+    """
+    from sponsio.formulas.formula import FormulaMixin
+
+    if isinstance(item, FormulaMixin):
+        return item
+    inner = getattr(item, "formula", None)
+    if isinstance(inner, FormulaMixin):
+        return inner
+    return None
+
+
 @dataclass
 class Contract:
     """A single assume/enforcement pair bound to an agent.
@@ -56,12 +89,18 @@ class Contract:
             contract is unconditional. May be a single constraint or a
             list (list = logical AND).
         desc: Optional human-readable label for this contract.
+        alpha: Assumption trigger threshold in [0, 1]. Default 1.0 —
+            preserves existing det semantics.
+        beta: Enforcement satisfaction threshold in [0, 1]. Default 1.0
+            — preserves existing det semantics.
     """
 
     agent: Agent
     enforcement: Constraint = None
     assumption: Constraint | None = None
     desc: str | None = None
+    alpha: float = 1.0
+    beta: float = 1.0
 
     def __post_init__(self) -> None:
         if self.enforcement is None or (
@@ -71,6 +110,43 @@ class Contract:
                 f"Contract(agent={self.agent.id!r}) requires a non-empty enforcement. "
                 f"Use Contract(..., enforcement=<constraint>) or provide a list."
             )
+        if not (0.0 <= self.alpha <= 1.0):
+            raise ValueError(
+                f"Contract(agent={self.agent.id!r}): alpha must be in [0, 1], "
+                f"got {self.alpha!r}"
+            )
+        if not (0.0 <= self.beta <= 1.0):
+            raise ValueError(
+                f"Contract(agent={self.agent.id!r}): beta must be in [0, 1], "
+                f"got {self.beta!r}"
+            )
+
+    # -----------------------------------------------------------------
+    # Atom-type introspection (for runtime dispatch)
+    # -----------------------------------------------------------------
+
+    @property
+    def is_pure_det(self) -> bool:
+        """True iff every atom in assumption and enforcement has
+        ``atom_type == "det"`` AND ``alpha == beta == 1.0``.
+
+        When true, the monitor can dispatch to the existing LTL/DFA
+        evaluator without paying the probabilistic-lifting overhead.
+        """
+        if self.alpha != 1.0 or self.beta != 1.0:
+            return False
+        from sponsio.runtime.sto_lifting import _all_det
+
+        for item in self.enforcements + self.assumptions:
+            inner = _unwrap(item)
+            if inner is None:
+                # Unknown / non-Formula constraint (e.g. raw NL string that
+                # hasn't been compiled yet) — conservatively force lifting
+                # path. Actual dispatch decision happens after compilation.
+                return False
+            if not _all_det(inner):
+                return False
+        return True
 
     # -----------------------------------------------------------------
     # Normalized views (plural properties)
@@ -104,8 +180,18 @@ class Contract:
     # Pretty printing
     # -----------------------------------------------------------------
 
-    def to_str(self, colorize: bool = False) -> str:
-        """Human-readable A/E representation."""
+    def to_str(self, colorize: bool = False, show_compiled: bool = True) -> str:
+        """Human-readable A/E representation.
+
+        Args:
+            colorize: Emit ANSI color codes.
+            show_compiled: Emit a dim ``compiled:`` line beneath each author
+                description with the LTL-derived NL (via
+                :func:`sponsio.formulas.nl_gen.formula_to_nl`). Surfaces drift
+                between what the author wrote and what the engine actually
+                enforces. Falls back silently if the underlying AST is not
+                introspectable.
+        """
         bar = _ansi(_DIM, "\u258e", colorize)
 
         agent_name = _ansi(_BOLD, self.agent.id, colorize)
@@ -118,20 +204,53 @@ class Contract:
         e_tri = _ansi(_GREEN, "\u25b8", colorize)
         blank = " " * 8
 
+        def _compiled_line(item) -> str | None:
+            """Return the dim `compiled: <formula_to_nl>` line, or None."""
+            if not show_compiled:
+                return None
+            try:
+                from sponsio.formulas.formula import FormulaMixin
+                from sponsio.formulas.nl_gen import formula_to_nl
+            except ImportError:
+                return None
+            formula = (
+                item
+                if isinstance(item, FormulaMixin)
+                else getattr(item, "formula", None)
+            )
+            if formula is None:
+                return None
+            try:
+                nl = formula_to_nl(formula).strip()
+            except Exception:
+                return None
+            if not nl:
+                return None
+            desc = getattr(item, "desc", "") or ""
+            if nl == desc.strip():
+                return None
+            return f"{bar} {blank}{_ansi(_DIM, f'compiled: {nl}', colorize)}"
+
         a_label = _ansi(_DIM, "assume  ", colorize)
-        a_descs = [getattr(a, "desc", str(a)) for a in self.assumptions]
-        if not a_descs:
+        if not self.assumptions:
             lines.append(f"{bar} {a_label}{_ansi(_DIM, 'true', colorize)}")
         else:
-            lines.append(f"{bar} {a_label}{a_tri} {a_descs[0]}")
-            for a in a_descs[1:]:
-                lines.append(f"{bar} {blank}{a_tri} {a}")
+            for idx, a in enumerate(self.assumptions):
+                desc = getattr(a, "desc", str(a))
+                prefix = a_label if idx == 0 else blank
+                lines.append(f"{bar} {prefix}{a_tri} {desc}")
+                c = _compiled_line(a)
+                if c is not None:
+                    lines.append(c)
 
         e_label = _ansi(_DIM, "enforce ", colorize)
-        e_descs = [getattr(e, "desc", str(e)) for e in self.enforcements]
-        lines.append(f"{bar} {e_label}{e_tri} {e_descs[0]}")
-        for e in e_descs[1:]:
-            lines.append(f"{bar} {blank}{e_tri} {e}")
+        for idx, e in enumerate(self.enforcements):
+            desc = getattr(e, "desc", str(e))
+            prefix = e_label if idx == 0 else blank
+            lines.append(f"{bar} {prefix}{e_tri} {desc}")
+            c = _compiled_line(e)
+            if c is not None:
+                lines.append(c)
 
         return "\n".join(lines)
 
@@ -191,12 +310,16 @@ def make_contracts(
             )
         assumption = entry.get("assumption", entry.get("A"))
         desc = entry.get("desc")
+        alpha = entry.get("alpha", 1.0)
+        beta = entry.get("beta", 1.0)
         out.append(
             Contract(
                 agent=agent,
                 enforcement=enforcement,
                 assumption=assumption,
                 desc=desc,
+                alpha=alpha,
+                beta=beta,
             )
         )
 

@@ -4,8 +4,12 @@ Two integration patterns:
 
 1. **guard.wrap(tools)** — get a guarded ToolNode (recommended):
 
+        from sponsio import contract
+
         guard = LangGraphGuard(contracts=[
-            "tool `check_policy` must precede `issue_refund`",
+            contract("policy gate before refund")
+                .assume("called `issue_refund`")
+                .enforce("must call `check_policy` before `issue_refund`"),
         ])
         agent = create_react_agent(model, guard.wrap(tools))
         result = agent.invoke({"messages": [("user", input)]})
@@ -25,7 +29,6 @@ from typing import Any, Dict
 from uuid import UUID
 
 from sponsio.integrations.base import BaseGuard, CheckResult
-from sponsio.models.contract import Contract
 from sponsio.models.system import System
 from sponsio.runtime.evaluators import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
@@ -63,7 +66,7 @@ class LangGraphGuard(BaseGuard):
     def __init__(
         self,
         agent_id: str = "agent",
-        contracts: list[dict | Contract | str] | None = None,
+        contracts: list[Any] | None = None,
         system: System | None = None,
         policy: dict[str, EnforcementStrategy] | None = None,
         sto_evaluator: StoEvaluator | None = None,
@@ -94,10 +97,9 @@ class LangGraphGuard(BaseGuard):
 
         Usage::
 
-            import sponsio
+            from sponsio.langgraph import Sponsio
 
-            guard = sponsio.init(
-                framework="langgraph",
+            guard = Sponsio(
                 agent_id="earnings_pipeline",
                 contracts=["tool `parser` must precede `forecaster`"],
                 dashboard="http://localhost:8000",
@@ -123,7 +125,9 @@ class LangGraphGuard(BaseGuard):
 
         Example::
 
-            guard = sponsio.init(config="sponsio.yaml", framework="langgraph")
+            from sponsio.langgraph import Sponsio
+
+            guard = Sponsio(config="sponsio.yaml")
             agent = create_react_agent(model, guard.wrap(tools))
 
         Args:
@@ -163,6 +167,9 @@ class LangGraphGuard(BaseGuard):
 
     def _guard_post_check(self, tool_name: str, result: Any):
         """Run guard_after and raise if sto constraint fails."""
+        # Auto-tagging happens inside ``BaseGuard.guard_after`` when
+        # ``tag_outputs`` / ``tag_pii`` are set on the guard — no
+        # integration-specific logic needed here.
         post = self.guard_after(tool_name, str(result))
         if post.needs_retry and post.feedback:
             raise ToolCallBlocked(
@@ -234,7 +241,7 @@ class LangGraphGuard(BaseGuard):
             raise ToolCallBlocked(
                 tool_name=tool_name,
                 constraint=msg,
-                message=f"\u25e1\u25e0 BLOCKED: {msg}",
+                message=f"\u25d2\u25d3 BLOCKED: {msg}",
             )
 
     def on_tool_end(
@@ -248,6 +255,111 @@ class LangGraphGuard(BaseGuard):
     ) -> CheckResult:
         """Called AFTER a tool executes. Checks sto constraints."""
         return self.guard_after("", output)
+
+    # -----------------------------------------------------------------
+    # LLM observation — feed llm_response events into the trace so sto
+    # atoms (injection_free, scope_respect, etc.) can evaluate actual
+    # model output. Without this hook the trace only sees tool_call
+    # events and llm-response-scoped atoms silently pass.
+    # -----------------------------------------------------------------
+
+    def langchain_callback(self):
+        """Return a LangChain ``BaseCallbackHandler`` that feeds LLM
+        responses into the guard's trace.
+
+        Attach this to your agent config so sto atoms like
+        ``injection_free``, ``toxic_free``, ``scope_respect`` actually
+        fire on model output:
+
+        .. code-block:: python
+
+            from sponsio import contract
+            from sponsio.langgraph import Sponsio
+
+            guard = Sponsio(
+                contracts=[
+                    contract("response free of prompt injection")
+                        .enforce(Atom("injection_free", atom_type="sto"))
+                        .threshold(beta=0.9)
+                ],
+                sto_judge=BooleanJudge(...),
+            )
+            agent = create_react_agent(llm, guard.wrap(tools))
+            result = agent.invoke(
+                {"messages": [...]},
+                config={"callbacks": [guard.langchain_callback()]},
+            )
+
+        Without this callback, the sto pipeline sees no
+        ``llm_response`` events and response-scoped atoms are no-ops.
+        """
+        from langchain_core.callbacks import BaseCallbackHandler
+
+        guard = self
+
+        class _SponsioLLMCallback(BaseCallbackHandler):
+            """Captures LLM request/response pairs and feeds them to the
+            guard. Thread-safety is provided by BaseGuard's internal lock."""
+
+            def on_llm_start(self, serialized, prompts, *, run_id=None, **kwargs):
+                # Store the prompt keyed on run_id so on_llm_end can
+                # emit it together with the response (useful for atoms
+                # that read prompt_contains / context_length).
+                self._prompts = getattr(self, "_prompts", {})
+                if prompts:
+                    self._prompts[run_id] = "\n\n".join(prompts)
+
+            def on_chat_model_start(
+                self, serialized, messages, *, run_id=None, **kwargs
+            ):
+                # LangChain fires this instead of on_llm_start for chat
+                # models. Reconstruct a joined prompt for trace context.
+                self._prompts = getattr(self, "_prompts", {})
+                try:
+                    flat = []
+                    for msg_list in messages:
+                        for m in msg_list:
+                            content = getattr(m, "content", str(m))
+                            flat.append(str(content))
+                    self._prompts[run_id] = "\n\n".join(flat)
+                except Exception:
+                    self._prompts[run_id] = ""
+
+            def on_llm_end(self, response, *, run_id=None, **kwargs):
+                # LLMResult → generations is list[list[Generation]].
+                # Take the first completion across all batches.
+                text = ""
+                try:
+                    for gen_list in response.generations:
+                        for gen in gen_list:
+                            msg = getattr(gen, "message", None)
+                            if msg is not None and getattr(msg, "content", None):
+                                text = str(msg.content)
+                            elif getattr(gen, "text", None):
+                                text = gen.text
+                            if text:
+                                break
+                        if text:
+                            break
+                except Exception:
+                    pass
+                if not text:
+                    return
+                prompt = getattr(self, "_prompts", {}).get(run_id) if run_id else None
+                # observe_llm_call runs both det and sto atoms that key
+                # on llm_request / llm_response events. Return value
+                # (CheckResult) is not raised — callbacks shouldn't
+                # raise; violations surface through guard.print_summary()
+                # or the monitor's event log.
+                try:
+                    guard.observe_llm_call(prompt=prompt, response=text)
+                except Exception:
+                    # A failed sto judge shouldn't break the agent — the
+                    # monitor already recorded the failure. Swallow and
+                    # continue the agent loop.
+                    pass
+
+        return _SponsioLLMCallback()
 
     def on_tool_error(
         self,

@@ -29,6 +29,7 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 def _strip_ansi(s: str) -> str:
     return _ANSI_RE.sub("", s)
 
+
 EXAMPLES = [
     "examples/integrations/python/vanilla_guard.py",
     "examples/integrations/python/langgraph_guard.py",

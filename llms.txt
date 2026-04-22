@@ -16,15 +16,23 @@ pip install sponsio
 ```
 
 ```python
-import sponsio
+from langgraph.prebuilt import create_react_agent
 
-guard = sponsio.init(
-    framework="langgraph",
+from sponsio import contract
+from sponsio.langgraph import Sponsio
+
+guard = Sponsio(
     agent_id="bot",
     contracts=[
-        "tool `check_policy` must precede `issue_refund`",
-        "tool `issue_refund` at most 3 times",
-        "response must not contain PII",
+        # Conditional (A, E) pair — assumption triggers the enforcement
+        contract("policy gate before refund")
+            .assume("called `issue_refund`")
+            .enforce("must call `check_policy` before `issue_refund`"),
+        # Unconditional rules — no .assume(), only .enforce()
+        contract("refund rate limit")
+            .enforce("tool `issue_refund` at most 3 times"),
+        contract("no PII in responses")
+            .enforce("response must not contain PII"),
     ],
 )
 agent = create_react_agent(model, guard.wrap(tools))
@@ -33,7 +41,7 @@ agent = create_react_agent(model, guard.wrap(tools))
 ## Shadow mode (zero-risk onboarding)
 
 ```python
-guard = sponsio.init(framework="langgraph", mode="observe", contracts=[...])
+guard = sponsio.Sponsio(framework="langgraph", mode="observe", contracts=[...])
 # Every contract is still evaluated — nothing is blocked.
 # Every would-have-blocked decision is logged to
 # ~/.sponsio/sessions/<agent_id>/*.jsonl
@@ -58,7 +66,7 @@ guard = sponsio.init(framework="langgraph", mode="observe", contracts=[...])
 ## Optional
 
 - [Architecture](https://github.com/SponsioLabs/Sponsio/blob/main/docs/architecture.md) — formula engine, grounding, dual pipeline, span tree observability
-- [Benchmark Results](https://github.com/SponsioLabs/Sponsio/blob/main/docs/benchmark-results.md) — ODCV-Bench (80% protection), RedCode-Exec (80% bash / 52% python), tau2-bench (76–100% recall)
+- [Benchmarks](https://github.com/SponsioLabs/Sponsio/blob/main/README.md#benchmarks) — headline table in README (ODCV-Bench, tau2-bench)
 - [CHANGELOG](https://github.com/SponsioLabs/Sponsio/blob/main/CHANGELOG.md) — every version
 
 ## License

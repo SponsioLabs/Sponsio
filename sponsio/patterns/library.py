@@ -52,6 +52,7 @@ Available patterns (29 det + 1 deprecated):
 
 from __future__ import annotations
 
+import re as _re
 from dataclasses import dataclass
 from sponsio.formulas.formula import (
     Atom,
@@ -1144,6 +1145,137 @@ def arg_value_range(
         formula=formula,
         desc=desc or f"{tool}.{field} must be in range {range_str}",
         pattern_name="arg_value_range",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Layer 3 — Response content constraints (migrated from sto_catalog in P2).
+#
+# These were previously sto evaluators but don't need LLM judging — they
+# are precisely computable against llm_response events. Ship-as-det gives
+# them clean A/E composition and the fast LTL path.
+# ---------------------------------------------------------------------------
+
+
+def max_length(
+    max_words: int | None = None,
+    max_chars: int | None = None,
+    desc: str = "",
+) -> DetFormula:
+    """Response length must stay within the given word / character budget.
+
+    Grounded against ``response_words`` / ``response_chars`` (populated on
+    every ``llm_response`` event with content). At non-response events
+    both atoms default to 0, so the constraint is vacuously satisfied.
+
+    Compiles to::
+
+        G(response_words ≤ max_words  ∧  response_chars ≤ max_chars)
+
+    Args:
+        max_words: Maximum allowed word count. Either this or ``max_chars``
+            must be provided.
+        max_chars: Maximum allowed character count.
+        desc: Optional human-readable description.
+
+    Returns:
+        A ``DetFormula``.
+
+    Raises:
+        ValueError: If neither limit is provided.
+    """
+    if max_words is None and max_chars is None:
+        raise ValueError("max_length requires max_words or max_chars")
+
+    parts: list[Formula] = []
+    if max_words is not None:
+        parts.append(Le(Var("response_words"), Const(max_words)))
+    if max_chars is not None:
+        parts.append(Le(Var("response_chars"), Const(max_chars)))
+
+    body: Formula = parts[0] if len(parts) == 1 else And(parts[0], parts[1])
+    formula = G(body)
+
+    if desc:
+        desc_str = desc
+    elif max_words is not None and max_chars is not None:
+        desc_str = f"response ≤ {max_words} words and ≤ {max_chars} chars"
+    elif max_words is not None:
+        desc_str = f"response ≤ {max_words} words"
+    else:
+        desc_str = f"response ≤ {max_chars} chars"
+
+    return DetFormula(formula=formula, desc=desc_str, pattern_name="max_length")
+
+
+# Default PII regex patterns — reuse sto_catalog's regex set for parity.
+_DEFAULT_PII_PATTERNS: dict[str, str] = {
+    "ssn": r"\b\d{3}-\d{2}-\d{4}\b",
+    "credit_card": r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b",
+    "email": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
+    "phone": r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b",
+}
+
+
+def no_pii(fields: list[str] | None = None, desc: str = "") -> DetFormula:
+    """Response must not contain regex-detectable PII (SSN, CC, email, phone).
+
+    Uses the ``llm_said`` grounding atom — patterns are compiled into a
+    single alternation regex checked against each ``llm_response`` event.
+
+    For semantic PII detection (names, contextual identifiers), use a
+    sto atom with an LLM judge — this pattern only covers syntactic PII.
+
+    Args:
+        fields: Subset of ``{"ssn", "credit_card", "email", "phone"}``.
+            None = all four.
+        desc: Optional human-readable description.
+
+    Returns:
+        A ``DetFormula``.
+    """
+    selected = list(_DEFAULT_PII_PATTERNS) if fields is None else list(fields)
+    unknown = set(selected) - set(_DEFAULT_PII_PATTERNS)
+    if unknown:
+        raise ValueError(
+            f"unknown PII field(s): {sorted(unknown)}. "
+            f"Available: {sorted(_DEFAULT_PII_PATTERNS)}"
+        )
+    pattern = "|".join(_DEFAULT_PII_PATTERNS[f] for f in selected)
+
+    formula = G(Not(Atom("llm_said", pattern)))
+    return DetFormula(
+        formula=formula,
+        desc=desc or f"response must not contain PII ({', '.join(selected)})",
+        pattern_name="no_pii",
+    )
+
+
+def no_keywords(words: list[str], desc: str = "") -> DetFormula:
+    """Response must not contain any of the given keywords.
+
+    Keywords are escaped and joined into a word-boundary-anchored regex
+    checked against each ``llm_response`` event via ``llm_said``.
+
+    Args:
+        words: Non-empty list of forbidden keywords. Matched case-insensitively.
+        desc: Optional human-readable description.
+
+    Returns:
+        A ``DetFormula``.
+
+    Raises:
+        ValueError: If ``words`` is empty.
+    """
+    if not words:
+        raise ValueError("no_keywords requires at least one keyword")
+
+    pattern = r"(?i)\b(" + "|".join(_re.escape(w) for w in words) + r")\b"
+    formula = G(Not(Atom("llm_said", pattern)))
+    return DetFormula(
+        formula=formula,
+        desc=desc or f"response must not contain keywords: {words}",
+        pattern_name="no_keywords",
     )
 
 

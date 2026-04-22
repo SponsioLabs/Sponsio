@@ -41,14 +41,14 @@ function useScanHistory(): [
     const entry: HistoryEntry = { ...scan, scanned_at: new Date().toISOString() };
     setHistory(prev => {
       const next = [entry, ...prev].slice(0, 50);
-      try { localStorage.setItem('sponsio_scan_history', JSON.stringify(next)); } catch {}
+      try { localStorage.setItem('sponsio_scan_history', JSON.stringify(next)); } catch { /* quota / private mode */ }
       return next;
     });
   }, []);
 
   const clearScans = useCallback(() => {
     setHistory([]);
-    try { localStorage.removeItem('sponsio_scan_history'); } catch {}
+    try { localStorage.removeItem('sponsio_scan_history'); } catch { /* quota / private mode */ }
   }, []);
 
   return [history, addScan, clearScans];

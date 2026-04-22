@@ -1,20 +1,35 @@
 """Sponsio — Runtime contract enforcement for LLM agent systems.
 
-Quick start::
+Quick start (LangGraph)::
 
-    import sponsio
+    from sponsio.langgraph import Sponsio
+    from langgraph.prebuilt import create_react_agent
 
-    guard = sponsio.init(
-        framework="langgraph",
+    guard = Sponsio(
         agent_id="bot",
         contracts=["tool `issue_refund` at most 1 times"],
     )
     agent = create_react_agent(model, guard.wrap(tools))
 
+Recommended — fluent contract builder::
+
+    from sponsio import contract
+    from sponsio.langgraph import Sponsio
+
+    guard = Sponsio(
+        agent_id="bot",
+        contracts=[
+            contract("refund needs policy check")
+                .assume("called `issue_refund`")
+                .enforce("must call `check_policy` before `issue_refund`"),
+        ],
+    )
+
 Config-driven::
 
-    guard = sponsio.init(
-        framework="langgraph",
+    from sponsio.langgraph import Sponsio
+
+    guard = Sponsio(
         config="sponsio.yaml",
         agent_id="customer_bot",
     )
@@ -25,13 +40,14 @@ Direct guard import (advanced)::
     guard = LangGraphGuard(contracts=[...])
 """
 
-__version__ = "0.1.0a2"
+__version__ = "0.1.0a0"
 
 # --- Main entry point ---
-from sponsio.core import init
+from sponsio.core import Sponsio
 
-# --- Config ---
+# --- Config + contract builder ---
 from sponsio.config import load_config
+from sponsio.contract import ContractBuilder, contract
 
 # --- Core models (users occasionally need these) ---
 from sponsio.models.agent import Agent
@@ -52,6 +68,7 @@ def __getattr__(name: str):
         "AgentsSDKGuard": "sponsio.integrations.agents",
         "MCPContractProxy": "sponsio.integrations.mcp",
         "VercelAIGuard": "sponsio.integrations.vercel_ai",
+        "ClaudeAgentGuard": "sponsio.integrations.claude_agent",
         # Backward compat aliases
         "ContractGuard": "sponsio.integrations.langgraph",
         "AgentsGuard": "sponsio.integrations.agents",
@@ -82,16 +99,19 @@ def __getattr__(name: str):
 
 __all__ = [
     # Main entry point
-    "init",
+    "Sponsio",
     "__version__",
     "load_config",
+    # Contract builder (recommended for (A, E) pairs)
+    "contract",
+    "ContractBuilder",
     # Core models (for power users building custom integrations)
     "Agent",
     "Contract",
     "System",
     "Trace",
     "Event",
-    # OpenAI monkey-patch (no init() equivalent for unpatch)
+    # OpenAI monkey-patch (no Sponsio() equivalent for unpatch)
     "patch_openai",
     "unpatch_openai",
 ]

@@ -19,11 +19,16 @@ import warnings
 warnings.filterwarnings("ignore")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from shared import USE_MOCK
+from shared import USE_MOCK  # noqa: E402  (path hack above)
+from sponsio import contract  # noqa: E402
 
 CONTRACTS = [
-    "tool `review_content` must precede `publish_post`",
-    "tool `send_newsletter` at most 1 times",
+    # Conditional (A, E) pair — assumption triggers the enforcement
+    contract("review before publish")
+    .assume("called `publish_post`")
+    .enforce("must call `review_content` before `publish_post`"),
+    # Unconditional rate limit — no .assume(), only .enforce()
+    contract("newsletter rate limit").enforce("tool `send_newsletter` at most 1 times"),
 ]
 
 
@@ -54,11 +59,11 @@ TOOLS = {
 
 def run_mock(guard):
     mock_calls = [
-        ("publish_post", {"post_id": "blog-42"}),        # blocked: no review
-        ("review_content", {"post_id": "blog-42"}),       # ok
-        ("publish_post", {"post_id": "blog-42"}),         # ok: review done
-        ("send_newsletter", {"subject": "New post!"}),    # ok
-        ("send_newsletter", {"subject": "Reminder!"}),    # blocked: rate limit
+        ("publish_post", {"post_id": "blog-42"}),  # blocked: no review
+        ("review_content", {"post_id": "blog-42"}),  # ok
+        ("publish_post", {"post_id": "blog-42"}),  # ok: review done
+        ("send_newsletter", {"subject": "New post!"}),  # ok
+        ("send_newsletter", {"subject": "Reminder!"}),  # blocked: rate limit
     ]
     for tool_name, args in mock_calls:
         result = guard.guard_before(tool_name, args)
@@ -127,8 +132,7 @@ async def run_real(guard):
     ]
 
     # ======== Add Sponsio: 1 line — pass middleware ========
-    async for msg in agent.run(model, messages,
-                               middleware=[guard.wrap()]):
+    async for msg in agent.run(model, messages, middleware=[guard.wrap()]):
         if msg.text_delta:
             print(msg.text_delta, end="", flush=True)
     # =======================================================
@@ -141,10 +145,9 @@ async def run_real(guard):
 
 def main():
     # ======== Add Sponsio: 2 lines ========
-    import sponsio
+    from sponsio.vercel_ai import Sponsio
 
-    guard = sponsio.init(
-        framework="vercel_ai",
+    guard = Sponsio(
         agent_id="publish_bot",
         contracts=CONTRACTS,
     )

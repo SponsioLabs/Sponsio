@@ -15,7 +15,9 @@ Dual pipeline:
 
 from __future__ import annotations
 
+import atexit
 import os
+import re
 import sys
 import threading
 from dataclasses import dataclass, field
@@ -43,17 +45,115 @@ from sponsio.runtime.strategies import (
 _VALID_MODES = ("enforce", "observe")
 
 
+# Strip the noisy prefix that runtime/strategies.py prepends to each
+# violation message. The ``→ BLOCKED`` suffix we add in print_summary
+# already carries the action, so repeating "BLOCKED: agent.tool —" at
+# the front just doubles the signal. Observe mode wraps the same
+# string in "OBSERVED (would blocked): ..." which made the suffix
+# three-deep. One regex handles all three shapes.
+_VIOLATION_PREFIX_RE = re.compile(
+    r"""^\s*
+        (?:OBSERVED\s*\(would\s+\w+\):\s*)?   # optional observe wrapper
+        (?:BLOCKED|ESCALATED):\s+             # leading action
+        [^\s:]+\.[^\s:]+                      # agent.tool
+        \s+[\u2014\-]\s+                      # em-dash or hyphen
+        (?:det\s+constraint\s+violated:\s+)?  # boilerplate
+    """,
+    re.VERBOSE,
+)
+
+
+def _shorten_violation_msg(msg: str) -> str:
+    """Drop the prefix that repeats the action / agent in summary rows.
+
+    Leaves already-concise messages (sto, user-typed, external) alone.
+    """
+    return _VIOLATION_PREFIX_RE.sub("", msg, count=1)
+
+
+# ---------------------------------------------------------------------------
+# PII auto-tagging — lightweight regex detectors used by ``tag_pii=True``.
+# These are intentionally conservative; false positives would pollute the
+# trace with spurious ``contains(pii)`` predicates.  Each entry maps a
+# ``contains`` tag name to the regex that must match anywhere in the
+# stringified tool output.  The tag ``pii`` is a generic superset — it
+# fires whenever any of the specific classes matches, so users can
+# write ``no_data_leak(pii, external)`` without enumerating every class.
+# ---------------------------------------------------------------------------
+
+_PII_DETECTORS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    # US Social Security Number — strict 3-2-4 digit shape with
+    # separators so ordinary 9-digit numbers (order IDs, timestamps)
+    # don't false-positive.
+    ("ssn", re.compile(r"\b\d{3}-\d{2}-\d{4}\b")),
+    # Credit card — 13-19 digits with optional spaces/dashes every
+    # 4 digits.  No Luhn check (runtime cost), regex is narrow enough.
+    (
+        "credit_card",
+        re.compile(r"\b(?:\d[ -]?){12,18}\d\b"),
+    ),
+    # Email — the common RFC-lite pattern, case-insensitive.
+    (
+        "email",
+        re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b", re.IGNORECASE),
+    ),
+    # E.164 / North American phone numbers — deliberately strict: must
+    # start with ``+`` or ``(`` or a country code.  Avoids matching
+    # every 10-digit integer.
+    (
+        "phone",
+        re.compile(
+            r"(?:\+\d{1,3}[\s-]?)?(?:\(\d{3}\)\s?|\d{3}[\s-])\d{3}[\s-]?\d{4}\b"
+        ),
+    ),
+    # API keys / secrets — ``sk-``, ``ghp_``, ``AKIA`` prefixes are
+    # distinctive enough to be reliable.
+    (
+        "secret",
+        re.compile(
+            r"\b(?:sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})\b"
+        ),
+    ),
+)
+
+
+def _detect_pii_classes(output: Any) -> list[str]:
+    """Return the PII classes present in the stringified ``output``.
+
+    Always includes the generic ``pii`` tag when anything matched, so
+    users can write ``no_data_leak(pii, external)`` without enumerating
+    every specific class.  Returns an empty list on type errors or
+    empty input — never raises.
+    """
+    try:
+        text = output if isinstance(output, str) else str(output)
+    except Exception:
+        return []
+    if not text:
+        return []
+    hits: list[str] = []
+    for tag, pattern in _PII_DETECTORS:
+        if pattern.search(text):
+            hits.append(tag)
+    if hits:
+        hits.insert(0, "pii")
+    return hits
+
+
 def _resolve_mode(mode: str | None) -> str:
     """Resolve the effective mode from explicit arg + ``SPONSIO_MODE`` env.
 
-    The env var is an escape hatch that lets users flip modes without
-    editing code — crucial for staged rollouts and CI smoke-tests.
-    Precedence: env var wins over the explicit argument so
-    ``SPONSIO_MODE=observe`` lets ops force shadow mode in production
-    without a code change.
+    Default is ``observe`` (shadow mode) so that ``pip install sponsio``
+    + a guard import is **never** the change that breaks production:
+    you opt *in* to enforcement explicitly, not out of it.  Switch
+    once your ``sponsio eval`` numbers say the contracts are tight.
+
+    Precedence: env var > explicit argument > default.  The env var
+    wins so ops can flip modes per-deploy without a code change
+    (``SPONSIO_MODE=enforce`` to roll out, ``=observe`` to revert).
     """
     env = os.environ.get("SPONSIO_MODE")
-    resolved = env.strip() if env else (mode or "enforce")
+    resolved = env.strip() if env else (mode or "observe")
     if resolved not in _VALID_MODES:
         raise ValueError(f"mode must be one of {_VALID_MODES}, got {resolved!r}")
     return resolved
@@ -124,6 +224,8 @@ class BaseGuard:
             - **Dict** — ``{"assumption": <scalar|list|None>, "enforcement": <scalar|list>}``.
               ``assumption`` is optional (``None`` = unconditional). Lists
               are AND-combined. Becomes one :class:`Contract`.
+            - **ContractBuilder** — fluent ``contract(...).assume(...).enforce(...)``
+              values are normalized through ``to_dict()``.
             - **NL string** — shortcut for an unconditional contract
               (``assumption=None``, ``enforcement=<string>``).
             - **Pre-built** :class:`Contract` — passed through as-is.
@@ -143,11 +245,12 @@ class BaseGuard:
     def __init__(
         self,
         agent_id: str = "agent",
-        contracts: list[dict | Contract | str] | None = None,
+        contracts: list[Any] | None = None,
         config: str | None = None,
         system: System | None = None,
         policy: dict[str, EnforcementStrategy] | None = None,
         sto_evaluator: StoEvaluator | None = None,
+        sto_judge: Any | None = None,
         store: Any | None = None,
         dashboard_url: str | None = None,
         otel_exporter: Any | None = None,
@@ -155,6 +258,8 @@ class BaseGuard:
         verbosity: int = 1,
         mode: str | None = None,
         session_log_dir: str | Path | None = None,
+        tag_outputs: bool = True,
+        tag_pii: bool = False,
     ) -> None:
         # --- Config file support ---
         if config is not None:
@@ -180,6 +285,12 @@ class BaseGuard:
             contracts = cfg.get("contracts")
             if system is None:
                 system = cfg.get("system")
+            # Hold onto the ``performance:`` block so we can apply
+            # report mode / export path in __init__ below, and size
+            # the ring buffer before any checks happen.
+            self._perf_config = parsed.performance
+        else:
+            self._perf_config = None
 
         self.agent_id = agent_id
         self._mode = _resolve_mode(mode)
@@ -200,6 +311,18 @@ class BaseGuard:
         self._otel = otel_exporter
         self._verbose = verbose
         self._verbosity = verbosity
+        # Auto-tagging of tool outputs into the trace.  When
+        # ``tag_outputs`` is on (default), every ``guard_after`` call
+        # emits a ``data_write`` event keyed on the tool name with
+        # ``contains=[tool_name]`` so ``no_data_leak`` and other
+        # ``contains()``-based contracts bind without manual
+        # instrumentation.  When ``tag_pii`` is also on, the tool
+        # output is scanned for common PII patterns (SSN, credit card,
+        # email, phone) and each detected class is added to the
+        # ``contains`` list so users can write contracts against
+        # generic tags like ``contains(pii)`` / ``contains(ssn)``.
+        self._tag_outputs = tag_outputs
+        self._tag_pii = tag_pii
 
         # --- Build system from contracts ---
         self._system = system if system is not None else System(name="guarded")
@@ -254,18 +377,42 @@ class BaseGuard:
             sto_evaluator=sto_evaluator,
             policy=self._policy,
             mode=self._mode,
+            sto_judge=sto_judge,
         )
 
-        # --- Terminal reporter ---
-        if self._verbose:
-            from sponsio.runtime.terminal import TerminalReporter
+        # Resize the perf tracker's per-contract ring buffer if the
+        # user configured a non-default histogram_size.  Done here
+        # (not in RuntimeMonitor.__init__) because the config is
+        # guard-level, and we don't want to plumb it through the
+        # monitor constructor signature just for one field.
+        if self._perf_config is not None:
+            from sponsio.runtime.perf import PerformanceTracker
 
-            self._monitor.register_callback(
-                TerminalReporter(
-                    verbosity=self._verbosity,
-                    contracts=list(self._system._contracts),
-                )
+            self._monitor._perf_tracker = PerformanceTracker(
+                per_contract_ring_size=self._perf_config.histogram_size,
             )
+
+        # --- Contract banner + terminal reporter ---
+        # Always print the contract banner at init so users can visually
+        # confirm Sponsio is loaded and which rules are active — even
+        # with verbose=False, which otherwise looks identical to "no
+        # Sponsio at all". Only the per-event reporter is gated by
+        # verbose.
+        from sponsio.runtime.terminal import TerminalReporter, print_banner
+
+        contracts_list = list(self._system._contracts)
+        print_banner(contracts_list)
+
+        if self._verbose:
+            reporter = TerminalReporter(
+                verbosity=self._verbosity,
+                contracts=contracts_list,
+            )
+            # Banner already printed above; don't let the first event
+            # reprint it.
+            reporter._header_printed = True
+            reporter._build_label_map()
+            self._monitor.register_callback(reporter)
 
         # --- Shadow-mode session logger ---
         # Always attach the JSONL logger in observe mode so users have a
@@ -287,6 +434,16 @@ class BaseGuard:
                     file=sys.stderr,
                 )
 
+        # --- Auto-summary on process exit ---
+        # Print a one-line "N violations / K checks" summary at process
+        # exit so users always get feedback even when they don't call
+        # ``guard.print_summary()`` manually. Idempotent via
+        # ``_summary_printed`` flag. Disable with ``auto_summary=False``
+        # in subclasses or by calling ``guard.disable_auto_summary()``.
+        self._summary_printed: bool = False
+        self._auto_summary: bool = True
+        atexit.register(self._auto_print_summary)
+
     # -----------------------------------------------------------------
     # Contract construction
     # -----------------------------------------------------------------
@@ -294,7 +451,7 @@ class BaseGuard:
     def _build_contracts(
         self,
         agent_model: Agent,
-        contracts: list[dict | Contract | str] | None,
+        contracts: list[Any] | None,
         user_formulas: list,
         soft_constraints: list,
     ) -> list[Contract]:
@@ -308,6 +465,10 @@ class BaseGuard:
         out: list[Contract] = []
 
         for entry in contracts or []:
+            to_dict = getattr(entry, "to_dict", None)
+            if callable(to_dict):
+                entry = to_dict()
+
             if isinstance(entry, Contract):
                 out.append(entry)
                 for e in entry.enforcements:
@@ -341,6 +502,10 @@ class BaseGuard:
                 raise ValueError(f"Contract entry missing 'enforcement': {entry!r}")
             a_raw = entry.get("assumption")
             desc = entry.get("desc")
+            # R1 alpha/beta threading — read from dict entry (defaults
+            # preserve existing det semantics).
+            alpha = float(entry.get("alpha", 1.0))
+            beta = float(entry.get("beta", 1.0))
 
             parsed_e = self._parse_constraint_field(
                 e_raw, user_formulas, soft_constraints
@@ -359,6 +524,8 @@ class BaseGuard:
                     enforcement=parsed_e,
                     assumption=parsed_a,
                     desc=desc,
+                    alpha=alpha,
+                    beta=beta,
                 )
             )
 
@@ -372,12 +539,12 @@ class BaseGuard:
     ) -> Any:
         """Parse a single scalar or list field (assumption / enforcement)."""
         if isinstance(value, list):
-            return [
-                self._parse_constraint(v, user_formulas, soft_constraints)
-                for v in value
-                if self._parse_constraint(v, user_formulas, soft_constraints)
-                is not None
-            ]
+            parsed_items = []
+            for item in value:
+                parsed = self._parse_constraint(item, user_formulas, soft_constraints)
+                if parsed is not None:
+                    parsed_items.append(parsed)
+            return parsed_items
         return self._parse_constraint(value, user_formulas, soft_constraints)
 
     def _parse_constraint(
@@ -386,7 +553,13 @@ class BaseGuard:
         user_formulas: list,
         soft_constraints: list,
     ) -> Any:
-        """Parse a single constraint: NL string, DetFormula, or StoFormula."""
+        """Parse a single constraint: NL string, DetFormula, or StoFormula.
+
+        Raises:
+            ContractSyntaxError: if the string doesn't match the Sponsio
+                contract DSL and no LLM extractor is available. Better
+                to fail hard at init than to ship a silent no-op.
+        """
         if isinstance(value, str):
             result = parse_nl_unified(value)
             if result.is_det:
@@ -492,6 +665,113 @@ class BaseGuard:
             },
         }
 
+    def save_trace_for_eval(
+        self,
+        target_dir: str | Path,
+        *,
+        label: str = "safe",
+        filename: str | None = None,
+    ) -> Path:
+        """Persist the current runtime trace as a labelled OTLP-JSON
+        file that ``sponsio eval`` can replay.
+
+        Closes the loop between observe-mode production runs and the
+        eval corpus: call this at session end (or on any
+        human-reviewed turn) to capture a real trace into
+        ``traces/safe_*.json`` / ``unsafe_*.json`` without leaving
+        the running process.  The resulting file is shape-identical
+        to what ``examples/eval/generate_corpus.py`` produces, so
+        mixing synthetic + real traces in one corpus Just Works.
+
+        Args:
+            target_dir: Directory to write into.  Created if missing.
+            label: One of ``"safe"`` / ``"unsafe"`` (mandatory file
+                prefix — the eval runner reads labels from filenames,
+                not content).  Use ``"safe"`` for nominal runs,
+                ``"unsafe"`` when you caught an incident you want
+                contracts to block going forward.
+            filename: Optional override (without prefix); defaults to
+                ``<agent_id>_<monotonic-ns>.json``.  Useful when you
+                want a PR or issue ID in the name.
+
+        Returns:
+            The written path.
+        """
+        from sponsio.tracer.otel_writer import trace_to_otlp
+
+        if label not in ("safe", "unsafe"):
+            raise ValueError(
+                f"label must be 'safe' or 'unsafe' (got {label!r}) — "
+                "other values would silently fall out of eval's "
+                "confusion-matrix calculation"
+            )
+
+        import json as _json
+        import time as _time
+
+        out_dir = Path(target_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        if filename is None:
+            # Nanosecond-resolution so rapid back-to-back saves don't
+            # collide.  Filename format chosen to sort chronologically
+            # when users ``ls`` the corpus directory.
+            stem = f"{self.agent_id}_{_time.time_ns()}"
+        else:
+            stem = filename.removesuffix(".json")
+
+        out_path = out_dir / f"{label}_{stem}.json"
+        payload = trace_to_otlp(self.trace, agent_id=self.agent_id)
+        out_path.write_text(_json.dumps(payload, indent=2))
+        return out_path
+
+    # -----------------------------------------------------------------
+    # Performance stats
+    # -----------------------------------------------------------------
+
+    def performance_stats(self) -> dict:
+        """Return the per-check latency + QPS summary for this guard.
+
+        Returns a JSON-serialisable dict with three bucketed views:
+
+        * ``pure_det``   — contracts that provably never touch an LLM
+          (the pure-DFA fast path).  This is the bucket that makes
+          the "sub-microsecond checks" story quantifiable.
+        * ``sto_cached`` — sto contracts whose answer came from the
+          per-atom memo this check.  Still no LLM call, just a lookup.
+        * ``sto_live``   — sto contracts that actually invoked the
+          judge.  One of these per new claim; expect ms-range.
+
+        Plus ``zero_llm_ratio`` = fraction of all checks that were
+        either ``pure_det`` or ``sto_cached``.  On a typical session
+        where a contract is hit many times after its first sto eval
+        caches, this number trends toward 1.0 — which is the single
+        most useful number to show alongside "p99 = Xμs".
+
+        Returns:
+            Dict shaped like :meth:`PerfSummary.to_dict`. Safe to
+            dump straight to JSON; safe to call at any time (no I/O
+            side effects, no reset).  Returns a summary with
+            ``total_checks=0`` if the guard has never seen an action.
+        """
+        return self._monitor.performance_tracker.summarize().to_dict()
+
+    def print_performance(self, *, color: bool | None = None) -> None:
+        """Pretty-print the performance summary to stdout.
+
+        Convenience over ``print(guard.performance_stats())`` — uses
+        the human-readable table renderer from
+        :mod:`sponsio.runtime.perf`, auto-detects TTY for colour
+        unless ``color`` is explicitly set.
+        """
+        import sys as _sys
+
+        from sponsio.runtime.perf import format_summary
+
+        effective_color = color if color is not None else _sys.stdout.isatty()
+        summary = self._monitor.performance_tracker.summarize()
+        print(format_summary(summary, color=effective_color))
+
     # -----------------------------------------------------------------
     # Core check methods (framework-agnostic)
     # -----------------------------------------------------------------
@@ -579,6 +859,11 @@ class BaseGuard:
         Returns:
             CheckResult with feedback if sto violations detected.
         """
+        # Auto-tag tool output into the trace *before* the sto check
+        # so any new ``contains()`` predicates are visible to sto atoms
+        # reading them.
+        self._autotag_tool_output(tool_name, output)
+
         with self._lock:
             if self._monitor._sto_evaluator is None:
                 return CheckResult(allowed=True)
@@ -693,11 +978,15 @@ class BaseGuard:
         response: str | None = None,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
-    ) -> None:
-        """Record an LLM request/response pair in the trace.
+    ) -> CheckResult:
+        """Record an LLM request/response pair in the trace and evaluate
+        any contracts that apply to those events.
 
         Enables atoms: ``prompt_contains``, ``llm_said``,
-        ``token_count``, ``system_prompt_present``, ``context_length``.
+        ``token_count``, ``system_prompt_present``, ``context_length``,
+        and — as of R2 integration — any ``atom_type="sto"`` atom
+        whose ``context_scope`` is ``"event"`` or ``"full_trace"``
+        (e.g. ``injection_free``, ``scope_respect``, ``no_pii``).
 
         Call this from integration hooks that observe LLM calls
         (e.g. LangGraph's LLM node callback, OpenAI SDK's
@@ -708,13 +997,22 @@ class BaseGuard:
             response: The LLM's completion text.
             input_tokens: Token count for the prompt.
             output_tokens: Token count for the completion.
+
+        Returns:
+            CheckResult aggregating violations from both the request-
+            and response-side contracts (det violations first, then sto).
+            Callers can inspect ``.all_violations`` for the full list
+            including confidence / threshold information.
         """
         total = None
         if input_tokens is not None and output_tokens is not None:
             total = input_tokens + output_tokens
 
+        det_violations: list = []
+        sto_violations: list = []
+
         if prompt:
-            self._monitor.check_action(
+            results = self._monitor.check_action(
                 agent_id=self.agent_id,
                 action="<llm_request>",
                 event_type="llm_request",
@@ -726,9 +1024,16 @@ class BaseGuard:
                     },
                 },
             )
+            for r in results:
+                # Sto pipeline produces "retrying"; det produces
+                # blocked / escalated. Split accordingly.
+                if r.action == "retrying":
+                    sto_violations.append(r)
+                elif r.action in ("blocked", "escalated"):
+                    det_violations.append(r)
 
         if response:
-            self._monitor.check_action(
+            results = self._monitor.check_action(
                 agent_id=self.agent_id,
                 action="<llm_response>",
                 event_type="llm_response",
@@ -745,6 +1050,24 @@ class BaseGuard:
                     },
                 },
             )
+            for r in results:
+                if r.action == "retrying":
+                    sto_violations.append(r)
+                elif r.action in ("blocked", "escalated"):
+                    det_violations.append(r)
+
+        allowed = len(det_violations) == 0
+        feedback = None
+        if sto_violations:
+            prompts = [v.retry_prompt for v in sto_violations if v.retry_prompt]
+            if prompts:
+                feedback = "\n\n".join(prompts)
+        return CheckResult(
+            allowed=allowed,
+            det_violations=det_violations,
+            sto_violations=sto_violations,
+            feedback=feedback,
+        )
 
     def observe_tool_output(self, tool_name: str, output: str) -> None:
         """Record a tool's output content in the trace.
@@ -783,6 +1106,31 @@ class BaseGuard:
             event_type="data_write",
             metadata={"key": key, "contains": fields},
         )
+
+    def _autotag_tool_output(self, tool_name: str, output: Any) -> None:
+        """Emit a ``data_write`` event tagging a tool's output.
+
+        Shared plumbing for every framework adapter: called from
+        ``guard_after`` (LangGraph, CrewAI, Claude Agent, Vercel AI,
+        OpenAI Agents SDK) and directly by adapters that bypass
+        ``guard_after`` (MCP, which only funnels through
+        ``check_action``).  When ``tag_outputs`` is disabled, this is a
+        no-op.  When ``tag_pii`` is set, the output is regex-scanned
+        and every detected class is added to ``contains`` alongside
+        the tool name.  Swallows every exception — auto-tagging must
+        never break the agent loop.
+        """
+        if not (self._tag_outputs and tool_name):
+            return
+        try:
+            fields = [tool_name]
+            if self._tag_pii:
+                fields.extend(
+                    cls for cls in _detect_pii_classes(output) if cls not in fields
+                )
+            self.observe_data_write(key=tool_name, fields=fields)
+        except Exception:
+            pass
 
     def observe_data_read(self, key: str) -> None:
         """Record a data read event in the trace.
@@ -1132,44 +1480,177 @@ class BaseGuard:
         """Human-readable summary of all violations."""
         if not self._violations:
             return "\u2705 No violations detected."
-        lines = [f"\u25e1\u25e0 {len(self._violations)} violation(s) detected:"]
+        lines = [f"\u25d2\u25d3 {len(self._violations)} violation(s) detected:"]
         for v in self._violations:
             lines.append(
                 f"  - Tool '{v['tool']}': {v['constraint']} \u2192 {v['action']}"
             )
         return "\n".join(lines)
 
+    def disable_auto_summary(self) -> None:
+        """Suppress the atexit auto-summary for this guard.
+
+        Useful in server / test contexts where stderr noise at shutdown
+        isn't wanted.
+        """
+        self._auto_summary = False
+
+    def _auto_print_summary(self) -> None:
+        """atexit hook — print the session summary exactly once if enabled."""
+        if not self._auto_summary or self._summary_printed:
+            return
+        # Only auto-print to an interactive terminal. Under pytest / CI /
+        # redirected stderr we stay silent so we don't clutter test output
+        # or production server logs; users can still call print_summary()
+        # explicitly.
+        if not sys.stderr.isatty():
+            return
+        # Be defensive: never let shutdown logging raise.
+        try:
+            self.print_summary()
+        except Exception:
+            pass
+        # Separately honour ``performance.report`` / ``performance.export_path``.
+        # Done in its own try/except so a perf-report failure can't
+        # mask the main session summary.
+        try:
+            self._auto_perf_report()
+        except Exception:
+            pass
+
+    def _auto_perf_report(self) -> None:
+        """Apply the YAML ``performance:`` section at process exit.
+
+        Three independent side effects, each gated by its own config:
+
+        1. ``report=always|auto|never`` → pretty-print the table.
+           ``auto`` follows the same "verbose + TTY" convention as
+           the session summary so CI logs stay clean by default.
+        2. ``export_path`` → dump the JSON summary.  Writes are
+           idempotent and atomic (via ``PerformanceTracker.export_json``
+           which creates parent dirs); a re-run overwrites cleanly.
+        3. ``warn_slow_dfa_us`` → one-line stderr warning if the
+           pure-DFA p99 exceeded the budget (disabled when the value
+           is ≤0).  Catches the common "this contract accidentally
+           went through the sto pipeline" footgun — DFA checks should
+           stay far below sto/LLM latency.
+        """
+        cfg = self._perf_config
+        report_mode = "auto" if cfg is None else cfg.report
+
+        summary = self._monitor.performance_tracker.summarize()
+        if summary.total_checks == 0:
+            # Don't spam "0 checks recorded" in every hello-world
+            # script; only meaningful when the guard actually saw
+            # traffic.  Also short-circuits export/warn when there's
+            # literally nothing to report on — same reason.
+            return
+
+        # Print is gated by ``report=``, export and warn are
+        # independent side-effects so ``report: never +
+        # export_path: foo.json`` still writes the JSON (common
+        # pattern: dashboards consume perf.json, humans don't need
+        # the stderr table).
+        should_print = report_mode == "always" or (
+            report_mode == "auto" and self._verbose and sys.stderr.isatty()
+        )
+        if should_print:
+            from sponsio.runtime.perf import format_summary
+
+            print(format_summary(summary, color=sys.stderr.isatty()), file=sys.stderr)
+
+        if cfg is not None and cfg.export_path:
+            try:
+                self._monitor.performance_tracker.export_json(cfg.export_path)
+            except OSError as exc:
+                print(
+                    f"[sponsio] perf export to {cfg.export_path!r} failed: {exc}",
+                    file=sys.stderr,
+                )
+
+        if cfg is not None and cfg.warn_slow_dfa_us > 0 and summary.pure_det.n > 0:
+            p99_us = summary.pure_det.p99_ns / 1_000.0
+            if p99_us > cfg.warn_slow_dfa_us:
+                print(
+                    f"[sponsio] warning: pure-DFA p99 = {p99_us:.1f}μs "
+                    f"exceeds configured threshold of {cfg.warn_slow_dfa_us:.1f}μs. "
+                    f"Something in your contract set may be accidentally "
+                    f"hitting the sto pipeline — inspect guard.performance_stats() "
+                    f"by contract.",
+                    file=sys.stderr,
+                )
+
     def print_summary(self) -> None:
         """Print a session summary to stderr.
 
-        Shows total checks, violations, and overall status.
-        Call this at the end of an agent session.
+        Shows total checks, violations, and overall status. Auto-called
+        at process exit (see ``__init__``); can also be invoked manually.
+        Idempotent — subsequent calls are no-ops.
         """
+        if self._summary_printed:
+            return
+        self._summary_printed = True
         total = len(self._monitor.turn_spans)
+        # BLOCKED (enforce mode) and OBSERVED (observe / shadow mode)
+        # are both user-facing signals — the latter is the whole point
+        # of observe mode, so it must not be filtered out. RETRY covers
+        # sto violations. ``ESCALATED`` is almost always the
+        # "assumption not yet fired" monitor event — framework noise,
+        # not a contract breach — and stays hidden here.
+        shown = [
+            v
+            for v in self._violations
+            if v.get("action") in ("BLOCKED", "OBSERVED", "RETRY")
+        ]
         hard_v = sum(
-            1 for v in self._violations if v.get("action") in ("BLOCKED", "ESCALATED")
+            1 for v in shown if v.get("action") in ("BLOCKED", "OBSERVED")
         )
-        soft_v = sum(1 for v in self._violations if v.get("action") == "RETRY")
+        observed_v = sum(1 for v in shown if v.get("action") == "OBSERVED")
+        soft_v = sum(1 for v in shown if v.get("action") == "RETRY")
         colorize = sys.stderr.isatty()
 
         def _c(code: str, text: str) -> str:
             return f"\033[{code}m{text}\033[0m" if colorize else text
 
+        # Include a dedicated "Would-block" counter in observe mode so
+        # shadow rollouts can see the would-have-blocked count at a
+        # glance — previously this was silently rolled into 0.
+        det_label = "Would-block" if self._mode == "observe" else "Det violations"
+        header = (
+            f"  Total checks: {total}  |  "
+            f"{det_label}: {hard_v}  |  Sto violations: {soft_v}"
+        )
+
         lines = [
             "",
             _c("1", f"  Sponsio Session Summary ({self.agent_id})"),
-            f"  Total checks: {total}  |  Det violations: {hard_v}  |  Sto violations: {soft_v}",
+            header,
         ]
-        if self._violations:
-            for v in self._violations:
+        if shown:
+            for v in shown:
                 tool = v.get("tool", "?")
-                constraint = v.get("constraint", "?")
+                constraint = _shorten_violation_msg(str(v.get("constraint", "?")))
                 action = v.get("action", "?")
-                icon = _c("31", "\u2717")
+                icon = (
+                    _c("33", "\u26a0")  # yellow warning for OBSERVED
+                    if action == "OBSERVED"
+                    else _c("31", "\u2717")  # red ✗ for BLOCKED / RETRY
+                )
                 lines.append(f"  {icon} {tool}: {constraint} \u2192 {action}")
-            lines.append(
-                _c("31;1", f"  \u2717 {len(self._violations)} violation(s) detected")
-            )
+            summary_icon = _c("31;1", "\u2717")
+            if observed_v and observed_v == hard_v:
+                # Pure-observe session: distinguish messaging so users
+                # understand nothing was actually enforced.
+                lines.append(
+                    _c(
+                        "33;1",
+                        f"  \u26a0 {observed_v} would-have-blocked event(s) detected (observe mode)",
+                    )
+                )
+            else:
+                lines.append(
+                    f"  {summary_icon} {len(shown)} violation(s) detected"
+                )
         else:
             lines.append(_c("32", "  \u2713 All contracts satisfied"))
         lines.append("")

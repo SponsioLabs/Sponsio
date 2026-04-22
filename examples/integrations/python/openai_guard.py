@@ -18,15 +18,23 @@ from dataclasses import dataclass, field
 warnings.filterwarnings("ignore")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from shared import USE_MOCK
+from shared import USE_MOCK  # noqa: E402  (path hack above)
+from sponsio import contract  # noqa: E402
 
 CONTRACTS = [
-    "tool `preview_query` must precede `execute_query`",
-    "tool `execute_query` at most 5 times",
+    # Conditional (A, E) pair — assumption triggers the enforcement
+    contract("preview before executing destructive SQL")
+    .assume("called `execute_query`")
+    .enforce("must call `preview_query` before `execute_query`"),
+    # Unconditional rate limit — no .assume(), only .enforce()
+    contract("execute_query rate limit").enforce(
+        "tool `execute_query` at most 5 times"
+    ),
 ]
 
 
 # -- Tool implementations ---------------------------------------------------
+
 
 def preview_query(sql: str) -> str:
     return f"Preview: {sql} -> would affect 42 rows"
@@ -40,10 +48,12 @@ TOOLS = {"preview_query": preview_query, "execute_query": execute_query}
 
 # -- Mock OpenAI response objects -------------------------------------------
 
+
 @dataclass
 class MockFunction:
     name: str
     arguments: str
+
 
 @dataclass
 class MockToolCall:
@@ -51,13 +61,16 @@ class MockToolCall:
     type: str
     function: MockFunction
 
+
 @dataclass
 class MockMessage:
     tool_calls: list[MockToolCall] = field(default_factory=list)
 
+
 @dataclass
 class MockChoice:
     message: MockMessage
+
 
 @dataclass
 class MockResponse:
@@ -66,8 +79,9 @@ class MockResponse:
 
 def make_response(*tool_calls: tuple[str, str]) -> MockResponse:
     tcs = [
-        MockToolCall(id=f"call_{i}", type="function",
-                     function=MockFunction(name=n, arguments=a))
+        MockToolCall(
+            id=f"call_{i}", type="function", function=MockFunction(name=n, arguments=a)
+        )
         for i, (n, a) in enumerate(tool_calls)
     ]
     return MockResponse(choices=[MockChoice(message=MockMessage(tool_calls=tcs))])
@@ -75,11 +89,12 @@ def make_response(*tool_calls: tuple[str, str]) -> MockResponse:
 
 # -- Mock mode ---------------------------------------------------------------
 
+
 def run_mock():
-    from sponsio.integrations.openai import OpenAIGuard
+    from sponsio.openai import Sponsio
 
     # ======== Add Sponsio: 1 line ========
-    guard = OpenAIGuard(agent_id="db_admin", contracts=CONTRACTS)
+    guard = Sponsio(agent_id="db_admin", contracts=CONTRACTS)
     # =====================================
 
     responses = [
@@ -95,10 +110,11 @@ def run_mock():
 
 # -- Real mode: OpenAI SDK via Gemini's OpenAI-compatible endpoint ----------
 
+
 def run_real():
     import json
     from openai import OpenAI
-    from sponsio import patch_openai, unpatch_openai
+    from sponsio.openai import patch_openai, unpatch_openai
 
     api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -116,24 +132,44 @@ def run_real():
     )
 
     tools_spec = [
-        {"type": "function", "function": {
-            "name": "preview_query",
-            "description": "Preview a SQL query to see what it would affect",
-            "parameters": {"type": "object", "properties": {"sql": {"type": "string"}}, "required": ["sql"]},
-        }},
-        {"type": "function", "function": {
-            "name": "execute_query",
-            "description": "Execute a SQL query on the database",
-            "parameters": {"type": "object", "properties": {"sql": {"type": "string"}}, "required": ["sql"]},
-        }},
+        {
+            "type": "function",
+            "function": {
+                "name": "preview_query",
+                "description": "Preview a SQL query to see what it would affect",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"sql": {"type": "string"}},
+                    "required": ["sql"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "execute_query",
+                "description": "Execute a SQL query on the database",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"sql": {"type": "string"}},
+                    "required": ["sql"],
+                },
+            },
+        },
     ]
 
     messages = [
-        {"role": "system", "content": (
-            "You are a database admin agent. Execute queries when asked. "
-            "If a tool call fails, read the error and fix by calling the required tool first."
-        )},
-        {"role": "user", "content": "Delete all inactive users: DELETE FROM users WHERE active=false"},
+        {
+            "role": "system",
+            "content": (
+                "You are a database admin agent. Execute queries when asked. "
+                "If a tool call fails, read the error and fix by calling the required tool first."
+            ),
+        },
+        {
+            "role": "user",
+            "content": "Delete all inactive users: DELETE FROM users WHERE active=false",
+        },
     ]
 
     for _turn in range(10):
@@ -150,10 +186,22 @@ def run_real():
                 print(f"  Agent: {msg.content[:200]}")
             break
 
-        messages.append({"role": "assistant", "tool_calls": [
-            {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-            for tc in msg.tool_calls
-        ]})
+        messages.append(
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in msg.tool_calls
+                ],
+            }
+        )
 
         for tc in msg.tool_calls:
             args = json.loads(tc.function.arguments)
@@ -171,6 +219,7 @@ def run_real():
 
 
 # -- Main --------------------------------------------------------------------
+
 
 def main():
     guard = run_mock() if USE_MOCK else run_real()

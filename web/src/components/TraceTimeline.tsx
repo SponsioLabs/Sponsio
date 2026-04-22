@@ -88,7 +88,11 @@ export default function TraceTimeline({
   const prevStepsRef = useRef<TraceStep[]>([]);
 
   useEffect(() => {
-    if (!animate) setVisibleCount(steps.length);
+    if (!animate) {
+      queueMicrotask(() => {
+        setVisibleCount(steps.length);
+      });
+    }
   }, [steps.length, animate]);
 
   useEffect(() => {
@@ -103,8 +107,10 @@ export default function TraceTimeline({
     const isNewRun = steps.length === 0 ||
       (prev.length > 0 && steps.length > 0 && prev[0]?.label !== steps[0]?.label);
     if (isNewRun) {
-      setExpanded(new Set());
-      setVisibleCount(animate ? 0 : steps.length);
+      queueMicrotask(() => {
+        setExpanded(new Set());
+        setVisibleCount(animate ? 0 : steps.length);
+      });
     }
     prevStepsRef.current = steps;
   }, [steps, animate]);
@@ -113,7 +119,10 @@ export default function TraceTimeline({
   const firstViolIdx = steps.findIndex(s => s.isViolation);
 
   const toggle = (i: number) => setExpanded(prev => {
-    const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n;
+    const n = new Set(prev);
+    if (n.has(i)) n.delete(i);
+    else n.add(i);
+    return n;
   });
 
   const spanMap = new Map<number, SpanNode>();
@@ -127,7 +136,13 @@ export default function TraceTimeline({
 
   useEffect(() => {
     for (let i = 0; i < steps.length; i++) {
-      if (steps[i].isViolation) { setExpanded(prev => new Set(prev).add(i)); break; }
+      if (steps[i].isViolation) {
+        const idx = i;
+        queueMicrotask(() => {
+          setExpanded(prev => new Set(prev).add(idx));
+        });
+        break;
+      }
     }
   }, [steps]);
 

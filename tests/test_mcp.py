@@ -144,10 +144,76 @@ def test_mcp_proxy_reset():
     proxy = MCPContractProxy(mcp_client=client, system=system, agent_id="agent")
 
     asyncio.run(proxy.call_tool("some_tool", {}))
-    assert len(proxy.monitor.trace.events) == 2  # pre-check + post-check
+    # Events per call with default tag_outputs=True:
+    #   1. pre-check tool_call
+    #   2. post-check tool_call (content)
+    #   3. auto-tag data_write (contains=[tool_name])
+    assert len(proxy.monitor.trace.events) == 3
 
     proxy.reset()
     assert len(proxy.monitor.trace.events) == 0
+
+
+def test_mcp_proxy_autotag_emits_contains():
+    """Default ``tag_outputs=True`` records ``contains=[tool_name]``
+    after every successful tool call so ``no_data_leak`` binds."""
+    from sponsio import System
+
+    system = System("test")
+    client = MockMCPClient()
+    proxy = MCPContractProxy(mcp_client=client, system=system, agent_id="agent")
+
+    asyncio.run(proxy.call_tool("lookup_customer", {}))
+
+    writes = [e for e in proxy.monitor.trace.events if e.event_type == "data_write"]
+    assert len(writes) == 1
+    assert writes[0].key == "lookup_customer"
+    assert writes[0].contains == ["lookup_customer"]
+
+
+def test_mcp_proxy_tag_outputs_false_disables_autotag():
+    from sponsio import System
+
+    system = System("test")
+    client = MockMCPClient()
+    proxy = MCPContractProxy(
+        mcp_client=client,
+        system=system,
+        agent_id="agent",
+        tag_outputs=False,
+    )
+    asyncio.run(proxy.call_tool("lookup_customer", {}))
+    writes = [e for e in proxy.monitor.trace.events if e.event_type == "data_write"]
+    assert writes == []
+
+
+def test_mcp_proxy_tag_pii_detects_pii_classes():
+    """``tag_pii=True`` regex-scans the tool output and tags each
+    detected PII class alongside the tool name."""
+    from sponsio import System
+
+    class PIIClient:
+        async def call_tool(self, tool_name, arguments):
+            return {"content": "alice@example.com / SSN 123-45-6789"}
+
+        async def list_tools(self):
+            return []
+
+    system = System("test")
+    proxy = MCPContractProxy(
+        mcp_client=PIIClient(),
+        system=system,
+        agent_id="agent",
+        tag_pii=True,
+    )
+    asyncio.run(proxy.call_tool("lookup_customer", {}))
+    writes = [e for e in proxy.monitor.trace.events if e.event_type == "data_write"]
+    assert len(writes) == 1
+    contains = writes[0].contains
+    assert contains[0] == "lookup_customer"
+    assert "pii" in contains
+    assert "email" in contains
+    assert "ssn" in contains
 
 
 def test_mcp_proxy_list_tools_passthrough():

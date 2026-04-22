@@ -209,7 +209,7 @@ The assumption is not decoration — it defines **when the enforcement applies**
 2. Integrate into your agent:
    ```python
    import sponsio
-   guard = sponsio.init(config="sponsio.yaml", framework="langgraph")
+   guard = sponsio.Sponsio(config="sponsio.yaml", framework="langgraph")
    agent = create_react_agent(model, guard.wrap(tools))
    ```
    All frameworks use `guard.wrap(tools)`:
@@ -357,7 +357,7 @@ When `A` is absent, report the contract as "unconditional" — don't silently dr
 Be honest about scope. This skill:
 - Does NOT run the agent. It only analyzes static code + docs.
 - Does NOT guarantee the generated contracts are complete. They are *proposals* derived from heuristics + LLM inference. The user should review.
-- Does NOT handle runtime enforcement — that's `sponsio.init()` + the BaseGuard integrations, which the user wires into their agent code.
+- Does NOT handle runtime enforcement — that's `sponsio.Sponsio()` + the BaseGuard integrations, which the user wires into their agent code.
 
 If the user asks for something out of scope (e.g., "also check my database schema"), say so and offer the closest thing this skill *can* do.
 

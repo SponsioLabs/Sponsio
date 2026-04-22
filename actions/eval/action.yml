@@ -1,0 +1,396 @@
+name: "Sponsio Eval"
+description: >-
+  Run ``sponsio eval`` against a labelled trace corpus, fail the
+  check on FPR/FNR regression vs. a baseline, and (optionally)
+  post a summary comment to the pull request.  Drop-in PR gate
+  for agents instrumented with Sponsio contracts.
+author: "Sponsio Labs"
+branding:
+  icon: "shield"
+  color: "blue"
+
+# ---------------------------------------------------------------------------
+# Inputs
+# ---------------------------------------------------------------------------
+# Names mirror the CLI flag names exactly so a user reading
+# ``sponsio eval --help`` and the ``with:`` block in their workflow
+# see the same vocabulary.  Keep this invariant when adding inputs.
+inputs:
+  traces:
+    description: "Directory of labelled OTLP trace files (safe_*.json / unsafe_*.json)."
+    required: true
+  config:
+    description: "Path to sponsio.yaml (contracts are loaded from here)."
+    required: false
+    default: "sponsio.yaml"
+  baseline:
+    description: >-
+      Path to a prior ``sponsio eval --json`` report.  When set, the
+      action computes deltas and gates on --max-fpr-delta /
+      --max-fnr-delta.  Omit on the very first run (action becomes a
+      plain eval + artifact upload).
+    required: false
+    default: ""
+  max-fpr-delta:
+    description: >-
+      Maximum allowed FPR increase vs baseline, as a fraction
+      (0.05 = 5 percentage points).  Failing this gate exits the
+      action with status 1.
+    required: false
+    default: "0.05"
+  max-fnr-delta:
+    description: >-
+      Maximum allowed FNR increase vs baseline, as a fraction.
+      FNR regressions are usually worse than FPR (we let an
+      unsafe trace through), hence the tighter default.
+    required: false
+    default: "0.02"
+  write-baseline:
+    description: >-
+      If "true" and the gate passes, overwrite the baseline file
+      in the working tree with the current report.  Typically only
+      enabled on the main branch post-merge so baselines ratchet
+      forward; never enable on PR runs (would let any green PR
+      silently raise the bar).
+    required: false
+    default: "false"
+  python-version:
+    description: "Python version to install via actions/setup-python."
+    required: false
+    default: "3.12"
+  sponsio-version:
+    description: >-
+      Version spec passed to ``pip install sponsio<spec>``.  Empty
+      means latest on PyPI.  Pin to a specific version in CI so the
+      gate doesn't drift under you when Sponsio releases a
+      stricter evaluator.
+    required: false
+    default: ""
+  working-directory:
+    description: "Directory to run sponsio eval from."
+    required: false
+    default: "."
+  report-path:
+    description: "Where to write the JSON eval report (relative to working-directory)."
+    required: false
+    default: "sponsio-eval-report.json"
+  comment-on-pr:
+    description: >-
+      Post (or update) a sticky summary comment on the PR with the
+      FPR/FNR table and diff vs baseline.  Requires the workflow to
+      grant ``pull-requests: write`` permission.  Ignored on non-PR
+      events.
+    required: false
+    default: "true"
+  upload-artifact:
+    description: >-
+      Upload the JSON report + any written baseline as a workflow
+      artifact (name ``sponsio-eval-report``).  Handy for debugging
+      flaky gates — you can diff last run's report against this one
+      without re-running the whole pipeline.
+    required: false
+    default: "true"
+
+# ---------------------------------------------------------------------------
+# Outputs — exposed so downstream steps (Slack notify, SARIF upload,
+# custom dashboards) can branch on results without re-reading the JSON.
+# ---------------------------------------------------------------------------
+outputs:
+  exit-code:
+    description: "Exit code from the eval step (0 = pass, 1 = gate failed)."
+    value: ${{ steps.eval.outputs.exit-code }}
+  fpr:
+    description: "Overall false-positive rate on the current corpus."
+    value: ${{ steps.parse.outputs.fpr }}
+  fnr:
+    description: "Overall false-negative rate on the current corpus."
+    value: ${{ steps.parse.outputs.fnr }}
+  fpr-delta:
+    description: "FPR delta vs baseline (percentage points, may be negative)."
+    value: ${{ steps.parse.outputs.fpr-delta }}
+  fnr-delta:
+    description: "FNR delta vs baseline."
+    value: ${{ steps.parse.outputs.fnr-delta }}
+  report-path:
+    description: "Absolute path to the written JSON report."
+    value: ${{ steps.eval.outputs.report-path }}
+
+runs:
+  using: "composite"
+  steps:
+    # ---------------------------------------------------------------
+    # 1. Set up Python + install Sponsio.
+    #
+    # We install from PyPI rather than checking out this repo because
+    # the action is meant to run in *consumers'* repos.  For local
+    # dogfood runs inside this monorepo, set sponsio-version to an
+    # empty string and add an extra ``pip install -e .`` step before
+    # calling the action.
+    # ---------------------------------------------------------------
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: pip
+
+    - name: Install sponsio
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.sponsio-version }}" ]; then
+          pip install "sponsio${{ inputs.sponsio-version }}"
+        else
+          pip install sponsio
+        fi
+
+    # ---------------------------------------------------------------
+    # 2. Run ``sponsio eval`` with --json.
+    #
+    # We route human-readable output to the step log (so maintainers
+    # can read failure reasons at a glance) AND write a machine report
+    # for parsing.  The two are produced by separate invocations
+    # because sponsio eval's ``--json`` mode suppresses the pretty
+    # report — we want both for different audiences.
+    #
+    # continue-on-error keeps the step from aborting before we get
+    # to post the PR comment; the final ``exit`` at the end of this
+    # block is what gates the action.
+    # ---------------------------------------------------------------
+    - name: Run sponsio eval
+      id: eval
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set +e
+
+        baseline_args=""
+        if [ -n "${{ inputs.baseline }}" ] && [ -f "${{ inputs.baseline }}" ]; then
+          baseline_args="--baseline ${{ inputs.baseline }} \
+            --max-fpr-delta ${{ inputs.max-fpr-delta }} \
+            --max-fnr-delta ${{ inputs.max-fnr-delta }}"
+        elif [ -n "${{ inputs.baseline }}" ]; then
+          # Baseline path specified but file doesn't exist — most
+          # likely the first run.  Fall through (no gate) and rely on
+          # write-baseline to create it.
+          echo "::notice::Baseline ${{ inputs.baseline }} not found; skipping regression gate (first run?)"
+        fi
+
+        # Pretty report to step log — informational, no gating.
+        sponsio eval "${{ inputs.traces }}" \
+          --config "${{ inputs.config }}" \
+          $baseline_args \
+          || true
+
+        # Machine-readable report for parsing + PR comment.
+        sponsio eval "${{ inputs.traces }}" \
+          --config "${{ inputs.config }}" \
+          $baseline_args \
+          --json > "${{ inputs.report-path }}"
+        rc=$?
+
+        abs_path="$(pwd)/${{ inputs.report-path }}"
+        echo "exit-code=$rc"         >> "$GITHUB_OUTPUT"
+        echo "report-path=$abs_path" >> "$GITHUB_OUTPUT"
+
+        # Don't ``exit $rc`` here — we want the parse + comment + (optional)
+        # artifact upload steps to run even on a failing gate.  The final
+        # "Enforce gate" step below is what returns non-zero to GH.
+
+    # ---------------------------------------------------------------
+    # 3. Parse the JSON report into step outputs + a PR-comment markdown
+    # body.  Done in inline Python (stdlib only, no deps) so consumers
+    # don't need jq installed on their runner.
+    # ---------------------------------------------------------------
+    - name: Parse eval report
+      id: parse
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        # Pass the report path into Python without shell-quoting headaches.
+        SPONSIO_REPORT_PATH: ${{ inputs.report-path }}
+        SPONSIO_WITH_BASELINE: ${{ inputs.baseline }}
+      run: |
+        python <<'PY'
+        import json, os, pathlib, sys
+
+        p = pathlib.Path(os.environ["SPONSIO_REPORT_PATH"])
+        if not p.exists():
+            # eval step crashed before writing; produce empty outputs
+            # so the gate step still runs (and fails with a clear message).
+            for k in ("fpr", "fnr", "fpr-delta", "fnr-delta"):
+                print(f"{k}=", file=open(os.environ["GITHUB_OUTPUT"], "a"))
+            sys.exit(0)
+
+        data = json.loads(p.read_text())
+
+        # Schema: when --baseline is passed, eval nests under "report" +
+        # "baseline_diff"; otherwise the report keys sit at top level.
+        # Be liberal about both so the action works in both modes.
+        if "report" in data and "baseline_diff" in data:
+            rpt = data["report"]
+            diff = data.get("baseline_diff") or {}
+        else:
+            rpt = data
+            diff = {}
+
+        overall = rpt.get("overall", {})
+        fpr = overall.get("fpr")
+        fnr = overall.get("fnr")
+        fpr_delta = diff.get("overall_fpr_delta")
+        fnr_delta = diff.get("overall_fnr_delta")
+
+        def _fmt(v):
+            return "" if v is None else f"{v:.4f}"
+
+        out = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+        with out.open("a") as f:
+            f.write(f"fpr={_fmt(fpr)}\n")
+            f.write(f"fnr={_fmt(fnr)}\n")
+            f.write(f"fpr-delta={_fmt(fpr_delta)}\n")
+            f.write(f"fnr-delta={_fmt(fnr_delta)}\n")
+
+        # --- Build sticky PR comment body ---------------------------------
+        # Markdown chosen over a table-only layout because gate violations
+        # need a prominent call-out at the top — buried deltas are easy to
+        # miss in a 20-check PR.
+        lines = ["## Sponsio eval gate\n"]
+
+        violations = diff.get("gate_violations") or []
+        if violations:
+            lines.append("**❌ Regression gate failed**\n")
+            for v in violations:
+                lines.append(f"- {v}")
+            lines.append("")
+        else:
+            if diff:
+                lines.append("**✓ No regression vs baseline**\n")
+            else:
+                lines.append("_No baseline supplied — reporting current metrics only._\n")
+
+        lines.append("| metric | current | Δ vs baseline |")
+        lines.append("|---|---:|---:|")
+        def _pp(v):
+            if v is None: return "—"
+            sign = "+" if v > 0 else ""
+            return f"{sign}{v*100:.2f}pp"
+        lines.append(f"| FPR | {_fmt(fpr)} | {_pp(fpr_delta)} |")
+        lines.append(f"| FNR | {_fmt(fnr)} | {_pp(fnr_delta)} |")
+        lines.append(f"| cases | {rpt.get('n_cases', '—')} | |")
+        lines.append("")
+        lines.append("<details><summary>Per-contract breakdown</summary>\n")
+        lines.append("| contract | FPR | FNR | n |")
+        lines.append("|---|---:|---:|---:|")
+        for c in rpt.get("contracts", []):
+            lines.append(
+                f"| `{c.get('contract','')[:60]}` | {_fmt(c.get('fpr'))} "
+                f"| {_fmt(c.get('fnr'))} | {c.get('n','')} |"
+            )
+        lines.append("\n</details>")
+
+        pathlib.Path("/tmp/sponsio-eval-comment.md").write_text("\n".join(lines))
+        PY
+
+    # ---------------------------------------------------------------
+    # 4. Post or update a sticky PR comment.
+    #
+    # Uses peter-evans/create-or-update-comment for the sticky logic
+    # (comments are keyed by a hidden HTML marker).  Skipped on
+    # non-PR events and when comment-on-pr=false.  We keep this as
+    # its own step rather than inlining gh-cli calls so it's easy to
+    # swap for an alternative (e.g. Slack) in a fork.
+    # ---------------------------------------------------------------
+    - name: Find existing comment
+      if: ${{ inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' }}
+      uses: peter-evans/find-comment@v3
+      id: find-comment
+      with:
+        issue-number: ${{ github.event.pull_request.number }}
+        comment-author: "github-actions[bot]"
+        body-includes: "<!-- sponsio-eval-gate -->"
+
+    - name: Post PR comment
+      if: ${{ inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' }}
+      uses: peter-evans/create-or-update-comment@v4
+      with:
+        issue-number: ${{ github.event.pull_request.number }}
+        comment-id: ${{ steps.find-comment.outputs.comment-id }}
+        edit-mode: replace
+        body: |
+          <!-- sponsio-eval-gate -->
+          ${{ env.COMMENT_BODY }}
+      env:
+        # Read the comment body from the tempfile the parse step wrote.
+        # We can't use ``body-path`` because the action input is a repo
+        # path and the file lives under /tmp.
+        COMMENT_BODY: |
+          ${{ hashFiles('/tmp/sponsio-eval-comment.md') != '' && steps.read-body.outputs.body || '(no report)' }}
+
+    # Read the markdown file into an env var for the comment step.
+    # Kept separate from Post PR comment so the "file missing" branch
+    # above degrades gracefully instead of leaking a shell error into
+    # the GH API call.
+    - name: Read comment body
+      if: ${{ inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' }}
+      id: read-body
+      shell: bash
+      run: |
+        if [ -f /tmp/sponsio-eval-comment.md ]; then
+          {
+            echo "body<<EOF_SPONSIO"
+            cat /tmp/sponsio-eval-comment.md
+            echo "EOF_SPONSIO"
+          } >> "$GITHUB_OUTPUT"
+        fi
+
+    # ---------------------------------------------------------------
+    # 5. Upload artifact — always useful for post-mortem, cheap.
+    # ---------------------------------------------------------------
+    - name: Upload report
+      if: ${{ inputs.upload-artifact == 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: sponsio-eval-report
+        path: |
+          ${{ inputs.working-directory }}/${{ inputs.report-path }}
+          ${{ inputs.working-directory }}/${{ inputs.baseline }}
+        if-no-files-found: ignore
+        retention-days: 14
+
+    # ---------------------------------------------------------------
+    # 6. (Optional) Write the report back as the new baseline.
+    #
+    # Gated on three conditions to avoid ratcheting on a red run:
+    #   (a) user opted in via write-baseline=true
+    #   (b) eval exit code is 0
+    #   (c) baseline path is non-empty
+    # We only update the tree here — committing/pushing is the
+    # caller's responsibility (a ``git diff`` check in their
+    # workflow, or an explicit commit step with permissions).  This
+    # separation keeps our action from needing write access to the
+    # repo in the default case.
+    # ---------------------------------------------------------------
+    - name: Promote report to baseline
+      if: >-
+        inputs.write-baseline == 'true'
+        && steps.eval.outputs.exit-code == '0'
+        && inputs.baseline != ''
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        cp "${{ inputs.report-path }}" "${{ inputs.baseline }}"
+        echo "::notice::Promoted current report to ${{ inputs.baseline }}.  Commit it to ratchet the gate forward."
+
+    # ---------------------------------------------------------------
+    # 7. Final gate.  Return the eval step's exit code.  Placed last
+    # so every preceding step (including PR comment) runs first — a
+    # failing gate that doesn't explain itself is a pretty hostile
+    # developer experience.
+    # ---------------------------------------------------------------
+    - name: Enforce gate
+      shell: bash
+      run: |
+        rc="${{ steps.eval.outputs.exit-code }}"
+        if [ -z "$rc" ]; then
+          echo "::error::sponsio eval did not run; see logs above"
+          exit 1
+        fi
+        exit "$rc"

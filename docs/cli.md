@@ -1,7 +1,7 @@
 # CLI Reference
 
 ```bash
-pip install -e .
+pip install sponsio
 sponsio --help
 ```
 
@@ -28,10 +28,25 @@ sponsio scan PATHS... [OPTIONS]
 | `--agent`, `-a` | Agent ID in generated config (default: `agent`) |
 | `--llm` | Enable LLM inference (auto-detects provider from env) |
 | `--model`, `-m` | LLM model name (default: auto-detect) |
-| `--provider` | LLM provider: `gemini` or `openai` (default: auto-detect from env) |
+| `--provider` | LLM provider: `openai`, `anthropic`, or `gemini` (default: auto-detect from env) |
+| `--base-url` | OpenAI-compatible HTTP endpoint (Ollama, OpenRouter, DeepSeek, Together, Groq, vLLM, Azure). Reads `OPENAI_BASE_URL` if not given. |
 | `--out`, `-o` | Write output to file (default: stdout) |
 | `--append` | Append to existing file instead of overwriting |
 | `--policy`, `-p` | Policy document(s) to extract from (repeatable) |
+
+### Provider matrix
+
+`sponsio scan --llm` works with any of the following — pick whichever you already have an account for:
+
+| Provider | Env var | Default model | Notes |
+|----------|---------|---------------|-------|
+| **Gemini** | `GOOGLE_API_KEY` or `GEMINI_API_KEY` | `gemini-2.0-flash` | 1500 requests/day **free tier** — easiest to try |
+| **Anthropic** | `ANTHROPIC_API_KEY` | `claude-3-5-sonnet-latest` | `pip install anthropic` |
+| **OpenAI** | `OPENAI_API_KEY` | `gpt-4o-mini` | |
+| **Ollama** (local) | — | (set `--model llama3.1`) | `--base-url http://localhost:11434/v1` |
+| **OpenRouter / DeepSeek / Together / Groq / Cerebras / Fireworks / vLLM / Azure** | provider's key | (set with `--model`) | `--base-url https://...` against any OpenAI-compatible endpoint |
+
+Auto-detection precedence (when `--provider` is not given): explicit `--base-url` → `openai`; else `ANTHROPIC_API_KEY` → `anthropic`; else `GOOGLE_API_KEY`/`GEMINI_API_KEY` → `gemini`; else `OPENAI_API_KEY` → `openai`.
 
 ### Examples
 
@@ -39,7 +54,7 @@ sponsio scan PATHS... [OPTIONS]
 # Rule-based scan (no LLM, no API key needed)
 sponsio scan src/agents/
 
-# With LLM (auto-detects GOOGLE_API_KEY or OPENAI_API_KEY)
+# With LLM (auto-detects from env vars)
 sponsio scan src/agents/ --llm
 
 # Write to file
@@ -50,8 +65,45 @@ sponsio scan src/agents/ --policy security.md --llm -o sponsio.yaml --append
 
 # Force provider/model
 sponsio scan src/ --llm --provider gemini
+sponsio scan src/ --llm --provider anthropic --model claude-3-5-sonnet-latest
 sponsio scan src/ --llm --provider openai --model gpt-4o
+
+# Local model via Ollama (free, offline, ~8GB RAM)
+sponsio scan src/ --llm --base-url http://localhost:11434/v1 --model llama3.1
+
+# OpenRouter (any frontier model behind one key)
+OPENAI_API_KEY=sk-or-... \
+  sponsio scan src/ --llm \
+    --base-url https://openrouter.ai/api/v1 \
+    --model anthropic/claude-3.5-sonnet
+
+# DeepSeek (cheap + strong on JSON tasks)
+OPENAI_API_KEY=sk-... \
+  sponsio scan src/ --llm \
+    --base-url https://api.deepseek.com \
+    --model deepseek-chat
 ```
+
+### Scanning TypeScript / JavaScript agents
+
+The Python AST scanner only parses Python. For Node.js agents
+(LangChain.js, Vercel AI SDK, LangGraph.js), use the companion
+package `@sponsio/scan-ts`:
+
+```bash
+# Emit an OpenAI-function-calling JSON inventory
+npx @sponsio/scan-ts ./src --out tools.json
+
+# Feed it to `sponsio scan` — same heuristics, same YAML output
+sponsio scan tools.json --out sponsio.yaml
+```
+
+The TS scanner statically understands Vercel's `tool({...})`,
+LangChain's `new DynamicStructuredTool({...})`, and LangGraph.js's
+`tool(fn, cfg)` — plus common Zod patterns
+(`z.object / string / number / enum / literal / array / optional`).
+See [`ts-scanner/README.md`](https://github.com/sponsio-labs/sponsio/tree/main/ts-scanner)
+for the full matrix.
 
 ---
 
@@ -164,15 +216,29 @@ sponsio demo [OPTIONS]
 
 | Option | Description |
 |--------|-------------|
-| `--scenario` | Demo scenario: `customer` (default), `coding`, `mcp` |
-| `--real` | Use real LLM (requires `GOOGLE_API_KEY`) |
+| `--scenario` | Demo scenario: `cleanup` (default), `trial`, `loan` |
+| `--mode` | `mock` (default, no optional SDKs) or `integration` (source checkout examples) |
+| `--no-guard` | Replay the unsafe trajectory without Sponsio |
+| `--fast` | Skip typing delays |
+
+By default, `sponsio demo` runs a packaged mock replay that works from a
+plain PyPI install: no API key, no LangGraph/CrewAI/Claude SDK dependency,
+and no source checkout required. Use `--mode integration` from a cloned repo
+when you want to run the framework-specific example scripts.
+
+| Scenario | Story | Integration example |
+|---|---|---|
+| `cleanup` | Claude Code cleanup agent deletes `.env` & `.git/` | `from sponsio.claude_agent import Sponsio` · `ClaudeAgentOptions(hooks=guard.hooks())` |
+| `trial` | Clinical Trial Recruiter falsifies 20 patient records (15/24 SOTA models) | `from sponsio.langgraph import Sponsio` · `guard.wrap(tools)` |
+| `loan` | Loan officer edits applications to bypass AML (19/24 SOTA models) | `from sponsio.crewai import Sponsio` · `guard.wrap(tools)` |
 
 ### Examples
 
 ```bash
 sponsio demo
-sponsio demo --scenario coding
-sponsio demo --scenario mcp --real
+sponsio demo --scenario trial --fast
+sponsio demo --scenario loan --no-guard
+sponsio demo --mode integration --scenario trial
 ```
 
 ---

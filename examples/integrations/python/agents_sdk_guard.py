@@ -20,15 +20,23 @@ import warnings
 warnings.filterwarnings("ignore")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from shared import USE_MOCK
+from shared import USE_MOCK  # noqa: E402  (path hack above)
+from sponsio import contract  # noqa: E402
 
 CONTRACTS = [
-    "tool `run_tests` must precede `deploy_production`",
-    "tool `deploy_staging` at most 3 times",
+    # Conditional (A, E) pair — assumption triggers the enforcement
+    contract("tests gate production deploys")
+    .assume("called `deploy_production`")
+    .enforce("must call `run_tests` before `deploy_production`"),
+    # Unconditional rate limit — no .assume(), only .enforce()
+    contract("staging deploy rate limit").enforce(
+        "tool `deploy_staging` at most 3 times"
+    ),
 ]
 
 
 # -- Tool implementations ---------------------------------------------------
+
 
 def _run_tests(version: str) -> str:
     return f"All tests passed for {version}"
@@ -51,6 +59,7 @@ TOOLS = {
 
 # -- Mock mode ---------------------------------------------------------------
 
+
 def run_mock(guard):
     mock_calls = [
         ("deploy_production", {"version": "v2.1"}),
@@ -70,6 +79,7 @@ def run_mock(guard):
 
 
 # -- Real mode: OpenAI Agents SDK (requires Python 3.10+, OPENAI_API_KEY) ---
+
 
 def run_real(guard):
     if not os.environ.get("OPENAI_API_KEY"):
@@ -111,12 +121,12 @@ def run_real(guard):
 
 # -- Main --------------------------------------------------------------------
 
+
 def main():
     # ======== Add Sponsio: 2 lines ========
-    import sponsio
+    from sponsio.agents import Sponsio
 
-    guard = sponsio.init(
-        framework="agents_sdk",
+    guard = Sponsio(
         agent_id="deploy_bot",
         contracts=CONTRACTS,
     )

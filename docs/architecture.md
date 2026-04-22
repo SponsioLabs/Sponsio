@@ -184,7 +184,7 @@ def must_precede(a: str, b: str) -> AnnotatedFormula:
 
 It takes user-friendly arguments, constructs a formula from atoms, and wraps it with metadata.
 
-### Current pattern inventory (16)
+### Current pattern inventory (core examples)
 
 **Ordering (temporal)**:
 - `must_precede(A, B)` -- A before B, using `Until`
@@ -315,7 +315,7 @@ Atoms used: `called(X)`, `count(X)`, `arg_has(X, pattern)`, `output_has(X, patte
 
 Available via: **Hooks (realtime, can block) AND OTEL (post-hoc)**.
 
-All 16 current patterns fall in this category. These are the most universally available, the most enforceable (can block), and cover the majority of agent safety constraints.
+Most deterministic patterns fall in this category. These are the most universally available, the most enforceable (can block), and cover the majority of agent safety constraints.
 
 Examples:
 - `must_precede(A, B)` = `Not(called(B)) U called(A)` -- uses `called` atoms

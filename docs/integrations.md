@@ -8,16 +8,16 @@ Sponsio works with any agent framework in both Python and TypeScript. Each integ
 
 ### Python
 
-| Framework | Init | Tool wrapping | Lines to add |
+| Framework | Factory | Tool wrapping | Lines to add |
 |-----------|------|--------------|-------------|
-| **LangGraph** | `sponsio.init(framework="langgraph")` | `guard.wrap(tools)` | 3 |
-| **Claude Agent SDK** | `sponsio.init(framework="claude_agent")` | `guard.hooks()` (zero wrapping) | 2 |
-| **OpenAI SDK** | `sponsio.init(framework="openai")` | `patch_openai()` | 2 |
-| **Vercel AI SDK** | `sponsio.init(framework="vercel_ai")` | `guard.wrap()` (middleware) | 2 |
-| **Agents SDK** | `sponsio.init(framework="agents_sdk")` | `guard.wrap(tools)` | 3 |
-| **CrewAI** | `sponsio.init(framework="crewai")` | `guard.wrap(tools)` | 3 |
-| **MCP** | `MCPContractProxy(client, ...)` | `proxy.call_tool()` | 3 |
-| **No framework** | `sponsio.init(contracts=[...])` | `guard.guard_before()` / `guard_after()` | 3 |
+| **LangGraph** | `from sponsio.langgraph import Sponsio` | `guard.wrap(tools)` | 3 |
+| **Claude Agent SDK** | `from sponsio.claude_agent import Sponsio` | `guard.hooks()` (zero wrapping) | 2 |
+| **OpenAI SDK** | `from sponsio.openai import Sponsio` (or `patch_openai`) | automatic response checks | 2 |
+| **Vercel AI SDK** | `from sponsio.vercel_ai import Sponsio` | `guard.wrap()` (middleware) | 2 |
+| **Agents SDK** | `from sponsio.agents import Sponsio` | `guard.wrap(tools)` | 3 |
+| **CrewAI** | `from sponsio.crewai import Sponsio` | `guard.wrap(tools)` | 3 |
+| **MCP** | `from sponsio.mcp import MCPContractProxy` | `proxy.call_tool()` | 3 |
+| **No framework** | `sponsio.Sponsio(contracts=[...])` | `guard.guard_before()` / `guard_after()` | 3 |
 
 ### TypeScript (via Pyodide — same engine, no server)
 
@@ -35,12 +35,18 @@ All integrations — Python and TypeScript — share the same LTL engine and pro
 ## LangGraph
 
 ```python
-import sponsio
+from langgraph.prebuilt import create_react_agent
 
-guard = sponsio.init(
-    framework="langgraph",
+from sponsio import contract
+from sponsio.langgraph import Sponsio
+
+guard = Sponsio(
     agent_id="my_bot",
-    contracts=["tool `check_policy` must precede `issue_refund`"],
+    contracts=[
+        contract("policy gate before refund")
+            .assume("called `issue_refund`")
+            .enforce("must call `check_policy` before `issue_refund`"),
+    ],
 )
 
 # Replace ToolNode(tools) with guard.wrap(tools)
@@ -53,7 +59,9 @@ guard.print_summary()
 For existing graphs, use `wrap_graph()`:
 
 ```python
-guard = sponsio.init(framework="langgraph", config="sponsio.yaml", agent_id="bot")
+from sponsio.langgraph import Sponsio
+
+guard = Sponsio(config="sponsio.yaml", agent_id="bot")
 graph = build_my_graph()
 graph = guard.wrap_graph(graph)  # wraps all tool nodes
 ```
@@ -63,14 +71,19 @@ graph = guard.wrap_graph(graph)  # wraps all tool nodes
 ## CrewAI
 
 ```python
-import sponsio
+from crewai import Agent, Crew, Task
 
-guard = sponsio.init(
-    framework="crewai",
+from sponsio import contract
+from sponsio.crewai import Sponsio
+
+guard = Sponsio(
     agent_id="moderator",
     contracts=[
-        "tools `flag_content` and `delete_content` must never be called together",
-        "tool `delete_content` requires permission `admin_permission`",
+        contract("delete needs admin permission")
+            .assume("called `delete_content`")
+            .enforce("permission `admin_permission` granted before `delete_content`"),
+        contract("flag and delete are mutually exclusive")
+            .enforce("tools `flag_content` and `delete_content` must never be called together"),
     ],
 )
 
@@ -87,22 +100,26 @@ crew = Crew(
 ## OpenAI SDK
 
 ```python
-from sponsio.integrations.openai import OpenAIGuard
+from openai import OpenAI
 
-guard = OpenAIGuard(
+from sponsio import contract
+from sponsio.openai import patch_openai
+
+client = OpenAI()
+
+guard = patch_openai(
     agent_id="db_admin",
     contracts=[
-        "tool `preview_query` must precede `execute_query`",
-        "tool `execute_query` at most 5 times",
+        contract("preview before executing destructive SQL")
+            .assume("called `execute_query`")
+            .enforce("must call `preview_query` before `execute_query`"),
+        contract("execute_query rate limit")
+            .enforce("tool `execute_query` at most 5 times"),
     ],
 )
 
-# Check each response
+# Every response is checked automatically.
 response = client.chat.completions.create(model="gpt-4", messages=messages, tools=tools)
-result = guard.check_response(response)
-if result.blocked:
-    # handle blocked tool call
-    pass
 
 guard.print_summary()
 ```
@@ -112,14 +129,19 @@ guard.print_summary()
 ## OpenAI Agents SDK
 
 ```python
-import sponsio
+from agents import Agent
 
-guard = sponsio.init(
-    framework="agents_sdk",
+from sponsio import contract
+from sponsio.agents import Sponsio
+
+guard = Sponsio(
     agent_id="deploy_bot",
     contracts=[
-        "tool `run_tests` must precede `deploy_production`",
-        "tool `deploy_staging` at most 3 times",
+        contract("tests gate production deploys")
+            .assume("called `deploy_production`")
+            .enforce("must call `run_tests` before `deploy_production`"),
+        contract("staging deploy rate limit")
+            .enforce("tool `deploy_staging` at most 3 times"),
     ],
 )
 
@@ -137,12 +159,16 @@ MCP is a tool transport protocol, not an agent framework. Use `guard_before()` /
 
 ```python
 import sponsio
+from sponsio import contract
 
-guard = sponsio.init(
+guard = sponsio.Sponsio(
     agent_id="mcp_agent",
     contracts=[
-        "tool `read_database` must precede `write_external_api`",
-        "tool `send_email` at most 2 times",
+        contract("read DB before writing to external API")
+            .assume("called `write_external_api`")
+            .enforce("must call `read_database` before `write_external_api`"),
+        contract("email rate limit")
+            .enforce("tool `send_email` at most 2 times"),
     ],
 )
 
@@ -157,7 +183,7 @@ for tool_call in mcp_tool_calls:
 For transparent MCP wrapping, use `MCPContractProxy`:
 
 ```python
-from sponsio.integrations.mcp import MCPContractProxy
+from sponsio.mcp import MCPContractProxy
 
 proxy = MCPContractProxy(mcp_client=client, system=system)
 result = await proxy.call_tool("send_email", {"to": "user@example.com"})
@@ -172,12 +198,16 @@ For custom agent loops without a framework:
 
 ```python
 import sponsio
+from sponsio import contract
 
-guard = sponsio.init(
+guard = sponsio.Sponsio(
     agent_id="my_agent",
     contracts=[
-        "tool `verify_identity` must precede `transfer_funds`",
-        "tool `transfer_funds` at most 3 times",
+        contract("identity check before transfer")
+            .assume("called `transfer_funds`")
+            .enforce("must call `verify_identity` before `transfer_funds`"),
+        contract("transfer rate limit")
+            .enforce("tool `transfer_funds` at most 3 times"),
     ],
 )
 
@@ -204,8 +234,9 @@ guard.print_summary()
 All integrations support loading contracts from a YAML file:
 
 ```python
-guard = sponsio.init(
-    framework="langgraph",   # or any framework
+from sponsio.langgraph import Sponsio
+
+guard = Sponsio(
     config="sponsio.yaml",
     agent_id="my_bot",
 )
@@ -220,8 +251,9 @@ See [Input Formats](input-formats.md) for the YAML specification.
 Any integration can push spans to the Sponsio dashboard:
 
 ```python
-guard = sponsio.init(
-    framework="langgraph",
+from sponsio.langgraph import Sponsio
+
+guard = Sponsio(
     contracts=[...],
     dashboard=True,           # auto-start on port 8000
     # or: dashboard="http://localhost:8000"  # connect to existing
@@ -234,11 +266,11 @@ Any integration can export spans to OTEL backends:
 
 ```python
 from sponsio.integrations.otel import OTelExporter
+from sponsio.langgraph import Sponsio
 
 exporter = OTelExporter(endpoint="https://your-otel-backend/v1/traces")
 
-guard = sponsio.init(
-    framework="langgraph",
+guard = Sponsio(
     contracts=[...],
     otel_exporter=exporter,
 )
