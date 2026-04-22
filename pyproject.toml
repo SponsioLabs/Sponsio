@@ -44,7 +44,9 @@ Issues = "https://github.com/SponsioLabs/Sponsio/issues"
 
 [project.optional-dependencies]
 langgraph = ["langgraph", "langchain-core"]
-llm = ["openai>=1.0"]
+# openai: OpenAI + any OpenAI-compatible --base-url; google-genai: Gemini
+# (``from google import genai``); anthropic: Claude path for scan --llm
+llm = ["openai>=1.0", "google-genai", "anthropic"]
 crewai = ["crewai"]
 agents = ["openai-agents"]
 agents-sdk = ["openai-agents"]
@@ -62,6 +64,8 @@ otel = [
 all = [
     "langgraph", "langchain-core",
     "openai>=1.0",
+    "google-genai",
+    "anthropic",
     "crewai",
     "openai-agents",
     "claude-agent-sdk",

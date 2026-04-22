@@ -353,7 +353,7 @@ class TestCheckLlmPing:
 
         class _FakeExt:
             _provider = "anthropic"
-            _model = "claude-3-5-sonnet-latest"
+            _model = "claude-3-5-sonnet-20241022"
 
             def __init__(self, **kwargs):
                 captured.update(kwargs)
@@ -367,7 +367,7 @@ class TestCheckLlmPing:
 
         section = ExtractorSection(
             provider="anthropic",
-            model="claude-3-5-sonnet-latest",
+            model="claude-3-5-sonnet-20241022",
             api_key="sk-ant-from-yaml",
             base_url=None,
         )

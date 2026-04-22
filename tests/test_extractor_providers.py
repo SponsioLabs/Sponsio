@@ -105,7 +105,7 @@ class TestProviderAutoDetection:
             provider="anthropic", client=_FakeAnthropicClient(_EMPTY_JSON)
         )
         assert ext._provider == "anthropic"
-        assert ext._model == "claude-3-5-sonnet-latest"
+        assert ext._model == "claude-3-5-sonnet-20241022"
 
     def test_gemini_env_picks_gemini(self, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -129,7 +129,7 @@ class TestProviderAutoDetection:
         assert ext._provider == "anthropic"
 
     def test_model_name_with_claude_picks_anthropic(self, monkeypatch):
-        # ``--model claude-3-5-sonnet-latest --api-key sk-ant-...`` with no
+        # ``--model claude-3-5-sonnet-20241022 --api-key sk-ant-...`` with no
         # explicit ``--provider`` and no client should still infer
         # anthropic from the model-name hint.  We stub the SDK
         # constructor so the test doesn't require the real package.
@@ -147,7 +147,7 @@ class TestProviderAutoDetection:
         monkeypatch.setattr(anthropic, "Anthropic", _StubAnthropic)
 
         ext = UnifiedExtractor(
-            model="claude-3-5-sonnet-latest",
+            model="claude-3-5-sonnet-20241022",
             api_key="sk-ant-fake",
         )
         assert ext._provider == "anthropic"
@@ -191,7 +191,7 @@ class TestAnthropicCallPath:
         assert kwargs["system"], "system prompt missing"
         assert kwargs["messages"][0]["role"] == "user"
         assert kwargs["temperature"] == 0.0
-        assert kwargs["model"] == "claude-3-5-sonnet-latest"
+        assert kwargs["model"] == "claude-3-5-sonnet-20241022"
 
     def test_anthropic_strips_json_fence(self):
         # Some Claude models wrap JSON in a ```json fence even when told

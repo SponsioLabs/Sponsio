@@ -246,7 +246,7 @@ def test_round_trip_with_env_vars(tmp_path, monkeypatch):
         version: 1
         extractor:
           provider: anthropic
-          model: claude-3-5-sonnet-latest
+          model: claude-3-5-sonnet-20241022
           api_key: ${ANTHROPIC_KEY}
         judge:
           provider: gemini

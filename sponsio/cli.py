@@ -1087,7 +1087,16 @@ def serve(host: str, port: int, dev: bool):
         "Reads OPENAI_BASE_URL env if not given."
     ),
 )
-@click.option("--out", "-o", type=click.Path(), help="Write sponsio.yaml to this path")
+@click.option(
+    "--out",
+    "-o",
+    type=click.Path(),
+    default=None,
+    help=(
+        "Write YAML to this path. Defaults to `./sponsio.yaml`. "
+        "Use `-o -` to print to stdout for piping."
+    ),
+)
 @click.option(
     "--append", is_flag=True, help="Append to existing file instead of overwriting"
 )
@@ -1147,12 +1156,13 @@ def scan(
 
     \b
     Examples:
-      sponsio scan src/                                # rule-based only
+      sponsio scan src/                                # writes ./sponsio.yaml (rule-based)
       sponsio scan src/ --llm                          # + LLM inference
       sponsio scan src/ --policy security.md --llm     # code + policy
-      sponsio scan src/ -o sponsio.yaml                # write config
-      sponsio scan src/ -o sponsio.yaml --append       # add to existing
-      sponsio scan src/ -o sponsio.yaml --push         # also push to dashboard
+      sponsio scan src/ -o custom.yaml                 # write to custom path
+      sponsio scan src/ -o sponsio.yaml --append       # merge into existing
+      sponsio scan src/ -o -                           # print to stdout (pipe)
+      sponsio scan src/ --push                         # also push to dashboard
     """
     from sponsio.discovery.extractors.code_analysis import CodeAnalyzer
 
@@ -1213,15 +1223,31 @@ def scan(
         tool_inventory=tool_inventory,
     )
 
+    # --- Auto-validate & drop unparseable contracts ---------------------
+    # Goal: the file we hand the user is *directly usable*. Any contract
+    # that the parser can't compile is dropped here (and listed on
+    # stderr) instead of being left as a landmine in the YAML.
+    yaml_content, dropped_contracts = _filter_invalid_contracts(yaml_content)
+
     # --- Post-scan summary (stderr) -------------------------------------
     # Helps users notice the "0 contracts" case immediately and points
     # them at --llm if they only ran the AST pass.
     n_tools, n_contracts, n_review = _scan_summary_counts(yaml_content)
     summary_color = "green" if n_contracts > 0 else "yellow"
-    summary = f"Scan summary: {n_tools} tool(s), {n_contracts} contract(s) proposed"
+    summary = f"Scan summary: {n_tools} tool(s), {n_contracts} contract(s) kept"
     if n_review:
         summary += f" ({n_review} flagged for review)"
+    if dropped_contracts:
+        summary += f", {len(dropped_contracts)} dropped (failed to parse)"
     click.echo(click.style("• " + summary, fg=summary_color), err=True)
+    for d in dropped_contracts:
+        click.echo(
+            click.style("  dropped: ", fg="yellow")
+            + f"[{d['agent']}] "
+            + click.style(d["nl"][:120], dim=True)
+            + (f"  ({d['error']})" if d.get("error") else ""),
+            err=True,
+        )
     if n_tools == 0:
         click.echo(
             click.style("  note: ", fg="cyan")
@@ -1248,28 +1274,277 @@ def scan(
             err=True,
         )
 
-    if out:
-        if append and os.path.exists(out):
-            # Append new guarantees to existing file
-            with open(out) as f:
-                existing = f.read()
-            yaml_content = _merge_yaml(existing, yaml_content)
-        with open(out, "w") as f:
-            f.write(yaml_content)
+    # Default output: write to ``./sponsio.yaml`` so the common
+    # interactive case never leaves the user wondering where the YAML
+    # went.  Two opt-outs:
+    #   * ``-o -``      → print to stdout (pipeline use)
+    #   * ``-o <path>`` → write to a specific path
+    if out == "-":
+        click.echo(yaml_content)
         click.echo(
-            click.style("✓ ", fg="green")
-            + f"Config written to {click.style(out, bold=True)}"
+            click.style("• ", fg="cyan")
+            + "YAML written to stdout (use `-o <path>` to save to a file).",
+            err=True,
         )
     else:
-        click.echo(yaml_content)
+        target = out or "sponsio.yaml"
+        existed = os.path.exists(target)
+        if append and existed:
+            with open(target) as f:
+                existing = f.read()
+            yaml_content = _merge_yaml(existing, yaml_content)
+        with open(target, "w") as f:
+            f.write(yaml_content)
+        abs_out = os.path.abspath(target)
+        verb = (
+            "Updated" if append and existed else ("Overwrote" if existed else "Wrote")
+        )
+        click.echo(
+            click.style("✓ ", fg="green") + f"{verb} {click.style(abs_out, bold=True)}",
+            err=True,
+        )
+        if existed and not append:
+            click.echo(
+                click.style("  note: ", fg="yellow")
+                + "existing file was overwritten. "
+                + "Use --append to merge new contracts into it instead.",
+                err=True,
+            )
+        click.echo(
+            click.style("  tip: ", fg="cyan", dim=True)
+            + f"re-run `sponsio validate --config {abs_out}` after manual edits.",
+            err=True,
+        )
 
     if push:
         _push_scan_to_dashboard(
             yaml_content=yaml_content,
-            filename=os.path.basename(out) if out else "sponsio.yaml",
+            filename=(os.path.basename(out) if out and out != "-" else "sponsio.yaml"),
             dashboard_url=push_url,
             source_paths=source_paths,
         )
+
+
+def _filter_invalid_contracts(yaml_content: str) -> tuple[str, list[dict]]:
+    """Drop contracts that fail to compile so the saved YAML is usable as-is.
+
+    Walks every ``agents.<id>.contracts[*]`` entry, runs the same parser
+    that ``sponsio validate`` uses, and rewrites the YAML with only the
+    entries that parse cleanly. Bad ones are returned for stderr display.
+
+    Conservative on errors: if PyYAML / the parser modules aren't
+    importable, returns the input unchanged (and an empty drop list) so
+    a minimal install still gets a working scan, just without the
+    auto-validate net.
+
+    Returns:
+        (cleaned_yaml, dropped) where ``dropped`` is a list of
+        ``{"agent": str, "nl": str, "error": str}``.
+    """
+    try:
+        import yaml as _yaml
+    except ImportError:
+        return yaml_content, []
+
+    try:
+        from sponsio.config import _compile_structured, _parse_constraint_entry
+        from sponsio.generation.nl_to_contract import (
+            ContractSyntaxError,
+            parse_nl_unified,
+        )
+    except ImportError:
+        return yaml_content, []
+
+    try:
+        data = _yaml.safe_load(yaml_content)
+    except _yaml.YAMLError:
+        return yaml_content, []
+
+    if not isinstance(data, dict):
+        return yaml_content, []
+
+    agents_raw = data.get("agents", {})
+    if not isinstance(agents_raw, dict):
+        return yaml_content, []
+
+    def _validate_one(item) -> tuple[bool, str, str]:
+        try:
+            entry = _parse_constraint_entry(item)
+        except Exception as e:  # noqa: BLE001
+            return False, str(item)[:120], f"parse: {e}"
+        if entry.is_structured:
+            try:
+                _compile_structured(entry)
+            except Exception as e:  # noqa: BLE001
+                args = ", ".join(str(a) for a in (entry.args or []))
+                return False, f"{entry.pattern}({args})", str(e)
+            return True, "", ""
+        else:
+            nl = entry.nl or ""
+            try:
+                parse_nl_unified(nl)
+            except ContractSyntaxError as e:
+                return False, nl, e.hint or "no pattern matched"
+            except Exception as e:  # noqa: BLE001
+                return False, nl, str(e)
+            return True, "", ""
+
+    bad_per_agent: dict[str, set[int]] = {}
+    dropped: list[dict] = []
+
+    for agent_id, ag in agents_raw.items():
+        # An agent block is normally a dict with `contracts:`; bare lists
+        # are tolerated by the loader but rare from generate_yaml. Handle
+        # both for safety.
+        if isinstance(ag, dict):
+            contracts = ag.get("contracts", [])
+        elif isinstance(ag, list):
+            contracts = ag
+        else:
+            continue
+        if not isinstance(contracts, list):
+            continue
+
+        bad: set[int] = set()
+        for idx, ce in enumerate(contracts):
+            # An entry can be either a bare string (E only, NL form), or
+            # a dict with A/E keys whose values are themselves NL strings
+            # or structured ``{pattern, args}`` dicts.
+            sub_items: list = []
+            if isinstance(ce, str):
+                sub_items.append(ce)
+            elif isinstance(ce, dict):
+                for key in ("A", "E"):
+                    if key not in ce:
+                        continue
+                    val = ce[key]
+                    sub_items.extend(val if isinstance(val, list) else [val])
+            else:
+                continue
+
+            entry_dropped = False
+            for it in sub_items:
+                if it is None:
+                    continue
+                ok, nl_repr, err = _validate_one(it)
+                if not ok:
+                    dropped.append(
+                        {"agent": str(agent_id), "nl": nl_repr, "error": err}
+                    )
+                    entry_dropped = True
+                    break
+            if entry_dropped:
+                bad.add(idx)
+
+        if bad:
+            bad_per_agent[str(agent_id)] = bad
+
+    if not bad_per_agent:
+        return yaml_content, dropped  # nothing to rewrite
+
+    cleaned = _drop_contract_indices(yaml_content, bad_per_agent)
+    return cleaned, dropped
+
+
+def _drop_contract_indices(
+    yaml_content: str, bad_per_agent: dict[str, set[int]]
+) -> str:
+    """Remove specific contract entries (by 0-based index) per agent.
+
+    Preserves comments, confidence tags and the surrounding YAML
+    structure that ``generate_yaml`` produces.  If an agent's
+    ``contracts:`` list ends up empty we replace it with ``contracts: []``
+    so the resulting file still parses.
+    """
+    out: list[str] = []
+    lines = yaml_content.split("\n")
+
+    in_agents = False
+    current_agent: str | None = None
+    in_contracts = False
+    current_idx = -1
+    skipping = False
+    contracts_line_idx: int | None = None
+    kept_in_current_contracts = 0
+
+    def _finalize_contracts_block() -> None:
+        # If the contracts: list ended up empty, swap the header line for
+        # ``contracts: []`` so the YAML stays valid.
+        nonlocal contracts_line_idx, kept_in_current_contracts
+        if contracts_line_idx is not None and kept_in_current_contracts == 0:
+            header = out[contracts_line_idx]
+            stripped = header.lstrip()
+            indent = header[: len(header) - len(stripped)]
+            if stripped.rstrip().endswith(":"):
+                out[contracts_line_idx] = f"{indent}contracts: []"
+        contracts_line_idx = None
+        kept_in_current_contracts = 0
+
+    for line in lines:
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+
+        # Blank / comment lines: keep unless we're inside a dropped entry.
+        if not stripped or stripped.startswith("#"):
+            if skipping:
+                continue
+            out.append(line)
+            continue
+
+        # Top-level key (col 0) → reset everything.
+        if indent == 0:
+            _finalize_contracts_block()
+            in_agents = stripped.startswith("agents:")
+            current_agent = None
+            in_contracts = False
+            current_idx = -1
+            skipping = False
+            out.append(line)
+            continue
+
+        # Inside agents: each agent header sits at indent 2.
+        if in_agents and indent == 2 and stripped.rstrip().endswith(":"):
+            _finalize_contracts_block()
+            current_agent = stripped.rstrip()[:-1].strip()
+            in_contracts = False
+            current_idx = -1
+            skipping = False
+            out.append(line)
+            continue
+
+        # Properties of the current agent live at indent 4.
+        if current_agent is not None and indent == 4:
+            _finalize_contracts_block()
+            in_contracts = stripped.startswith("contracts:")
+            skipping = False
+            current_idx = -1
+            if in_contracts:
+                contracts_line_idx = len(out)
+                kept_in_current_contracts = 0
+            out.append(line)
+            continue
+
+        # Inside a contracts: list, entries start at indent 6 with "- ".
+        if in_contracts and indent >= 6:
+            if stripped.startswith("- "):
+                current_idx += 1
+                bad_set = bad_per_agent.get(current_agent or "", set())
+                skipping = current_idx in bad_set
+                if not skipping:
+                    kept_in_current_contracts += 1
+                    out.append(line)
+                continue
+            # Continuation line of the current entry.
+            if not skipping:
+                out.append(line)
+            continue
+
+        # Anything else: outside our tracked regions.
+        skipping = False
+        out.append(line)
+
+    _finalize_contracts_block()
+    return "\n".join(out)
 
 
 def _scan_summary_counts(yaml_content: str) -> tuple[int, int, int]:

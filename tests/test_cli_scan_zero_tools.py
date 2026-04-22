@@ -17,7 +17,10 @@ def test_scan_zero_tools_prints_friendly_note(tmp_path: Path) -> None:
     (d / "notes.txt").write_text("no python tools here\n", encoding="utf-8")
 
     runner = CliRunner()
-    result = runner.invoke(scan, [str(d)], catch_exceptions=False)
+    # Default scan now writes ``./sponsio.yaml``; isolate cwd so it lands
+    # in a tmp dir instead of clobbering the project root.
+    with runner.isolated_filesystem():
+        result = runner.invoke(scan, [str(d)], catch_exceptions=False)
     assert result.exit_code == 0, result.output
     low = result.output.lower()
     assert "0 tool" in low

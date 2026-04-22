@@ -11,10 +11,27 @@ pip install sponsio
 
 # Optional extras
 pip install "sponsio[config]"       # YAML config support
-pip install "sponsio[llm]"          # LLM-powered contract discovery
+pip install "sponsio[llm]"          # LLM-powered contract discovery (OpenAI, Gemini, Anthropic clients)
 pip install "sponsio[otel]"         # OpenTelemetry span export
 pip install "sponsio[all]"          # everything
 ```
+
+From a git checkout, use the same with `-e .`, e.g. `pip install -e ".[llm]"`.
+
+### API keys for LLM contract discovery
+
+There is no Sponsio config file for model keys. The CLI reads **process environment variables** in your shell (or CI):
+
+| You use | Set before running `sponsio scan --llm` |
+|--------|----------------------------------------|
+| **Gemini** (default if `GOOGLE_API_KEY` is set) | `export GOOGLE_API_KEY=...` or `export GEMINI_API_KEY=...` |
+| **OpenAI** | `export OPENAI_API_KEY=...` |
+| **Anthropic** | `export ANTHROPIC_API_KEY=...` |
+| **Ollama / OpenRouter** (OpenAI-compatible HTTP) | `export OPENAI_API_KEY=...` (if the host requires a key) and pass `--base-url https://...` |
+
+Auto-detection order when `--provider` is omitted: `--base-url` → OpenAI client; else Anthropic if `ANTHROPIC_API_KEY`; else Gemini if `GOOGLE_API_KEY` / `GEMINI_API_KEY`; else OpenAI if `OPENAI_API_KEY`. Use `--provider openai` or unset other keys if the wrong provider is selected.
+
+`pip install "sponsio[llm]"` pulls in the SDKs for those paths, including **`google-genai`** for Gemini (`from google import genai`). If you only set a Gemini key, you need that install or you will see an import error and get zero LLM-inferred contracts.
 
 ---
 

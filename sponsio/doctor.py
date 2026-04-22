@@ -140,7 +140,7 @@ def check_optional_sdks() -> CheckResult:
 _LLM_PROVIDERS: tuple[tuple[str, str, str, str], ...] = (
     ("GEMINI_API_KEY", "Gemini", "gemini-2.0-flash", "1500 req/day free tier"),
     ("GOOGLE_API_KEY", "Gemini", "gemini-2.0-flash", "1500 req/day free tier"),
-    ("ANTHROPIC_API_KEY", "Anthropic", "claude-3-5-sonnet-latest", ""),
+    ("ANTHROPIC_API_KEY", "Anthropic", "claude-3-5-sonnet-20241022", ""),
     ("OPENAI_API_KEY", "OpenAI", "gpt-4o-mini", ""),
 )
 

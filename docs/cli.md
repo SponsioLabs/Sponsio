@@ -5,6 +5,8 @@ pip install sponsio
 sponsio --help
 ```
 
+For `sponsio scan --llm`, install the LLM extra so all provider SDKs (including **Gemini**’s `google-genai`) are available: `pip install "sponsio[llm]"`. API keys are **environment variables** only—see [Getting started: API keys](getting-started.md#api-keys-for-llm-contract-discovery).
+
 ---
 
 ## `sponsio scan`
@@ -41,7 +43,7 @@ sponsio scan PATHS... [OPTIONS]
 | Provider | Env var | Default model | Notes |
 |----------|---------|---------------|-------|
 | **Gemini** | `GOOGLE_API_KEY` or `GEMINI_API_KEY` | `gemini-2.0-flash` | 1500 requests/day **free tier** — easiest to try |
-| **Anthropic** | `ANTHROPIC_API_KEY` | `claude-3-5-sonnet-latest` | `pip install anthropic` |
+| **Anthropic** | `ANTHROPIC_API_KEY` | `claude-3-5-sonnet-20241022` | `pip install anthropic` |
 | **OpenAI** | `OPENAI_API_KEY` | `gpt-4o-mini` | |
 | **Ollama** (local) | — | (set `--model llama3.1`) | `--base-url http://localhost:11434/v1` |
 | **OpenRouter / DeepSeek / Together / Groq / Cerebras / Fireworks / vLLM / Azure** | provider's key | (set with `--model`) | `--base-url https://...` against any OpenAI-compatible endpoint |
@@ -65,7 +67,7 @@ sponsio scan src/agents/ --policy security.md --llm -o sponsio.yaml --append
 
 # Force provider/model
 sponsio scan src/ --llm --provider gemini
-sponsio scan src/ --llm --provider anthropic --model claude-3-5-sonnet-latest
+sponsio scan src/ --llm --provider anthropic --model claude-3-5-sonnet-20241022
 sponsio scan src/ --llm --provider openai --model gpt-4o
 
 # Local model via Ollama (free, offline, ~8GB RAM)

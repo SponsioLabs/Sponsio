@@ -8,7 +8,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Default Anthropic model** bumped from ``claude-3-5-sonnet-latest`` →
+  ``claude-3-5-sonnet-20241022``. Anthropic retired the ``-latest`` alias
+  and now returns ``404 not_found_error`` for it, which caused
+  ``sponsio scan --llm --provider anthropic`` to fail out of the box even
+  with a valid ``ANTHROPIC_API_KEY``. Pinning to the dated snapshot
+  restores the zero-config path. Override with ``--model`` as before
+  (e.g. ``--model claude-3-5-haiku-20241022`` or a Claude 4 snapshot if
+  your account has access). Touches ``UnifiedExtractor``, ``init_wizard``,
+  ``doctor``, and ``docs/cli.md`` — no API changes.
+
 ### Changed
+- **``sponsio scan`` UX overhaul** so the common interactive case
+  ("just give me a usable ``sponsio.yaml``") needs zero flags:
+  - **Default output** is now ``./sponsio.yaml`` (was: stdout). Pass
+    ``-o <path>`` to choose a different file, or ``-o -`` to keep the
+    old stdout-pipe behavior.
+  - **Auto-validate-and-drop**: every contract in the generated YAML
+    is run through the same parser ``sponsio validate`` uses; entries
+    that fail to compile are removed from the file (and listed on
+    stderr) so the saved YAML is directly usable without a manual
+    cleanup pass. If an agent's contracts list ends up empty it is
+    written as ``contracts: []`` so the file still parses.
+  - **Clearer summary**: absolute output path, ``Wrote / Overwrote /
+    Updated`` verbs, and a ``dropped: [agent] <nl>  (<reason>)`` line
+    per discarded contract.
+- **``sponsio[llm]`` extra** now also pulls ``google-genai`` and
+  ``anthropic`` so ``sponsio scan --llm`` with Gemini / Claude works
+  off a single ``pip install "sponsio[llm]"`` instead of failing on
+  ``ImportError: cannot import name 'genai' from 'google'``.
+- **``UnifiedExtractor`` OpenAI client** is now lazily materialised on
+  first call, so importing the extractor (or constructing it for
+  inspection / tests) no longer requires the ``openai`` SDK to be
+  installed. Behavior at call time is unchanged.
 - **Performance default ``warn_slow_dfa_us``** raised from **100μs** to **500μs**
   (p99 threshold before stderr warns that pure-det checks look slow). 100μs was
   easy to trip on GC/load noise while still being orders of magnitude below

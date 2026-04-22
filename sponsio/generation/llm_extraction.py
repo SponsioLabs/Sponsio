@@ -888,7 +888,7 @@ class UnifiedExtractor:
 
     Args:
         model: Provider-specific model name.  Defaults: ``gpt-4o-mini``,
-            ``claude-3-5-sonnet-latest``, ``gemini-2.0-flash``.
+            ``claude-3-5-sonnet-20241022``, ``gemini-2.0-flash``.
         api_key: API key for the chosen provider.  If ``None``, picked
             up from ``OPENAI_API_KEY`` / ``ANTHROPIC_API_KEY`` /
             ``GOOGLE_API_KEY`` / ``GEMINI_API_KEY``.
@@ -951,7 +951,7 @@ class UnifiedExtractor:
             )
             self._client = None  # use google.genai directly
         elif provider == "anthropic":
-            self._model = model or "claude-3-5-sonnet-latest"
+            self._model = model or "claude-3-5-sonnet-20241022"
             self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
             if client is not None:
                 self._client = client
@@ -1058,8 +1058,14 @@ class UnifiedExtractor:
         return response.choices[0].message.content or "{}"
 
     def _call_gemini(self, system_prompt: str, user_content: str) -> str:
-        from google import genai
-        from google.genai import types
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError as exc:
+            raise ImportError(
+                "Gemini extraction needs the `google-genai` package. "
+                "Install with: pip install 'sponsio[llm]' (or `pip install google-genai`)."
+            ) from exc
 
         client = genai.Client(api_key=self._api_key)
         response = client.models.generate_content(

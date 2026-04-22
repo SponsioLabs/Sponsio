@@ -77,7 +77,7 @@ class TestScanConfigWiring:
             version: 1
             extractor:
               provider: anthropic
-              model: claude-3-5-sonnet-latest
+              model: claude-3-5-sonnet-20241022
               api_key: ${FAKE_KEY}
             """,
         )
@@ -94,7 +94,7 @@ class TestScanConfigWiring:
 
         assert result.exit_code == 0, result.output
         assert captured["provider"] == "anthropic"
-        assert captured["llm_model"] == "claude-3-5-sonnet-latest"
+        assert captured["llm_model"] == "claude-3-5-sonnet-20241022"
         assert captured["api_key"] == "sk-test-123"
         # --config implies --llm
         assert captured["use_llm"] is True
@@ -109,7 +109,7 @@ class TestScanConfigWiring:
             version: 1
             extractor:
               provider: anthropic
-              model: claude-3-5-sonnet-latest
+              model: claude-3-5-sonnet-20241022
             """,
         )
         captured, FakeAnalyzer = _capture_analyzer_init()
