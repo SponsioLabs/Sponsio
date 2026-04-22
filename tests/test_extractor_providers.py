@@ -250,7 +250,8 @@ class TestBaseUrlPlumbing:
         monkeypatch.setattr(openai, "OpenAI", _StubOpenAI)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-        UnifiedExtractor(base_url="http://localhost:11434/v1")
+        ext = UnifiedExtractor(base_url="http://localhost:11434/v1")
+        ext._ensure_openai_client()
 
         assert captured["base_url"] == "http://localhost:11434/v1"
         # Endpoints like Ollama don't need a real key; we still need to
@@ -271,10 +272,11 @@ class TestBaseUrlPlumbing:
                 )
 
         monkeypatch.setattr(openai, "OpenAI", _StubOpenAI)
-        UnifiedExtractor(
+        ext = UnifiedExtractor(
             base_url="https://openrouter.ai/api/v1",
             api_key="sk-or-real-key",
         )
+        ext._ensure_openai_client()
         assert captured["api_key"] == "sk-or-real-key"
         assert captured["base_url"] == "https://openrouter.ai/api/v1"
 
