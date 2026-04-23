@@ -14,12 +14,11 @@ You do **not** need an agent framework. If your LLM app calls anything — funct
 
 ## Contents
 
-- [Quick start](#quick-start) — 60 seconds: install, demo, onboard, observe → enforce
+- [Quick start](#quick-start) — install, see it block, onboard, paste the patch, observe → enforce
 - [See it in action](#see-it-in-action) — three real LLM-gone-wrong trajectories, blocked
 - [Why Sponsio](#why-sponsio) — what it is and isn't
 - [Benchmarks](#benchmarks) — headline numbers
 - [Performance](#performance) — μs-level det evaluator, no LLM on hot path
-- [Integrate](#integrate) — Python + TypeScript, side by side
 - [Pattern Library](#pattern-library) — 29 det patterns + sto catalog
 - [From demo to production](#from-demo-to-production) — staged rollout
 - [Integrations](#integrations) — every supported framework
@@ -29,18 +28,251 @@ You do **not** need an agent framework. If your LLM app calls anything — funct
 
 ## Quick start
 
-Sponsio is a pure-Python install next to your agent — no Docker, no API key, no framework SDK. See [QUICKSTART.md](QUICKSTART.md) for the full walkthrough — the short version:
+Sponsio installs next to your agent — no Docker, no API key, no framework SDK. **Full walkthrough: [QUICKSTART.md](QUICKSTART.md).**
+
+### Python
+
+```bash
+# 1. Install
+pip install sponsio
+
+# 2. Onboard — detects framework, writes sponsio.yaml,
+#    prints a 2-line patch for your agent entry file
+sponsio onboard .
+
+# 3. Paste the printed patch (snippet below)
+```
+
+One `assume`, one `enforce` — that's the whole mental model. `coding_agent` is just an example; same shape works for a support bot, a loan officer, a clinical-trial recruiter, any agent that calls tools.
+
+**LangGraph**
+
+```python
+from sponsio import contract
+from sponsio.langgraph import Sponsio
+from langgraph.prebuilt import create_react_agent
+
+guard = Sponsio(
+    agent_id="coding_agent",
+    contracts=[
+        contract("confirm before destructive delete")
+            .assume("called `delete_file`")
+            .enforce("must call `confirm_with_user` "
+                     "before `delete_file`"),
+    ],
+)
+
+agent = create_react_agent(model, guard.wrap(tools))
+```
+
+<details>
+<summary><b>OpenAI SDK</b></summary>
+
+```python
+from openai import OpenAI
+from sponsio import contract
+from sponsio.openai import Sponsio
+
+guard = Sponsio(
+    agent_id="support_bot",
+    contracts=[
+        contract("policy check before refund")
+            .assume("called `issue_refund`")
+            .enforce("must call `check_policy` "
+                     "before `issue_refund`"),
+    ],
+)
+
+client = OpenAI()
+resp = client.chat.completions.create(model="gpt-4o-mini", messages=[...])
+guard.check_response(resp)   # blocks / retries based on tool_calls in resp
+```
+
+Prefer a drop-in patch? `from sponsio.openai import patch_openai; patch_openai(client, guard)` auto-wraps every `client.chat.completions.create(...)` call.
+
+</details>
+
+<details>
+<summary><b>Claude Agent SDK</b></summary>
+
+```python
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+from sponsio import contract
+from sponsio.claude_agent import Sponsio
+
+guard = Sponsio(
+    agent_id="coding_agent",
+    contracts=[
+        contract("confirm before destructive delete")
+            .assume("called `delete_file`")
+            .enforce("must call `confirm_with_user` "
+                     "before `delete_file`"),
+    ],
+)
+
+options = ClaudeAgentOptions(hooks=guard.hooks())
+```
+
+No `guard.wrap(tools)` needed — Claude Agent SDK exposes a hook API, so Sponsio plugs in natively.
+
+</details>
+
+<details>
+<summary><b>No framework — any tool-calling loop</b></summary>
+
+```python
+from sponsio import Sponsio, contract
+
+guard = Sponsio(
+    agent_id="refund_bot",
+    contracts=[
+        contract("policy check before refund")
+            .assume("called `issue_refund`")
+            .enforce("must call `check_policy` "
+                     "before `issue_refund`"),
+    ],
+)
+
+result = guard.guard_before(tool_name, tool_args)
+if result.allowed:
+    output = run_tool(tool_name, tool_args)
+    guard.guard_after(tool_name, output)
+```
+
+Use this if you hand-roll the agent loop (FastAPI endpoint, cron job, MCP server, custom ReAct loop, anything).
+
+</details>
+
+```bash
+# 4. Observe, then flip — review would-have-blocked decisions, then enforce
+sponsio report --since 24h
+export SPONSIO_MODE=enforce         # no code change
+```
+
+`onboard` starts you in **observe mode**: every contract is evaluated but nothing is blocked, and every would-have-blocked decision is logged to `~/.sponsio/sessions/<agent_id>/*.jsonl`. After a day or two of real traffic, prune false positives from `sponsio.yaml`, then flip `SPONSIO_MODE=enforce`.
+
+### TypeScript
+
+```bash
+# 1. Install
+npm install @sponsio/sdk
+
+# 2. Wrap your agent (snippet below)
+```
+
+**LangChain.js / LangGraph**
+
+```typescript
+import { Sponsio } from "@sponsio/sdk";
+import { wrapTools } from "@sponsio/sdk/langchain";
+import { ToolNode } from "@langchain/langgraph/prebuilt";
+
+const guard = new Sponsio({
+  agentId: "coding_agent",
+  contracts: [
+    "must call `confirm_with_user` before `delete_file`",
+  ],
+});
+
+const toolNode = new ToolNode(wrapTools(tools, guard));
+```
+
+The TS SDK accepts NL strings directly; the Python SDK adds an explicit `contract().assume(...).enforce(...)` builder for assume-guarantee pairs and inline metadata.
+
+```bash
+# 3. Observe, then flip
+export SPONSIO_MODE=enforce         # no code change
+```
+
+The TS SDK honours `SPONSIO_MODE` and writes the same `~/.sponsio/sessions/<agent_id>/*.jsonl` log — run `pip install sponsio` in the same repo if you want the `sponsio` CLI (`demo`, `onboard`, `report`) on top of a TypeScript agent.
+
+Full matrix of supported frameworks (Vercel AI SDK, CrewAI, OpenAI Agents SDK, MCP …) in [Integrations](#integrations). Runnable versions of every snippet above: [`examples/integrations/`](examples/integrations/).
+
+<details>
+<summary><b>📋 One-prompt setup for Cursor / Claude Code</b></summary>
+
+````text
+Set up Sponsio (https://pypi.org/project/sponsio/) in my project.
+
+    pip install sponsio
+    sponsio onboard .
+
+`onboard` detects my framework, writes sponsio.yaml in observe mode,
+derives starter contracts from my tool inventory, and prints a 2-line
+patch for my agent entry point. Apply the patch — that's it.
+
+Nothing is blocked on day 1 (observe mode). Sponsio logs every
+would-have-blocked decision to ~/.sponsio/sessions/<agent_id>/*.jsonl.
+
+After running, show me sponsio.yaml, the patch you applied, and any
+`sponsio doctor` warnings.
+
+Later:
+    sponsio report --since 24h   # what would have been blocked
+    sponsio refresh --since 7d   # re-mine contracts from recent traces
+    # prune false positives in sponsio.yaml, then flip `mode: enforce`
+````
+
+</details>
+
+<details>
+<summary><b>🔄 Keep the contract library fresh</b></summary>
+
+`sponsio.yaml` isn't a one-shot — once your agent is running, you can keep the contract library in sync with actual behavior by periodically re-mining recent traces:
+
+```bash
+sponsio refresh --since 7d              # dry-run: structured diff per agent
+sponsio refresh --since 7d --apply      # write it (backup at .sponsio.bak)
+sponsio refresh --mode add-only --apply # never remove, only append new rules
+```
+
+What refresh touches: only contracts tagged `source: trace`. User-written rules, `source: scan` (from code), `source: policy`, and anything under `overrides:` flow through unchanged.
+
+Diff output:
+
+```
+Agent: support_bot
+  + new      must_precede(validate_payment, charge_card)
+  ~ drifted  rate_limit(send_email, 5) → args [send_email, 12]
+  - stale    idempotent(list_users)  (not re-observed in the 7d window)
+  = 8 unchanged (source: trace, re-observed)
+  = 12 preserved (user / scan / policy / overrides — not touched)
+```
+
+Default trace source is `~/.sponsio/sessions/<agent>/*.jsonl`; use `-t 'path/to/*.jsonl'` for a custom one (OTLP JSON/JSONL or native).
+
+</details>
+
+<details>
+<summary><b>🧠 Install Sponsio as a reusable Agent Skill</b></summary>
+
+The one-prompt setup above is a one-shot. If you want your coding agent (Cursor, Claude Code, Codex) to know how to `onboard` / `scan` / `refresh` / tune / flip-to-enforce on *every* project without re-pasting the prompt, install Sponsio as an Agent Skill:
 
 ```bash
 pip install sponsio
-sponsio demo --scenario loan              # 30s — replay an unsafe loan trajectory, see it blocked
-cd your-project/ && sponsio onboard .     # 60s — detect framework, write sponsio.yaml, print a 2-line patch
-# paste the printed patch into your agent entry file, then ship
-sponsio report --since 24h                # review would-have-blocked decisions (observe mode is the default)
-export SPONSIO_MODE=enforce               # flip observe → enforce without a code change
+sponsio skill install          # auto-detects Cursor / Claude Code / Codex
 ```
 
-`demo` uses three recorded unsafe trajectories (coding · healthcare · finance) — no API key, no framework SDK. `onboard` starts you in **observe mode**: every contract is evaluated but nothing is blocked, and every would-have-blocked decision is logged to `~/.sponsio/sessions/<agent_id>/*.jsonl`. After a day or two of real traffic, prune false positives from `sponsio.yaml`, then flip `SPONSIO_MODE=enforce`.
+This drops the canonical `SKILL.md` (shipped inside the `sponsio` wheel) into:
+
+- `~/.cursor/skills/sponsio/`   — Cursor
+- `~/.claude/skills/sponsio/`   — Claude Code
+- `~/.codex/skills/sponsio/`    — Codex CLI
+
+…and your agent auto-triggers on phrases like *"add sponsio", "add guardrails", "explain my sponsio.yaml", "why is this rule firing"*. The skill covers five lifecycle workflows: initial setup, audit & refine, tune in observe, flip to enforce, and troubleshoot.
+
+Tool-specific:
+
+```bash
+sponsio skill install --tool claude            # just Claude Code
+sponsio skill install --tool all --link        # all three, via symlink
+                                               # (upgrades follow `pip install -U sponsio`)
+sponsio skill install --dest /custom/path      # custom location
+```
+
+Upgrade path: `pip install -U sponsio && sponsio skill install --force` (or use `--link` once and upgrades propagate automatically).
+
+</details>
 
 ---
 
@@ -144,151 +376,6 @@ $ sponsio bench sponsio.yaml -n 30000
 ```
 
 Det contracts compile to an LTL/DFA evaluator — no LLM on the hot path, no approval cache to tune, no TTL to trade off against freshness. Three buckets are reported (`pure_det`, `sto_cached`, `sto_live`) so you can see exactly when an LLM is invoked. Use `sponsio bench --json` as a CI perf gate; declare a budget under `performance:` in `sponsio.yaml`.
-
----
-
-## Integrate
-
-Same engine, same NL contract DSL, same pattern library — pick the column for your stack.
-
-<table>
-<tr><th width="50%">Python</th><th width="50%">TypeScript</th></tr>
-<tr valign="top"><td>
-
-```bash
-pip install sponsio
-```
-
-```python
-from sponsio import contract
-from sponsio.langgraph import Sponsio
-from langgraph.prebuilt import create_react_agent
-
-guard = Sponsio(
-    agent_id="coding_agent",
-    contracts=[
-        contract("confirm before destructive delete")
-            .assume("called `delete_file`")
-            .enforce("must call `confirm_with_user` "
-                     "before `delete_file`"),
-    ],
-)
-
-agent = create_react_agent(model, guard.wrap(tools))
-```
-
-</td><td>
-
-```bash
-npm install @sponsio/sdk
-```
-
-```typescript
-import { Sponsio } from "@sponsio/sdk";
-import { wrapTools } from "@sponsio/sdk/langchain";
-import { ToolNode } from "@langchain/langgraph/prebuilt";
-
-const guard = new Sponsio({
-  agentId: "coding_agent",
-  contracts: [
-    "must call `confirm_with_user` before `delete_file`",
-  ],
-});
-
-const toolNode = new ToolNode(wrapTools(tools, guard));
-```
-
-</td></tr></table>
-
-One `assume`, one `enforce` — that's the whole mental model. `coding_agent` is just an example; same shape works for a support bot, a loan officer, a clinical-trial recruiter, any agent that calls tools. The TS SDK accepts NL strings directly; the Python SDK adds an explicit `contract().assume(...).enforce(...)` builder for assume-guarantee pairs and inline metadata.
-
-> **Don't want to write the YAML by hand?** Run `sponsio onboard . --apply` (Python) — Sponsio detects your framework, picks an LLM provider, drafts a `sponsio.yaml`, and patches your entry file in one shot.
-
-<details>
-<summary><b>📋 Or paste this one-prompt setup into Cursor / Claude Code</b></summary>
-
-````text
-Set up Sponsio (https://pypi.org/project/sponsio/) in my project.
-
-    pip install sponsio
-    sponsio onboard .
-
-`onboard` detects my framework, writes sponsio.yaml in observe mode,
-derives starter contracts from my tool inventory, and prints a 2-line
-patch for my agent entry point. Apply the patch — that's it.
-
-Nothing is blocked on day 1 (observe mode). Sponsio logs every
-would-have-blocked decision to ~/.sponsio/sessions/<agent_id>/*.jsonl.
-
-After running, show me sponsio.yaml, the patch you applied, and any
-`sponsio doctor` warnings.
-
-Later:
-    sponsio report --since 24h   # what would have been blocked
-    sponsio refresh --since 7d   # re-mine contracts from recent traces
-    # prune false positives in sponsio.yaml, then flip `mode: enforce`
-````
-
-</details>
-
-<details>
-<summary><b>🔄 Keep the contract library fresh</b></summary>
-
-`sponsio.yaml` isn't a one-shot — once your agent is running, you can keep the contract library in sync with actual behavior by periodically re-mining recent traces:
-
-```bash
-sponsio refresh --since 7d              # dry-run: structured diff per agent
-sponsio refresh --since 7d --apply      # write it (backup at .sponsio.bak)
-sponsio refresh --mode add-only --apply # never remove, only append new rules
-```
-
-What refresh touches: only contracts tagged `source: trace`. User-written rules, `source: scan` (from code), `source: policy`, and anything under `overrides:` flow through unchanged.
-
-Diff output:
-
-```
-Agent: support_bot
-  + new      must_precede(validate_payment, charge_card)
-  ~ drifted  rate_limit(send_email, 5) → args [send_email, 12]
-  - stale    idempotent(list_users)  (not re-observed in the 7d window)
-  = 8 unchanged (source: trace, re-observed)
-  = 12 preserved (user / scan / policy / overrides — not touched)
-```
-
-Default trace source is `~/.sponsio/sessions/<agent>/*.jsonl`; use `-t 'path/to/*.jsonl'` for a custom one (OTLP JSON/JSONL or native).
-
-</details>
-
-<details>
-<summary><b>🧠 Or install Sponsio as a reusable Agent Skill</b></summary>
-
-The one-prompt setup above is a one-shot. If you want your coding agent (Cursor, Claude Code, Codex) to know how to `onboard` / `scan` / `refresh` / tune / flip-to-enforce on *every* project without re-pasting the prompt, install Sponsio as an Agent Skill:
-
-```bash
-pip install sponsio
-sponsio skill install          # auto-detects Cursor / Claude Code / Codex
-```
-
-This drops the canonical `SKILL.md` (shipped inside the `sponsio` wheel) into:
-
-- `~/.cursor/skills/sponsio/`   — Cursor
-- `~/.claude/skills/sponsio/`   — Claude Code
-- `~/.codex/skills/sponsio/`    — Codex CLI
-
-…and your agent auto-triggers on phrases like *"add sponsio", "add guardrails", "explain my sponsio.yaml", "why is this rule firing"*. The skill covers five lifecycle workflows: initial setup, audit & refine, tune in observe, flip to enforce, and troubleshoot.
-
-Tool-specific:
-
-```bash
-sponsio skill install --tool claude            # just Claude Code
-sponsio skill install --tool all --link        # all three, via symlink
-                                               # (upgrades follow `pip install -U sponsio`)
-sponsio skill install --dest /custom/path      # custom location
-```
-
-Upgrade path: `pip install -U sponsio && sponsio skill install --force` (or use `--link` once and upgrades propagate automatically).
-
-</details>
 
 ---
 
