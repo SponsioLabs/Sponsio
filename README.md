@@ -142,25 +142,20 @@ pip install sponsio
 ```
 
 ```python
-from sponsio import Sponsio, contract
+from sponsio import contract
+from sponsio.langgraph import Sponsio
+from langgraph.prebuilt import create_react_agent
 
 guard = Sponsio(
-    agent_id="support_bot",
+    agent_id="coding_agent",
     contracts=[
-        contract("policy check before refund")
-            .enforce("must call `check_policy` before `issue_refund`"),
-        contract("refund rate limit")
-            .enforce("tool `issue_refund` at most 3 times"),
-        contract("no PII in responses")
-            .enforce("response must not contain PII"),
+        contract("confirm before destructive delete")
+            .assume("called `delete_file`")
+            .enforce("must call `confirm_with_user` "
+                     "before `delete_file`"),
     ],
 )
 
-# Wrap your tools — works with langgraph,
-# openai, crewai, claude_agent, agents,
-# vercel_ai, mcp … or just call
-# guard.guard_before(tool, args) directly
-# without any framework.
 agent = create_react_agent(model, guard.wrap(tools))
 ```
 
@@ -173,26 +168,21 @@ npm install @sponsio/sdk
 ```typescript
 import { Sponsio } from "@sponsio/sdk";
 import { wrapTools } from "@sponsio/sdk/langchain";
+import { ToolNode } from "@langchain/langgraph/prebuilt";
 
 const guard = new Sponsio({
-  agentId: "support_bot",
+  agentId: "coding_agent",
   contracts: [
-    "tool `check_policy` must precede `issue_refund`",
-    "tool `issue_refund` at most 3 times",
-    "response must not contain PII",
+    "must call `confirm_with_user` before `delete_file`",
   ],
 });
 
-// Wrap your tools — works with LangChain.js,
-// OpenAI, Vercel AI SDK, Claude Agent SDK
-// … or just call guard.guardBefore(tool, args)
-// directly without any framework.
-const wrapped = wrapTools(tools, guard);
+const toolNode = new ToolNode(wrapTools(tools, guard));
 ```
 
 </td></tr></table>
 
-A `support_bot` is just an example. Same shape works for a coding agent, a loan officer, a clinical-trial recruiter — anything that calls tools. The TS SDK accepts NL strings directly; the Python SDK adds an explicit `contract().assume(...).enforce(...)` builder for assume-guarantee pairs and inline metadata.
+One `assume`, one `enforce` — that's the whole mental model. `coding_agent` is just an example; same shape works for a support bot, a loan officer, a clinical-trial recruiter, any agent that calls tools. The TS SDK accepts NL strings directly; the Python SDK adds an explicit `contract().assume(...).enforce(...)` builder for assume-guarantee pairs and inline metadata.
 
 > **Don't want to write the YAML by hand?** Run `sponsio onboard . --apply` (Python) — Sponsio detects your framework, picks an LLM provider, drafts a `sponsio.yaml`, and patches your entry file in one shot.
 
