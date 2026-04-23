@@ -101,12 +101,24 @@ class DetFormula:
         formula: The underlying LTL formula.
         desc: Human-readable description of the property.
         pattern_name: Name of the pattern function that created this.
+        liveness: True for liveness patterns (``F``, ``always_followed_by``,
+            ``required_steps_completion``, …) — used by the runtime to
+            suppress spurious mid-trace violations.
+        args: Original arguments the factory was invoked with. Needed for
+            lossless discovery-store round-trip: ``_extract_args_from_formula``
+            used to walk the formula tree and only recovered ``called()``
+            tool names, silently dropping numeric thresholds (``rate_limit``
+            N, ``deadline`` steps, ``bounded_retry`` max, …). When a stored
+            pattern was re-materialized, those numeric args collapsed to
+            nothing and the rule degraded (#13). Patterns now record their
+            args directly, so store serialization is exact.
     """
 
     formula: Formula
     desc: str
     pattern_name: str
     liveness: bool = False
+    args: tuple = ()
 
     # Delegate all formula operations to the inner formula
     def __rshift__(self, other):
@@ -209,6 +221,7 @@ def must_precede(before: str, after: str, desc: str = "") -> DetFormula:
         formula=formula,
         desc=desc or f"{before} must precede {after}",
         pattern_name="must_precede",
+        args=(before, after),
     )
 
 
@@ -234,6 +247,7 @@ def always_followed_by(trigger: str, response: str, desc: str = "") -> DetFormul
         desc=desc or f"{trigger} must always be followed by {response}",
         pattern_name="always_followed_by",
         liveness=True,
+        args=(trigger, response),
     )
 
 
@@ -296,6 +310,7 @@ def no_reversal(commitment: str, contradiction: str, desc: str = "") -> DetFormu
         formula=formula,
         desc=desc or f"{contradiction} must never occur after {commitment}",
         pattern_name="no_reversal",
+        args=(commitment, contradiction),
     )
 
 
@@ -317,6 +332,7 @@ def requires_permission(tool: str, permission: str, desc: str = "") -> DetFormul
         formula=formula,
         desc=desc or f"{tool} requires permission {permission}",
         pattern_name="requires_permission",
+        args=(tool, permission),
     )
 
 
@@ -341,6 +357,7 @@ def no_data_leak(source: str, external: str, desc: str = "") -> DetFormula:
         formula=formula,
         desc=desc or f"no data leak from {source} to {external}",
         pattern_name="no_data_leak",
+        args=(source, external),
     )
 
 
@@ -371,6 +388,7 @@ def mutual_exclusion(a: str, b: str, desc: str = "") -> DetFormula:
         formula=formula,
         desc=desc or f"{a} and {b} are mutually exclusive",
         pattern_name="mutual_exclusion",
+        args=(a, b),
     )
 
 
@@ -397,6 +415,7 @@ def rate_limit(action: str, max_count: int, desc: str = "") -> DetFormula:
         formula=formula,
         desc=desc or f"{action} limited to {max_count} invocations",
         pattern_name="rate_limit",
+        args=(action, max_count),
     )
 
 
@@ -444,6 +463,7 @@ def idempotent(action: str, desc: str = "") -> DetFormula:
         formula=formula,
         desc=desc or f"{action} must be idempotent (at most once)",
         pattern_name="idempotent",
+        args=(action,),
     )
 
 
@@ -479,6 +499,7 @@ def deadline(trigger: str, action: str, steps: int, desc: str = "") -> DetFormul
         formula=formula,
         desc=desc or f"{action} must occur within {steps} steps of {trigger}",
         pattern_name="deadline",
+        args=(trigger, action, steps),
     )
 
 
@@ -508,6 +529,7 @@ def must_confirm(action: str, desc: str = "") -> DetFormula:
         formula=formula,
         desc=desc or f"{action} requires confirmation (confirm_{action})",
         pattern_name="must_confirm",
+        args=(action,),
     )
 
 
@@ -537,6 +559,7 @@ def cooldown(action: str, steps: int, desc: str = "") -> DetFormula:
         formula=formula,
         desc=desc or f"{action} has a cooldown of {steps} steps",
         pattern_name="cooldown",
+        args=(action, steps),
     )
 
 
@@ -565,6 +588,7 @@ def segregation_of_duty(a: str, b: str, desc: str = "") -> DetFormula:
         formula=formula,
         desc=desc or f"{a} and {b} must be performed by different agents",
         pattern_name="segregation_of_duty",
+        args=(a, b),
     )
 
 
@@ -589,6 +613,7 @@ def bounded_retry(action: str, max_retries: int, desc: str = "") -> DetFormula:
         formula=formula,
         desc=desc or f"{action} limited to {max_retries} retries",
         pattern_name="bounded_retry",
+        args=(action, max_retries),
     )
 
 
@@ -628,6 +653,7 @@ def arg_blacklist(
         formula=formula,
         desc=desc or f"{tool}.{param} must not match forbidden patterns",
         pattern_name="arg_blacklist",
+        args=(tool, param, tuple(patterns)),
     )
 
 
@@ -658,6 +684,7 @@ def scope_limit(tool: str, allowed_paths: list[str], desc: str = "") -> DetFormu
         formula=formula,
         desc=desc or f"{tool} restricted to paths: {', '.join(allowed_paths)}",
         pattern_name="scope_limit",
+        args=(tool, tuple(allowed_paths)),
     )
 
 
@@ -693,6 +720,7 @@ def arg_length_limit(
         formula=formula,
         desc=desc or f"{tool}.{param} must not exceed {max_chars} characters",
         pattern_name="arg_length_limit",
+        args=(tool, param, max_chars),
     )
 
 
@@ -729,6 +757,7 @@ def data_intact(
         formula=formula,
         desc=desc or f"{bound_tool} must use only original data from {original_paths}",
         pattern_name="data_intact",
+        args=(bound_tool, tuple(original_paths)),
     )
 
 
@@ -774,6 +803,7 @@ def destructive_action_gate(
         desc=desc
         or f"{tool} is destructive and requires approval from {approver_role}",
         pattern_name="destructive_action_gate",
+        args=(tool, approver_role),
     )
 
 
@@ -866,12 +896,14 @@ def untrusted_source_gate(
             formula=combined,
             desc=desc or f"after [{src_str}], [{sink_str}] requires re-confirmation",
             pattern_name="untrusted_source_gate",
+            args=(tuple(sources), tuple(sinks)),
         )
     else:
         enforcement = DetFormula(
             formula=enforcement.formula,
             desc=desc or f"after [{src_str}], [{sink_str}] requires re-confirmation",
             pattern_name="untrusted_source_gate",
+            args=(tuple(sources), tuple(sinks)),
         )
 
     return assumption, enforcement
@@ -935,6 +967,7 @@ def required_steps_completion(
         desc=desc or f"every {trigger} must be followed by all of [{steps_str}]",
         pattern_name="required_steps_completion",
         liveness=True,
+        args=(trigger, tuple(required_set)),
     )
 
 
@@ -970,6 +1003,7 @@ def loop_detection(action: str, max_consecutive: int, desc: str = "") -> DetForm
         desc=desc
         or f"{action} must not be called more than {max_consecutive} times consecutively",
         pattern_name="loop_detection",
+        args=(action, max_consecutive),
     )
 
 
@@ -1019,6 +1053,7 @@ def tool_allowlist(allowed_tools: list[str], desc: str = "") -> DetFormula:
         formula=formula,
         desc=desc or f"only [{tools_str}] may be called",
         pattern_name="tool_allowlist",
+        args=(tuple(allowed_tools),),
     )
 
 
@@ -1070,6 +1105,7 @@ def dangerous_bash_commands(
         formula=formula,
         desc=desc or f"bash commands [{patterns_str}] are banned",
         pattern_name="dangerous_bash_commands",
+        args=(tuple(forbidden),),
     )
 
 
@@ -1096,11 +1132,20 @@ def dangerous_sql_verbs(
 
     from sponsio.patterns.library import arg_blacklist
 
-    return arg_blacklist(
+    base = arg_blacklist(
         tool,
         "query",
         forbidden,
         desc=desc or f"{tool} must not use [{', '.join(forbidden)}]",
+    )
+    # Preserve the caller-facing pattern identity and its args so the
+    # discovery store re-materializes ``dangerous_sql_verbs`` instead of
+    # the internal ``arg_blacklist`` delegation.
+    return DetFormula(
+        formula=base.formula,
+        desc=base.desc,
+        pattern_name="dangerous_sql_verbs",
+        args=(tool, tuple(forbidden)),
     )
 
 
@@ -1128,6 +1173,7 @@ def irreversible_once(action: str, desc: str = "") -> DetFormula:
         formula=formula,
         desc=desc or f"{action} is irreversible and may be called at most once",
         pattern_name="irreversible_once",
+        args=(action,),
     )
 
 
@@ -1176,6 +1222,7 @@ def confirm_after_source(
         formula=enforcement_formula.formula,
         desc=desc or f"after {source}, {action} requires confirmation via {confirm}",
         pattern_name="confirm_after_source",
+        args=(source, action),
     )
 
     return assumption, enforcement
@@ -1213,6 +1260,7 @@ def token_budget(max_tokens: int, scope: str = "total", desc: str = "") -> DetFo
         formula=formula,
         desc=desc or f"session {scope} tokens must not exceed {max_tokens}",
         pattern_name="token_budget",
+        args=(max_tokens, scope),
     )
 
 
@@ -1276,6 +1324,7 @@ def arg_value_range(
         formula=formula,
         desc=desc or f"{tool}.{field} must be in range {range_str}",
         pattern_name="arg_value_range",
+        args=(tool, field, min_val, max_val),
     )
 
 
@@ -1336,7 +1385,12 @@ def max_length(
     else:
         desc_str = f"response ≤ {max_chars} chars"
 
-    return DetFormula(formula=formula, desc=desc_str, pattern_name="max_length")
+    return DetFormula(
+        formula=formula,
+        desc=desc_str,
+        pattern_name="max_length",
+        args=(max_words, max_chars),
+    )
 
 
 # Default PII regex patterns — reuse sto_catalog's regex set for parity.
@@ -1379,6 +1433,7 @@ def no_pii(fields: list[str] | None = None, desc: str = "") -> DetFormula:
         formula=formula,
         desc=desc or f"response must not contain PII ({', '.join(selected)})",
         pattern_name="no_pii",
+        args=(tuple(selected),),
     )
 
 
@@ -1407,6 +1462,7 @@ def no_keywords(words: list[str], desc: str = "") -> DetFormula:
         formula=formula,
         desc=desc or f"response must not contain keywords: {words}",
         pattern_name="no_keywords",
+        args=(tuple(words),),
     )
 
 
@@ -1436,4 +1492,5 @@ def delegation_depth_limit(max_depth: int, desc: str = "") -> DetFormula:
         formula=formula,
         desc=desc or f"delegation chain must not exceed depth {max_depth}",
         pattern_name="delegation_depth_limit",
+        args=(max_depth,),
     )

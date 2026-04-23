@@ -466,15 +466,36 @@ class PatternStore:
 
 
 def _extract_args_from_formula(formula: DetFormula) -> tuple:
-    """Best-effort extraction of pattern args from an DetFormula.
+    """Recover pattern args from a ``DetFormula``.
 
-    Falls back to empty tuple if the formula's internal structure
-    cannot be introspected.
+    Why this exists
+    ---------------
+    The discovery store needs to persist *enough* to re-materialize a
+    pattern later via its factory function (``rate_limit``, ``deadline``,
+    …). The previous implementation walked the formula tree and pulled
+    out ``called(...)`` tool names only, silently dropping numeric
+    thresholds (``rate_limit`` max count, ``deadline`` step bound,
+    ``bounded_retry`` retry cap, …). Round-tripping a stored pattern
+    through the store therefore *degraded* the rule — e.g.
+    ``rate_limit("X", 3)`` came back as ``rate_limit("X")`` which either
+    errors at the factory or silently picks the wrong default (#13).
+
+    The factories now record their invocation args on the returned
+    ``DetFormula`` (``formula.args``), so we prefer that. The formula-
+    tree fallback is kept for older stored entries and for hand-
+    constructed ``DetFormula`` instances (e.g. ``compile_ir`` outputs)
+    that didn't go through the factory path.
     """
+    # Preferred path: factories populate ``args`` directly, which
+    # preserves numeric thresholds and list ordering the tree can't
+    # recover on its own.
+    stored = getattr(formula, "args", ())
+    if stored:
+        return tuple(stored)
+
     from sponsio.formulas.formula import collect_atoms
 
     atoms = collect_atoms(formula.formula)
-    # Extract tool names from called() atoms
     tools = []
     for a in atoms:
         if a.predicate == "called" and a.args:
