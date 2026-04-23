@@ -14,6 +14,13 @@ build/
 .pytest_cache/
 .ruff_cache/
 .hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local scan output — `sponsio scan` writes ./sponsio.yaml by default;
+# real configs live next to integrating projects, not in this repo.
+/sponsio.yaml
 
 # Local environments and secrets
 *.env
