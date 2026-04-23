@@ -212,9 +212,105 @@ class TestOpenAIGuard:
         response = MockCompletion(
             choices=[MockChoice(message=MockMessage(tool_calls=tool_calls))]
         )
-        # Should not raise
-        results = guard.check_response(response)
+        with pytest.warns(UserWarning, match="not valid JSON"):
+            results = guard.check_response(response)
         assert len(results) == 1
+
+
+class TestMalformedToolArguments:
+    """Issue #11: malformed ``tool_call.function.arguments`` must NOT silently
+    decode to ``{}``. Field-level content contracts (``arg_blacklist``,
+    ``arg_field_has``, ``arg_value_range``) would then vacuously pass on a
+    payload an attacker carefully crafted to be unparseable. The fix preserves
+    the raw bytes under ``_raw_arguments`` so coarse regex contracts still see
+    them, and emits a UserWarning so operators know their field-level guards
+    are momentarily blind.
+    """
+
+    def test_unparseable_args_emit_warning_and_preserve_raw(self):
+        """The raw payload survives so ``arg_has``-style regex guards work."""
+        from sponsio.integrations.openai import _coerce_tool_arguments
+
+        raw = "{not valid json -- rm -rf /}"
+        with pytest.warns(UserWarning, match="not valid JSON"):
+            args = _coerce_tool_arguments(raw, tool_name="bash")
+        assert args["_sponsio_unparseable"] is True
+        assert args["_raw_arguments"] == raw
+
+    def test_strict_mode_raises_on_malformed(self, monkeypatch):
+        """Operators can opt into hard-fail via env var."""
+        from sponsio.integrations.openai import _coerce_tool_arguments
+
+        monkeypatch.setenv("SPONSIO_OPENAI_STRICT_TOOL_ARGS", "1")
+        with pytest.raises(ValueError, match="not valid JSON"):
+            _coerce_tool_arguments("{not json}", tool_name="bash")
+
+    def test_empty_or_none_arguments_become_empty_dict(self):
+        """Legitimate "no arguments" case must not warn or sentinel-wrap."""
+        from sponsio.integrations.openai import _coerce_tool_arguments
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert _coerce_tool_arguments(None, tool_name="t") == {}
+            assert _coerce_tool_arguments("", tool_name="t") == {}
+
+    def test_already_dict_passthrough(self):
+        """Some SDK versions hand back an already-parsed dict; don't re-encode."""
+        from sponsio.integrations.openai import _coerce_tool_arguments
+
+        d = {"command": "echo hi"}
+        assert _coerce_tool_arguments(d, tool_name="bash") is d
+
+    def test_non_object_json_wrapped(self):
+        """JSON arrays / scalars decode but are wrapped so the field is a dict."""
+        from sponsio.integrations.openai import _coerce_tool_arguments
+
+        assert _coerce_tool_arguments("[1, 2]", tool_name="t") == {
+            "_raw_arguments": [1, 2]
+        }
+        assert _coerce_tool_arguments("42", tool_name="t") == {"_raw_arguments": 42}
+
+    def test_coarse_regex_guard_still_matches_unparseable_payload(self):
+        """End-to-end: ``arg_has`` over the raw blob keeps catching attacks
+        even when the JSON parser refuses the payload. Regression for the
+        silent ``{}`` failure mode."""
+        from sponsio.models.agent import Agent
+        from sponsio.models.contract import Contract
+        from sponsio.patterns.library import arg_blacklist
+
+        # arg_blacklist on the (synthetic) field name "_raw_arguments"
+        # — the field where unparseable bytes are stashed. A coarse regex
+        # guard applied here catches the attack string even when the
+        # original field structure was lost.
+        guard = OpenAIGuard(
+            agent_id="t",
+            contracts=[
+                Contract(
+                    agent=Agent(id="t"),
+                    enforcement=arg_blacklist("bash", "_raw_arguments", ["rm -rf"]),
+                )
+            ],
+        )
+        tool_calls = [
+            MockToolCall(
+                id="call_0",
+                function=MockFunction(
+                    name="bash",
+                    arguments="{not json: 'rm -rf /'}",  # unparseable + dangerous
+                ),
+            ),
+        ]
+        response = MockCompletion(
+            choices=[MockChoice(message=MockMessage(tool_calls=tool_calls))]
+        )
+        with pytest.warns(UserWarning, match="not valid JSON"):
+            results = guard.check_response(response)
+        assert len(results) == 1
+        assert results[0].blocked, (
+            "arg_blacklist on the raw-arguments fallback field must still "
+            "catch attack patterns when JSON parsing fails."
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -57,6 +57,8 @@ To restore the original behavior::
 from __future__ import annotations
 
 import json
+import os
+import warnings
 from typing import Any
 
 from sponsio.integrations.base import BaseGuard, CheckResult
@@ -67,6 +69,79 @@ from sponsio.runtime.strategies import EnforcementStrategy
 _original_create: Any = None
 _original_async_create: Any = None
 _active_guard: OpenAIGuard | None = None
+
+
+def _coerce_tool_arguments(
+    raw: Any,
+    *,
+    tool_name: str,
+) -> dict[str, Any]:
+    """Best-effort decode of an OpenAI ``tool_call.function.arguments`` payload.
+
+    OpenAI returns ``arguments`` as a JSON-encoded *string*. When a model
+    hallucinates malformed JSON (truncation, prompt-injection nudging it to
+    inject control characters, function-calling format slips, …) the
+    previous behavior was a silent ``args = {}`` — every content-aware
+    contract (``arg_blacklist``, ``arg_field_has``, ``arg_value_range``,
+    ``arg_length_exceeds``, …) then *vacuously* passes because the field
+    it inspects doesn't exist. That is precisely the wrong failure mode
+    for a security boundary.
+
+    This helper:
+
+    * Returns the parsed dict when ``raw`` is valid JSON.
+    * Returns ``{}`` for empty / ``None`` arguments (the legitimate
+      "no args" case).
+    * Otherwise emits a ``UserWarning`` and falls back to a sentinel
+      payload that **preserves the raw bytes** so coarser contracts
+      (``arg_has`` regex over the serialized payload) can still match::
+
+        {
+            "_sponsio_unparseable": True,
+            "_raw_arguments": <original_string>,
+        }
+
+    Operators who want a malformed-args attempt to *block* (rather than
+    just warn + degrade) can set ``SPONSIO_OPENAI_STRICT_TOOL_ARGS=1``
+    in the environment; the helper then raises ``ValueError`` from the
+    caller's ``check_response`` site.
+    """
+    if raw is None or raw == "":
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, (str, bytes, bytearray)):
+        text = str(raw)
+    else:
+        text = raw.decode() if isinstance(raw, (bytes, bytearray)) else raw
+
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, ValueError) as exc:
+        if os.environ.get("SPONSIO_OPENAI_STRICT_TOOL_ARGS") == "1":
+            raise ValueError(
+                f"OpenAIGuard: tool_call arguments for {tool_name!r} are "
+                f"not valid JSON ({exc}). Strict mode is on "
+                "(SPONSIO_OPENAI_STRICT_TOOL_ARGS=1)."
+            ) from exc
+        warnings.warn(
+            f"OpenAIGuard: tool_call {tool_name!r} arguments are not valid "
+            f"JSON ({exc.msg if isinstance(exc, json.JSONDecodeError) else exc}); "
+            "preserving raw payload under '_raw_arguments' so coarse "
+            "regex contracts can still match. Field-level guards "
+            "(arg_blacklist, arg_value_range) WILL miss because the "
+            "field structure was lost.",
+            UserWarning,
+            stacklevel=3,
+        )
+        return {"_sponsio_unparseable": True, "_raw_arguments": text}
+
+    if not isinstance(parsed, dict):
+        # Decoded but not an object (e.g. ``"42"`` or ``[1, 2]``). Wrap
+        # so callers continue to see a dict; field-level guards still
+        # miss but ``arg_has`` over the serialized form keeps working.
+        return {"_raw_arguments": parsed}
+    return parsed
 
 
 class OpenAIGuard(BaseGuard):
@@ -151,16 +226,10 @@ class OpenAIGuard(BaseGuard):
 
             for tc in message.tool_calls:
                 tool_name = tc.function.name
-
-                # Parse arguments
-                try:
-                    args = (
-                        json.loads(tc.function.arguments)
-                        if tc.function.arguments
-                        else {}
-                    )
-                except (json.JSONDecodeError, TypeError):
-                    args = {}
+                args = _coerce_tool_arguments(
+                    tc.function.arguments,
+                    tool_name=tool_name,
+                )
 
                 check = self.guard_before(tool_name, args)
                 results.append(check)

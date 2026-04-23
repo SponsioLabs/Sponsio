@@ -71,6 +71,36 @@ DEFAULT_TEMPLATE = (
 )
 
 
+def _render_template(template: str, question: str) -> str:
+    """Substitute ``{question}`` in ``template`` *without* invoking ``str.format``.
+
+    Why this exists
+    ---------------
+    ``self._template.format(question=question)`` is unsafe in two ways:
+
+    1. ``str.format`` accepts attribute / index expressions. A user-supplied
+       template containing ``{question.__class__.__mro__[1].__subclasses__()}``
+       would walk Python's class hierarchy at render time — a known
+       *format-string injection* sandbox-escape vector. The ``template``
+       argument here flows from user code (custom judges, NL contracts
+       carrying their own phrasing) and from server-side configs in the
+       playground / discovery flows, so the threat is real.
+    2. If *question* contains literal ``{`` / ``}`` (which user-provided
+       constraint descriptions frequently do — e.g. JSON blobs, regex
+       patterns), ``str.format`` raises ``KeyError`` or ``IndexError``
+       and aborts the whole judge call.
+
+    The replacement is a literal-substring swap of ``{question}`` for
+    ``question``. We do NOT support format spec suffixes (``{question:s}``)
+    because the only consumer is the LLM prompt, which never needs them.
+    """
+    if "{question}" in template:
+        return template.replace("{question}", question)
+    # Backwards-compat: templates without the placeholder are still
+    # rendered as-is; preserves "fixed prompt" use cases.
+    return template
+
+
 class _TextCompletionClient(Protocol):
     """Minimal text-generation interface used by :class:`BestOfNJudge`."""
 
@@ -129,7 +159,7 @@ class BooleanJudge:
         ``0.0`` means "certainly no". Calibration (if a calibrator is
         provided) is applied before returning.
         """
-        prompt = self._template.format(question=question)
+        prompt = _render_template(self._template, question)
         resp = self._llm.logprob_completion(prompt, max_tokens=1, top_logprobs=20)
         if resp is None:
             if self._fallback is None:
@@ -182,7 +212,7 @@ class BestOfNJudge:
         self._template = template
 
     def judge(self, question: str) -> tuple[float, str]:
-        prompt = self._template.format(question=question)
+        prompt = _render_template(self._template, question)
         answers = [
             self._llm.generate(prompt, temperature=1.0, max_tokens=3).strip()
             for _ in range(self._n)

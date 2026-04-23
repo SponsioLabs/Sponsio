@@ -141,6 +141,67 @@ class TestBooleanJudge:
 # ---------------------------------------------------------------------------
 
 
+class TestJudgeTemplateInjection:
+    """N8: ``self._template.format(question=question)`` was unsafe.
+
+    1. ``str.format`` evaluates attribute / index expressions, so a template
+       like ``{question.__class__.__mro__[1].__subclasses__()}`` would crawl
+       Python's class hierarchy at render time. The ``template`` argument
+       here flows from user code (custom judges, NL contracts) and from
+       playground / discovery configs, so the threat is real.
+    2. If the *question* itself contains literal ``{`` / ``}`` (regex
+       fragments, JSON blobs in constraint descriptions), ``str.format``
+       raises ``KeyError`` and the judge call aborts.
+
+    The fix uses a literal-substring swap; both judges share a helper.
+    """
+
+    def test_question_with_curly_braces_no_keyerror(self):
+        """Constraint descriptions often contain ``{...}`` (e.g. when the
+        question quotes a JSON arg). Pre-fix, ``.format`` would raise."""
+        client = FakeLogprobClient(response=_lp([("yes", 0.9), ("no", 0.05)]))
+        j = BooleanJudge(llm=client)
+        question = 'Is "{tool: rm -rf /, args: {recursive: true}}" safe?'
+        conf, _ = j.judge(question)
+        assert conf > 0.9
+        assert question in client.calls[0], (
+            "raw question must appear verbatim in the rendered prompt"
+        )
+
+    def test_template_attribute_walk_is_neutralized(self):
+        """A malicious template that tries to walk attributes via
+        ``str.format`` syntax must be rendered as plain text. Pre-fix this
+        either crashed (AttributeError) or, worse, exposed Python internals
+        if the question happened to be a class instance with the right MRO.
+        """
+        evil = "Question: {question.__class__.__mro__}\nAnswer:"
+        client = FakeLogprobClient(response=_lp([("no", 0.95), ("yes", 0.02)]))
+        j = BooleanJudge(llm=client, template=evil)
+        # Should not raise and should NOT have substituted anything beyond
+        # the literal ``{question}`` placeholder (which is absent here).
+        j.judge("foo")
+        rendered = client.calls[0]
+        assert rendered == evil, (
+            "templates without {question} must pass through verbatim — "
+            "no attribute walks, no .format eval"
+        )
+
+    def test_question_substituted_literally(self):
+        """``{question}`` is the only placeholder that gets swapped."""
+        client = FakeLogprobClient(response=_lp([("yes", 0.9), ("no", 0.05)]))
+        j = BooleanJudge(llm=client, template="QQ: {question} END")
+        j.judge("hello {world}")
+        assert client.calls[0] == "QQ: hello {world} END"
+
+    def test_bestofn_judge_also_safe(self):
+        """Same fix is wired into BestOfNJudge.judge."""
+        client = FakeTextClient(answers=["yes"] * 4)
+        j = BestOfNJudge(llm=client, n=4)
+        question = "Is {x[0]} dangerous?"
+        j.judge(question)
+        assert all(question in c for c in client.calls)
+
+
 class TestBestOfNJudge:
     def test_all_yes(self):
         client = FakeTextClient(answers=["yes"] * 8)
