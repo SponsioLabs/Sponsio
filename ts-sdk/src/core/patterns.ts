@@ -57,10 +57,16 @@ function physicalTool(tool: string): string {
   return tool.includes(":") ? tool.split(":", 1)[0] : tool;
 }
 
-/** Bounded eventually: phi within N steps. */
+/** Bounded eventually: phi within N steps (parity with Python ``_bounded_eventually``).
+ *
+ * For ``n = 1`` the result is ``phi`` (current step only); for ``n = 2`` it is
+ * ``phi ∨ X(phi)``; and so on. The loop runs ``n - 1`` times — running ``n``
+ * times (the previous behavior) gave a strictly weaker contract that admitted
+ * a violating step the Python evaluator would have caught.
+ */
 function boundedEventually(phi: Formula, n: number): Formula {
   let result: Formula = phi;
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < n - 1; i++) {
     result = new Or(phi, new X(result));
   }
   return result;
@@ -328,12 +334,16 @@ export function untrustedSourceGate(
 }
 
 export function requiredStepsCompletion(trigger: string, steps: string[]): DetFormula {
-  // G(called(trigger) → X(F(called(s1)) ∧ F(called(s2)) ∧ ...))
+  // Parity with Python:
+  //   G(called(trigger) → F(called(s1)) ∧ F(called(s2)) ∧ ...)
+  // (No outer ``X(...)``: the obligation must be discharged starting from the
+  // trigger step, and weak-X at end-of-trace must NOT vacuously satisfy a
+  // trigger that fires at the last step before any step has happened.)
   let body: Formula = new F(called(steps[0]));
   for (let i = 1; i < steps.length; i++) {
     body = new And(body, new F(called(steps[i])));
   }
-  const f = new G(new Implies(called(trigger), new X(body)));
+  const f = new G(new Implies(called(trigger), body));
   return {
     formula: f,
     desc: `after \`${trigger}\`, all steps must complete: ${steps.join(", ")}`,

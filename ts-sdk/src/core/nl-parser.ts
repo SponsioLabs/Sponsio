@@ -18,6 +18,7 @@ import {
   noReversal,
   argBlacklist,
   cooldown,
+  deadline,
 } from "./patterns.js";
 
 /** Extract backtick-wrapped tool names from NL text. */
@@ -40,6 +41,17 @@ interface KeywordRule {
 }
 
 const KEYWORD_RULES: KeywordRule[] = [
+  // Deadline (before rate_limit so "within N steps" doesn't get swallowed by
+  // any "N times"-style rule). Mirrors the Python ``nl_to_contract`` regex set.
+  {
+    patterns: [
+      /within\s+\d+\s+steps?\s+(?:of|after)/,
+      /deadline\s+(?:of\s+)?\d+\s+steps?/,
+      /must.*within\s+\d+\s+steps?/,
+    ],
+    patternName: "deadline",
+    minArgs: 2,
+  },
   // Rate limit (before idempotent — "at most N times")
   {
     patterns: [/at most.*times/, /maximum.*invocations/, /limit.*calls/, /no more than.*times/],
@@ -113,6 +125,15 @@ export function parseNl(text: string): DetFormula | null {
         const n = extractNumber(text);
         if (n == null) continue;
         return cooldown(tools[0], n);
+      }
+      case "deadline": {
+        const n = extractNumber(text);
+        if (n == null) continue;
+        // Parity with Python NL parser: ``deadline(actions[0], actions[1], n)``,
+        // i.e. tools[0] is the trigger and tools[1] is the action that must
+        // occur within ``n`` steps. NL phrasings to use: "after `X`, `Y` must
+        // occur within N steps".
+        return deadline(tools[0], tools[1], n);
       }
       default:
         continue;

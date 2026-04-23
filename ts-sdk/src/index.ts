@@ -89,9 +89,16 @@ export class Sponsio {
 
   /**
    * Check a tool call against contracts before execution.
+   *
+   * On block, **all** mutations made by ``groundEvent`` are rolled back via a
+   * pre-call snapshot. Previously only ``callCounts[toolName]`` was undone,
+   * leaving ``consecutiveCounts``, ``lastTool``, ``callWithCounts``,
+   * ``tokenCounts``, and ``delegationDepth`` in a stale state; subsequent
+   * guards saw counts as if the blocked call had executed.
    */
   guardBefore(toolName: string, args: Record<string, unknown> = {}): CheckResult {
     const event: ToolEvent = { tool: toolName, args };
+    const snapshot = this._snapshotState();
     const valuation = groundEvent(event, this._state, this._contentAtoms);
     this._trace.push(valuation);
 
@@ -105,11 +112,8 @@ export class Sponsio {
     }
 
     if (violations.length > 0) {
-      // Rollback: remove the event that caused the violation
       this._trace.pop();
-      // Undo grounding state
-      this._state.callCounts[toolName] = Math.max(0, (this._state.callCounts[toolName] || 1) - 1);
-
+      this._state = snapshot;
       this._violations.push(...violations);
 
       return {
@@ -121,6 +125,18 @@ export class Sponsio {
     }
 
     return { blocked: false, allowed: true, message: "", violations: [] };
+  }
+
+  /** Deep-copy the grounding state so it can be restored on a blocked call. */
+  private _snapshotState(): GroundingState {
+    return {
+      callCounts: { ...this._state.callCounts },
+      callWithCounts: { ...this._state.callWithCounts },
+      lastTool: this._state.lastTool,
+      consecutiveCounts: { ...this._state.consecutiveCounts },
+      tokenCounts: { ...this._state.tokenCounts },
+      delegationDepth: this._state.delegationDepth,
+    };
   }
 
   /**
