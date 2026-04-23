@@ -2655,6 +2655,294 @@ def init(
         sys.exit(1)
 
 
+# ---------------------------------------------------------------------------
+# refresh — re-mine contracts from recent traces and merge into sponsio.yaml
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.option(
+    "-c",
+    "--config",
+    "config_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=Path("sponsio.yaml"),
+    show_default=True,
+    help="Path to the sponsio.yaml to update in place.",
+)
+@click.option(
+    "-a",
+    "--agent",
+    "agent",
+    default=None,
+    help=(
+        "Agent id to refresh.  Omit to refresh every agent defined in "
+        "the config.  Required when no ``-t`` glob is given and the "
+        "config has multiple agents (the default session-log path is "
+        "per-agent)."
+    ),
+)
+@click.option(
+    "-t",
+    "--trace",
+    "trace_globs",
+    multiple=True,
+    help=(
+        "Trace file glob.  Repeatable.  If omitted, refresh reads "
+        "``~/.sponsio/sessions/<agent>/*.jsonl`` for each agent."
+    ),
+)
+@click.option(
+    "--since",
+    default="7d",
+    show_default=True,
+    help=(
+        "Time window for default session-log discovery "
+        "(``24h`` / ``7d`` / ``all``).  Ignored when ``-t`` is given — "
+        "the caller is expected to pre-scope the glob in that case."
+    ),
+)
+@click.option(
+    "--mode",
+    type=click.Choice(["add-only", "replace-trace"]),
+    default="replace-trace",
+    show_default=True,
+    help=(
+        "Merge strategy.  ``replace-trace`` drops any ``source: trace`` "
+        "entry that wasn't re-observed and appends the fresh set; "
+        "``add-only`` never removes or drifts anything — new contracts "
+        "only.  User-written / ``source: scan`` / ``source: policy`` / "
+        "``overrides:`` entries are preserved in both modes."
+    ),
+)
+@click.option(
+    "--apply",
+    "apply_changes",
+    is_flag=True,
+    help=(
+        "Write the updated ``sponsio.yaml`` to disk.  Without this "
+        "flag, refresh is a pure dry-run that prints the diff.  The "
+        "original file is backed up to ``<config>.sponsio.bak``."
+    ),
+)
+@click.option(
+    "--trace-min-support",
+    default=1,
+    show_default=True,
+    help="Forwarded to trace mining — minimum occurrences for a pattern.",
+)
+@click.option(
+    "--trace-confidence-threshold",
+    default=0.95,
+    show_default=True,
+    help="Forwarded to trace mining — minimum confidence for sequence rules.",
+)
+def refresh(
+    config_path: Path,
+    agent: str | None,
+    trace_globs: tuple[str, ...],
+    since: str,
+    mode: str,
+    apply_changes: bool,
+    trace_min_support: int,
+    trace_confidence_threshold: float,
+):
+    """Re-mine contracts from recent traces and merge into sponsio.yaml.
+
+    Library-maintenance companion to ``sponsio scan``.  Where ``scan``
+    creates contracts, ``refresh`` keeps them honest: as your agent
+    accumulates session traces in production, run ``refresh`` to
+    discover new patterns and retire stale ones — without clobbering
+    any rule you wrote or tuned by hand.
+
+    Only ``source: trace`` contracts are touched.  User-written rules,
+    ``source: scan`` (from code), ``source: policy``, and anything
+    under ``overrides:`` flow through unchanged.
+
+    \b
+    Examples:
+      sponsio refresh                           # dry-run, last 7d of session logs
+      sponsio refresh --since 24h               # narrower window
+      sponsio refresh --apply                   # write it
+      sponsio refresh -t 'otel/*.jsonl' --apply # explicit trace source
+      sponsio refresh --mode add-only --apply   # never remove anything
+    """
+    import yaml as _yaml
+
+    from sponsio.discovery.extractors.code_analysis import CodeAnalyzer
+    from sponsio.refresh import (
+        DEFAULT_SESSION_GLOB,
+        apply_refresh,
+        backup_then_write,
+        compute_refresh,
+        render_report,
+    )
+    from sponsio.reporting.reader import parse_since
+
+    def _progress(msg: str) -> None:
+        click.echo(click.style("· ", fg="cyan", dim=True) + msg, err=True)
+
+    # Validate --since early so we fail before doing work.
+    try:
+        since_lower_bound = parse_since(since)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc), param_hint="--since") from exc
+
+    # Load existing config.
+    try:
+        existing_text = config_path.read_text()
+    except OSError as exc:
+        raise click.ClickException(f"cannot read {config_path}: {exc}") from exc
+    try:
+        existing_cfg = _yaml.safe_load(existing_text) or {}
+    except _yaml.YAMLError as exc:
+        raise click.ClickException(f"{config_path} is not valid YAML: {exc}") from exc
+    if not isinstance(existing_cfg, dict):
+        raise click.ClickException(
+            f"{config_path} does not look like a sponsio config "
+            "(top-level must be a mapping)."
+        )
+
+    agents_cfg = existing_cfg.get("agents") or {}
+    if not isinstance(agents_cfg, dict) or not agents_cfg:
+        raise click.ClickException(
+            f"{config_path} has no ``agents:`` section to refresh."
+        )
+
+    # Figure out which agents to refresh.
+    if agent:
+        if agent not in agents_cfg:
+            raise click.ClickException(
+                f"agent {agent!r} is not defined in {config_path}. "
+                f"Known: {sorted(agents_cfg)}"
+            )
+        target_agents = [agent]
+    else:
+        target_agents = list(agents_cfg.keys())
+
+    # Resolve trace paths per agent.  Explicit --trace wins for ALL
+    # agents; otherwise each agent gets its own session-log directory.
+    # We filter by --since for the default path so users aren't
+    # re-mining 6 months of logs by accident.
+    def _resolve_trace_paths(agent_id: str) -> list[str]:
+        if trace_globs:
+            return list(trace_globs)
+        glob_tpl = DEFAULT_SESSION_GLOB.format(agent=agent_id)
+        resolved = Path(glob_tpl).expanduser()
+        # Expand the glob manually so we can mtime-filter.
+        matches = sorted(
+            p
+            for p in resolved.parent.glob(resolved.name)
+            if p.is_file() and p.stat().st_mtime >= since_lower_bound
+        )
+        return [str(p) for p in matches]
+
+    # Run trace mining per agent and build the diff.
+    reports: dict = {}
+    fresh_raw: dict[str, list] = {}
+
+    # Lazily construct CodeAnalyzer once; it's cheap when source_paths=[].
+    analyzer = CodeAnalyzer(
+        use_llm=False,
+        progress=_progress,
+    )
+
+    for agent_id in target_agents:
+        trace_paths = _resolve_trace_paths(agent_id)
+        if not trace_paths:
+            click.echo(
+                click.style("  warn: ", fg="yellow")
+                + f"no trace files for agent {agent_id!r} "
+                + f"(looked in {DEFAULT_SESSION_GLOB.format(agent=agent_id)} "
+                f"since {since}). Skipping.",
+                err=True,
+            )
+            fresh_raw[agent_id] = []
+            reports[agent_id] = compute_refresh(
+                existing_contracts=list(
+                    (agents_cfg.get(agent_id) or {}).get("contracts") or []
+                ),
+                fresh_contracts=[],
+                agent=agent_id,
+            )
+            continue
+
+        _progress(f"mining {len(trace_paths)} trace file(s) for agent {agent_id!r}")
+        fresh_yaml = analyzer.generate_yaml(
+            source_paths=[],
+            agent_id=agent_id,
+            trace_paths=trace_paths,
+            trace_min_support=trace_min_support,
+            trace_confidence_threshold=trace_confidence_threshold,
+        )
+        fresh_cfg = _yaml.safe_load(fresh_yaml) or {}
+        fresh_contracts = list(
+            (fresh_cfg.get("agents", {}).get(agent_id) or {}).get("contracts") or []
+        )
+        fresh_raw[agent_id] = fresh_contracts
+
+        reports[agent_id] = compute_refresh(
+            existing_contracts=list(
+                (agents_cfg.get(agent_id) or {}).get("contracts") or []
+            ),
+            fresh_contracts=fresh_contracts,
+            agent=agent_id,
+        )
+
+    # Render.
+    click.echo(render_report(list(reports.values()), color=True), err=True)
+
+    if all(r.is_noop for r in reports.values()):
+        click.echo(
+            click.style("\n✓ ", fg="green")
+            + "nothing to refresh — every source:trace contract still matches.",
+            err=True,
+        )
+        return
+
+    if not apply_changes:
+        click.echo(
+            click.style("\n  re-run with ", fg="cyan", dim=True)
+            + click.style("--apply", bold=True)
+            + click.style(" to write the changes.", fg="cyan", dim=True),
+            err=True,
+        )
+        return
+
+    # Apply.
+    new_cfg = apply_refresh(
+        existing_cfg,
+        reports,
+        fresh_raw,
+        mode=mode,
+    )
+
+    # PyYAML's safe_dump won't round-trip comments, so we warn the
+    # user explicitly and rely on the .sponsio.bak backup to preserve
+    # anything they want to recover.
+    new_text = _yaml.safe_dump(
+        new_cfg,
+        sort_keys=False,
+        default_flow_style=False,
+        allow_unicode=True,
+    )
+
+    backup = backup_then_write(config_path, new_text)
+    if backup is not None:
+        click.echo(
+            click.style("✓ ", fg="green") + f"wrote {config_path} (backup: {backup})",
+            err=True,
+        )
+    else:
+        click.echo(click.style("✓ ", fg="green") + f"wrote {config_path}", err=True)
+    click.echo(
+        click.style("  note: ", fg="yellow", dim=True)
+        + "comments in the original YAML are not preserved; use the "
+        ".sponsio.bak file to diff / recover prose annotations.",
+        err=True,
+    )
+
+
 @cli.command()
 @click.argument(
     "path",

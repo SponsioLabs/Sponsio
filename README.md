@@ -217,15 +217,44 @@ After running, show me sponsio.yaml, the patch you applied, and any
 
 Later:
     sponsio report --since 24h   # what would have been blocked
+    sponsio refresh --since 7d   # re-mine contracts from recent traces
     # prune false positives in sponsio.yaml, then flip `mode: enforce`
 ````
 
 </details>
 
 <details>
+<summary><b>🔄 Keep the contract library fresh</b></summary>
+
+`sponsio.yaml` isn't a one-shot — once your agent is running, you can keep the contract library in sync with actual behavior by periodically re-mining recent traces:
+
+```bash
+sponsio refresh --since 7d              # dry-run: structured diff per agent
+sponsio refresh --since 7d --apply      # write it (backup at .sponsio.bak)
+sponsio refresh --mode add-only --apply # never remove, only append new rules
+```
+
+What refresh touches: only contracts tagged `source: trace`. User-written rules, `source: scan` (from code), `source: policy`, and anything under `overrides:` flow through unchanged.
+
+Diff output:
+
+```
+Agent: support_bot
+  + new      must_precede(validate_payment, charge_card)
+  ~ drifted  rate_limit(send_email, 5) → args [send_email, 12]
+  - stale    idempotent(list_users)  (not re-observed in the 7d window)
+  = 8 unchanged (source: trace, re-observed)
+  = 12 preserved (user / scan / policy / overrides — not touched)
+```
+
+Default trace source is `~/.sponsio/sessions/<agent>/*.jsonl`; use `-t 'path/to/*.jsonl'` for a custom one (OTLP JSON/JSONL or native).
+
+</details>
+
+<details>
 <summary><b>🧠 Or install Sponsio as a reusable Agent Skill</b></summary>
 
-The one-prompt setup above is a one-shot. If you want your coding agent (Cursor, Claude Code, Codex) to know how to `onboard` / `scan` / `report` / tune / flip-to-enforce on *every* project without re-pasting the prompt, install Sponsio as an Agent Skill:
+The one-prompt setup above is a one-shot. If you want your coding agent (Cursor, Claude Code, Codex) to know how to `onboard` / `scan` / `refresh` / tune / flip-to-enforce on *every* project without re-pasting the prompt, install Sponsio as an Agent Skill:
 
 ```bash
 pip install sponsio
