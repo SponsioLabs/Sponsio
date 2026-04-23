@@ -920,6 +920,258 @@ def _rewrite_contract_entry(
     walk(contract.assumption)
 
 
+# ---------------------------------------------------------------------------
+# overrides: — disable / tune individual contracts after include
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class OverrideRule:
+    """One ``overrides:`` entry — a match clause + an effect.
+
+    Match fields are AND'd; a contract qualifies only when every key
+    in ``match`` equals the corresponding contract field.  An empty
+    ``match`` is rejected at parse time (it would silently apply to
+    everything, which is almost certainly a mistake).
+
+    Supported match keys:
+      * ``desc`` — the contract's human description.  This is the
+        most common path because pack YAMLs put the rule's intent
+        right in ``desc:``.
+      * ``pack_source`` — origin pack spec (e.g.
+        ``"sponsio:capability/shell"``).  Useful for "disable
+        everything from this pack" without listing rules one by one.
+      * ``source`` — the ``ConstraintEntry.source`` library tag (e.g.
+        ``"library:tier1.shell"``).  Finer-grained than pack_source
+        when one pack ships rules from several library tiers.
+      * ``pattern`` — the structured pattern name on the enforcement
+        constraint (``rate_limit``, ``injection_free``, …).
+
+    Effects:
+      * ``disabled: true`` — drop the matched contract entirely.
+      * ``threshold`` / ``prompt_override`` / ``context_scope`` —
+        forwarded onto the enforcement ConstraintEntry(s).  Only
+        meaningful for stochastic patterns; det patterns ignore them
+        at compile time so a no-op override is harmless but suspect
+        — we don't currently warn.
+
+    The match/effect split is borrowed from ``kustomize`` / GitOps
+    overlays: it keeps the override readable (intent at top, effect
+    at bottom) and makes "match nothing" detectable as an error.
+
+    ``matched_count`` is bookkeeping for the unmatched-rule diagnostic
+    — see ``_apply_overrides``.
+    """
+
+    match: dict[str, str]
+    disabled: bool = False
+    threshold: float | None = None
+    prompt_override: str | None = None
+    context_scope: str | None = None
+    matched_count: int = 0
+
+
+_OVERRIDE_MATCH_KEYS = {"desc", "pack_source", "source", "pattern"}
+_OVERRIDE_EFFECT_KEYS = {"disabled", "threshold", "prompt_override", "context_scope"}
+
+
+def _parse_override_rule(raw: Any, agent_id: str, idx: int) -> OverrideRule:
+    """Validate a single ``overrides:`` entry.
+
+    Errors name the entry index so users can locate the offender in a
+    long list quickly.  We also reject unknown keys outright — silently
+    ignoring an `enabled: true` typo would defeat the purpose of having
+    overrides.
+    """
+    if not isinstance(raw, dict):
+        raise ConfigError(
+            f"Agent '{agent_id}': overrides[{idx}] must be a mapping, "
+            f"got {type(raw).__name__}"
+        )
+
+    match_raw = raw.get("match")
+    if not isinstance(match_raw, dict) or not match_raw:
+        raise ConfigError(
+            f"Agent '{agent_id}': overrides[{idx}] requires a non-empty "
+            f"'match:' mapping (e.g. `match: {{desc: \"…\"}}`).  An empty "
+            f"match would apply to every contract."
+        )
+    bad_keys = set(match_raw) - _OVERRIDE_MATCH_KEYS
+    if bad_keys:
+        raise ConfigError(
+            f"Agent '{agent_id}': overrides[{idx}] has unknown match keys "
+            f"{sorted(bad_keys)}; supported keys are "
+            f"{sorted(_OVERRIDE_MATCH_KEYS)}"
+        )
+    match: dict[str, str] = {}
+    for k, v in match_raw.items():
+        if not isinstance(v, str) or not v.strip():
+            raise ConfigError(
+                f"Agent '{agent_id}': overrides[{idx}].match.{k} must be a "
+                f"non-empty string, got {v!r}"
+            )
+        match[k] = v
+
+    rule = OverrideRule(match=match)
+
+    effect_keys = set(raw) - {"match"}
+    bad_effects = effect_keys - _OVERRIDE_EFFECT_KEYS
+    if bad_effects:
+        raise ConfigError(
+            f"Agent '{agent_id}': overrides[{idx}] has unknown effect keys "
+            f"{sorted(bad_effects)}; supported keys are "
+            f"{sorted(_OVERRIDE_EFFECT_KEYS)}"
+        )
+    if not effect_keys:
+        raise ConfigError(
+            f"Agent '{agent_id}': overrides[{idx}] has no effect — add at "
+            f"least one of {sorted(_OVERRIDE_EFFECT_KEYS)} (e.g. "
+            f"`disabled: true`)"
+        )
+
+    if "disabled" in raw:
+        if not isinstance(raw["disabled"], bool):
+            raise ConfigError(
+                f"Agent '{agent_id}': overrides[{idx}].disabled must be a "
+                f"boolean, got {raw['disabled']!r}"
+            )
+        rule.disabled = raw["disabled"]
+    if "threshold" in raw:
+        t = raw["threshold"]
+        if not isinstance(t, (int, float)) or not (0.0 <= float(t) <= 1.0):
+            raise ConfigError(
+                f"Agent '{agent_id}': overrides[{idx}].threshold must be a "
+                f"number in [0.0, 1.0], got {t!r}"
+            )
+        rule.threshold = float(t)
+    if "prompt_override" in raw:
+        p = raw["prompt_override"]
+        if not isinstance(p, str) or not p.strip():
+            raise ConfigError(
+                f"Agent '{agent_id}': overrides[{idx}].prompt_override must be "
+                f"a non-empty string, got {p!r}"
+            )
+        rule.prompt_override = p
+    if "context_scope" in raw:
+        c = raw["context_scope"]
+        if not isinstance(c, str) or not c.strip():
+            raise ConfigError(
+                f"Agent '{agent_id}': overrides[{idx}].context_scope must be "
+                f"a non-empty string, got {c!r}"
+            )
+        rule.context_scope = c
+
+    # Combining ``disabled: true`` with field-edits is suspicious — the
+    # contract is gone, so the edits are dead code.  Catch the typo.
+    if rule.disabled and (
+        rule.threshold is not None
+        or rule.prompt_override is not None
+        or rule.context_scope is not None
+    ):
+        raise ConfigError(
+            f"Agent '{agent_id}': overrides[{idx}] sets `disabled: true` "
+            f"alongside field-edits; the edits would never apply.  Split "
+            f"into two override entries or drop one of the effects."
+        )
+    return rule
+
+
+def _contract_constraints(contract: ContractEntry) -> list[ConstraintEntry]:
+    """Flatten the enforcement field — used by both override matching
+    (against ``source`` / ``pattern``) and override application
+    (writing back ``threshold`` etc.).  The list shape (``E`` may be
+    a list) is opaque to overrides — they apply to every constraint
+    in the AND group.  In practice pack rules are single-constraint
+    so this distinction rarely matters."""
+    e = contract.enforcement
+    if e is None:
+        return []
+    if isinstance(e, list):
+        return list(e)
+    return [e]
+
+
+def _matches_override(rule: OverrideRule, contract: ContractEntry) -> bool:
+    """All match-keys must agree.  ``desc`` and ``pack_source`` are
+    contract-level; ``source`` and ``pattern`` are constraint-level
+    and match if *any* enforcement constraint carries the requested
+    value (covering pack rules whose ``E:`` is a list of two
+    constraints with different patterns/sources)."""
+    for key, expected in rule.match.items():
+        if key == "desc":
+            if contract.desc != expected:
+                return False
+        elif key == "pack_source":
+            if contract.pack_source != expected:
+                return False
+        elif key == "source":
+            if not any(c.source == expected for c in _contract_constraints(contract)):
+                return False
+        elif key == "pattern":
+            if not any(c.pattern == expected for c in _contract_constraints(contract)):
+                return False
+    return True
+
+
+def _apply_override_effects(rule: OverrideRule, contract: ContractEntry) -> None:
+    """Apply non-``disabled`` effects.  Caller has already filtered
+    out the disabled case (those contracts get dropped entirely).
+
+    Field edits write to *every* enforcement constraint — typically
+    one, occasionally a list-AND.  Det constraints carry the fields
+    too (the dataclass shape is uniform); they just ignore them at
+    compile time.  This mirrors ``ConstraintEntry`` semantics where
+    sto-only fields are tolerated on det entries."""
+    for ce in _contract_constraints(contract):
+        if rule.threshold is not None:
+            ce.threshold = rule.threshold
+        if rule.prompt_override is not None:
+            ce.prompt_override = rule.prompt_override
+        if rule.context_scope is not None:
+            ce.context_scope = rule.context_scope
+
+
+def _apply_overrides(
+    contracts: list[ContractEntry],
+    overrides: list[OverrideRule],
+    agent_id: str,
+) -> list[ContractEntry]:
+    """Apply every override against every contract; return the kept
+    contracts.
+
+    Unmatched override rules raise ``ConfigError`` listing every
+    rule that fired zero times.  This is the config-drift catch:
+    when a pack version bump renames a rule's ``desc:``, the user's
+    override silently stops applying and the rule re-enables itself.
+    Failing fast with a list of stale match clauses is far better
+    than a quiet behavior change.
+    """
+    kept: list[ContractEntry] = []
+    for contract in contracts:
+        drop = False
+        for rule in overrides:
+            if _matches_override(rule, contract):
+                rule.matched_count += 1
+                if rule.disabled:
+                    drop = True
+                else:
+                    _apply_override_effects(rule, contract)
+        if not drop:
+            kept.append(contract)
+
+    unmatched = [r for r in overrides if r.matched_count == 0]
+    if unmatched:
+        details = "; ".join(
+            f"match={r.match!r}" for r in unmatched
+        )
+        raise ConfigError(
+            f"Agent '{agent_id}': {len(unmatched)} override rule(s) matched "
+            f"no contract — pack contents may have changed.  Update or "
+            f"remove these match clauses: {details}"
+        )
+    return kept
+
+
 def _parse_tool_rename(raw: Any, agent_id: str) -> dict[str, str]:
     """Validate and normalize the ``tool_rename:`` mapping.
 
@@ -1093,6 +1345,19 @@ def load_config(path: str | Path) -> SponsoConfig:
                 _rewrite_contract_entry(
                     contract, workspace_raw, tool_rename, agent_id
                 )
+
+            overrides_raw = agent_data.get("overrides", [])
+            if overrides_raw:
+                if not isinstance(overrides_raw, list):
+                    raise ConfigError(
+                        f"Agent '{agent_id}': 'overrides' must be a list of "
+                        f"override rules, got {type(overrides_raw).__name__}"
+                    )
+                overrides = [
+                    _parse_override_rule(r, agent_id, i)
+                    for i, r in enumerate(overrides_raw)
+                ]
+                ac.contracts = _apply_overrides(ac.contracts, overrides, agent_id)
 
             config.agents[agent_id] = ac
         else:
