@@ -68,10 +68,17 @@ def check_python() -> CheckResult:
     major, minor = sys.version_info[:2]
     version = f"{major}.{minor}.{sys.version_info[2]}"
     if (major, minor) < (3, 10):
+        # Soft warn — Sponsio runtime works on 3.9 (we install with
+        # ``--ignore-requires-python``-tolerant deps), but PEP-604 union
+        # syntax (``X | Y``) in user tool/contract type hints needs
+        # 3.10+, and ``sponsio scan`` will refuse to parse such files
+        # cleanly.  Wording is intentionally low-alarm: nothing is
+        # broken right now.
         return CheckResult(
             "Python",
             "warn",
-            f"{version} (3.10+ recommended; some typing features degrade on older)",
+            f"{version} — runtime supported; upgrade to 3.10+ for full "
+            f"`X | Y` typing in tool signatures",
         )
     return CheckResult("Python", "ok", version)
 
