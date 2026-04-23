@@ -84,6 +84,15 @@ agents:
               - "(^|/)\\.gnupg/"
               - "(^|/)id_rsa($|\\.)"
               - "(^|/)id_ed25519($|\\.)"
+              # /etc/ is permitted for reads in §2 (hosts, resolv.conf,
+              # os-release are routinely needed for diagnostics) but
+              # these specific entries under /etc hold credentials or
+              # escalation config and must stay hard-denied:
+              - "^/etc/shadow($|/)"
+              - "^/etc/sudoers($|\\.d/|$)"
+              - "^/etc/ssh/ssh_host_"
+              - "^/etc/ssl/private/"
+              - "^/etc/krb5\\.keytab$"
           source: "library:tier1.filesystem"
 
       - desc: "Deny writes / edits into sensitive paths (prevent persistence or cred overwrite)"
@@ -169,12 +178,32 @@ agents:
             - ["<workspace>/"]
           source: "library:tier1.filesystem"
 
-      - desc: "Reads restricted to workspace, /tmp, and common stdlib paths"
+      # Read scope is deliberately broader than write/edit/apply_patch
+      # scope: many legitimate agent workflows involve inspecting
+      # system state for diagnostics (/etc/hosts, /var/log/*), linking
+      # against system headers (/usr/include/, /usr/local/include/),
+      # or reading stdlib / installed-tool source for understanding
+      # (/usr/lib/, /opt/).  The sensitive-path blacklist in §1 keeps
+      # secrets under those roots (shadow, sudoers, ssh host keys)
+      # hard-denied, so broad read scope + narrow blacklist gives the
+      # right coverage/flexibility trade.
+      - desc: "Reads restricted to workspace, /tmp, and read-only system paths"
         E:
           pattern: scope_limit
           args:
             - read
-            - ["<workspace>/", "/tmp/", "/usr/include/", "/usr/local/include/"]
+            - - "<workspace>/"
+              - "/tmp/"
+              - "/etc/"
+              - "/var/log/"
+              - "/usr/include/"
+              - "/usr/local/include/"
+              - "/usr/lib/"
+              - "/usr/local/lib/"
+              - "/usr/share/"
+              - "/opt/"
+              - "/proc/"
+              - "/sys/"
           source: "library:tier1.filesystem"
 
       # =================================================================

@@ -162,9 +162,13 @@ class TestIncludeIntoAgent:
         )
         cfg = load_config(cfg_path)
         ac = cfg.agents["bot"]
-        # universal.yaml ships 6 contracts under '*'; the pin protects
-        # against accidental deletions in the pack file.
-        assert len(ac.contracts) == 6
+        # universal.yaml ships 5 sto contracts under '*'; the pin
+        # protects against accidental deletions.  The count dropped
+        # from 6 when scope_respect was moved out (generic default
+        # scope string was an irredeemable source of judge noise —
+        # see the pack file's § Scope block for the rationale and
+        # the per-agent recipe).
+        assert len(ac.contracts) == 5
         # Every pulled contract must be source-tagged so overrides:
         # has something to address.
         assert all(c.pack_source == "sponsio:core/universal" for c in ac.contracts)

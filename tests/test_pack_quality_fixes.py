@@ -303,3 +303,197 @@ class TestAgentPlaceholderRewrite:
             "openclaw's LTL still mentions the historical hard-coded "
             f"agent name.  Got: {ltls!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# I — Usability pass: default-noise reductions on the stricter rules
+#
+# After the first real-world integration pass (earnings-forecast-hub,
+# Probatio), several rules were identified as producing day-1 false
+# positives.  Pin the adjustments so future edits can't silently revert
+# us to the noisy defaults:
+#
+#   * confirm-1:1 rules must gate on `A:` so they're vacuous-true until
+#     the integration opts in by emitting the marker.
+#   * scope_respect must NOT be in core/universal's default contracts —
+#     the generic scope string is judge-noise.
+#   * Line-continuation regex must require a privileged-command token,
+#     so multi-line Makefiles / Dockerfiles don't trip the rule.
+#   * untrusted_source_gate default sinks must not include send_message
+#     (RAG: web_fetch → send_message is the standard pattern).
+# ---------------------------------------------------------------------------
+
+
+class TestUsabilityTuning:
+    def test_shell_confirm_reuse_rule_gated_on_assumption(self):
+        """Rule only fires once the agent emits ``confirm_reconfirmed``."""
+        text = _read_pack("capability/shell.yaml")
+        # The desc + A: pair is what we're pinning — if either drifts,
+        # users on day 1 either get drowned in false positives (no A:)
+        # or silently lose the rule (no desc).
+        assert "Each exec call needs its own confirm_reconfirmed" in text
+        m = re.search(
+            r'desc:\s*"Each exec call needs its own confirm_reconfirmed.*?'
+            r'A:\s*"called\s*`confirm_reconfirmed`"',
+            text,
+            re.DOTALL,
+        )
+        assert m, (
+            "shell.yaml §4 confirm-1:1 rule must gate on "
+            "`A: \"called `confirm_reconfirmed`\"` — otherwise every "
+            "exec call flags until the marker tool is wired in."
+        )
+
+    def test_openclaw_confirm_reuse_rules_gated_on_assumption(self):
+        """Both openclaw §8 confirm rules must carry the same gate."""
+        text = _read_pack("incident/openclaw.yaml")
+        # Two separate rules (exec + apply_patch), both need A:.
+        for desc_frag in (
+            "Confirmations cannot be reused",
+            "Same for apply_patch",
+        ):
+            m = re.search(
+                rf'desc:\s*"{re.escape(desc_frag)}.*?'
+                r'A:\s*"called\s*`confirm_reconfirmed`"',
+                text,
+                re.DOTALL,
+            )
+            assert m, (
+                f"openclaw.yaml §8 rule '{desc_frag}' must gate on "
+                "`A: \"called `confirm_reconfirmed`\"` to avoid day-1 "
+                "false positives."
+            )
+
+    def test_universal_does_not_ship_scope_respect_as_default(self):
+        """``scope_respect`` is opt-in — a generic default scope string is
+        judge-noise.  The pack may mention it in a recipe comment, but
+        must not emit a contract entry using the pattern."""
+        text = _read_pack("core/universal.yaml")
+        # Pattern token must only appear in comment lines (after #) or
+        # in the recipe block.  A real rule would have it on a YAML
+        # data line (no leading #).
+        for line in text.splitlines():
+            stripped = line.lstrip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            assert "pattern: scope_respect" not in stripped, (
+                "core/universal.yaml must not ship scope_respect as a "
+                "default contract — the generic scope string makes it "
+                "noise on day 1.  Keep it in the commented recipe only."
+            )
+
+    def test_shell_linecont_regex_requires_privileged_cmd(self):
+        """`\\\\\\n` alone trips on Makefiles / Dockerfiles / multi-line
+        scripts.  The regex must require a privileged-command token to
+        follow the continuation, so only the CVE-style evasion fires."""
+        text = _read_pack("capability/shell.yaml")
+        # The old broad regex was `[\\\\\\n]`.  Pin that the new form
+        # contains at least one privileged token anchored to the
+        # continuation.  We don't pin the exact regex (too brittle) —
+        # just that `sudo`, `rm`, and the `\\n` anchor co-appear in
+        # the shell-exec § 1 rule.
+        assert "line-continuation chained into a privileged" in text, (
+            "capability/shell.yaml § 1 should describe the rule as "
+            "'line-continuation chained into a privileged command', "
+            "not the broader 'ban all line-continuation' variant."
+        )
+        # Hex search for the `\\n\s*(sudo|...` pattern fragment.
+        assert re.search(r"\\\\\\\\\\\\n\\\\s\*\(sudo", text), (
+            "shell § 1 regex must require a privileged command token "
+            "(sudo/rm/…) to follow the continuation, so multi-line "
+            "scripts don't trip the rule."
+        )
+
+    def test_openclaw_untrusted_gate_excludes_send_message_default(self):
+        """RAG's ``web_fetch → reason → send_message`` is the common
+        case; requiring re-confirmation on every send_message after a
+        fetch would cripple chat agents.  Default sinks must not list
+        send_message."""
+        text = _read_pack("incident/openclaw.yaml")
+        # Walk to the untrusted_source_gate block and check the default
+        # sink list — comment blocks with example overrides are fine.
+        m = re.search(
+            r"pattern:\s*untrusted_source_gate\s*\n"
+            r"\s*args:\s*\n"
+            r"\s*-\s*\[web_fetch\]\s*\n"
+            r"\s*-\s*\[([^\]]+)\]",
+            text,
+        )
+        assert m, "could not locate the default untrusted_source_gate sink list"
+        sinks = [s.strip() for s in m.group(1).split(",")]
+        assert "send_message" not in sinks, (
+            f"send_message must be opt-in for untrusted_source_gate "
+            f"(RAG is the common path).  Got default sinks: {sinks!r}"
+        )
+        # Verify the expected core sinks are still present.
+        for required in ("exec", "install_skill", "apply_patch"):
+            assert required in sinks, (
+                f"missing {required!r} from untrusted_source_gate default "
+                f"sinks; got {sinks!r}"
+            )
+
+    def test_filesystem_read_scope_expanded_beyond_workspace_tmp(self):
+        """Read scope is deliberately broader than write scope.  Pin
+        that the common read paths (/etc/, /var/log/, /usr/include/)
+        appear in the read-scope block so future edits don't tighten
+        it back to the old workspace-plus-tmp-only form."""
+        # Rather than regex-matching the YAML shape (brittle as the
+        # file evolves), load the pack and assert the effective args
+        # on the `read`-scope rule.
+        cfg_path = (
+            Path(__file__).parent
+            / "tmp_fs_scope_check_sponsio.yaml"  # tmp name — unused
+        )
+        # Inline-include via tmp path to avoid polluting a real file.
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "sponsio.yaml"
+            p.write_text(
+                "agents:\n  bot:\n"
+                '    workspace: "/proj"\n'
+                "    include: ['sponsio:capability/filesystem']\n"
+            )
+            cfg = load_config(p)
+
+        # Find the contract whose enforcement is scope_limit on `read`.
+        prefixes = None
+        for c in cfg.agents["bot"].contracts:
+            es = c.enforcement if isinstance(c.enforcement, list) else [c.enforcement]
+            for ce in es:
+                if ce is None or ce.pattern != "scope_limit" or not ce.args:
+                    continue
+                if ce.args[0] == "read":
+                    prefixes = ce.args[1]
+                    break
+            if prefixes is not None:
+                break
+        assert prefixes is not None, "read-scope `scope_limit` rule not found"
+        assert isinstance(prefixes, list), (
+            f"read-scope prefixes must be a list, got {type(prefixes).__name__}"
+        )
+        # Workspace placeholder is rewritten to the configured path at
+        # include time; the other entries are literal.
+        assert any(p.startswith("/proj") for p in prefixes), (
+            f"read scope must contain the workspace path; got {prefixes!r}"
+        )
+        for required in ("/etc/", "/var/log/", "/usr/include/"):
+            assert required in prefixes, (
+                f"read scope must include {required!r} (common diagnostic / "
+                f"header path) — got {prefixes!r}"
+            )
+
+    def test_filesystem_blacklist_hardens_sensitive_etc_paths(self):
+        """Broadening read scope to /etc/ means shadow / sudoers / ssh
+        host keys must be hard-denied in the blacklist — otherwise the
+        relaxation creates a real security hole."""
+        text = _read_pack("capability/filesystem.yaml")
+        for required in (
+            r"^/etc/shadow",
+            r"^/etc/sudoers",
+            r"^/etc/ssh/ssh_host_",
+        ):
+            assert required in text, (
+                f"filesystem blacklist missing hard-deny for {required!r} — "
+                "broadening read scope to /etc/ without this is unsafe."
+            )

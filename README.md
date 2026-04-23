@@ -277,6 +277,60 @@ sponsio scan src/ -t '~/.sponsio/sessions/bot/*.jsonl'      # + execution traces
 
 Scanned contracts are flagged `source: scan` (or `source: trace`) so they're easy to tell apart from hand-written ones.
 
+**What's in the generated `sponsio.yaml`** — `scan` and `onboard` pull pre-built packs for common agent capabilities, then add any inferred rules on top. Five packs ship today; `sponsio packs` lists them:
+
+| Pack | Rules | Turns on when |
+|---|---:|---|
+| `sponsio:core/universal` | 5 sto | LLM-judge safety net (injection / jailbreak / toxic / PII / harm). Needs a `judge:` block. |
+| `sponsio:core/runaway` | 5 det | Always-safe. Token budgets, delegation depth, loop caps. No LLM calls. |
+| `sponsio:capability/shell` | 11 det | Any tool executing shell commands. |
+| `sponsio:capability/filesystem` | 13 det | Any tool reading/writing files. Needs `workspace:`. |
+| `sponsio:incident/openclaw` | 45 mixed | Opt-in; CVE-derived rules for OpenClaw-style agents. |
+
+Run `sponsio packs` to list them with live counts and include syntax.
+
+What the yaml looks like once you have one — every field below is optional except `version` and `agents`:
+
+```yaml
+version: 1
+agents:
+  support_bot:
+    workspace: "/srv/support-bot"         # required by filesystem / incident packs
+
+    include:                               # pre-built packs (edit freely)
+      - sponsio:core/runaway
+      - sponsio:capability/shell
+      - sponsio:capability/filesystem
+
+    tool_rename:                           # map your tools to the canonical names
+      run_command: exec                    #   used by the shell pack
+      read_file:   read
+
+    overrides:                             # silence specific rules without forking a pack
+      - match: { desc: "Cap exec calls per session" }
+        args: [exec, 500]                  # coding agents legitimately hit >50 execs
+
+    contracts:                             # your own rules, added on top of packs
+      - desc: "After reading .env, no git commit or push"
+        A: { pattern: called, args: [read, ".env"] }
+        E: { ltl: "G(!called(git_commit) & !called(git_push))" }
+
+runtime:
+  mode: observe                            # flip to "enforce" after pruning
+  dashboard: http://localhost:8000
+
+judge:                                     # only when any include uses sto
+  provider: openai
+  model: gpt-4o-mini
+```
+
+Two things worth knowing on day 1:
+
+- Rules gated on markers your integration doesn't emit are **vacuous-true**, not false-positive. The shell pack's "each exec needs a confirm_reconfirmed" rule has `A: "called \`confirm_reconfirmed\`"` — so if you never wire the marker, the rule is silent. The moment you do, 1:1 enforcement kicks in.
+- Packs are read-only on disk but fully overridable. Use `overrides:` with a `match:` clause (by `desc`, `pattern`, `pack_source`, or `source` tag) to tune, disable, or replace args without editing the pack file.
+
+See [docs/contracts.md](docs/contracts.md) for the full field reference.
+
 ### 3. Validate and replay in CI
 
 Treat contracts like tests. Both commands exit non-zero on failure and drop into any CI:

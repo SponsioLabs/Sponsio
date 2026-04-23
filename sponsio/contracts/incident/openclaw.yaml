@@ -149,10 +149,18 @@ agents:
             - ["rm\\s+-rf\\s+/", "curl[^|]+\\|\\s*(bash|sh)", "wget[^|]+\\|\\s*(bash|sh)", ":\\(\\)\\s*\\{\\s*:\\s*\\|\\s*:\\s*&\\s*\\}\\s*;\\s*:"]
           source: "library:tier1.shell"
 
-      - desc: "Block shell line-continuation — CVE-2026-28460 approval bypass"
+      # Narrow form — see capability/shell.yaml §1 for the rationale.
+      # We flag backslash-newline only when chained into a privileged
+      # command token; unconstrained `\<newline>` appears legitimately
+      # in Makefiles / Dockerfiles / shell scripts.
+      - desc: "Block shell line-continuation chained into a privileged command (CVE-2026-28460)"
         E:
           pattern: arg_blacklist
-          args: [exec, command, ["\\\\\\n"]]
+          args:
+            - exec
+            - command
+            - - "\\\\\\n\\s*(sudo|su\\s|rm\\s+-[rRf]|dd\\s+if=|chmod\\s|chown\\s|mount\\s|curl\\s|wget\\s)"
+              - "\\\\\\r?\\n\\s*(sudo|su\\s|rm\\s+-[rRf]|dd\\s+if=|chmod\\s|chown\\s|mount\\s|curl\\s|wget\\s)"
           source: "incident:CVE-2026-28460"
 
       - desc: "Block --yolo / --no-confirm flags on skill invocations"
@@ -315,13 +323,32 @@ agents:
       # Core move: after any untrusted ingest, privileged sinks need re-confirm.
       # =====================================================================
 
+      # The sink list covers high-privilege actions (code execution,
+      # skill install, patch apply). `send_message` is NOT in the
+      # default sink set because the standard RAG pattern is
+      # `web_fetch → reason → send_message`, and a re-confirm
+      # requirement on every retrieval-augmented reply would cripple
+      # chat/assistant workloads.  Teams whose `send_message` routes
+      # to external (non-owner) channels should add it via
+      # overrides: — see the commented example below.
       - desc: "After untrusted content ingest, sensitive sinks require re-confirmation"
         E:
           pattern: untrusted_source_gate
           args:
             - [web_fetch]
-            - [send_message, exec, install_skill, apply_patch]
+            - [exec, install_skill, apply_patch]
           source: "incident:CVE-2026-22708"
+
+      # Uncomment to extend the gate to outbound messages when your
+      # agent's `send_message` reaches third parties:
+      #
+      #   - desc: "After untrusted ingest, outbound messages also gated"
+      #     E:
+      #       pattern: untrusted_source_gate
+      #       args:
+      #         - [web_fetch]
+      #         - [send_message]
+      #       source: "incident:CVE-2026-22708"
 
       - desc: "Web browsing loops bounded — prevents attacker-controlled chain-redirect ingestion"
         E:
@@ -405,14 +432,23 @@ agents:
       # re-prompt. Generalization: one confirmation cannot authorize two
       # destructive actions. Count-dominance is a proxy for principal identity
       # (we don't yet have a `principal()` atom).
+      #
+      # Both rules below are gated on the assumption that the agent actually
+      # emits `confirm_reconfirmed` events — without that wiring the guarantee
+      # is vacuous-false at every exec/apply_patch call, which would drown
+      # observe-mode reports. The CVE the rules defend against is a
+      # confirmation-REUSE attack, which only makes sense when confirmation
+      # is integrated in the first place.
       # =====================================================================
 
       - desc: "Confirmations cannot be reused — count(confirm) must dominate count(exec)"
+        A: "called `confirm_reconfirmed`"
         E:
           ltl: "G(called(exec) -> count(confirm_reconfirmed) >= count(exec))"
           source: "incident:CVE-2026-29607"
 
       - desc: "Same for apply_patch — each apply needs its own confirm"
+        A: "called `confirm_reconfirmed`"
         E:
           ltl: "G(called(apply_patch) -> count(confirm_reconfirmed) >= count(apply_patch))"
           source: "incident:CVE-2026-29607"

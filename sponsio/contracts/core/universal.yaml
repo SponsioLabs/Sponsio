@@ -84,20 +84,32 @@ agents:
 
       # -- Scope --------------------------------------------------------
       #
-      # scope_respect needs a scope string that varies per agent.  We
-      # ship a sane default here; most agents will override this one
-      # entry in their own config to state what their remit is.
+      # `scope_respect` is deliberately NOT shipped on by default.  It
+      # needs a concrete, agent-specific scope string to be useful —
+      # something like "respond only to loan-origination questions for
+      # the approved product catalogue".  A generic default like "do
+      # not act beyond the task" is irredeemably abstract: the judge
+      # has nothing to anchor on and will either flag everything or
+      # pass everything, depending on model temperament.  Shipping
+      # such a rule as default-on produces noise, not signal.
       #
-      # 0.85 — scope is fluid and judge-defined; the lower beta
-      # acknowledges that "out of scope" is genuinely fuzzier than
-      # "contains PII", and a high beta would flag too aggressively
-      # on prompt-shape responses that drift only slightly.
-      - desc: "Agent stays within its declared scope"
-        E:
-          pattern: scope_respect
-          args: ["the task declared to this agent — do not act beyond it"]
-          source: "library:tier0.scope"
-        beta: 0.85
+      # Add it to your own agent config once you have a concrete scope
+      # statement, e.g.::
+      #
+      #     agents:
+      #       support_bot:
+      #         contracts:
+      #           - desc: "Stays within customer-support remit"
+      #             E:
+      #               pattern: scope_respect
+      #               args: ["answer questions about order status,
+      #                       refunds, and shipping — no legal advice,
+      #                       no medical advice, no code execution"]
+      #             beta: 0.85
+      #
+      # The β=0.85 default acknowledges that "out of scope" is fuzzier
+      # than "contains PII"; a higher beta flags too aggressively on
+      # responses that drift only slightly.
 
 # -----------------------------------------------------------------------------
 # What this file deliberately does NOT include

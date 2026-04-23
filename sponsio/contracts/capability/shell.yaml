@@ -111,10 +111,21 @@ agents:
               - "curl[^|]+--upload-file"
           source: "library:tier1.shell"
 
-      - desc: "Ban shell line-continuation in exec args (OpenClaw CVE-2026-28460 approval-bypass)"
+      # Line-continuation `\<newline>` is a common evasion for approval
+      # allowlists: the approver sees `ls` but the shell executes
+      # `ls\<newline>; rm -rf /`.  Rather than banning EVERY backslash-
+      # newline (multi-line Makefiles, Docker RUN blocks, shell scripts
+      # all use it legitimately), we only flag continuation followed by
+      # a privilege-sensitive command token.  Keeps the CVE coverage
+      # while eliminating the biggest day-1 false-positive source.
+      - desc: "Ban shell line-continuation chained into a privileged command (CVE-2026-28460)"
         E:
           pattern: arg_blacklist
-          args: [exec, command, ["\\\\\\n"]]
+          args:
+            - exec
+            - command
+            - - "\\\\\\n\\s*(sudo|su\\s|rm\\s+-[rRf]|dd\\s+if=|chmod\\s|chown\\s|mount\\s|curl\\s|wget\\s)"
+              - "\\\\\\r?\\n\\s*(sudo|su\\s|rm\\s+-[rRf]|dd\\s+if=|chmod\\s|chown\\s|mount\\s|curl\\s|wget\\s)"
           source: "library:tier1.shell"
 
       - desc: "Ban undefined-variable-looking patterns that expand to empty in shell"
@@ -186,9 +197,19 @@ agents:
       #
       # The batch marker (e.g. `confirm_batch_5`) must be emitted by
       # your integration when the human signs off on a batch.
+      #
+      # ASSUMPTION gate: this rule only activates once the agent's
+      # integration has ever emitted `confirm_reconfirmed` in the
+      # current trace.  Agents that haven't wired the marker tool in
+      # at all (the common day-1 state) see this rule as vacuously
+      # true — otherwise every exec call would violate and drown the
+      # observe-mode report in noise.  When an integration adopts
+      # confirm_reconfirmed, the first emission flips the assumption
+      # true for that trace and the 1:1 guarantee begins applying.
       # =================================================================
 
       - desc: "Each exec call needs its own confirm_reconfirmed (no confirmation reuse)"
+        A: "called `confirm_reconfirmed`"
         E:
           ltl: "G(called(exec) -> count(confirm_reconfirmed) >= count(exec))"
           source: "library:tier1.shell"
