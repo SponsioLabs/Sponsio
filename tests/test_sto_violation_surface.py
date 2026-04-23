@@ -180,9 +180,7 @@ class TestClaudeAgentStoSurface:
         # we have an audit trail for the decision.
         from pathlib import Path
 
-        src = Path(
-            "sponsio/integrations/claude_agent.py"
-        ).read_text(encoding="utf-8")
+        src = Path("sponsio/integrations/claude_agent.py").read_text(encoding="utf-8")
         assert "sidecar hint" in src
         assert "format_sto_retry_message" in src
         assert "[Sponsio quality check]" in src

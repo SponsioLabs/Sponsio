@@ -8,7 +8,11 @@ from sponsio.discovery._types import (
     DiscoverySource,
     ProposedConstraint,
 )
-from sponsio.discovery.store import PatternEntry, PatternStore, _extract_args_from_formula
+from sponsio.discovery.store import (
+    PatternEntry,
+    PatternStore,
+    _extract_args_from_formula,
+)
 from sponsio.patterns.library import (
     arg_length_limit,
     arg_value_range,
@@ -260,9 +264,7 @@ class TestNumericArgPreservation:
         )
 
         # And through a disk round-trip for good measure.
-        with tempfile.NamedTemporaryFile(
-            suffix=".json", delete=False, mode="w"
-        ) as fh:
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as fh:
             path = Path(fh.name)
         try:
             store.save(path)

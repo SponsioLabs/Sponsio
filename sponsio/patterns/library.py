@@ -158,9 +158,7 @@ def _ensure_non_empty(value: str, *, pattern: str, arg: str) -> str:
     return value
 
 
-def _ensure_distinct(
-    a: str, b: str, *, pattern: str, arg_a: str, arg_b: str
-) -> None:
+def _ensure_distinct(a: str, b: str, *, pattern: str, arg_a: str, arg_b: str) -> None:
     """Reject degenerate ``f(x, x)`` pattern calls.
 
     Why this exists
@@ -239,7 +237,11 @@ def always_followed_by(trigger: str, response: str, desc: str = "") -> DetFormul
         A ``DetFormula`` encoding the liveness constraint.
     """
     _ensure_distinct(
-        trigger, response, pattern="always_followed_by", arg_a="trigger", arg_b="response"
+        trigger,
+        response,
+        pattern="always_followed_by",
+        arg_a="trigger",
+        arg_b="response",
     )
     formula = G(Implies(_called(trigger), F(_called(response))))
     return DetFormula(

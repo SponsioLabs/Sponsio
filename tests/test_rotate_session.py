@@ -206,9 +206,9 @@ class TestGuardRotateSession:
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
                 summary = g.rotate_session()
-            assert any(
-                "finish_session raised" in str(w.message) for w in caught
-            ), "rotate_session must warn when finish_session raises"
+            assert any("finish_session raised" in str(w.message) for w in caught), (
+                "rotate_session must warn when finish_session raises"
+            )
             assert summary["events"] >= 1
             assert len(g._monitor.trace.events) == 0
         finally:

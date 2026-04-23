@@ -213,9 +213,7 @@ class TestGuardAfterAssumptionGating:
             "once issue_refund is called, the conditional contract's "
             "assumption holds and the sto prop is active"
         )
-        assert any(
-            "tone_professional" in v.message for v in r2.sto_violations
-        )
+        assert any("tone_professional" in v.message for v in r2.sto_violations)
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +284,5 @@ class TestFinishSessionNoDoubleLog:
         seen = set()
         for e in liveness_events:
             key = (e.agent_id, e.constraint_name, e.result.message)
-            assert key not in seen, (
-                f"duplicate liveness event in monitor log: {key!r}"
-            )
+            assert key not in seen, f"duplicate liveness event in monitor log: {key!r}"
             seen.add(key)

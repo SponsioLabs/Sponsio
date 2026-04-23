@@ -76,15 +76,15 @@ class TestCheckActionRace:
         )
         # ts values must be the exact set 0..total-1 (no dup, no gap).
         ts_values = sorted(ev.ts for ev in events)
-        assert ts_values == list(
-            range(total)
-        ), "ts values not contiguous — two threads read len() before either appended"
+        assert ts_values == list(range(total)), (
+            "ts values not contiguous — two threads read len() before either appended"
+        )
 
         # turn_spans should have exactly one entry per check_action.
         spans = mon.turn_spans
-        assert (
-            len(spans) == total
-        ), f"expected {total} turn spans, got {len(spans)} — race on _turn_spans.append"
+        assert len(spans) == total, (
+            f"expected {total} turn spans, got {len(spans)} — race on _turn_spans.append"
+        )
 
     def test_reset_concurrent_with_check_action_is_safe(self) -> None:
         """``reset`` and ``check_action`` must not interleave partially.
@@ -131,9 +131,9 @@ class TestCheckActionRace:
         events = mon.trace.events
         if events:
             ts_values = sorted(ev.ts for ev in events)
-            assert ts_values == list(
-                range(len(events))
-            ), "events present after racing reset have gaps/dupes in ts"
+            assert ts_values == list(range(len(events))), (
+                "events present after racing reset have gaps/dupes in ts"
+            )
 
     def test_log_snapshot_does_not_tear(self) -> None:
         """``monitor.log`` must return a stable list snapshot even
