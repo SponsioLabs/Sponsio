@@ -14,6 +14,7 @@ You do **not** need an agent framework. If your LLM app calls anything — funct
 
 ## Contents
 
+- [Quick start](#quick-start) — 60 seconds: install, demo, onboard, observe → enforce
 - [See it in action](#see-it-in-action) — three real LLM-gone-wrong trajectories, blocked
 - [Why Sponsio](#why-sponsio) — what it is and isn't
 - [Benchmarks](#benchmarks) — headline numbers
@@ -23,6 +24,23 @@ You do **not** need an agent framework. If your LLM app calls anything — funct
 - [From demo to production](#from-demo-to-production) — staged rollout
 - [Integrations](#integrations) — every supported framework
 - [Architecture](#architecture)
+
+---
+
+## Quick start
+
+Sponsio is a pure-Python install next to your agent — no Docker, no API key, no framework SDK. See [QUICKSTART.md](QUICKSTART.md) for the full walkthrough — the short version:
+
+```bash
+pip install sponsio
+sponsio demo --scenario loan              # 30s — replay an unsafe loan trajectory, see it blocked
+cd your-project/ && sponsio onboard .     # 60s — detect framework, write sponsio.yaml, print a 2-line patch
+# paste the printed patch into your agent entry file, then ship
+sponsio report --since 24h                # review would-have-blocked decisions (observe mode is the default)
+export SPONSIO_MODE=enforce               # flip observe → enforce without a code change
+```
+
+`demo` uses three recorded unsafe trajectories (coding · healthcare · finance) — no API key, no framework SDK. `onboard` starts you in **observe mode**: every contract is evaluated but nothing is blocked, and every would-have-blocked decision is logged to `~/.sponsio/sessions/<agent_id>/*.jsonl`. After a day or two of real traffic, prune false positives from `sponsio.yaml`, then flip `SPONSIO_MODE=enforce`.
 
 ---
 
@@ -126,18 +144,6 @@ $ sponsio bench sponsio.yaml -n 30000
 ```
 
 Det contracts compile to an LTL/DFA evaluator — no LLM on the hot path, no approval cache to tune, no TTL to trade off against freshness. Three buckets are reported (`pure_det`, `sto_cached`, `sto_live`) so you can see exactly when an LLM is invoked. Use `sponsio bench --json` as a CI perf gate; declare a budget under `performance:` in `sponsio.yaml`.
-
----
-
-## Quick start
-
-Pure-Python install alongside your agent — no Docker, no API key, no framework SDK. See [QUICKSTART.md](QUICKSTART.md) for the full walkthrough — the short version:
-
-```bash
-pip install sponsio
-sponsio demo --scenario loan   # 30s — replay a loan-fraud trajectory, see it blocked
-sponsio onboard .              # 60s — detect framework, write sponsio.yaml, patch your entry file
-```
 
 ---
 
