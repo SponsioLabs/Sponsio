@@ -654,8 +654,7 @@ def _resolve_include_spec(spec: str, base_dir: Path) -> Path:
             candidate.relative_to(contracts_root)
         except ValueError as e:
             raise ConfigError(
-                f"include: spec {spec!r} resolves outside the bundled "
-                f"contracts tree"
+                f"include: spec {spec!r} resolves outside the bundled contracts tree"
             ) from e
         if not candidate.exists():
             available = sorted(
@@ -723,8 +722,7 @@ def _load_pack_contracts(
 
     if not isinstance(raw, dict):
         raise ConfigError(
-            f"include {spec!r}: pack root must be a mapping, "
-            f"got {type(raw).__name__}"
+            f"include {spec!r}: pack root must be a mapping, got {type(raw).__name__}"
         )
     raw = _interpolate_env(raw)
 
@@ -1161,9 +1159,7 @@ def _apply_overrides(
 
     unmatched = [r for r in overrides if r.matched_count == 0]
     if unmatched:
-        details = "; ".join(
-            f"match={r.match!r}" for r in unmatched
-        )
+        details = "; ".join(f"match={r.match!r}" for r in unmatched)
         raise ConfigError(
             f"Agent '{agent_id}': {len(unmatched)} override rule(s) matched "
             f"no contract — pack contents may have changed.  Update or "
@@ -1342,9 +1338,7 @@ def load_config(path: str | Path) -> SponsoConfig:
                 ac.contracts.append(_parse_contract_entry(item, agent_id))
 
             for contract in ac.contracts:
-                _rewrite_contract_entry(
-                    contract, workspace_raw, tool_rename, agent_id
-                )
+                _rewrite_contract_entry(contract, workspace_raw, tool_rename, agent_id)
 
             overrides_raw = agent_data.get("overrides", [])
             if overrides_raw:
@@ -1402,9 +1396,7 @@ def _compile_structured(entry: ConstraintEntry) -> Any:
     return _compile_stochastic(entry, det_registry)
 
 
-def _compile_stochastic(
-    entry: ConstraintEntry, det_registry: dict[str, Any]
-) -> Any:
+def _compile_stochastic(entry: ConstraintEntry, det_registry: dict[str, Any]) -> Any:
     """Compile a ``pattern:`` entry whose predicate is a registered sto atom.
 
     Builds an :class:`~sponsio.formulas.formula.Atom` with
@@ -1485,9 +1477,7 @@ def _compile_ltl(entry: ConstraintEntry) -> Any:
     try:
         formula = parse_repr(entry.ltl)
     except ParseError as e:
-        raise ConfigError(
-            f"Failed to parse ltl formula {entry.ltl!r}: {e}"
-        ) from e
+        raise ConfigError(f"Failed to parse ltl formula {entry.ltl!r}: {e}") from e
     return DetFormula(
         formula=formula,
         desc=entry.ltl,

@@ -107,9 +107,7 @@ class TestRewriteArg:
         """Substring match within a longer string still goes through
         the word-boundary regex — important for regex args that name
         a tool inline."""
-        assert (
-            _rewrite_arg("called(exec)", None, {"exec": "bash"}) == "called(bash)"
-        )
+        assert _rewrite_arg("called(exec)", None, {"exec": "bash"}) == "called(bash)"
 
     def test_list_arg_recurses(self):
         """``args: [scope_limit, [<workspace>/, /tmp/]]`` — the second
@@ -276,7 +274,8 @@ class TestEndToEnd:
         )
         cfg = load_config(cfg_path)
         write_rule = next(
-            c for c in cfg.agents["bot"].contracts
+            c
+            for c in cfg.agents["bot"].contracts
             if c.desc and "Writes restricted" in c.desc
         )
         assert write_rule.enforcement.args == ["write", ["/Users/me/proj/"]]
@@ -299,7 +298,8 @@ class TestEndToEnd:
         )
         cfg = load_config(cfg_path)
         first_arg_blacklist = next(
-            c for c in cfg.agents["bot"].contracts
+            c
+            for c in cfg.agents["bot"].contracts
             if c.enforcement
             and not isinstance(c.enforcement, list)
             and c.enforcement.pattern == "arg_blacklist"

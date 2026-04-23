@@ -30,7 +30,7 @@ from sponsio.config import (
     _parse_constraint_entry,
     load_config,
 )
-from sponsio.formulas.parser import ParseError, parse_repr
+from sponsio.formulas.parser import parse_repr
 
 
 # ---------------------------------------------------------------------------
@@ -192,9 +192,7 @@ _PACKS_DIR = Path(__file__).resolve().parents[1] / "sponsio" / "contracts"
 _PACK_FILES = sorted(_PACKS_DIR.rglob("*.yaml"))
 
 
-@pytest.mark.parametrize(
-    "pack_path", _PACK_FILES, ids=[p.stem for p in _PACK_FILES]
-)
+@pytest.mark.parametrize("pack_path", _PACK_FILES, ids=[p.stem for p in _PACK_FILES])
 def test_contract_pack_parses_without_ltl_errors(pack_path: Path):
     """Each ``contracts/*.yaml`` must parse cleanly via ``load_config``
     — no ``ParseError`` from the LTL side, no ``ConfigError`` of any

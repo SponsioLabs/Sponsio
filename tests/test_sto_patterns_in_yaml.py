@@ -84,17 +84,13 @@ class TestParseStoFields:
         applies the default — by which point the user has already
         burned an LLM round-trip and may never look at the result."""
         with pytest.raises(ConfigError, match="threshold"):
-            _parse_constraint_entry(
-                {"pattern": "injection_free", "threshold": bad}
-            )
+            _parse_constraint_entry({"pattern": "injection_free", "threshold": bad})
 
     def test_threshold_zero_and_one_are_valid(self):
         """Boundary values must succeed — 0 means "any score passes",
         1 means "only certainty passes".  Useful for shadow-mode."""
         for v in (0.0, 1.0):
-            entry = _parse_constraint_entry(
-                {"pattern": "harmful", "threshold": v}
-            )
+            entry = _parse_constraint_entry({"pattern": "harmful", "threshold": v})
             assert entry.threshold == v
 
 
@@ -135,9 +131,7 @@ class TestCompileStructuredStochasticPath:
         otherwise the judge sees only the latest event and misses
         cross-turn injection chains, which is exactly why the packs
         opt into ``full_trace`` for ``injection_free``."""
-        entry = ConstraintEntry(
-            pattern="injection_free", context_scope="full_trace"
-        )
+        entry = ConstraintEntry(pattern="injection_free", context_scope="full_trace")
         compiled = _compile_structured(entry)
         atom = compiled.formula.child
         assert atom.context_scope == "full_trace"
@@ -249,9 +243,7 @@ _PACKS_DIR = Path(__file__).resolve().parents[1] / "sponsio" / "contracts"
 _PACK_FILES = sorted(_PACKS_DIR.rglob("*.yaml"))
 
 
-@pytest.mark.parametrize(
-    "pack_path", _PACK_FILES, ids=[p.stem for p in _PACK_FILES]
-)
+@pytest.mark.parametrize("pack_path", _PACK_FILES, ids=[p.stem for p in _PACK_FILES])
 def test_pack_every_contract_compiles(pack_path: Path):
     """The strict end-to-end pin: every contract in every shipped pack
     must compile cleanly.  Was previously blocked by the missing

@@ -439,9 +439,7 @@ _FS_TOOL_ALIASES: dict[str, frozenset[str]] = {
     "write": frozenset(
         {"write", "write_file", "file_write", "save_file", "create_file"}
     ),
-    "edit": frozenset(
-        {"edit", "edit_file", "modify_file", "file_edit", "update_file"}
-    ),
+    "edit": frozenset({"edit", "edit_file", "modify_file", "file_edit", "update_file"}),
     "apply_patch": frozenset(
         {"apply_patch", "apply_patch_file", "patch_file", "apply_diff", "patch"}
     ),

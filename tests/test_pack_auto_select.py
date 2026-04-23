@@ -288,7 +288,8 @@ def langgraph_project_with_capabilities(tmp_path: Path) -> Path:
     Triggers all four packs and exercises the full propagation path:
     detection → selection → YAML emission → load_config."""
     src = tmp_path / "agent.py"
-    src.write_text(textwrap.dedent("""\
+    src.write_text(
+        textwrap.dedent("""\
         from langgraph.prebuilt import create_react_agent
         from langchain_core.tools import tool
 
@@ -306,7 +307,8 @@ def langgraph_project_with_capabilities(tmp_path: Path) -> Path:
             pass
 
         agent = create_react_agent(model, [bash, read_file, write_file])
-        """))
+        """)
+    )
     return tmp_path
 
 
@@ -375,7 +377,8 @@ class TestRunOnboardAutoSelect:
         # Find any contract from the filesystem pack with a path arg
         # and confirm <workspace>/ was substituted.
         fs_contracts = [
-            c for c in cfg.agents["agent"].contracts
+            c
+            for c in cfg.agents["agent"].contracts
             if c.pack_source == "sponsio:capability/filesystem"
         ]
         assert fs_contracts, "filesystem pack should have contributed contracts"
@@ -383,17 +386,21 @@ class TestRunOnboardAutoSelect:
         ws = str(langgraph_project_with_capabilities.resolve())
         any_resolved = False
         for c in fs_contracts:
-            e = c.enforcement if not isinstance(c.enforcement, list) else c.enforcement[0]
+            e = (
+                c.enforcement
+                if not isinstance(c.enforcement, list)
+                else c.enforcement[0]
+            )
             for a in e.args or []:
                 if isinstance(a, list):
                     for s in a:
                         if isinstance(s, str) and s.startswith(ws):
                             any_resolved = True
-        assert any_resolved, "expected at least one fs contract arg to start with the resolved workspace path"
+        assert any_resolved, (
+            "expected at least one fs contract arg to start with the resolved workspace path"
+        )
 
-    def test_to_dict_includes_packs_section(
-        self, langgraph_project_with_capabilities
-    ):
+    def test_to_dict_includes_packs_section(self, langgraph_project_with_capabilities):
         """``--json`` shape: callers reading the JSON output (CI
         pipelines, IDE integrations) need the pack picks visible
         without re-running the heuristic themselves."""

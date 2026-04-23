@@ -73,9 +73,7 @@ def _ct(enforcement, **kw) -> ContractEntry:
 
 class TestParseOverrideRule:
     def test_minimal_disable_rule(self):
-        r = _parse_override_rule(
-            {"match": {"desc": "x"}, "disabled": True}, "bot", 0
-        )
+        r = _parse_override_rule({"match": {"desc": "x"}, "disabled": True}, "bot", 0)
         assert r.match == {"desc": "x"}
         assert r.disabled is True
         assert r.threshold is None
@@ -113,9 +111,7 @@ class TestParseOverrideRule:
 
     def test_unknown_effect_key_rejected(self):
         with pytest.raises(ConfigError, match="unknown effect keys"):
-            _parse_override_rule(
-                {"match": {"desc": "x"}, "enabled": False}, "bot", 0
-            )
+            _parse_override_rule({"match": {"desc": "x"}, "enabled": False}, "bot", 0)
 
     def test_no_effect_rejected(self):
         """A match with no effect is a no-op.  We reject it because
@@ -126,16 +122,12 @@ class TestParseOverrideRule:
 
     def test_disabled_must_be_bool(self):
         with pytest.raises(ConfigError, match="disabled must be a boolean"):
-            _parse_override_rule(
-                {"match": {"desc": "x"}, "disabled": "yes"}, "bot", 0
-            )
+            _parse_override_rule({"match": {"desc": "x"}, "disabled": "yes"}, "bot", 0)
 
     @pytest.mark.parametrize("bad", [-0.1, 1.1, "0.5", None])
     def test_threshold_in_range(self, bad):
         with pytest.raises(ConfigError, match="threshold must be"):
-            _parse_override_rule(
-                {"match": {"desc": "x"}, "threshold": bad}, "bot", 0
-            )
+            _parse_override_rule({"match": {"desc": "x"}, "threshold": bad}, "bot", 0)
 
     def test_disabled_with_edits_rejected(self):
         """Edits next to ``disabled: true`` are dead code — the
@@ -152,9 +144,7 @@ class TestParseOverrideRule:
 
     def test_match_value_must_be_non_empty_string(self):
         with pytest.raises(ConfigError, match="non-empty string"):
-            _parse_override_rule(
-                {"match": {"desc": ""}, "disabled": True}, "bot", 0
-            )
+            _parse_override_rule({"match": {"desc": ""}, "disabled": True}, "bot", 0)
 
 
 # ---------------------------------------------------------------------------
@@ -182,12 +172,8 @@ class TestMatchesOverride:
         flattens both single-CE and list-of-CE shapes so the matcher
         only sees one shape."""
         c = _ct(_ce(pattern="x", source="library:tier1.shell"))
-        assert _matches_override(
-            OverrideRule({"source": "library:tier1.shell"}), c
-        )
-        assert not _matches_override(
-            OverrideRule({"source": "library:tier1.fs"}), c
-        )
+        assert _matches_override(OverrideRule({"source": "library:tier1.shell"}), c)
+        assert not _matches_override(OverrideRule({"source": "library:tier1.fs"}), c)
 
     def test_source_match_in_list_enforcement(self):
         """E may be a list-AND of constraints with different sources;
@@ -195,15 +181,11 @@ class TestMatchesOverride:
         a = _ce(pattern="rate_limit", source="library:tier1.shell")
         b = _ce(pattern="must_precede", source="library:tier2.audit")
         c = _ct([a, b])
-        assert _matches_override(
-            OverrideRule({"source": "library:tier2.audit"}), c
-        )
+        assert _matches_override(OverrideRule({"source": "library:tier2.audit"}), c)
 
     def test_pattern_match(self):
         c = _ct(_ce(pattern="injection_free"))
-        assert _matches_override(
-            OverrideRule({"pattern": "injection_free"}), c
-        )
+        assert _matches_override(OverrideRule({"pattern": "injection_free"}), c)
         assert not _matches_override(OverrideRule({"pattern": "rate_limit"}), c)
 
     def test_and_semantics(self):
@@ -244,9 +226,7 @@ class TestApplyOverrides:
         a = _ce(pattern="x")
         b = _ce(pattern="y")
         c = _ct([a, b], desc="x")
-        out = _apply_overrides(
-            [c], [OverrideRule({"desc": "x"}, threshold=0.7)], "bot"
-        )
+        _apply_overrides([c], [OverrideRule({"desc": "x"}, threshold=0.7)], "bot")
         assert a.threshold == 0.7
         assert b.threshold == 0.7
 
@@ -288,9 +268,11 @@ class TestApplyOverrides:
 
     def test_apply_order_independent_for_disjoint_rules(self):
         """Overrides on disjoint match sets must commute — we don't
-        want the order in YAML to leak into semantics."""
-        a = _ct(_ce(pattern="x"), desc="a")
-        b = _ct(_ce(pattern="y"), desc="b")
+        want the order in YAML to leak into semantics.
+
+        Fresh contract copies are built inline for each run below since
+        ``matched_count`` mutates; the inline rebuild is the fixture.
+        """
         rules1 = [
             OverrideRule({"desc": "a"}, disabled=True),
             OverrideRule({"desc": "b"}, threshold=0.5),
@@ -325,7 +307,10 @@ class TestLoadConfigOverrides:
         named rule, watch it disappear from the loaded contract
         list.  Uses a real desc from sponsio:capability/shell so we
         catch any drift between this test and the shipped pack."""
-        cfg = load_config(_write(tmp_path, """
+        cfg = load_config(
+            _write(
+                tmp_path,
+                """
             agents:
               bot:
                 workspace: "/proj"
@@ -333,7 +318,9 @@ class TestLoadConfigOverrides:
                 overrides:
                   - match: {desc: "Ban recursive deletes of sensitive roots"}
                     disabled: true
-            """))
+            """,
+            )
+        )
         descs = [c.desc for c in cfg.agents["bot"].contracts]
         assert "Ban recursive deletes of sensitive roots" not in descs
 
@@ -342,7 +329,10 @@ class TestLoadConfigOverrides:
         that pack — useful when including the pack for one team but
         wanting only the universal pack's rules to apply for
         another agent."""
-        cfg = load_config(_write(tmp_path, """
+        cfg = load_config(
+            _write(
+                tmp_path,
+                """
             agents:
               bot:
                 workspace: "/proj"
@@ -352,7 +342,9 @@ class TestLoadConfigOverrides:
                 overrides:
                   - match: {pack_source: "sponsio:capability/shell"}
                     disabled: true
-            """))
+            """,
+            )
+        )
         sources = {c.pack_source for c in cfg.agents["bot"].contracts}
         assert "sponsio:capability/shell" not in sources
         assert "sponsio:core/universal" in sources
@@ -361,7 +353,10 @@ class TestLoadConfigOverrides:
         """Loosen the rate_limit threshold across the shell pack.
         Verifies field-edit write-back works through the whole load
         pipeline."""
-        cfg = load_config(_write(tmp_path, """
+        cfg = load_config(
+            _write(
+                tmp_path,
+                """
             agents:
               bot:
                 workspace: "/proj"
@@ -369,10 +364,14 @@ class TestLoadConfigOverrides:
                 overrides:
                   - match: {pattern: rate_limit}
                     threshold: 0.42
-            """))
+            """,
+            )
+        )
         rates = [
-            c for c in cfg.agents["bot"].contracts
-            if c.enforcement and not isinstance(c.enforcement, list)
+            c
+            for c in cfg.agents["bot"].contracts
+            if c.enforcement
+            and not isinstance(c.enforcement, list)
             and c.enforcement.pattern == "rate_limit"
         ]
         assert rates, "expected at least one rate_limit rule in the shell pack"
@@ -384,7 +383,10 @@ class TestLoadConfigOverrides:
         must surface as a clear ConfigError naming the offending
         match clause."""
         with pytest.raises(ConfigError) as excinfo:
-            load_config(_write(tmp_path, """
+            load_config(
+                _write(
+                    tmp_path,
+                    """
                 agents:
                   bot:
                     workspace: "/proj"
@@ -392,7 +394,9 @@ class TestLoadConfigOverrides:
                     overrides:
                       - match: {desc: "Ban recurzive deletes of sensitive roots"}
                         disabled: true
-                """))
+                """,
+                )
+            )
         assert "matched no contract" in str(excinfo.value)
         assert "Ban recurzive" in str(excinfo.value)
 
@@ -402,7 +406,10 @@ class TestLoadConfigOverrides:
         contract.  Pin this ordering — flipping it would mean
         matchers had to reason about pre-rewrite state, which is
         invisible to the user reading the YAML."""
-        cfg = load_config(_write(tmp_path, """
+        cfg = load_config(
+            _write(
+                tmp_path,
+                """
             agents:
               bot:
                 workspace: "/proj"
@@ -411,12 +418,16 @@ class TestLoadConfigOverrides:
                 overrides:
                   - match: {pattern: rate_limit}
                     threshold: 0.5
-            """))
+            """,
+            )
+        )
         # The rate_limit rule should still be present and now
         # references `bash` after rename
         rate = next(
-            c for c in cfg.agents["bot"].contracts
-            if c.enforcement and not isinstance(c.enforcement, list)
+            c
+            for c in cfg.agents["bot"].contracts
+            if c.enforcement
+            and not isinstance(c.enforcement, list)
             and c.enforcement.pattern == "rate_limit"
         )
         assert rate.enforcement.args[0] == "bash"
@@ -424,8 +435,13 @@ class TestLoadConfigOverrides:
 
     def test_overrides_must_be_list(self, tmp_path):
         with pytest.raises(ConfigError, match="overrides.*must be a list"):
-            load_config(_write(tmp_path, """
+            load_config(
+                _write(
+                    tmp_path,
+                    """
                 agents:
                   bot:
                     overrides: {match: {desc: x}, disabled: true}
-                """))
+                """,
+                )
+            )
