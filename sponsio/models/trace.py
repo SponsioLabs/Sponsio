@@ -7,6 +7,22 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+# Accepted ``event_type`` discriminator values. Keep in sync with the
+# grounding layer — new types must be handled by ``ground_event`` before
+# being added here, otherwise contracts will silently miss them.
+_VALID_EVENT_TYPES: frozenset[str] = frozenset(
+    {
+        "tool_call",
+        "data_read",
+        "data_write",
+        "message",
+        "delegation",
+        "llm_response",
+        "llm_request",
+    }
+)
+
+
 @dataclass
 class Event:
     """A single event in an execution trace.
@@ -33,6 +49,48 @@ class Event:
     to: str | None = None
     args: dict | None = None
     content: str | None = None
+
+    def __post_init__(self) -> None:
+        """Data-integrity checks (#16).
+
+        Negative / non-integer ``ts`` breaks monotonicity assumptions in
+        the evaluator (the incremental backend compares timestamps to
+        decide recency). Empty ``agent`` silently disables
+        ``current_agent``/``segregation_of_duty`` — i.e. every contract
+        becomes vacuously True on that event. And an unknown
+        ``event_type`` flows through the dispatch in ``ground_event``
+        and simply produces no atoms, turning the event into a no-op —
+        worst of all possible failure modes for a security trace.
+        """
+        # We accept both ``int`` (logical clock) and ``float`` (wall-clock
+        # seconds — session-log loader uses monotonic() timestamps) but
+        # reject ``bool`` (which is ``int`` in Python) since it's always
+        # a caller bug to pass True/False in here.
+        if isinstance(self.ts, bool) or not isinstance(self.ts, (int, float)):
+            raise TypeError(
+                f"Event.ts must be int or float (got {type(self.ts).__name__}={self.ts!r})"
+            )
+        if self.ts < 0:
+            raise ValueError(
+                f"Event.ts must be >= 0 (got {self.ts}). Negative timestamps "
+                "break trace ordering in the incremental evaluator."
+            )
+        if not isinstance(self.agent, str) or not self.agent:
+            raise ValueError(
+                f"Event.agent must be a non-empty string (got {self.agent!r}). "
+                "An empty agent id collapses all per-agent atoms."
+            )
+        if not isinstance(self.event_type, str) or not self.event_type:
+            raise ValueError(
+                f"Event.event_type must be a non-empty string (got {self.event_type!r})."
+            )
+        if self.event_type not in _VALID_EVENT_TYPES:
+            raise ValueError(
+                f"Event.event_type={self.event_type!r} is not recognized. "
+                f"Valid values: {sorted(_VALID_EVENT_TYPES)}. Unknown types "
+                "produce no atoms and silently disable every contract that "
+                "depends on the event."
+            )
 
     def __repr__(self) -> str:
         parts = [f"ts={self.ts}", f"agent={self.agent!r}", f"type={self.event_type!r}"]

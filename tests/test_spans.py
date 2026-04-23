@@ -265,11 +265,16 @@ class TestSpanCollector:
         assert pii.passed is False
         assert len(pii.children) == 1  # violation child
 
-    def test_finish_span_does_not_pop_root(self):
+    def test_finish_span_underflow_raises(self):
+        """#15: ``finish_span`` used to silently return the root on a
+        stack underflow, which let mismatched start/finish pairs corrupt
+        the whole span tree without any signal. It now raises so the
+        caller bug is visible."""
+        import pytest
+
         with SpanCollector("a", "x") as c:
-            # Try to pop root — should be a no-op
-            result = c.finish_span()
-            assert result is c.root
+            with pytest.raises(RuntimeError, match="stack underflow"):
+                c.finish_span()
 
     def test_current_property(self):
         with SpanCollector("a", "x") as c:

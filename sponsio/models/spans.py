@@ -439,11 +439,25 @@ class SpanCollector:
             status: Optional status override.
 
         Returns:
-            The finished span.
+            The finished span — the one that was just popped.
+
+        Raises:
+            RuntimeError: When called with no child spans on the stack
+                (``len(_stack) <= 1``). Previously this silently returned
+                the root, which let mismatched ``start_span`` / ``finish_span``
+                pairs corrupt the whole tree without any signal. A
+                miscount is almost always a bug in the caller — surface
+                it loudly (#15).
         """
         if len(self._stack) <= 1:
-            # Don't pop the root
-            return self.root
+            raise RuntimeError(
+                "SpanCollector.finish_span: stack underflow — no child span "
+                "is open, so there is nothing to finish. Check that every "
+                "``finish_span`` has a matching earlier ``start_*_span`` / "
+                "``start_span`` call. (Previously this call silently "
+                "returned the root, which let mismatched pairs corrupt "
+                "the span tree invisibly.)"
+            )
         span = self._stack.pop()
         span.finish(status)
         return span

@@ -10,6 +10,13 @@ if TYPE_CHECKING:
     from sponsio.patterns.library import DetFormula
 
 
+# Valid violation categories. Reporting pipelines and enforcement
+# strategies dispatch on this discriminator.
+_VALID_VIOLATION_KINDS: frozenset[str] = frozenset(
+    {"guarantee", "assumption", "composition", "refinement", "sto"}
+)
+
+
 @dataclass
 class Violation:
     """A single contract violation detected during verification.
@@ -28,6 +35,27 @@ class Violation:
     kind: str  # "guarantee", "assumption", "composition"
     desc: str = ""
     details: str = ""
+
+    def __post_init__(self) -> None:
+        """Data-integrity checks (#16).
+
+        An empty ``agent_id`` routes violations into the wrong bucket in
+        per-agent aggregations (``report()`` groups by agent). An unknown
+        ``kind`` silently skips strategy dispatch in ``EnforcementStrategy``
+        (``if kind == "guarantee"`` / ``elif kind == "assumption"`` falls
+        through to the default no-op), so the user sees a Violation object
+        in the result but the runtime never applied a policy.
+        """
+        if not isinstance(self.agent_id, str) or not self.agent_id:
+            raise ValueError(
+                f"Violation.agent_id must be a non-empty string (got {self.agent_id!r})."
+            )
+        if not isinstance(self.kind, str) or self.kind not in _VALID_VIOLATION_KINDS:
+            raise ValueError(
+                f"Violation.kind={self.kind!r} is not recognized. "
+                f"Valid values: {sorted(_VALID_VIOLATION_KINDS)}. "
+                "An unknown kind silently skips enforcement dispatch."
+            )
 
     def __repr__(self) -> str:
         return f"Violation(agent={self.agent_id!r}, kind={self.kind!r}, desc={self.desc!r})"
