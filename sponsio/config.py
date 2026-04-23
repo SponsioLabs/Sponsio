@@ -80,13 +80,22 @@ class ConstraintEntry:
     1. **NL** (``nl="every send_email needs confirmation"``) — passed to
        the structured-IR / LLM extractor at compile time.
     2. **Pattern** (``pattern="rate_limit"``, ``args=[exec, 50]``) —
-       resolved against the registered pattern library.
+       resolved against the registered pattern library.  ``pattern`` may
+       name either a deterministic pattern (functions in
+       :mod:`sponsio.patterns.library`) or a stochastic atom registered
+       via :func:`sponsio.patterns.sto_registry.register_sto_atom` —
+       compilation auto-routes via the appropriate registry.
     3. **LTL** (``ltl="G(called(exec) -> count(confirm) >= count(exec))"``)
        — raw infix LTL parsed by :func:`sponsio.formulas.parser.parse_repr`.
        This is the escape hatch for properties that mix predicate-on-arg
        conditionals with count dominance, which the structured patterns
        can't express directly (e.g. "sudo exec needs confirmation but
        plain exec doesn't").
+
+    Sto-only knobs (``context_scope`` / ``output_type`` / ``prompt_override``
+    / ``threshold``) are forwarded verbatim into the
+    :class:`~sponsio.formulas.formula.Atom` and :class:`StoFormula` when
+    ``pattern`` resolves to a stochastic atom; det patterns ignore them.
     """
 
     nl: str | None = None
@@ -94,6 +103,10 @@ class ConstraintEntry:
     args: list[Any] = field(default_factory=list)
     ltl: str | None = None
     source: str | None = None
+    context_scope: str | None = None
+    output_type: str | None = None
+    prompt_override: str | None = None
+    threshold: float | None = None
 
     @property
     def is_structured(self) -> bool:
@@ -452,10 +465,27 @@ def _parse_constraint_entry(item: Any) -> ConstraintEntry:
             args = item.get("args", [])
             if not isinstance(args, list):
                 args = [args]
+            threshold = item.get("threshold")
+            if threshold is not None:
+                try:
+                    threshold = float(threshold)
+                except (TypeError, ValueError) as e:
+                    raise ConfigError(
+                        f"Constraint 'threshold' must be a number in [0,1], "
+                        f"got: {threshold!r}"
+                    ) from e
+                if not 0.0 <= threshold <= 1.0:
+                    raise ConfigError(
+                        f"Constraint 'threshold' must be in [0,1], got: {threshold}"
+                    )
             return ConstraintEntry(
                 pattern=item["pattern"],
                 args=args,
                 source=item.get("source"),
+                context_scope=item.get("context_scope"),
+                output_type=item.get("output_type"),
+                prompt_override=item.get("prompt_override"),
+                threshold=threshold,
             )
         if has_ltl:
             ltl_text = item["ltl"]
@@ -675,22 +705,95 @@ def load_config(path: str | Path) -> SponsoConfig:
 
 
 def _compile_structured(entry: ConstraintEntry) -> Any:
-    """Compile a structured constraint entry to a formula object."""
+    """Compile a structured constraint entry to a formula object.
+
+    Tries the deterministic pattern library first
+    (:func:`sponsio.generation.nl_to_contract.get_available_patterns`).
+    If the predicate isn't found there, falls back to the stochastic
+    atom registry (:mod:`sponsio.patterns.sto_registry`) and emits a
+    :class:`StoFormula` instead of a :class:`DetFormula`.
+
+    This dual-routing is what lets a YAML pack mix deterministic
+    patterns (``rate_limit``, ``must_precede``, …) and stochastic atoms
+    (``injection_free``, ``harmful``, ``scope_respect``, …) under a
+    single ``pattern:`` key without users needing to know which
+    registry their predicate lives in.
+    """
     from sponsio.generation.nl_to_contract import get_available_patterns
 
-    registry = get_available_patterns()
-    if entry.pattern not in registry:
+    det_registry = get_available_patterns()
+    if entry.pattern in det_registry:
+        fn = det_registry[entry.pattern]
+        coerced_args = []
+        for a in entry.args:
+            if isinstance(a, str) and a.isdigit():
+                coerced_args.append(int(a))
+            else:
+                coerced_args.append(a)
+        return fn(*coerced_args)
+
+    return _compile_stochastic(entry, det_registry)
+
+
+def _compile_stochastic(
+    entry: ConstraintEntry, det_registry: dict[str, Any]
+) -> Any:
+    """Compile a ``pattern:`` entry whose predicate is a registered sto atom.
+
+    Builds an :class:`~sponsio.formulas.formula.Atom` with
+    ``atom_type="sto"`` (forwarding ``context_scope`` /
+    ``output_type`` / ``prompt_override`` if the YAML supplied them,
+    falling back to the predicate's own catalog defaults otherwise),
+    wraps it in ``G(atom)`` so the invariant holds for every event, and
+    returns a :class:`StoFormula`.
+
+    Args:
+        entry: The constraint entry whose ``pattern`` named a sto atom.
+        det_registry: The det pattern registry — only used to build a
+            useful error message when the predicate is unknown to both
+            registries.
+
+    Raises:
+        ConfigError: If ``entry.pattern`` is unknown to the sto registry
+            (and, by virtue of falling through, the det registry too).
+    """
+    from sponsio.formulas.formula import Atom, G
+    from sponsio.patterns.sto import StoFormula
+    from sponsio.patterns.sto_registry import get_sto_atom_info
+
+    try:
+        info = get_sto_atom_info(entry.pattern)
+    except KeyError as e:
+        from sponsio.patterns.sto_registry import list_sto_atoms
+
         raise ConfigError(
-            f"Unknown pattern '{entry.pattern}'. Available: {sorted(registry.keys())}"
+            f"Unknown pattern '{entry.pattern}'. "
+            f"Available det patterns: {sorted(det_registry.keys())}. "
+            f"Available sto atoms: {list_sto_atoms()}."
+        ) from e
+
+    if info.required_args and len(entry.args) < info.required_args:
+        raise ConfigError(
+            f"sto atom '{entry.pattern}' requires {info.required_args} "
+            f"positional arg(s); got {len(entry.args)}."
         )
-    fn = registry[entry.pattern]
-    coerced_args = []
-    for a in entry.args:
-        if isinstance(a, str) and a.isdigit():
-            coerced_args.append(int(a))
-        else:
-            coerced_args.append(a)
-    return fn(*coerced_args)
+
+    atom_args = tuple(str(a) for a in entry.args)
+    atom = Atom(
+        entry.pattern,
+        *atom_args,
+        atom_type="sto",
+        output_type=entry.output_type or info.default_output_type,
+        context_scope=entry.context_scope or info.default_context_scope,
+        prompt_override=entry.prompt_override,
+    )
+    return StoFormula(
+        desc=entry.pattern if not info.description else info.description,
+        category=entry.pattern,
+        formula=G(atom),
+        threshold=entry.threshold if entry.threshold is not None else 0.7,
+        requires_llm=True,
+    )
 
 
 def _compile_ltl(entry: ConstraintEntry) -> Any:

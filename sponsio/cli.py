@@ -463,6 +463,8 @@ def validate(contracts, config_path, agent_id, as_json):
                 if isinstance(entry, ConstraintEntry):
                     if entry.is_structured:
                         try:
+                            from sponsio.patterns.sto import StoFormula
+
                             compiled = _compile_structured(entry)
                             ok = True
                             pattern = entry.pattern
@@ -471,7 +473,7 @@ def validate(contracts, config_path, agent_id, as_json):
                                 if hasattr(compiled, "formula")
                                 else ""
                             )
-                            kind = "DET"
+                            kind = "STO" if isinstance(compiled, StoFormula) else "DET"
                             nl = f"{entry.pattern}({', '.join(str(a) for a in entry.args)})"
                         except Exception as e:
                             ok = False

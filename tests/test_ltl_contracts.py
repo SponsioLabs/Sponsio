@@ -196,27 +196,13 @@ _PACK_FILES = sorted(_PACKS_DIR.glob("*.yaml"))
     "pack_path", _PACK_FILES, ids=[p.stem for p in _PACK_FILES]
 )
 def test_contract_pack_parses_without_ltl_errors(pack_path: Path):
-    """Each ``contracts/*.yaml`` must at least parse via ``load_config``.
+    """Each ``contracts/*.yaml`` must parse cleanly via ``load_config``
+    — no ``ParseError`` from the LTL side, no ``ConfigError`` of any
+    kind.
 
-    Some packs still use patterns that live in ``sto_catalog`` rather
-    than ``compile_structured`` (to be wired up in the next step), so we
-    don't assert the whole file compiles.  Here we only assert the yaml
-    is well-formed enough that ``load_config`` returns a config object
-    without raising a ``ParseError`` on the LTL side — which is the
-    thing this change is about.
+    Loading is the floor; full per-contract compilation is pinned in
+    :mod:`tests.test_sto_patterns_in_yaml`.
     """
-    try:
-        cfg = load_config(pack_path)
-    except ConfigError as e:
-        # An "Unknown pattern 'injection_free'" failure is *expected*
-        # until stochastic patterns get registered; we're specifically
-        # asserting that LTL parse failures no longer show up here.
-        msg = str(e)
-        assert "ltl" not in msg.lower() or "Unknown pattern" in msg, (
-            f"{pack_path.name} failed with an LTL-related error — the "
-            f"raw-LTL wiring regressed.  Error: {msg}"
-        )
-        return
-    # Happy path: nothing to assert beyond "didn't raise".  The `cfg`
-    # object is non-None if we got here.
+    cfg = load_config(pack_path)
     assert cfg is not None
+    assert cfg.agents, f"{pack_path.name} parsed to an empty agents dict"
