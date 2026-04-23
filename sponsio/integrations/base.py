@@ -590,22 +590,92 @@ class BaseGuard:
 
     @staticmethod
     def _validate_dashboard_url(url: str | None) -> str | None:
-        """Validate dashboard URL to prevent SSRF attacks."""
+        """Validate dashboard URL to prevent SSRF / metadata exfiltration.
+
+        Hard rejects:
+
+        * non-``http(s)://`` schemes
+        * missing or empty hostnames
+        * cloud-metadata endpoints (AWS/GCE/Azure IMDS) — these can
+          leak short-lived cloud creds and have no legitimate dashboard
+          use case.
+
+        Soft warns (does not raise) for loopback / private / link-local
+        IP literals. Local addresses are common in dev workflows
+        (``http://localhost:9999`` is the default dev dashboard) so we
+        don't reject them — but we surface a one-shot ``UserWarning``
+        so an operator who mistakenly leaves ``http://10.0.0.5/...`` in
+        a prod config gets a visible signal. Set
+        ``SPONSIO_STRICT_DASHBOARD_URL=1`` to escalate the warning to
+        a hard error in environments where local targets should be
+        impossible.
+        """
         if url is None:
             return None
+        import ipaddress
+        import os
+        import warnings
         from urllib.parse import urlparse
 
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https"):
             raise ValueError(
-                f"dashboard_url must use http:// or https:// scheme, got {parsed.scheme!r}"
+                f"dashboard_url must use http:// or https:// scheme, "
+                f"got {parsed.scheme!r}"
             )
-        if not parsed.hostname:
+        host = parsed.hostname
+        if not host:
             raise ValueError("dashboard_url must have a hostname")
-        # Block common internal targets
-        blocked = {"metadata.google.internal", "169.254.169.254"}
-        if parsed.hostname in blocked:
-            raise ValueError(f"dashboard_url hostname {parsed.hostname!r} is blocked")
+
+        # --- Hard-blocked: cloud metadata endpoints ---
+        blocked_hosts = {
+            "metadata.google.internal",
+            "metadata",
+            "169.254.169.254",
+            "fd00:ec2::254",
+        }
+        if host.lower() in blocked_hosts:
+            raise ValueError(
+                f"dashboard_url hostname {host!r} is blocked (cloud metadata endpoint)"
+            )
+
+        # --- Soft warn: loopback / private / link-local IP literals ---
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            ip = None
+
+        local_like = False
+        reason = ""
+        if ip is not None:
+            if ip.is_loopback:
+                local_like, reason = True, "loopback"
+            elif ip.is_private:
+                local_like, reason = True, "private (RFC1918)"
+            elif ip.is_link_local:
+                local_like, reason = True, "link-local"
+            elif ip.is_reserved or ip.is_unspecified:
+                local_like, reason = True, "reserved/unspecified"
+        elif host.lower() in {
+            "localhost",
+            "ip6-localhost",
+            "ip6-loopback",
+        }:
+            local_like, reason = True, "loopback (by name)"
+
+        if local_like:
+            msg = (
+                f"dashboard_url {url!r} targets a local-network "
+                f"address ({reason}). Trace data, including tool "
+                "arguments, will be POSTed there. If this is "
+                "intentional (dev dashboard), ignore this warning. "
+                "Set SPONSIO_STRICT_DASHBOARD_URL=1 to escalate to "
+                "a hard error in production."
+            )
+            if os.environ.get("SPONSIO_STRICT_DASHBOARD_URL") == "1":
+                raise ValueError(msg)
+            warnings.warn(msg, UserWarning, stacklevel=3)
+
         return url
 
     def _push_to_dashboard(

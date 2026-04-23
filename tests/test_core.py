@@ -252,14 +252,21 @@ class TestInit:
         assert guard._verbose is False
 
     def test_init_dashboard_string(self):
+        import warnings
+
         import sponsio
 
-        guard = sponsio.Sponsio(
-            agent_id="bot",
-            contracts=["tool `X` at most 3 times"],
-            dashboard="http://localhost:9999",
-            verbose=False,
-        )
+        # localhost dashboards emit a one-shot SSRF/local-network
+        # warning by design — operators see it when they wire the dev
+        # dashboard. Suppressed here so the test output stays clean.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            guard = sponsio.Sponsio(
+                agent_id="bot",
+                contracts=["tool `X` at most 3 times"],
+                dashboard="http://localhost:9999",
+                verbose=False,
+            )
         assert guard._dashboard_url == "http://localhost:9999"
 
     def test_init_dashboard_false(self):

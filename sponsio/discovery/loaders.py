@@ -18,7 +18,21 @@ import json
 from pathlib import Path
 from typing import Any, Union
 
+from sponsio._paths import safe_resolve
 from sponsio.models.trace import Event, Trace
+
+
+def _check_safe(path: Path, safe_root: Path | str | None) -> Path:
+    """Confine ``path`` under ``safe_root`` if one was supplied.
+
+    Returns the resolved :class:`Path`. Raises
+    :class:`~sponsio._paths.PathEscapeError` on escape. Pass
+    ``safe_root=None`` (the default at every CLI call site) for
+    backward-compatible "trust the caller" behavior.
+    """
+    if safe_root is None:
+        return path
+    return safe_resolve(path, safe_root=Path(safe_root))
 
 
 # Directory names a code scan should always skip. Without this filter
@@ -79,7 +93,11 @@ def iter_python_files(root: Path) -> list[Path]:
 _TEXT_EXTENSIONS = {".txt", ".md", ".markdown", ".rst", ".text"}
 
 
-def load_document(path: Union[str, Path]) -> str:
+def load_document(
+    path: Union[str, Path],
+    *,
+    safe_root: Union[str, Path, None] = None,
+) -> str:
     """Load a document file and return its text content.
 
     Supports:
@@ -88,6 +106,13 @@ def load_document(path: Union[str, Path]) -> str:
 
     Args:
         path: Path to the document file.
+        safe_root: Optional containment root. When supplied, the
+            resolved path **must** be a descendant of (or equal to)
+            ``safe_root`` — any ``..`` traversal raises
+            :class:`~sponsio._paths.PathEscapeError`. Defaults to
+            ``None`` (no containment) for backward-compatible CLI use;
+            pass it from API / server code where ``path`` may originate
+            from a network client.
 
     Returns:
         The document text as a string.
@@ -95,8 +120,10 @@ def load_document(path: Union[str, Path]) -> str:
     Raises:
         ValueError: If the file format is not supported.
         FileNotFoundError: If the file does not exist.
+        PathEscapeError: If ``safe_root`` is set and ``path`` escapes.
     """
     path = Path(path)
+    path = _check_safe(path, safe_root)
     if not path.exists():
         raise FileNotFoundError(f"Document not found: {path}")
 
@@ -397,7 +424,11 @@ def _files_in_directory(path: Path) -> list[Path]:
     )
 
 
-def load_trace(path: Union[str, Path]) -> list[Trace]:
+def load_trace(
+    path: Union[str, Path],
+    *,
+    safe_root: Union[str, Path, None] = None,
+) -> list[Trace]:
     """Load traces from a single file or directory.
 
     Supports four formats, sniffed from content:
@@ -438,6 +469,7 @@ def load_trace(path: Union[str, Path]) -> list[Trace]:
             input contains no readable trace files.
     """
     path = Path(path).expanduser()
+    path = _check_safe(path, safe_root)
     if not path.exists():
         raise FileNotFoundError(f"Trace file not found: {path}")
 

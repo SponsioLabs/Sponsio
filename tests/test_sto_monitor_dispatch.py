@@ -297,3 +297,61 @@ class TestMixedTree:
             assert not _blocked(results), results
         finally:
             set_default_judge(None)
+
+
+# ---------------------------------------------------------------------------
+# Regression: user-configured policy overrides on the sto path
+# ---------------------------------------------------------------------------
+
+
+class TestStoPolicyLookup:
+    """Sto Verdict.desc carries a ``[conf=…, β=…]`` suffix for display,
+    but ``policy.get(...)`` must resolve against the *stable* constraint
+    description so user-registered strategies (RetryWithConstraint with
+    a different max_retries, RedirectToSafe, …) are honored.
+
+    Regression for the bug where ``self._policy.get(e_verdict.desc)``
+    always missed because ``desc`` was the augmented label, not the
+    original ``DetFormula.desc`` users registered against.
+    """
+
+    def test_user_policy_strategy_is_honored_on_sto_path(self):
+        """A user-registered RetryWithConstraint instance is reused (not
+        replaced by a fresh default) when the contract's sto enforcement
+        fires. Detected by checking that the *user's* internal
+        ``_retry_counts`` increments — the silent-default code path
+        creates a fresh strategy whose counter would stay at zero.
+        """
+        from sponsio.runtime.strategies import RetryWithConstraint
+
+        agent = Agent(id="bot")
+        set_default_judge(BooleanJudge(FakeLogprobClient(p_yes=0.3)))
+        try:
+            atom = Atom("injection_free", atom_type="sto", context_scope="event")
+            sys = System(name="t")
+            contract = Contract(agent=agent, enforcement=atom, beta=0.5)
+            sys._contracts = [contract]
+
+            # The monitor builds Verdicts whose policy_key matches the
+            # constraint's stable description (here: ``repr(atom)`` since
+            # Atom has no ``desc`` attribute).
+            stable_key = repr(atom)
+            user_strategy = RetryWithConstraint(max_retries=7)
+            mon = RuntimeMonitor(
+                system=sys,
+                policy={stable_key: user_strategy},
+            )
+            mon._trace.events.append(
+                Event(ts=0, agent="bot", event_type="llm_response", content="x")
+            )
+            results = mon.check_action(agent.id, "emit")
+            assert _violated(results), results
+            # If policy lookup missed (the bug), the monitor would build
+            # a *fresh* RetryWithConstraint and our user_strategy would
+            # never see the call → its _retry_counts stays empty.
+            assert sum(user_strategy._retry_counts.values()) >= 1, (
+                f"user-configured RetryWithConstraint never ran — "
+                f"policy lookup missed. _retry_counts={user_strategy._retry_counts}"
+            )
+        finally:
+            set_default_judge(None)

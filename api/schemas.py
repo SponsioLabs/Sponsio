@@ -1,4 +1,13 @@
-"""Pydantic request/response models for the API."""
+"""Pydantic request/response models for the API.
+
+Length limits on free-form string fields (``MAX_NL_LEN``,
+``MAX_AGENT_ID_LEN``, etc.) cap the request bodies the public API
+accepts. Without these caps a single ``POST /api/contracts/parse`` with
+a multi-megabyte ``nl_text`` could exhaust memory in the regex-heavy
+NL parser (ReDoS surface) or block the server's event loop. Bumping
+``MAX_NL_LEN`` is fine if a real contract grows beyond it; the
+constant is the single knob.
+"""
 
 from __future__ import annotations
 
@@ -6,12 +15,19 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+MAX_NL_LEN = 4_000  # ~600 words; well above any real single-rule contract
+MAX_TOOL_NAME_LEN = 200
+MAX_AGENT_ID_LEN = 200
+MAX_CONTENT_LEN = 50_000  # tool output / llm_response content per event
+MAX_EVENT_TYPE_LEN = 64
+MAX_EVENTS_PER_IMPORT = 10_000  # request-level cap on bulk imports
+
 
 # --- Agents ---
 
 
 class AgentCreate(BaseModel):
-    id: str
+    id: str = Field(..., min_length=1, max_length=MAX_AGENT_ID_LEN)
     tools: list[str] = []
     permissions: list[str] = []
     reads_from: list[str] = []
@@ -30,7 +46,7 @@ class AgentResponse(BaseModel):
 
 
 class ContractParseRequest(BaseModel):
-    nl_text: str = Field(..., min_length=1)
+    nl_text: str = Field(..., min_length=1, max_length=MAX_NL_LEN)
 
 
 class ParsedConstraintResponse(BaseModel):
@@ -47,8 +63,8 @@ class ContractParseResponse(BaseModel):
 
 
 class ContractCommitRequest(BaseModel):
-    agent_id: str
-    nl_text: str
+    agent_id: str = Field(..., min_length=1, max_length=MAX_AGENT_ID_LEN)
+    nl_text: str = Field(..., min_length=1, max_length=MAX_NL_LEN)
 
 
 class ConstraintItem(BaseModel):
@@ -67,9 +83,9 @@ class ContractResponse(BaseModel):
 
 
 class PlaygroundActionRequest(BaseModel):
-    agent_id: str = Field(..., min_length=1)
-    action: str = Field(..., min_length=1)
-    event_type: str = "tool_call"
+    agent_id: str = Field(..., min_length=1, max_length=MAX_AGENT_ID_LEN)
+    action: str = Field(..., min_length=1, max_length=MAX_TOOL_NAME_LEN)
+    event_type: str = Field("tool_call", max_length=MAX_EVENT_TYPE_LEN)
     metadata: Optional[dict] = None
 
 
@@ -134,31 +150,31 @@ class SystemResponse(BaseModel):
 
 class TraceEventPush(BaseModel):
     ts: Optional[int] = None
-    agent: str
-    type: str
-    tool: Optional[str] = None
-    key: Optional[str] = None
-    to: Optional[str] = None
-    content: Optional[str] = None
+    agent: str = Field(..., min_length=1, max_length=MAX_AGENT_ID_LEN)
+    type: str = Field(..., min_length=1, max_length=MAX_EVENT_TYPE_LEN)
+    tool: Optional[str] = Field(default=None, max_length=MAX_TOOL_NAME_LEN)
+    key: Optional[str] = Field(default=None, max_length=MAX_TOOL_NAME_LEN)
+    to: Optional[str] = Field(default=None, max_length=MAX_AGENT_ID_LEN)
+    content: Optional[str] = Field(default=None, max_length=MAX_CONTENT_LEN)
 
 
 class TraceImportEvent(BaseModel):
     ts: int
-    agent: str
-    type: str
-    tool: Optional[str] = None
-    key: Optional[str] = None
-    to: Optional[str] = None
-    content: Optional[str] = None
+    agent: str = Field(..., min_length=1, max_length=MAX_AGENT_ID_LEN)
+    type: str = Field(..., min_length=1, max_length=MAX_EVENT_TYPE_LEN)
+    tool: Optional[str] = Field(default=None, max_length=MAX_TOOL_NAME_LEN)
+    key: Optional[str] = Field(default=None, max_length=MAX_TOOL_NAME_LEN)
+    to: Optional[str] = Field(default=None, max_length=MAX_AGENT_ID_LEN)
+    content: Optional[str] = Field(default=None, max_length=MAX_CONTENT_LEN)
 
 
 class TraceImportRequest(BaseModel):
-    events: list[TraceImportEvent]
+    events: list[TraceImportEvent] = Field(..., max_length=MAX_EVENTS_PER_IMPORT)
     metadata: Optional[dict] = None
 
 
 class ReVerifyRequest(BaseModel):
-    nl_text: str
+    nl_text: str = Field(..., min_length=1, max_length=MAX_NL_LEN)
 
 
 class ReVerifyStepResult(BaseModel):
@@ -175,4 +191,4 @@ class ReVerifyResponse(BaseModel):
 
 
 class AddContractRequest(BaseModel):
-    nl_text: str
+    nl_text: str = Field(..., min_length=1, max_length=MAX_NL_LEN)

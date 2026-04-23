@@ -16,6 +16,8 @@ Supports all three formula families:
 
 from __future__ import annotations
 
+import warnings
+
 from sponsio.formulas.formula import (
     Atom,
     Not,
@@ -37,23 +39,84 @@ from sponsio.formulas.formula import (
     Formula,
 )
 
+# Var name prefixes that have counter semantics — for these, "missing
+# from state" legitimately means "zero" (the tool was never called, no
+# tokens accumulated, etc.) so defaulting to ``0`` is semantically
+# correct, not a bug. Anything OUTSIDE this set that's missing from
+# state is suspicious — either a typo in the Var key or a grounding
+# gap — and surfaces a one-shot ``UserWarning``.
+_COUNTER_VAR_NAMES: frozenset[str] = frozenset(
+    {
+        "count",
+        "count_with",
+        "consecutive_count",
+        "token_count",
+        "delegation_depth",
+        "response_words",
+        "response_chars",
+        "context_length",
+        "arg_numeric",
+        # Test-only / generic numeric vars that ground to 0 by convention.
+        "cost",
+        "x",
+    }
+)
+
+_warned_missing_vars: set[str] = set()
+
 
 def _resolve_arith(expr: Var | Const, state: dict[str, object]) -> int | float:
     """Resolves an arithmetic expression to a numeric value.
+
+    For ``Const`` returns the literal. For ``Var``:
+
+    * If the key is in *state* and numeric, return its value.
+    * If absent and the Var name is a known **counter-semantic** prefix
+      (``count``, ``token_count``, ``delegation_depth``, …), default
+      to ``0`` silently — "the tool was never called" / "no tokens
+      accumulated yet" is the intended interpretation.
+    * If absent and the Var name is **unknown**, default to ``0`` for
+      backward compatibility but emit a one-shot ``UserWarning`` so
+      typos and grounding gaps don't stay hidden forever.
 
     Args:
         expr: A ``Var`` (looked up in *state*) or ``Const`` (literal).
         state: Predicate valuation dict for the current timestep.
 
     Returns:
-        The numeric value, defaulting to ``0`` for missing variables.
+        The numeric value (or 0 if the variable is missing — see above).
     """
     if isinstance(expr, Const):
         return expr.value
-    # Var: look up in the state dict
-    val = state.get(expr.key(), 0)
-    if isinstance(val, (int, float)):
-        return val
+    key = expr.key()
+    if key in state:
+        val = state[key]
+        if isinstance(val, (int, float)):
+            return val
+        # Present but non-numeric — that's a real grounding bug;
+        # warn (once) and treat as 0 to avoid crashing evaluation.
+        if key not in _warned_missing_vars:
+            _warned_missing_vars.add(key)
+            warnings.warn(
+                f"_resolve_arith: predicate {key!r} grounded to "
+                f"non-numeric value {val!r}; treating as 0. "
+                "Check the grounding rule for this variable.",
+                UserWarning,
+                stacklevel=2,
+            )
+        return 0
+    # Missing from state.
+    if expr.name not in _COUNTER_VAR_NAMES and key not in _warned_missing_vars:
+        _warned_missing_vars.add(key)
+        warnings.warn(
+            f"_resolve_arith: predicate {key!r} not present in trace "
+            f"valuations; defaulting to 0. This usually means a typo "
+            f"in the Var name or a missing grounding rule. Add "
+            f"{expr.name!r} to grounding or to the counter-semantics "
+            "allowlist if a 0 default is intended.",
+            UserWarning,
+            stacklevel=2,
+        )
     return 0
 
 

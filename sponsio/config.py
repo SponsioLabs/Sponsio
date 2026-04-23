@@ -667,9 +667,29 @@ def _resolve_include_spec(spec: str, base_dir: Path) -> Path:
             )
         return candidate
 
-    p = Path(spec).expanduser()
-    if not p.is_absolute():
-        p = (base_dir / p).resolve()
+    # Bare filesystem include. Two cases:
+    #   - relative path: resolved under ``base_dir`` and **must stay
+    #     under it** so a malicious upstream pack can't pull in
+    #     ``../../etc/passwd`` (path traversal — sym to the
+    #     ``sponsio:`` confinement above).
+    #   - absolute path: allowed unconditionally because the operator
+    #     who wrote the host yaml already chose it explicitly. (The
+    #     usual config loader only reads YAML the operator pointed at,
+    #     so an absolute path here means the operator typed it.)
+    from sponsio._paths import PathEscapeError, safe_resolve
+
+    raw = Path(spec).expanduser()
+    try:
+        if raw.is_absolute():
+            p = raw.resolve()
+        else:
+            p = safe_resolve(spec, base_dir=base_dir, safe_root=base_dir)
+    except PathEscapeError as e:
+        raise ConfigError(
+            f"include: spec {spec!r} resolves outside the including "
+            f"file's directory ({base_dir}). Use an absolute path or "
+            "the bundled ``sponsio:...`` form for cross-tree includes."
+        ) from e
     if not p.exists():
         raise ConfigError(f"include: file not found: {p}")
     return p

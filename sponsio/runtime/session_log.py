@@ -23,10 +23,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from sponsio._paths import PathEscapeError, safe_join_segment
 
 if TYPE_CHECKING:
     from sponsio.runtime.monitor import MonitorEvent
@@ -36,11 +39,44 @@ DEFAULT_BASE_DIR = Path.home() / ".sponsio" / "sessions"
 DEFAULT_KEEP_DAYS = 7
 DEFAULT_MAX_MB = 100
 
+# Allow letters, digits, dot (for "agent.v2"), dash, underscore, colon
+# (namespacing — "team:bot"). Disallow path separators, ``..``, and
+# control characters. Anything not matching is sanitized to ``_``.
+_SAFE_AGENT_ID_RE = re.compile(r"[^A-Za-z0-9._:\-]")
+
+
+def _sanitize_agent_id(agent_id: str) -> str:
+    """Reduce an arbitrary ``agent_id`` to a safe single path segment.
+
+    Strips separators / parent references / control characters. Empty
+    or all-separator inputs collapse to ``"_unknown"`` so the caller
+    always gets a usable directory name.
+    """
+    if not agent_id:
+        return "_unknown"
+    cleaned = _SAFE_AGENT_ID_RE.sub("_", agent_id).strip("._")
+    if not cleaned or cleaned in (".", ".."):
+        return "_unknown"
+    # Cap length so a pathological agent_id can't blow PATH_MAX.
+    return cleaned[:128]
+
 
 def default_session_dir(agent_id: str, base_dir: Path | None = None) -> Path:
-    """Return the per-agent session directory, creating it if needed."""
+    """Return the per-agent session directory, creating it if needed.
+
+    The ``agent_id`` is sanitized to a single safe path segment before
+    joining onto ``base_dir`` so a malicious id like ``"../../etc"``
+    cannot escape the sessions tree.
+    """
     base = base_dir if base_dir is not None else DEFAULT_BASE_DIR
-    d = base / agent_id
+    base.mkdir(parents=True, exist_ok=True)
+    safe_id = _sanitize_agent_id(agent_id)
+    try:
+        d = safe_join_segment(base, safe_id)
+    except PathEscapeError:
+        # Defence in depth — sanitize already strips separators, so
+        # this only fires on logic bugs. Fall back to a fixed segment.
+        d = base / "_unknown"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

@@ -75,6 +75,13 @@ class Verdict:
         evidence: Optional one-line explanation from the judge / evaluator
             (e.g. ``"judge answered 'no' (conf=0.42)"``).
         suggestion: Optional fix hint surfaced into retry prompts.
+        policy_key: Stable lookup key for the user-configured policy map.
+            For det verdicts this equals ``desc``. For sto verdicts ``desc``
+            is augmented with ``[conf=…, β=…]`` for human display, but
+            ``policy_key`` keeps the bare ``_describe(constraint, …)``
+            string so ``self._policy[stable_key]`` still resolves the
+            user's RetryWithConstraint / RedirectToSafe overrides.
+            Empty string falls back to ``desc`` for backward compatibility.
     """
 
     holds: bool
@@ -85,9 +92,20 @@ class Verdict:
     threshold: float | None = None
     evidence: str = ""
     suggestion: str = ""
+    policy_key: str = ""
 
     def __bool__(self) -> bool:
         return self.holds
+
+    @property
+    def lookup_key(self) -> str:
+        """The key to use for ``policy.get(...)`` lookups.
+
+        Returns ``policy_key`` if set, else falls back to ``desc``.
+        Use this — never ``desc`` directly — when keying into the
+        user-configured strategy policy map.
+        """
+        return self.policy_key or self.desc
 
     @property
     def is_sto(self) -> bool:

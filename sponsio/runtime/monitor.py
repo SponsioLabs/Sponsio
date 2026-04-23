@@ -579,6 +579,7 @@ class RuntimeMonitor:
         triggered = True
         for a_item in contract.assumptions:
             formula = _unwrap(a_item)
+            stable_key = _describe(a_item, "assumption")
             try:
                 conf = eval_sto_confidence(
                     formula,
@@ -594,9 +595,10 @@ class RuntimeMonitor:
                 cv.assumptions.append(
                     Verdict(
                         holds=False,
-                        desc=f"{_describe(a_item, 'assumption')} [lifting error: {e}]",
+                        desc=f"{stable_key} [lifting error: {e}]",
                         kind="assumption",
                         formula=formula,
+                        policy_key=stable_key,
                     )
                 )
                 return cv  # abort — no enforcement side
@@ -612,6 +614,7 @@ class RuntimeMonitor:
 
         for e_item in contract.enforcements:
             formula = _unwrap(e_item)
+            stable_key = _describe(e_item, "enforcement")
             try:
                 conf = eval_sto_confidence(
                     formula,
@@ -625,17 +628,15 @@ class RuntimeMonitor:
                 cv.enforcements.append(
                     Verdict(
                         holds=False,
-                        desc=f"{_describe(e_item, 'enforcement')} [lifting error: {e}]",
+                        desc=f"{stable_key} [lifting error: {e}]",
                         kind="enforcement",
                         formula=formula,
+                        policy_key=stable_key,
                     )
                 )
                 continue
             holds = conf >= contract.beta
-            label = (
-                f"{_describe(e_item, 'enforcement')} "
-                f"[conf={conf:.3f}, β={contract.beta:.3f}]"
-            )
+            label = f"{stable_key} [conf={conf:.3f}, β={contract.beta:.3f}]"
             cv.enforcements.append(
                 Verdict(
                     holds=holds,
@@ -644,6 +645,7 @@ class RuntimeMonitor:
                     formula=formula,
                     score=float(conf),
                     threshold=float(contract.beta),
+                    policy_key=stable_key,
                 )
             )
 
@@ -689,7 +691,7 @@ class RuntimeMonitor:
                 "The upstream agent flow may have a problem."
             ),
         )
-        strategy = self._policy.get(a_verdict.desc)
+        strategy = self._policy.get(a_verdict.lookup_key)
         if strategy is None:
             strategy = EscalateToHuman()
 
@@ -730,7 +732,7 @@ class RuntimeMonitor:
             details=f"Runtime det violation: {e_verdict.desc}",
         )
 
-        strategy = self._policy.get(e_verdict.desc)
+        strategy = self._policy.get(e_verdict.lookup_key)
         if strategy is None:
             strategy = DetBlock()
         # Validate: det violations must use hard strategies
@@ -788,7 +790,7 @@ class RuntimeMonitor:
         # Honor any user-configured strategy override; else default to
         # RetryWithConstraint. Reject det strategies here — they would
         # drop the retry prompt.
-        strategy = self._policy.get(e_verdict.desc)
+        strategy = self._policy.get(e_verdict.lookup_key)
         if strategy is None or isinstance(strategy, (DetBlock, EscalateToHuman)):
             strategy = RetryWithConstraint(max_retries=2)
 
