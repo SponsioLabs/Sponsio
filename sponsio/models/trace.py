@@ -30,14 +30,24 @@ class Event:
     Attributes:
         ts: Monotonically increasing timestamp (logical clock).
         agent: Identifier of the agent that produced this event.
-        event_type: One of ``"tool_call"``, ``"data_read"``,
-            ``"data_write"``, or ``"message"``.
+        event_type: Event kind — must be a value in
+            :data:`_VALID_EVENT_TYPES`. Today that set is
+            ``{"tool_call", "data_read", "data_write", "message",
+            "delegation", "llm_response", "llm_request"}``. Unknown
+            values are rejected by ``__post_init__`` because they flow
+            silently through the grounding dispatch (producing no
+            atoms) and would turn dependent contracts into vacuously
+            passing checks — worst possible failure mode.
         tool: Tool name (set when ``event_type == "tool_call"``).
         key: Data store key (set for ``"data_read"``/``"data_write"``).
         contains: Field names present in a data write payload.
-        to: Target agent id (set for ``"message"`` events).
+        to: Target agent id (set for ``"message"`` / ``"delegation"``
+            events).
         args: Arbitrary keyword arguments passed to a tool call.
-        content: Free-text content of a message event.
+        content: Free-text content. Used on ``"message"``,
+            ``"llm_request"``, ``"llm_response"``, and also on
+            ``"tool_call"`` events once the guard is enriched via
+            :meth:`BaseGuard.observe_tool_output`.
     """
 
     ts: int

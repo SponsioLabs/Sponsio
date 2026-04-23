@@ -64,7 +64,7 @@ Patterns do **not** add expressive power. They are convenience shortcuts that:
 2. Serve as targets for the NL parser (`generation/nl_to_contract.py`)
 3. Carry metadata (description, pattern name) for diagnostics
 
-Each pattern function returns an `AnnotatedFormula` -- a `Formula` paired with a human-readable `desc` and the `pattern_name` that produced it.
+Each pattern function returns a `DetFormula` -- a `Formula` paired with a human-readable `desc`, the `pattern_name` that produced it, and (where applicable) the numeric/string arguments used to build it so store round-trips don't lose information. `AnnotatedFormula` is kept as a backward-compatible alias but new code should use `DetFormula`.
 
 ### Contract (合约)
 
@@ -140,7 +140,7 @@ Grounding (`tracer/grounding.py`) is a thin event adapter. Its job:
 
 ### History: FOL elimination (completed)
 
-Previously, three patterns (`arg_blacklist`, `scope_limit`, `data_intact`) used a separate FOL AST (`formulas/fol.py`) with 11 node types and returned `PropertyConstraint` instead of `AnnotatedFormula`. This required special-casing in both `RuntimeMonitor` and `ground()`.
+Previously, three patterns (`arg_blacklist`, `scope_limit`, `data_intact`) used a separate FOL AST (`formulas/fol.py`) with 11 node types and returned `PropertyConstraint` instead of `DetFormula`. This required special-casing in both `RuntimeMonitor` and `ground()`.
 
 The FOL system has been eliminated. The three patterns now use standard atoms:
 
@@ -173,12 +173,13 @@ Patterns are factory functions, not a new layer. This section clarifies their ro
 ### What a pattern function does
 
 ```python
-def must_precede(a: str, b: str) -> AnnotatedFormula:
+def must_precede(a: str, b: str) -> DetFormula:
     formula = U(Not(Atom("called", b)), Atom("called", a))
-    return AnnotatedFormula(
+    return DetFormula(
         formula=formula,
         desc=f"tool `{a}` must precede `{b}`",
         pattern_name="must_precede",
+        args=(a, b),
     )
 ```
 
@@ -214,7 +215,7 @@ It takes user-friendly arguments, constructs a formula from atoms, and wraps it 
 
 ### Adding a new pattern
 
-1. Write the factory function in `patterns/library.py`. It must return `AnnotatedFormula`.
+1. Write the factory function in `patterns/library.py`. It must return `DetFormula` and populate `args=(...)` with the raw arguments so the pattern store can round-trip them (rate-limit N, deadline N, required-steps ordering, etc.).
 2. If the formula uses atoms not yet in grounding, add the atom extraction logic to `tracer/grounding.py`.
 3. Add NL keyword rules in `generation/nl_to_contract.py` so the NL parser can route to the pattern.
 4. Add tests in `tests/test_pattern_e2e.py` covering NL -> Guard -> enforcement.

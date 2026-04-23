@@ -982,6 +982,41 @@ class BaseGuard:
             if self._monitor._sto_evaluator is None:
                 return CheckResult(allowed=True)
 
+            # Assumption gating — mirrors ``RuntimeMonitor._check_sto``
+            # so that a sto constraint whose owning contract's det
+            # *assumption* is currently unmet is skipped here too. Without
+            # this, a `contract("on refund").enforce(Atom("tone", ...))`
+            # kept flagging retries on turns where no refund was ever
+            # mentioned — same behavioural bug `_check_sto` already guards
+            # against but that `guard_after` didn't share. See #12
+            # follow-up; the two paths must agree on what "active" means.
+            self._monitor._verifier.set_agents(
+                {c.agent.id: c.agent for c in self._monitor._system.contracts}
+            )
+            self._monitor._verifier.sync_from_contracts(
+                self._monitor.trace, self._monitor._system.contracts
+            )
+            gated_pass: set[str] = set()
+            gated_fail: set[str] = set()
+            owned_by_contract: set[str] = set()
+            for contract in self._monitor._system.contracts:
+                if contract.agent.id != self.agent_id:
+                    continue
+                if contract.is_unconditional:
+                    assumption_holds = True
+                else:
+                    assumption_holds = self._monitor._verifier.check_assumption(
+                        contract
+                    ).holds
+                for e in contract.enforcements:
+                    from sponsio.runtime.monitor import _is_det
+
+                    if _is_det(e):
+                        continue
+                    prop_name = getattr(e, "desc", str(e))
+                    owned_by_contract.add(prop_name)
+                    (gated_pass if assumption_holds else gated_fail).add(prop_name)
+
             checked = self._monitor._sto_evaluator.check(self._monitor.trace)
             sto_violations: list[EnforcementResult] = []
             feedback_parts: list[str] = []
@@ -991,8 +1026,12 @@ class BaseGuard:
             for prop_name, (passed, sto_result) in checked.items():
                 if passed:
                     continue
+                # Unconditional registration (not attached to any contract
+                # for this agent) is treated as always-active, matching
+                # ``_check_sto``. Conditional props require assumption hold.
+                if prop_name in owned_by_contract and prop_name not in gated_pass:
+                    continue
 
-                # Generate feedback
                 template = self._monitor._sto_evaluator.get_feedback_template(prop_name)
                 fb = feedback_gen.generate(prop_name, sto_result, template)
                 feedback_parts.append(fb)
@@ -1193,15 +1232,60 @@ class BaseGuard:
         pipeline. ``observe_tool_output`` only enriches the trace
         with content data — no enforcement, no strategies.
 
+        Implementation note (pre-fix this method called
+        ``check_action(event_type="tool_call")`` which (a) ran the full
+        det+sto enforcement pipeline, contradicting the docstring, and
+        (b) emitted a brand-new ``tool_call`` event that bumped
+        ``called(tool)`` / ``call_counts`` again, so any contract like
+        ``tool X at most 1 times`` started double-counting the moment
+        the operator enriched its output.  The correct shape is to
+        attach the content to the *most recent* matching ``tool_call``
+        event and re-ground — that way ``output_has`` fires on the next
+        check without corrupting call counts.
+
         Args:
             tool_name: Name of the tool that produced the output.
             output: The tool's output text.
         """
-        self._monitor.check_action(
-            agent_id=self.agent_id,
-            action=tool_name,
-            event_type="tool_call",
-            metadata={"content": output},
+        # Locate the most recent tool_call for this tool on this agent.
+        # Walking in reverse so the latest invocation wins when a tool is
+        # called multiple times in a turn (operators can only attach
+        # output to the *one that just ran*).
+        trace = self._monitor.trace
+        for ev in reversed(trace.events):
+            if (
+                ev.event_type == "tool_call"
+                and ev.tool == tool_name
+                and ev.agent == self.agent_id
+            ):
+                text = str(output)
+                # Concatenate if this tool was already enriched — users
+                # streaming chunked output (SSE, partial responses) call
+                # us repeatedly for the same tool_call.
+                ev.content = text if ev.content is None else (ev.content + text)
+                # Force a re-ground on the next check so ``output_has``
+                # and ``arg_field_has`` that read ``.content`` see the
+                # new text. ``TraceVerifier.sync`` is incremental and
+                # won't otherwise re-evaluate a past event; the cheapest
+                # way to punch through that cache is ``reset()``. This
+                # is not a hot path — enrichment is typically one call
+                # per tool per turn, and the next ``check_action`` will
+                # re-ground in O(|trace|) which is what we already pay
+                # on initial trace build.
+                self._monitor._verifier.reset()
+                return
+
+        # No prior tool_call — the user called this before the tool
+        # actually ran (or for the wrong agent). Warn instead of
+        # silently inventing an event with bogus call counts.
+        import warnings
+
+        warnings.warn(
+            f"observe_tool_output({tool_name!r}): no preceding tool_call "
+            f"for this tool on agent {self.agent_id!r}. Output not "
+            "attached. Call this *after* the tool actually runs, not "
+            "before (and ensure the tool_name matches the original call).",
+            stacklevel=2,
         )
 
     def observe_data_write(self, key: str, fields: list[str] | None = None) -> None:
@@ -1552,7 +1636,13 @@ class BaseGuard:
                                 message=msg,
                             ),
                         )
-                        self._monitor._log.append(event)
+                        # ``_emit`` already appends to ``_log`` under the
+                        # monitor lock and fans out to callbacks. The
+                        # extra ``_log.append`` that used to precede this
+                        # line double-recorded every session-end liveness
+                        # event in the audit log and pushed it to OTel /
+                        # dashboard exporters twice — caught in the
+                        # perf/arch sweep.
                         self._monitor._emit(event)
                         self._violations.append(
                             {

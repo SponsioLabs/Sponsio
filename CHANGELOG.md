@@ -74,6 +74,73 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   merged into one logical trace for evaluation, with a note on
   stderr.
 
+### Fixed (runtime correctness + performance)
+- **``observe_tool_output`` no longer emits a phantom ``tool_call``
+  event.** The previous implementation called
+  ``check_action(event_type="tool_call")`` to attach output content to
+  the trace, which (a) ran the full det+sto enforcement pipeline
+  (contradicting the docstring's "no enforcement, no strategies"
+  promise) and (b) **double-counted** the tool — ``called(tool)`` and
+  ``call_counts[tool]`` fired twice for every invocation that was
+  enriched, so a contract like ``tool search at most 2 times`` started
+  blocking the second real call the moment an operator wired in
+  output observability. The enrichment now mutates the most recent
+  matching ``tool_call`` event in place and triggers a re-ground on
+  the next check so ``output_has(tool, pattern)`` still fires without
+  touching the counters. Repeated calls for the same tool (streaming
+  chunks) concatenate; calling without a preceding ``tool_call``
+  raises a ``UserWarning`` instead of silently inventing counters.
+- **``guard_after`` now gates sto checks by contract assumption.** The
+  post-tool sto path previously ran ``_sto_evaluator.check(trace)``
+  unconditionally. A sto prop attached to a *conditional* contract
+  (``contract(...).assume(...).enforce(sto_formula)``) therefore
+  fired on every tool output regardless of whether the det assumption
+  held — directly contradicting ``RuntimeMonitor._check_sto``, which
+  has always skipped propositions whose owning contract's assumption
+  is currently unmet. The two paths now share the same gating filter
+  (assumption held → prop active; assumption failed → prop dropped).
+  Expect fewer spurious retries on contracts shaped like "on refunds,
+  response must be professional" when the current turn doesn't touch
+  the trigger.
+- **``finish_session`` no longer double-records session-end liveness
+  events.** The shutdown path called ``monitor._log.append(event)``
+  *and* ``monitor._emit(event)`` — but ``_emit`` already appends to
+  ``_log`` under the monitor lock. Every unmet-liveness record
+  therefore appeared twice in the audit log, which also pushed the
+  same event twice to any dashboard / OTel exporter wired through
+  ``register_callback``. Callers that tallied liveness violations
+  from the log were silently over-counting them 2×.
+- **Hoisted ``check_assumption`` out of the per-enforcement loop in
+  ``_check_sto``.** For a contract bundling ``k`` stochastic clauses,
+  the monitor was re-evaluating the same det assumption ``k`` times
+  against the same (now-synced) trace state. The assumption is a
+  per-contract fact, not a per-enforcement one — we compute it once
+  and cache the boolean. No behavioural change; contracts with many
+  sto clauses see proportional latency reduction on the hot path.
+- **OpenAI blocked-response path no longer ``copy.deepcopy`` the
+  whole response.** ``_filter_blocked_calls`` only mutates
+  ``message.tool_calls`` and ``message.content`` on specific
+  messages; a full recursive copy of the nested pydantic graph was
+  dominating latency on responses with many tool calls. We now
+  mutate in place — the caller hasn't seen the response yet (it was
+  just returned by ``_original_create`` and is about to be handed
+  back), so the defensive copy bought nothing.
+- **Moved ``_increment_counter`` import to module-load in
+  ``evaluators.py``.** The sto hot path (``_safe_evaluate`` runs on
+  every tool turn) was paying a per-call ``import`` lookup into
+  ``sponsio.runtime.perf``. Python caches the module, but the
+  ``sys.modules`` + binding dance still showed up in the profile.
+
+### Deprecated
+- **``RuntimeMonitor(hard_evaluator=...)`` now warns.** The kwarg was
+  stored on the instance and *never read* by any code path — operators
+  who wired a custom ``DetEvaluator`` through it were under the
+  impression their predicates were being enforced when in fact they
+  weren't (silently dead contracts). Passing a non-None value now
+  emits ``DeprecationWarning`` pointing at ``sponsio.patterns.library``
+  pattern factories as the supported extension point. The kwarg will
+  be removed in a future release.
+
 ### Fixed
 - **Trace loader recognises real `SessionLogger` output** at
   ``~/.sponsio/sessions/<agent>/*.jsonl``. The first cut of the

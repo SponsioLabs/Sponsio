@@ -13,6 +13,13 @@ from typing import Callable, Literal
 
 from sponsio.models.trace import Trace
 
+# Perf counter bump-helper, imported at module load so the sto hot path
+# (``StoEvaluator._safe_evaluate``) doesn't pay an ``import`` on every
+# evaluator invocation. Python caches the module, but the per-call
+# ``sys.modules`` lookup + binding still showed up as visible overhead
+# in the perf sweep because sto evaluators fire on every tool turn.
+from sponsio.runtime.perf import _increment_counter as _perf_llm_bump
+
 logger = logging.getLogger(__name__)
 
 
@@ -254,8 +261,6 @@ class StoEvaluator:
             # Under-counts "actually used a cache" at worst, never
             # over-claims zero-LLM activity (which would be the
             # dangerous direction).
-            from sponsio.runtime.perf import _increment_counter as _perf_llm_bump
-
             _perf_llm_bump()
             result = entry.fn(trace)
         except Exception as exc:

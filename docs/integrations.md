@@ -124,6 +124,15 @@ response = client.chat.completions.create(model="gpt-4", messages=messages, tool
 guard.print_summary()
 ```
 
+**Strict tool-argument JSON parsing.** Set
+`SPONSIO_OPENAI_STRICT_TOOL_ARGS=1` in the environment to fail closed
+when the model returns malformed JSON in `tool_call.function.arguments`
+— the request raises `ValueError` instead of silently treating the
+arguments as an empty dict. The default (warn-and-degrade) is safer
+for most agents, but strict mode is the right choice for
+security-critical tools where a hallucinated `arguments` string must
+never reach your executor.
+
 ---
 
 ## OpenAI Agents SDK

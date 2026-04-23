@@ -361,13 +361,17 @@ class OpenAIGuard(BaseGuard):
 
         For each blocked tool_call, injects an assistant message indicating
         the block, so the agent loop can see why the call was rejected.
+
+        Implementation note: this used to ``copy.deepcopy(response)`` which
+        is expensive on typical OpenAI responses (nested pydantic objects
+        with `choices -> message -> tool_calls[]`). Profiling showed the
+        deepcopy dominated the block-path latency on large multi-tool
+        responses. We now mutate fields *in place* on the response — the
+        caller has already committed to the block decision by this point,
+        and the mutation is confined to `message.tool_calls` /
+        `message.content`, both of which we rewrite to an explicit value
+        rather than reach into.
         """
-        import copy
-
-        response = copy.deepcopy(response)
-
-        # Build set of blocked tool_call indices
-        blocked_indices: set[int] = set()
         blocked_messages: list[str] = []
         tc_idx = 0
         for choice in response.choices:
@@ -377,7 +381,6 @@ class OpenAIGuard(BaseGuard):
             kept = []
             for tc in message.tool_calls:
                 if tc_idx < len(results) and results[tc_idx].blocked:
-                    blocked_indices.add(tc_idx)
                     msg = (
                         results[tc_idx].det_violations[0].message
                         if results[tc_idx].det_violations
@@ -389,7 +392,6 @@ class OpenAIGuard(BaseGuard):
                 tc_idx += 1
             message.tool_calls = kept if kept else None
 
-        # If all calls were blocked, set content to explain why
         if blocked_messages and response.choices:
             msg = response.choices[0].message
             if not msg.tool_calls:

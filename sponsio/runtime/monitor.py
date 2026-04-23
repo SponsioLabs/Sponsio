@@ -140,7 +140,6 @@ class RuntimeMonitor:
 
     Args:
         system: The System whose contracts are being enforced.
-        hard_evaluator: Optional DetEvaluator for custom hard predicates.
         sto_evaluator: Optional StoEvaluator for sto constraints.
         policy: Mapping of constraint descriptions to enforcement strategies.
         mode: Enforcement mode. ``"enforce"`` (default) runs strategies
@@ -150,6 +149,14 @@ class RuntimeMonitor:
             blocked; callbacks still fire, so a ``SessionLogger`` hooked
             into the monitor captures the full record of what *would* have
             happened under real enforcement.
+        hard_evaluator: Deprecated. Previously accepted a ``DetEvaluator``
+            for custom hard predicates; the value was stored but never
+            consulted by any code path, so users who passed it got no
+            enforcement on their custom predicates. Kept as a kwarg for
+            source compatibility — emits ``DeprecationWarning`` when
+            non-None and is otherwise ignored. Custom predicates today
+            should be expressed as pattern factories in
+            ``sponsio.patterns.library``.
     """
 
     def __init__(
@@ -163,8 +170,24 @@ class RuntimeMonitor:
     ) -> None:
         if mode not in ("enforce", "observe"):
             raise ValueError(f"mode must be 'enforce' or 'observe', got {mode!r}")
+        if hard_evaluator is not None:
+            # The previous implementation stored this on ``self`` and
+            # never read it — operators believed they had wired custom
+            # det predicates through the monitor when in fact nothing
+            # checked them, silently disabling their intended contracts.
+            # Fail loudly instead of silently accepting.
+            import warnings
+
+            warnings.warn(
+                "RuntimeMonitor(hard_evaluator=...) is deprecated and has "
+                "no effect: the argument was never consulted by the "
+                "evaluation pipeline. Express custom hard predicates via "
+                "pattern factories in sponsio.patterns.library instead. "
+                "This kwarg will be removed in a future release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         self._system = system
-        self._hard_evaluator = hard_evaluator
         self._sto_evaluator = sto_evaluator
         self._policy = policy or {}
         self._mode = mode
@@ -878,19 +901,25 @@ class RuntimeMonitor:
         for contract in self._system.contracts:
             if contract.agent.id != agent_id:
                 continue
+            # Assumption check is per-contract, not per-enforcement. Hoisting
+            # it out of the enforcement loop saves N-1 redundant verifier
+            # calls for any contract that bundles multiple sto clauses (each
+            # extra call re-evaluates the same formula against the same
+            # trace). Det-only contracts skip the inner loop entirely and
+            # never reach this branch.
+            if contract.is_unconditional:
+                assumption_holds = True
+            else:
+                assumption_holds = self._verifier.check_assumption(contract).holds
             for e in contract.enforcements:
                 if _is_det(e):
                     continue
                 prop_name = getattr(e, "desc", str(e))
                 owned_by_contract.add(prop_name)
-                if contract.is_unconditional:
+                if assumption_holds:
                     gated_pass.add(prop_name)
                 else:
-                    a_verdict = self._verifier.check_assumption(contract)
-                    if a_verdict.holds:
-                        gated_pass.add(prop_name)
-                    else:
-                        gated_fail.add(prop_name)
+                    gated_fail.add(prop_name)
 
         # Active = any prop that either (a) is attached to a contract whose
         # assumption currently holds, or (b) is registered on the evaluator
