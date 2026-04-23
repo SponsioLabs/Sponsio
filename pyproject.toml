@@ -90,6 +90,10 @@ sponsio = [
     # `scripts/sync_init_examples.py` + `tests/test_init_examples_sync.py`).
     "init_examples/eval/*",
     "init_examples/eval/traces/*",
+    # Built-in contract packs resolvable via `include: [sponsio:<spec>]`
+    # — see `sponsio.config._resolve_include_spec`.  Layout is
+    # ``contracts/<category>/<name>.yaml`` (core / capability / incident).
+    "contracts/*/*.yaml",
 ]
 
 [tool.pytest.ini_options]

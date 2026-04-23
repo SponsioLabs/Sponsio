@@ -136,6 +136,12 @@ class ContractEntry:
     desc: str | None = None
     alpha: float = 1.0
     beta: float = 1.0
+    pack_source: str | None = None
+    """Origin of this entry — ``None`` for hand-written contracts,
+    or the include spec (e.g. ``"sponsio:core/universal"``) for
+    contracts pulled in via ``include:``.  Used by ``overrides:`` to
+    target entries by their pack and by ``sponsio validate`` to surface
+    where a contract came from."""
 
 
 @dataclass
@@ -600,6 +606,179 @@ def _parse_thresholds(item: dict, agent_id: str) -> tuple[float, float]:
         raise ConfigError(f"Agent '{agent_id}': {e}") from e
 
 
+# ---------------------------------------------------------------------------
+# include: resolution — pull contracts from packs into the host config
+# ---------------------------------------------------------------------------
+
+
+def _resolve_include_spec(spec: str, base_dir: Path) -> Path:
+    """Map an ``include:`` entry to an absolute YAML path.
+
+    Recognised forms:
+
+    * ``sponsio:<category>/<name>`` — bundled pack shipped with the
+      package, resolved against ``sponsio/contracts/``.  The trailing
+      ``.yaml`` is optional.  Examples:
+        - ``sponsio:core/universal``
+        - ``sponsio:capability/shell``
+        - ``sponsio:incident/openclaw``
+    * Bare path — relative paths resolve against ``base_dir`` (the
+      directory holding the *including* yaml).  Absolute paths are
+      used as-is.  Useful when teams keep their own pack repo and
+      want to share rules across projects without publishing to PyPI.
+
+    Raises:
+        ConfigError: When the spec is malformed, the bundled pack
+            doesn't exist, or the path doesn't resolve.
+    """
+    import sponsio
+
+    if not isinstance(spec, str) or not spec.strip():
+        raise ConfigError(f"include: entry must be a non-empty string, got {spec!r}")
+
+    if spec.startswith("sponsio:"):
+        rel = spec[len("sponsio:") :].strip()
+        if not rel:
+            raise ConfigError(
+                f"include: bundled spec is empty: {spec!r} "
+                "— expected e.g. 'sponsio:core/universal'"
+            )
+        if not rel.endswith(".yaml"):
+            rel = rel + ".yaml"
+        pkg_root = Path(sponsio.__file__).parent
+        candidate = (pkg_root / "contracts" / rel).resolve()
+        # Defence in depth — confine resolution to the bundled tree so
+        # a stray ``sponsio:../../etc/passwd`` can't escape.
+        contracts_root = (pkg_root / "contracts").resolve()
+        try:
+            candidate.relative_to(contracts_root)
+        except ValueError as e:
+            raise ConfigError(
+                f"include: spec {spec!r} resolves outside the bundled "
+                f"contracts tree"
+            ) from e
+        if not candidate.exists():
+            available = sorted(
+                str(p.relative_to(contracts_root).with_suffix(""))
+                for p in contracts_root.rglob("*.yaml")
+            )
+            raise ConfigError(
+                f"include: bundled pack not found: {spec!r}. "
+                f"Available: {[f'sponsio:{p}' for p in available]}"
+            )
+        return candidate
+
+    p = Path(spec).expanduser()
+    if not p.is_absolute():
+        p = (base_dir / p).resolve()
+    if not p.exists():
+        raise ConfigError(f"include: file not found: {p}")
+    return p
+
+
+def _load_pack_contracts(
+    spec: str, base_dir: Path, agent_id: str, _seen: set[str]
+) -> list[ContractEntry]:
+    """Resolve one ``include:`` entry to a list of ``ContractEntry``.
+
+    Each shipped pack defines its rules under the placeholder agent id
+    ``"*"`` (see ``sponsio/contracts/core/universal.yaml`` for the
+    canonical shape).  We pull that ``"*"`` block out and stamp every
+    contract it contains with ``pack_source = spec`` so downstream
+    tooling (``overrides:``, ``sponsio validate`` source attribution)
+    can address them.
+
+    Args:
+        spec: The include spec, used both for resolution and as the
+            stamped ``pack_source`` value.
+        base_dir: Directory of the *including* yaml — relative paths
+            in ``spec`` resolve against this.
+        agent_id: The host agent id we're injecting into.  Used only
+            for error messages today; kept in the signature so future
+            ``tool_rename`` work can scope renames per-agent without a
+            second round-trip.
+        _seen: Cycle-detection set holding every spec currently being
+            resolved on the call stack.  Mutated in place during
+            recursion; never grows beyond the depth of the include
+            chain.
+
+    Raises:
+        ConfigError: If the pack isn't found, has no ``"*"`` agent,
+            defines multiple agents, or participates in an include
+            cycle.
+    """
+    import yaml
+
+    if spec in _seen:
+        chain = " -> ".join(list(_seen) + [spec])
+        raise ConfigError(f"include: cycle detected: {chain}")
+
+    pack_path = _resolve_include_spec(spec, base_dir)
+
+    try:
+        with open(pack_path) as f:
+            raw = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        raise ConfigError(f"include {spec!r}: invalid YAML in {pack_path}: {e}")
+
+    if not isinstance(raw, dict):
+        raise ConfigError(
+            f"include {spec!r}: pack root must be a mapping, "
+            f"got {type(raw).__name__}"
+        )
+    raw = _interpolate_env(raw)
+
+    pack_agents = raw.get("agents")
+    if not isinstance(pack_agents, dict) or not pack_agents:
+        raise ConfigError(
+            f"include {spec!r}: pack must define an 'agents:' mapping with "
+            f"a single '*' agent (the template)"
+        )
+    if list(pack_agents.keys()) != ["*"]:
+        raise ConfigError(
+            f"include {spec!r}: pack must define exactly one agent named '*' "
+            f"(the template), got {list(pack_agents.keys())}.  Multi-agent "
+            f"packs aren't supported — split the file."
+        )
+
+    template = pack_agents["*"]
+    if not isinstance(template, dict):
+        raise ConfigError(
+            f"include {spec!r}: '*' agent value must be a mapping, "
+            f"got {type(template).__name__}"
+        )
+
+    contracts_raw = template.get("contracts", [])
+    if not isinstance(contracts_raw, list):
+        raise ConfigError(
+            f"include {spec!r}: '*' agent's 'contracts' must be a list, "
+            f"got {type(contracts_raw).__name__}"
+        )
+
+    nested_includes = template.get("include", [])
+    pulled: list[ContractEntry] = []
+    if nested_includes:
+        if not isinstance(nested_includes, list):
+            raise ConfigError(
+                f"include {spec!r}: nested 'include' must be a list of strings"
+            )
+        _seen.add(spec)
+        try:
+            for nested in nested_includes:
+                pulled.extend(
+                    _load_pack_contracts(nested, pack_path.parent, agent_id, _seen)
+                )
+        finally:
+            _seen.discard(spec)
+
+    for item in contracts_raw:
+        ce = _parse_contract_entry(item, agent_id)
+        ce.pack_source = spec
+        pulled.append(ce)
+
+    return pulled
+
+
 def load_config(path: str | Path) -> SponsoConfig:
     """Load and validate a sponsio.yaml config file.
 
@@ -668,6 +847,8 @@ def load_config(path: str | Path) -> SponsoConfig:
     if not isinstance(agents_raw, dict):
         raise ConfigError("'agents' must be a mapping of agent_id -> config")
 
+    base_dir = path.parent.resolve()
+
     for agent_id, agent_data in agents_raw.items():
         if isinstance(agent_data, list):
             # Bare list — treat each entry as an unconditional contract
@@ -686,10 +867,24 @@ def load_config(path: str | Path) -> SponsoConfig:
                     f"schema is no longer supported. Use 'contracts:' with "
                     f"per-entry 'assumption'/'enforcement' (or 'A'/'E')."
                 )
+            ac = AgentConfig(agent_id=agent_id)
+
+            includes = agent_data.get("include", [])
+            if includes:
+                if not isinstance(includes, list):
+                    raise ConfigError(
+                        f"Agent '{agent_id}': 'include' must be a list of "
+                        f"pack specs (e.g. ['sponsio:core/universal']), "
+                        f"got {type(includes).__name__}"
+                    )
+                for spec in includes:
+                    ac.contracts.extend(
+                        _load_pack_contracts(spec, base_dir, agent_id, set())
+                    )
+
             contracts_raw = agent_data.get("contracts", [])
             if not isinstance(contracts_raw, list):
                 raise ConfigError(f"Agent '{agent_id}': 'contracts' must be a list")
-            ac = AgentConfig(agent_id=agent_id)
             for item in contracts_raw:
                 ac.contracts.append(_parse_contract_entry(item, agent_id))
             config.agents[agent_id] = ac

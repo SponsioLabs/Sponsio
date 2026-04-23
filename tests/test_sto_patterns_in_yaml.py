@@ -245,8 +245,8 @@ def test_every_registered_sto_atom_compiles_via_yaml_pattern(predicate):
 # ---------------------------------------------------------------------------
 
 
-_PACKS_DIR = Path(__file__).resolve().parents[1] / "contracts"
-_PACK_FILES = sorted(_PACKS_DIR.glob("*.yaml"))
+_PACKS_DIR = Path(__file__).resolve().parents[1] / "sponsio" / "contracts"
+_PACK_FILES = sorted(_PACKS_DIR.rglob("*.yaml"))
 
 
 @pytest.mark.parametrize(
