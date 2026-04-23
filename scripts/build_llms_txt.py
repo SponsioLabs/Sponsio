@@ -28,7 +28,7 @@ from pathlib import Path
 # docs, then architecture / internals.
 FILES = [
     "README.md",
-    "docs/getting-started.md",
+    "QUICKSTART.md",
     "docs/contracts.md",
     "docs/input-formats.md",
     "docs/integrations.md",

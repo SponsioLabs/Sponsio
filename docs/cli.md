@@ -5,7 +5,7 @@ pip install sponsio
 sponsio --help
 ```
 
-For `sponsio scan --llm`, install the LLM extra so all provider SDKs (including **Gemini**’s `google-genai`) are available: `pip install "sponsio[llm]"`. API keys are **environment variables** only—see [Getting started: API keys](getting-started.md#api-keys-for-llm-contract-discovery).
+For `sponsio scan --llm`, install the LLM extra so all provider SDKs (including **Gemini**’s `google-genai`) are available: `pip install "sponsio[llm]"`. API keys are **environment variables** only — see the [provider matrix](#provider-matrix) under `sponsio scan` for the full env-var / auto-detection rules.
 
 ---
 

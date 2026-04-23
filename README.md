@@ -129,6 +129,18 @@ Det contracts compile to an LTL/DFA evaluator — no LLM on the hot path, no app
 
 ---
 
+## Quick start
+
+Pure-Python install alongside your agent — no Docker, no API key, no framework SDK. See [QUICKSTART.md](QUICKSTART.md) for the full walkthrough — the short version:
+
+```bash
+pip install sponsio
+sponsio demo --scenario loan   # 30s — replay a loan-fraud trajectory, see it blocked
+sponsio onboard .              # 60s — detect framework, write sponsio.yaml, patch your entry file
+```
+
+---
+
 ## Integrate
 
 Same engine, same NL contract DSL, same pattern library — pick the column for your stack.
@@ -485,7 +497,7 @@ Full design: [docs/architecture.md](docs/architecture.md).
 ## Docs
 
 - [Documentation index](docs/README.md)
-- [Getting Started](docs/getting-started.md)
+- [Quick start](QUICKSTART.md)
 - [Contract DSL](docs/contracts.md) · [Stochastic atoms](docs/sto-atoms.md)
 - [CLI Reference](docs/cli.md)
 - [Integrations](docs/integrations.md)

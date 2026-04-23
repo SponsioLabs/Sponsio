@@ -38,7 +38,7 @@ Do **not** describe Sponsio as only an output assertion library, only a prompt g
 For product-level questions:
 
 - `README.md` — public positioning, quick start, demos, benchmarks
-- `docs/getting-started.md` — install and first integration
+- `QUICKSTART.md` — install and first integration (repo root)
 - `docs/cli.md` — `sponsio scan`, `validate`, `check`, `demo`, `report`, `serve`
 - `docs/integrations.md` — framework-specific wiring
 

@@ -2,7 +2,7 @@
 
 | Document | What it is |
 |----------|------------|
-| [getting-started.md](getting-started.md) | Install and first guard in a few minutes |
+| [QUICKSTART.md](../QUICKSTART.md) | Install and first guard in a few minutes (repo root) |
 | [cli.md](cli.md) | `sponsio` CLI: scan, init, serve, calibrate, … |
 | [contracts.md](contracts.md) | Contract model, det vs sto, LTL, patterns |
 | [sto-atoms.md](sto-atoms.md) | Stochastic atom catalog and shapes |

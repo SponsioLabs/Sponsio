@@ -50,7 +50,7 @@ guard = sponsio.Sponsio(framework="langgraph", mode="observe", contracts=[...])
 
 ## Docs
 
-- [Getting Started](https://github.com/SponsioLabs/Sponsio/blob/main/docs/getting-started.md) — install, configure, integrate
+- [Quick Start](https://github.com/SponsioLabs/Sponsio/blob/main/QUICKSTART.md) — install, `sponsio demo`, `sponsio onboard`, observe → enforce
 - [Contract DSL](https://github.com/SponsioLabs/Sponsio/blob/main/docs/contracts.md) — natural-language syntax, YAML schema, assume/enforce pairs
 - [Input Formats](https://github.com/SponsioLabs/Sponsio/blob/main/docs/input-formats.md) — every way to express a contract
 - [Integrations](https://github.com/SponsioLabs/Sponsio/blob/main/docs/integrations.md) — per-framework guide (LangGraph, MCP, OpenAI, CrewAI, Agents SDK, Vercel AI, Claude Agent)
