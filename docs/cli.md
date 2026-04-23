@@ -32,9 +32,12 @@ sponsio scan PATHS... [OPTIONS]
 | `--model`, `-m` | LLM model name (default: auto-detect) |
 | `--provider` | LLM provider: `openai`, `anthropic`, or `gemini` (default: auto-detect from env) |
 | `--base-url` | OpenAI-compatible HTTP endpoint (Ollama, OpenRouter, DeepSeek, Together, Groq, vLLM, Azure). Reads `OPENAI_BASE_URL` if not given. |
-| `--out`, `-o` | Write output to file (default: stdout) |
+| `--out`, `-o` | Write output to file (default: `./sponsio.yaml`; use `-o -` for stdout) |
 | `--append` | Append to existing file instead of overwriting |
 | `--policy`, `-p` | Policy document(s) to extract from (repeatable) |
+| `--trace`, `-t` | Execution trace file or glob to mine contracts from (repeatable). Accepts OTLP/JSON, OTLP JSONL, native Sponsio JSON/JSONL, and session JSONL. No LLM required. |
+| `--trace-min-support` | Minimum traces a pattern must appear in before it's proposed (default `1`). Bump up for noisy production logs. |
+| `--trace-confidence-threshold` | Confidence floor for ordering / sequence mining, 0–1 (default `0.95`). |
 
 ### Provider matrix
 
@@ -85,6 +88,34 @@ OPENAI_API_KEY=sk-... \
     --base-url https://api.deepseek.com \
     --model deepseek-chat
 ```
+
+### Mining contracts from traces
+
+When you have execution traces, `sponsio scan --trace` learns
+ordering / exclusion / rate-limit / sequence patterns statistically
+— no LLM required. Format is sniffed from content, so OTel Collector
+exports, Phoenix/Langfuse JSONL, and `~/.sponsio/sessions/*.jsonl`
+all work without conversion.
+
+```bash
+# Phoenix / Langfuse: OpenInference attrs are understood natively
+sponsio scan src/ -t 'phoenix-export/*.jsonl'
+
+# OTel Collector ndjson (one resourceSpans batch per line)
+sponsio scan src/ -t spans.jsonl
+
+# A Sponsio session log (what `SPONSIO_MODE=observe` writes)
+sponsio scan src/ -t ~/.sponsio/sessions/agent/*.jsonl
+
+# Tighten the threshold when feeding a noisy audit log
+sponsio scan src/ -t traces/ --trace-min-support 5 \
+  --trace-confidence-threshold 0.98
+```
+
+Each trace-sourced contract gets a `source: trace` comment in the
+emitted YAML, so you can grep / review them as a group. Trace
+mining merges with `--policy` and `--llm` inference via a
+`(pattern, args)` dedupe.
 
 ### Scanning TypeScript / JavaScript agents
 

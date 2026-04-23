@@ -129,6 +129,11 @@ class TraceMiner:
                         provenance=f"mined from {len(traces)} traces",
                         nl_description=f"{a} always precedes {b}",
                         evidence={
+                            # ``args`` is consumed by the YAML emitter
+                            # (``generate_yaml``'s structured-entry
+                            # branch) — keep it aligned with
+                            # ``must_precede(a, b)`` arg order.
+                            "args": [a, b],
                             "support": total,
                             "ordered": ordered,
                             "total_traces": len(traces),
@@ -181,6 +186,7 @@ class TraceMiner:
                             provenance=f"mined from {len(traces)} traces",
                             nl_description=f"{a} and {b} never co-occur",
                             evidence={
+                                "args": [a, b],
                                 "support_a": support_a,
                                 "support_b": support_b,
                                 "co_occurrence": 0,
@@ -218,9 +224,11 @@ class TraceMiner:
             if all(c <= max_count for c in counts):
                 if max_count == 1:
                     formula = idempotent(tool)
+                    args = [tool]
                     nl = f"{tool} is always called at most once"
                 else:
                     formula = rate_limit(tool, max_count)
+                    args = [tool, max_count]
                     nl = f"{tool} is called at most {max_count} times"
 
                 results.append(
@@ -233,6 +241,7 @@ class TraceMiner:
                         provenance=f"mined from {len(traces)} traces",
                         nl_description=nl,
                         evidence={
+                            "args": args,
                             "max_count": max_count,
                             "counts": counts,
                             "total_traces": len(traces),
@@ -288,6 +297,7 @@ class TraceMiner:
                         provenance=f"mined from {len(traces)} traces",
                         nl_description=f"{a} is always followed by {b}",
                         evidence={
+                            "args": [a, b],
                             "trigger_count": trigger_count,
                             "followed_count": followed,
                             "total_traces": len(traces),

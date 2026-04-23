@@ -58,7 +58,16 @@ def _capture_analyzer_init():
         def get_tool_inventory(self, _paths):
             return []
 
-        def generate_yaml(self, _paths, agent_id, policy_paths, tool_inventory):
+        def generate_yaml(
+            self,
+            _paths,
+            agent_id,
+            policy_paths=None,
+            tool_inventory=None,
+            trace_paths=None,
+            trace_min_support=1,
+            trace_confidence_threshold=0.95,
+        ):
             # Return a minimal-but-parseable scan YAML — the post-scan
             # summary parses this for tool/contract counts.
             return f"version: 1\nagents:\n  {agent_id}:\n    contracts: []\n"

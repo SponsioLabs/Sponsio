@@ -1659,8 +1659,11 @@ class CodeAnalyzer:
         agent_id: str = "agent",
         policy_paths: list[str] | None = None,
         tool_inventory: list[dict] | None = None,
+        trace_paths: list[str] | None = None,
+        trace_min_support: int = 1,
+        trace_confidence_threshold: float = 0.95,
     ) -> str:
-        """Scan code (and optionally policy docs) to generate sponsio.yaml.
+        """Scan code / policy docs / traces to generate sponsio.yaml.
 
         Args:
             source_paths: Python source files or directories.
@@ -1669,6 +1672,17 @@ class CodeAnalyzer:
                 constraints from using the tool inventory as context.
             tool_inventory: Optional pre-computed tool inventory. If None,
                 extracted from source_paths automatically.
+            trace_paths: Optional execution traces (OTLP/JSON, OTLP JSONL,
+                or native Sponsio). Glob patterns accepted. Contracts are
+                mined via :class:`TraceMiner` and merged with code/policy
+                proposals (deduped on ``(pattern, args)``).
+            trace_min_support: Minimum number of traces a pattern must
+                appear in to be proposed. ``1`` is deliberately loose so
+                small local samples still emit suggestions; bump up for
+                production audit logs.
+            trace_confidence_threshold: Confidence floor for ordering /
+                sequence mining. ``0.95`` means ``A`` must precede ``B``
+                in at least 95% of the traces that contain both.
 
         Returns:
             YAML string ready to write to ``sponsio.yaml``.
@@ -1684,6 +1698,16 @@ class CodeAnalyzer:
         if policy_paths:
             policy_proposals = self._extract_from_policies(policy_paths, tool_inventory)
             proposals.extend(policy_proposals)
+
+        # Trace-mining proposals (statistical, no LLM required)
+        if trace_paths:
+            trace_proposals = self._extract_from_traces(
+                trace_paths,
+                min_support=trace_min_support,
+                confidence_threshold=trace_confidence_threshold,
+                existing=proposals,
+            )
+            proposals.extend(trace_proposals)
 
         # --- Build YAML ---
         lines = [
@@ -1740,7 +1764,12 @@ class CodeAnalyzer:
 
                 src_label = ""
                 if p.extractor:
-                    src_label = "scan" if "code" in p.extractor else "policy"
+                    if "code" in p.extractor:
+                        src_label = "scan"
+                    elif "trace" in p.extractor:
+                        src_label = "trace"
+                    else:
+                        src_label = "policy"
 
                 if p.formula:
                     pattern = p.formula.pattern_name
@@ -1898,6 +1927,84 @@ class CodeAnalyzer:
             f"({len(proposals)} candidate contract(s) returned)"
         )
         return proposals
+
+    def _extract_from_traces(
+        self,
+        trace_paths: list[str],
+        *,
+        min_support: int = 1,
+        confidence_threshold: float = 0.95,
+        existing: list[ProposedConstraint] | None = None,
+    ) -> list[ProposedConstraint]:
+        """Mine contracts from execution traces and dedupe against ``existing``.
+
+        Statistical only — no LLM required.  Accepts the three trace
+        formats supported by :func:`sponsio.discovery.loaders.load_traces`
+        (OTLP/JSON, OTLP JSONL, native Sponsio), including glob patterns.
+
+        Args:
+            trace_paths: Paths or globs to trace files.
+            min_support: Minimum traces that must exhibit a pattern
+                before it's proposed.  Default **1** (loose) — CLI
+                callers can tighten via ``--trace-min-support`` when
+                feeding a large production audit log.
+            confidence_threshold: Floor for ordering / sequence
+                confidence (0–1).
+            existing: Proposals already in the list — any trace-mined
+                proposal whose :meth:`_dedup_key` matches one here is
+                dropped, so code/policy AST facts take precedence.
+
+        Returns:
+            List of new :class:`ProposedConstraint` that are not
+            already present in ``existing``.  Empty if no trace files
+            matched or every mined pattern was a duplicate.
+        """
+        from sponsio.discovery.extractors.trace_mining import TraceMiner
+        from sponsio.discovery.loaders import load_traces
+
+        self._emit(f"Loading traces from {len(trace_paths)} path(s)…")
+        try:
+            traces = load_traces(list(trace_paths))
+        except (FileNotFoundError, ValueError) as e:
+            # Surface the error as a scan progress line rather than
+            # crashing the whole scan — mirrors how policy extraction
+            # fails open above.
+            self._emit(f"Trace loading failed: {e}")
+            return []
+
+        if not traces:
+            self._emit("Trace loading: 0 trace(s) found (check paths / globs)")
+            return []
+
+        total_events = sum(len(t.events) for t in traces)
+        self._emit(
+            f"Trace mining: {len(traces)} trace(s), {total_events} event(s), "
+            f"min_support={min_support}, threshold={confidence_threshold}"
+        )
+
+        miner = TraceMiner(
+            confidence_threshold=confidence_threshold,
+            min_support=min_support,
+        )
+        mined = miner.extract(traces)
+
+        existing_keys: set[tuple] = set()
+        if existing:
+            existing_keys = {self._dedup_key(r) for r in existing}
+
+        new_proposals: list[ProposedConstraint] = []
+        for p in mined:
+            key = self._dedup_key(p)
+            if key in existing_keys:
+                continue
+            existing_keys.add(key)
+            new_proposals.append(p)
+
+        self._emit(
+            f"Trace mining done: +{len(new_proposals)} new contract(s) "
+            f"after dedup ({len(mined) - len(new_proposals)} dup(s) dropped)"
+        )
+        return new_proposals
 
     # -----------------------------------------------------------------
     # AST helpers

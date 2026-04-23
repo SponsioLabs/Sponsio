@@ -626,13 +626,6 @@ def _resolve_entry(entry):
         return nl, None
 
 
-def _otel_to_trace(data: dict):
-    """Convert OTEL JSON to Sponsio Trace. Delegates to otel_consumer module."""
-    from sponsio.tracer.otel_consumer import otel_to_trace
-
-    return otel_to_trace(data)
-
-
 @cli.command()
 @click.option(
     "--trace",
@@ -640,7 +633,11 @@ def _otel_to_trace(data: dict):
     "trace_path",
     required=True,
     type=click.Path(exists=True),
-    help="OTEL trace JSON file",
+    help=(
+        "Trace file to check against. Accepts OTLP/JSON, OTLP JSONL, "
+        "native Sponsio JSON/JSONL, and session JSONL — format is "
+        "sniffed from content."
+    ),
 )
 @click.argument("contracts", nargs=-1)
 @click.option(
@@ -678,11 +675,41 @@ def check(trace_path, contracts, config_path, agent_id, as_json):
         click.echo("Usage: sponsio check --trace FILE [CONTRACTS...] or --config FILE")
         sys.exit(1)
 
-    # Load trace
-    with open(trace_path) as f:
-        trace_data = json.load(f)
+    # Load trace(s) through the unified loader so this command handles
+    # the same formats as `sponsio scan --trace`.  For multi-trace
+    # files (native array, native JSONL), we concatenate events into
+    # one logical trace since `check` is a single-trace tool.
+    from sponsio.discovery.loaders import load_trace
+    from sponsio.models.trace import Trace as _Trace
 
-    trace = _otel_to_trace(trace_data)
+    try:
+        loaded = load_trace(trace_path)
+    except (FileNotFoundError, IsADirectoryError, ValueError) as e:
+        # Symmetric error handling with `sponsio scan -t`: any user-input
+        # problem surfaces as a friendly red line rather than a traceback.
+        # ``click.Path(exists=True)`` already blocks the FileNotFound case
+        # for direct args, but keeping it here protects future changes
+        # (e.g. accepting globs) from regressing.
+        click.echo(click.style(f"Error: {e}", fg="red"))
+        sys.exit(1)
+
+    if len(loaded) == 1:
+        trace = loaded[0]
+    else:
+        # Flatten — renumber ts so ordering is preserved across files.
+        merged_events: list = []
+        for t in loaded:
+            for ev in t.events:
+                merged_events.append(ev)
+        trace = _Trace(events=merged_events)
+        click.echo(
+            click.style(
+                f"  note: merged {len(loaded)} traces into one for evaluation",
+                fg="cyan",
+                dim=True,
+            ),
+            err=True,
+        )
 
     if not trace.events:
         click.echo(click.style("Warning: trace is empty (no spans found)", fg="yellow"))
@@ -1108,6 +1135,41 @@ def serve(host: str, port: int, dev: bool):
     help="Policy document (.md/.txt) to extract constraints from",
 )
 @click.option(
+    "--trace",
+    "-t",
+    "traces",
+    multiple=True,
+    type=str,
+    help=(
+        "Execution trace file, directory, or glob to mine contracts "
+        "from. Accepts OTLP/JSON, OTLP JSONL, native Sponsio "
+        "JSON/JSONL, and session-log JSONL "
+        "(~/.sponsio/sessions/<agent>/*.jsonl). `~` is expanded. Can "
+        "be repeated: `-t 'traces/*.jsonl' -t extra.json`. No LLM required."
+    ),
+)
+@click.option(
+    "--trace-min-support",
+    type=int,
+    default=1,
+    show_default=True,
+    help=(
+        "Minimum number of traces a pattern must appear in before "
+        "trace-mining proposes it. Default `1` is loose — bump up "
+        "(e.g. `5`) when feeding a large production audit log."
+    ),
+)
+@click.option(
+    "--trace-confidence-threshold",
+    type=float,
+    default=0.95,
+    show_default=True,
+    help=(
+        "Confidence floor for ordering / sequence mining (0–1). "
+        "Higher = stricter. Default 0.95."
+    ),
+)
+@click.option(
     "--push/--no-push",
     default=False,
     help=(
@@ -1144,21 +1206,28 @@ def scan(
     out: str | None,
     append: bool,
     policy: tuple[str, ...],
+    traces: tuple[str, ...],
+    trace_min_support: int,
+    trace_confidence_threshold: float,
     push: bool,
     push_url: str,
     config_path: str | None,
 ):
-    """Scan source code and policy docs to propose contracts.
+    """Scan source code, policy docs, and traces to propose contracts.
 
     Analyzes tool definitions, decorators, and call patterns to infer
     safety constraints. Optionally extracts constraints from policy
-    documents (.md/.txt) using the discovered tool inventory as context.
+    documents (.md/.txt) using the discovered tool inventory as context,
+    and mines ordering / exclusion / rate-limit patterns from execution
+    traces (OTLP/JSON, OTLP JSONL, or native Sponsio).
 
     \b
     Examples:
       sponsio scan src/                                # writes ./sponsio.yaml (rule-based)
       sponsio scan src/ --llm                          # + LLM inference
       sponsio scan src/ --policy security.md --llm     # code + policy
+      sponsio scan src/ -t 'traces/*.jsonl'            # code + trace mining
+      sponsio scan src/ -t traces/ --trace-min-support 5
       sponsio scan src/ -o custom.yaml                 # write to custom path
       sponsio scan src/ -o sponsio.yaml --append       # merge into existing
       sponsio scan src/ -o -                           # print to stdout (pipe)
@@ -1221,6 +1290,9 @@ def scan(
         agent_id=agent,
         policy_paths=list(policy),
         tool_inventory=tool_inventory,
+        trace_paths=list(traces) if traces else None,
+        trace_min_support=trace_min_support,
+        trace_confidence_threshold=trace_confidence_threshold,
     )
 
     # --- Auto-validate & drop unparseable contracts ---------------------
@@ -2588,6 +2660,210 @@ _BENCH_STOPWORDS = {
     "can",
     "cannot",
 }
+
+
+# ---------------------------------------------------------------------------
+# onboard
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.argument(
+    "target",
+    type=click.Path(file_okay=True, dir_okay=True, path_type=Path),
+    default=".",
+    required=False,
+)
+@click.option(
+    "--agent",
+    "agent_id",
+    default="agent",
+    show_default=True,
+    help=(
+        "Agent identifier stamped into sponsio.yaml.  Matches "
+        "`sponsio scan`'s default so a later `scan --append` lands "
+        "in the same agent block."
+    ),
+)
+@click.option(
+    "--mode",
+    type=click.Choice(["observe", "enforce"]),
+    default="observe",
+    show_default=True,
+    help=(
+        "Runtime mode written into sponsio.yaml.  Observe is the "
+        "safe default — never blocks, logs every would-have-blocked "
+        "decision to ~/.sponsio/sessions/<agent_id>/*.jsonl."
+    ),
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Overwrite an existing sponsio.yaml without prompting.",
+)
+@click.option(
+    "--no-probe-ollama",
+    is_flag=True,
+    help=(
+        "Skip the localhost:11434 liveness probe.  Useful in CI or "
+        "behind strict firewalls where the <500ms probe still times "
+        "out slowly and you'd rather jump straight to the starter pack."
+    ),
+)
+@click.option(
+    "--apply",
+    is_flag=True,
+    help=(
+        "Auto-patch the detected agent entry file with the Sponsio "
+        "wrap.  Writes a `.sponsio.bak` backup and validates the "
+        "result re-parses before saving.  Currently supported for "
+        "langgraph / langchain; other frameworks fall back to the "
+        "printed snippet."
+    ),
+)
+@click.option(
+    "--no-doctor",
+    is_flag=True,
+    help=(
+        "Skip the post-onboard `sponsio doctor` run.  By default we "
+        "run the full offline check battery so users see whether the "
+        "install is healthy before they switch to enforce mode."
+    ),
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    help="Emit the structured OnboardReport as JSON instead of text.",
+)
+def onboard(
+    target: Path,
+    agent_id: str,
+    mode: str,
+    force: bool,
+    no_probe_ollama: bool,
+    apply: bool,
+    no_doctor: bool,
+    as_json: bool,
+):
+    """One-shot project wire-up — detect framework, write sponsio.yaml, print patch.
+
+    Composes `init` + `scan` + `doctor` into a single command so
+    first-time users don't have to learn three subcommands just to
+    run the guard in observe mode.  Specifically:
+
+    \b
+      1. Detects the agent framework from imports + dependencies.
+      2. Detects the best available LLM provider (env vars →
+         OPENAI_BASE_URL → local Ollama → none).
+      3. Writes sponsio.yaml in observe mode with an inferred contract
+         set — LLM-inferred when a provider was found, or pure name-
+         heuristic starter pack when it wasn't.
+      4. Prints the framework-specific 2-line patch the user needs to
+         apply to their agent entry point.
+
+    Safe defaults throughout: mode=observe (never blocks on day 1),
+    agent_id="agent" (matches `sponsio scan`), and --force off (the
+    "I already have sponsio.yaml" case is louder than a silent overwrite).
+
+    Examples:\n
+        sponsio onboard\n
+        sponsio onboard src/\n
+        sponsio onboard . --agent customer_bot\n
+        sponsio onboard --force --no-probe-ollama
+    """
+    from sponsio.onboard import OnboardReport, run_onboard
+
+    def _progress(msg: str) -> None:
+        if not as_json:
+            click.echo(click.style("· ", fg="cyan", dim=True) + msg, err=True)
+
+    try:
+        report: OnboardReport = run_onboard(
+            target,
+            agent_id=agent_id,
+            mode=mode,
+            force=force,
+            probe_ollama=not no_probe_ollama,
+            apply=apply,
+            run_doctor=not no_doctor,
+            progress=_progress,
+        )
+    except FileExistsError as e:
+        click.echo(click.style("Error: ", fg="red") + str(e), err=True)
+        sys.exit(1)
+
+    if as_json:
+        click.echo(json.dumps(report.to_dict(), indent=2))
+        return
+
+    # Human-readable summary.  Kept compact so the wrap snippet is the
+    # last thing the user sees — it's what they need to act on.
+    click.echo()
+    click.secho(f"✓ {report.out_path}", fg="green")
+    click.echo(f"  tools:      {report.tools_count}")
+    click.echo(f"  contracts:  {report.contracts_count}")
+    click.echo(f"  mode:       {report.mode}")
+    click.echo(f"  framework:  {report.framework.framework}")
+    click.echo(f"  provider:   {report.provider.provider}")
+    if report.starter_pack_used:
+        click.secho(
+            "  · starter-pack applied (no-LLM safety net)",
+            fg="yellow",
+            dim=True,
+        )
+
+    if report.doctor_results is not None:
+        total = len(report.doctor_results)
+        fails = sum(1 for r in report.doctor_results if r.status == "fail")
+        warns = sum(1 for r in report.doctor_results if r.status == "warn")
+        if fails == 0 and warns == 0:
+            click.secho(f"  ✓ doctor:   {total}/{total} checks passed", fg="green")
+        else:
+            click.echo(
+                f"  doctor:     {total - fails - warns}/{total} ok"
+                + (click.style(f", {warns} warn", fg="yellow") if warns else "")
+                + (click.style(f", {fails} fail", fg="red") if fails else "")
+            )
+            for r in report.doctor_results:
+                if r.status in {"fail", "warn"}:
+                    color = "red" if r.status == "fail" else "yellow"
+                    click.echo(
+                        f"    {click.style(r.icon, fg=color)} {r.name}: {r.detail}"
+                    )
+
+    for w in report.warnings:
+        click.echo()
+        click.echo(click.style("  warn: ", fg="yellow") + w)
+
+    # Apply path: show diff when a patch was written, else fall back
+    # to the snippet so the user still sees what to do.
+    ar = report.apply_result
+    if ar is not None and getattr(ar, "applied", False):
+        click.echo()
+        click.secho(f"✓ patched {ar.file} (backup: {ar.backup})", fg="green")
+        if ar.diff:
+            click.echo(ar.diff)
+    else:
+        if ar is not None and ar.reason and not ar.error:
+            click.echo()
+            click.echo(
+                click.style("· apply skipped: ", fg="bright_black", dim=True)
+                + ar.reason
+            )
+        click.echo()
+        click.secho("Add this to your agent entry point:", bold=True)
+        click.echo()
+        for ln in report.wrap_snippet.splitlines():
+            click.echo(f"  {click.style(ln, fg='cyan')}")
+
+    click.echo()
+    click.echo("Next:")
+    click.echo("  sponsio report --since 24h            # what would have been blocked")
+    click.echo(
+        "  # after a day or two of real traffic, flip `mode: enforce` in sponsio.yaml"
+    )
+    click.echo()
 
 
 # ---------------------------------------------------------------------------
