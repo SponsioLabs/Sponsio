@@ -56,6 +56,7 @@ the framework shims (``sponsio.langgraph``, ``sponsio.openai``,
 
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import time
@@ -70,6 +71,24 @@ from sponsio.constants import (
     default_dashboard_url,
 )
 from sponsio.integrations.base import BaseGuard
+
+
+def _coerce_dashboard_env(value: str) -> str | bool | None:
+    """Parse the ``SPONSIO_DASHBOARD`` env var into a dashboard argument.
+
+    Mirrors :func:`sponsio.config._parse_runtime_section` so a YAML
+    setting and an env-var setting produce the same resolved value.
+    """
+    stripped = value.strip()
+    lowered = stripped.lower()
+    if lowered in ("", "none", "null"):
+        return None
+    if lowered in ("true", "yes", "on", "1"):
+        return True
+    if lowered in ("false", "no", "off", "0"):
+        return False
+    return stripped  # URL
+
 
 # ---------------------------------------------------------------------------
 # Framework registry — maps framework name to (module_path, class_name)
@@ -272,16 +291,24 @@ def Sponsio(  # noqa: N802 — branded factory function
             Each entry becomes one independent ``Contract``; assumptions
             never cross contracts.
         dashboard: True (auto-start), str (URL), or None/False.
+            Falls back to ``SPONSIO_DASHBOARD`` env var, then to the
+            ``runtime.dashboard`` field in ``sponsio.yaml`` when
+            ``config=`` is given. Precedence:
+            ctor arg > env > yaml > None (disabled).
+            The env var also applies to inline guards (no ``config=``)
+            so leaving ``SPONSIO_DASHBOARD`` set system-wide will
+            attach a dashboard to every Sponsio instance in the process.
         verbose: Enable terminal output (default True).
         verbosity: Detail level (0=violations, 1=all, 2=spans).
         otel_exporter: Optional OTEL exporter for span export.
-        mode: Enforcement mode. ``"enforce"`` (default) blocks on det
-            violations and retries on sto. ``"observe"`` (shadow mode)
-            logs every violation to
-            ``~/.sponsio/sessions/<agent_id>/*.jsonl`` without blocking
-            — the recommended first-run setting when adopting Sponsio on
-            a live agent. The ``SPONSIO_MODE`` environment variable
-            overrides this argument.
+        mode: Enforcement mode. ``"enforce"`` blocks on det violations
+            and retries on sto; ``"observe"`` (default) logs every
+            violation to ``~/.sponsio/sessions/<agent_id>/*.jsonl``
+            without blocking — the recommended first-run setting when
+            adopting Sponsio on a live agent. Falls back to
+            ``SPONSIO_MODE`` env var, then to ``runtime.mode`` in
+            ``sponsio.yaml`` when ``config=`` is given. Precedence:
+            env > ctor arg > yaml > ``"observe"``.
         sto_judge: A :class:`BooleanJudge` (or compatible) used by sto
             atom evaluators in this guard. Recommended over the legacy
             module-level ``set_default_judge()``. Example::
@@ -309,6 +336,39 @@ def Sponsio(  # noqa: N802 — branded factory function
     """
     guard_cls = _resolve_guard_class(framework)
 
+    # --- Load YAML early so its ``runtime:`` section can feed
+    # mode/dashboard resolution below.  We do NOT build the guard from
+    # the parsed config yet — that still happens in the ``config
+    # is not None`` branch further down.
+    parsed = None
+    if config is not None:
+        if contracts is not None:
+            raise ValueError(
+                "Cannot combine 'config' with 'contracts'. "
+                "Use either a config file or inline contracts, not both."
+            )
+        from sponsio.config import load_config
+
+        parsed = load_config(config)
+
+    # --- Resolve mode (ctor arg > SPONSIO_MODE env > yaml > default).
+    # ``_resolve_mode`` inside BaseGuard still re-checks the env var so
+    # the env keeps winning even if we substitute a yaml value here;
+    # what changes is the *fallback* when neither arg nor env is set.
+    if mode is None and parsed is not None and parsed.runtime.mode:
+        if "SPONSIO_MODE" not in os.environ:
+            mode = parsed.runtime.mode
+
+    # --- Resolve dashboard (ctor arg > SPONSIO_DASHBOARD env > yaml > default).
+    # Unlike mode, dashboard has no env-read inside BaseGuard, so we
+    # apply the precedence here in full.
+    if dashboard is None:
+        env_dash = os.environ.get("SPONSIO_DASHBOARD")
+        if env_dash is not None:
+            dashboard = _coerce_dashboard_env(env_dash)
+        elif parsed is not None and parsed.runtime.dashboard is not None:
+            dashboard = parsed.runtime.dashboard
+
     # Dashboard
     dashboard_url: str | None = None
     if dashboard is True:
@@ -316,18 +376,8 @@ def Sponsio(  # noqa: N802 — branded factory function
     elif isinstance(dashboard, str):
         dashboard_url = dashboard
 
-    # Config mode
-    if config is not None:
-        if contracts is not None:
-            raise ValueError(
-                "Cannot combine 'config' with 'contracts'. "
-                "Use either a config file or inline contracts, not both."
-            )
-
-        from sponsio.config import config_to_guard_kwargs, load_config
-
-        parsed = load_config(config)
-
+    # Config mode (build guard from parsed YAML)
+    if parsed is not None:
         # Auto-infer agent_id when user didn't specify and config has one agent
         if agent_id == "agent" and agent_id not in parsed.agents:
             if len(parsed.agents) == 1:
@@ -338,6 +388,8 @@ def Sponsio(  # noqa: N802 — branded factory function
                     f"Config has multiple agents {available}. "
                     f"Please specify agent_id=... explicitly."
                 )
+
+        from sponsio.config import config_to_guard_kwargs
 
         cfg_kwargs = config_to_guard_kwargs(parsed, agent_id)
         cfg_kwargs["verbose"] = verbose

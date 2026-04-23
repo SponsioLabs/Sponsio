@@ -198,6 +198,40 @@ class PerformanceSection:
 
 
 @dataclass
+class RuntimeSection:
+    """Runtime-behaviour knobs (enforcement mode, dashboard).
+
+    Sponsio historically spread these settings across env vars
+    (``SPONSIO_MODE``, ``SPONSIO_DASHBOARD``) and constructor kwargs.
+    This section gives ops one place to pin them in YAML without
+    losing the env-var overrides needed for per-deploy flipping.
+
+    Precedence when :func:`sponsio.core.Sponsio` resolves each field
+    (note the asymmetry — ``mode`` lets env override an explicit ctor
+    arg, since ops need to flip enforcement in production without a
+    code change; ``dashboard`` does not, since it's typically a
+    deploy-time concern set in code)::
+
+        mode:       SPONSIO_MODE env  >  ctor arg  >  yaml  >  "observe"
+        dashboard:  ctor arg  >  SPONSIO_DASHBOARD env  >  yaml  >  None
+
+    The env vars also apply to inline guards (``Sponsio(contracts=[...])``
+    without ``config=``); only the yaml fallback requires a config.
+
+    Fields:
+      * ``mode``: ``"enforce"`` (block on det violations) or
+        ``"observe"`` (shadow-mode, log only). Unset falls through to
+        the BaseGuard default (``"observe"``).
+      * ``dashboard``: ``true`` (auto-start local dashboard), ``false``
+        (explicitly off), or a URL string. Unset behaves like no
+        ``dashboard=`` kwarg (no dashboard).
+    """
+
+    mode: str | None = None
+    dashboard: str | bool | None = None
+
+
+@dataclass
 class SponsoConfig:
     """Top-level parsed config."""
 
@@ -208,6 +242,7 @@ class SponsoConfig:
     extractor: ExtractorSection = field(default_factory=ExtractorSection)
     judge: JudgeSection = field(default_factory=JudgeSection)
     performance: PerformanceSection = field(default_factory=PerformanceSection)
+    runtime: RuntimeSection = field(default_factory=RuntimeSection)
 
 
 class ConfigError(Exception):
@@ -288,6 +323,58 @@ def _parse_performance_section(raw: Any) -> PerformanceSection:
         warn_slow_dfa_us=warn,
         histogram_size=hs,
     )
+
+
+_VALID_RUNTIME_MODES = frozenset({"enforce", "observe"})
+
+
+def _parse_runtime_section(raw: Any) -> RuntimeSection:
+    """Parse the optional ``runtime:`` block.
+
+    Validates ``mode`` against the same set :func:`_resolve_mode` uses so
+    a typo (e.g. ``mode: enforece``) fails fast at load-time, not on the
+    first guarded turn. ``dashboard`` coerces common string forms
+    (``"true"``/``"false"``/``"none"``) into the corresponding Python
+    values so ``${SPONSIO_DASHBOARD}`` interpolations from env vars
+    degrade gracefully — a URL, a bool, or nothing.
+    """
+    if raw is None:
+        return RuntimeSection()
+    if not isinstance(raw, dict):
+        raise ConfigError(f"'runtime' must be a mapping, got {type(raw).__name__}")
+
+    mode = raw.get("mode")
+    if mode is not None:
+        if not isinstance(mode, str):
+            raise ConfigError(
+                f"runtime.mode must be a string, got {type(mode).__name__}"
+            )
+        mode = mode.strip() or None
+        if mode is not None and mode not in _VALID_RUNTIME_MODES:
+            raise ConfigError(
+                f"runtime.mode must be one of "
+                f"{sorted(_VALID_RUNTIME_MODES)}, got {mode!r}"
+            )
+
+    dashboard: str | bool | None = raw.get("dashboard")
+    if isinstance(dashboard, str):
+        stripped = dashboard.strip()
+        lowered = stripped.lower()
+        if lowered in ("", "none", "null"):
+            dashboard = None
+        elif lowered in ("true", "yes", "on", "1"):
+            dashboard = True
+        elif lowered in ("false", "no", "off", "0"):
+            dashboard = False
+        else:
+            dashboard = stripped  # treat as URL
+    elif dashboard is not None and not isinstance(dashboard, bool):
+        raise ConfigError(
+            f"runtime.dashboard must be bool, string URL, or null, "
+            f"got {type(dashboard).__name__}"
+        )
+
+    return RuntimeSection(mode=mode, dashboard=dashboard)
 
 
 def _parse_judge_section(raw: Any) -> JudgeSection:
@@ -477,6 +564,7 @@ def load_config(path: str | Path) -> SponsoConfig:
         extractor=_parse_extractor_section(raw.get("extractor")),
         judge=_parse_judge_section(raw.get("judge")),
         performance=_parse_performance_section(raw.get("performance")),
+        runtime=_parse_runtime_section(raw.get("runtime")),
     )
 
     # Parse tools section

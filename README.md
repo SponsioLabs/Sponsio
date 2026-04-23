@@ -139,7 +139,64 @@ Three packaged scenarios: `cleanup` (coding), `trial` (healthcare), `loan` (fina
 
 ### 2. Integrate — 60 seconds in your agent
 
-Pick the Sponsio factory for your framework; every contract uses the fluent `contract(desc).enforce(...)` builder, with an optional `.assume(...)` for conditional rules.
+**Or — let a coding agent do it.** Paste the prompt below into Cursor / Claude Code / any agentic IDE and it will install Sponsio, detect your framework + LLM provider, generate a starter `sponsio.yaml`, and patch your agent entry file in one shot.
+
+<details>
+<summary><b>📋 Click to copy the one-prompt setup</b></summary>
+
+````text
+Set up Sponsio (https://github.com/Sponsio-ai/sponsio) in my project.
+Sponsio is an open-source contract layer for LLM agents — it sits in
+front of every tool call and enforces deterministic + LLM-judge
+contracts (rate limits, irreversible-action gates, ordering rules,
+PII filters, dangerous-shell blocks) before the agent can act.
+
+## Quickstart
+
+1. `pip install sponsio`     # or add to pyproject.toml / requirements.txt
+2. `sponsio onboard . --apply`
+
+The `onboard` command will:
+  * Detect my agent framework (langgraph / langchain / crewai /
+    openai-agents / claude-agent-sdk / mcp / openai) by grepping
+    imports + dependency files.
+  * Auto-detect an LLM provider for richer contract inference —
+    GOOGLE_API_KEY (free tier, preferred) > ANTHROPIC_API_KEY >
+    OPENAI_API_KEY > local Ollama on :11434.  When none is found,
+    it falls back to a name-heuristic starter pack so the generated
+    `sponsio.yaml` is never empty.
+  * Generate `sponsio.yaml` in `mode: observe` (logs every
+    would-have-blocked decision to `~/.sponsio/sessions/`, never
+    raises).
+  * Patch my agent entry file with `_sponsio_guard.wrap(tools)`,
+    leaving a `.sponsio.bak` backup; if patching can't be done
+    safely, prints the 2-3 line snippet for manual insertion.
+  * Run `sponsio doctor` and report wiring health.
+
+## Configure for my project
+
+Please:
+  1. Run `pip install sponsio` (or pin it in my dependency file).
+  2. Run `sponsio onboard . --apply` from my repo root.
+  3. Show me (a) the generated `sponsio.yaml`, (b) the diff applied
+     to my entry file, (c) any `sponsio doctor` warnings.
+  4. Open `sponsio.yaml` and trim/tune the auto-generated contracts
+     against what my tools actually do — drop any rules that don't
+     fit, tighten `confidence: <0.6` rules if they're real, bump
+     `rate_limit` numbers if my agent legitimately needs more.
+  5. Leave `mode: observe` for now.  After a day of real traffic,
+     tell me to run `sponsio report --since 24h` to see what *would*
+     have been blocked, then flip `mode: enforce` only on the rules
+     that look correct.
+
+If `sponsio onboard --apply` reports the framework isn't auto-patchable
+yet (currently only langgraph / langchain are auto-applied), apply
+the printed wrap snippet to my agent entry point manually.
+````
+
+</details>
+
+Or do it by hand. Pick the Sponsio factory for your framework; every contract uses the fluent `contract(desc).enforce(...)` builder, with an optional `.assume(...)` for conditional rules.
 
 ```python
 from langgraph.prebuilt import create_react_agent
@@ -207,6 +264,25 @@ guard = Sponsio(
     contracts=[...],
 )
 ```
+
+Or pin mode + dashboard in `sponsio.yaml` so your integration script stays env-only:
+
+```yaml
+# sponsio.yaml
+runtime:
+  mode: observe                    # "enforce" | "observe"
+  dashboard: http://localhost:8000 # URL | true | false | null
+
+agents:
+  support_bot:
+    contracts: [...]
+```
+
+```python
+guard = Sponsio(agent_id="support_bot", config="sponsio.yaml")
+```
+
+Precedence: explicit ctor arg > env (`SPONSIO_MODE`, `SPONSIO_DASHBOARD`) > yaml > default. Ops can still flip production with `SPONSIO_MODE=enforce` without a code change.
 
 After a day or two, review what would have fired:
 
