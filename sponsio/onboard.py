@@ -393,6 +393,178 @@ def _ollama_pick_model(url: str, timeout_s: float) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Pack auto-selection
+# ---------------------------------------------------------------------------
+
+
+# Frameworks where the agent runs a multi-step loop on its own —
+# the runaway pack's budget / loop-detection rules are only useful
+# when the loop exists in the first place.  A bare `openai` chat
+# completion call doesn't qualify; LangGraph / CrewAI etc. do.
+_RUNAWAY_FRAMEWORKS = frozenset(
+    {"langgraph", "langchain", "crewai", "openai_agents", "claude_agent"}
+)
+
+# Tool-name → pack tool slot.  Each pack ships rules keyed on a
+# specific generic name (``exec`` for the shell pack, ``read`` /
+# ``write`` / ``edit`` / ``apply_patch`` for the filesystem pack).
+# If a host project has a tool whose lowercased name matches one of
+# these aliases but isn't the canonical pack name, we emit a
+# ``tool_rename:`` so the pack rules apply to the host's actual tool.
+#
+# The aliases are deliberately conservative — only names that are
+# *unambiguously* the same capability.  ``run`` could mean shell or
+# could mean "kick off a workflow"; we don't include it.
+_SHELL_TOOL_ALIASES: dict[str, frozenset[str]] = {
+    "exec": frozenset(
+        {
+            "bash",
+            "shell",
+            "exec",
+            "execute",
+            "execute_command",
+            "run_command",
+            "run_shell",
+            "run_bash",
+            "terminal",
+            "subprocess",
+        }
+    ),
+}
+
+_FS_TOOL_ALIASES: dict[str, frozenset[str]] = {
+    "read": frozenset(
+        {"read", "read_file", "file_read", "open_file", "cat", "view_file", "load_file"}
+    ),
+    "write": frozenset(
+        {"write", "write_file", "file_write", "save_file", "create_file"}
+    ),
+    "edit": frozenset(
+        {"edit", "edit_file", "modify_file", "file_edit", "update_file"}
+    ),
+    "apply_patch": frozenset(
+        {"apply_patch", "apply_patch_file", "patch_file", "apply_diff", "patch"}
+    ),
+}
+
+
+@dataclass
+class PackSelection:
+    """Outcome of :func:`select_packs`.
+
+    Attributes:
+        packs: ordered include specs (e.g. ``["sponsio:core/universal",
+            "sponsio:capability/shell"]``).  Order matches what the
+            user will see in YAML — universal first, runaway second,
+            capability packs after.
+        tool_rename: mapping from pack-canonical name (``exec``,
+            ``read``, …) to the host's actual tool name.  Empty when
+            the host happens to use the same names the packs use.
+        needs_workspace: True iff the filesystem pack is included.
+            Triggers a ``workspace: <best-guess>`` line in the YAML
+            so the load-time placeholder check passes.
+        evidence: list of human-readable reasons, one per pack —
+            displayed in the onboard banner so users can see *why*
+            each pack was selected.
+    """
+
+    packs: list[str] = field(default_factory=list)
+    tool_rename: dict[str, str] = field(default_factory=dict)
+    needs_workspace: bool = False
+    evidence: list[str] = field(default_factory=list)
+
+
+def _match_alias(tool_name: str, alias_table: dict[str, frozenset[str]]) -> str | None:
+    """Return the pack-canonical name (table key) when ``tool_name``
+    matches one of the aliases; None otherwise.  Lowercases the
+    needle so ``RunCommand`` and ``run_command`` collapse onto the
+    same alias."""
+    needle = tool_name.lower()
+    for canonical, aliases in alias_table.items():
+        if needle in aliases:
+            return canonical
+    return None
+
+
+def select_packs(
+    framework: str,
+    tool_inventory: list[dict] | None,
+) -> PackSelection:
+    """Pick contract packs to auto-include based on framework + tools.
+
+    Heuristics (intentionally conservative — the bias is towards
+    "include packs that obviously help, skip everything else"):
+
+    * **``sponsio:core/universal``** — always.  Provides PII /
+      injection-free output guards that apply to any LLM agent.
+    * **``sponsio:core/runaway``** — when the framework runs a
+      multi-step loop on its own (LangGraph / CrewAI / etc.).  The
+      pack's budget + loop-detection rules don't apply to
+      one-shot completion calls.
+    * **``sponsio:capability/shell``** — when any tool name matches
+      a shell-execution alias (``bash`` / ``exec`` / ``run_command``
+      / …).
+    * **``sponsio:capability/filesystem``** — when any tool name
+      matches a filesystem alias (``read_file`` / ``write_file`` /
+      ``edit_file`` / ``apply_patch``).
+
+    Skipped on purpose:
+
+    * **``sponsio:incident/openclaw``** — pinned to a specific
+      vendor incident; teams should opt in deliberately, not by
+      heuristic.
+
+    Tool-rename pre-population: when a capability pack is selected
+    but the host's tool name differs from the pack's canonical
+    name, populate ``tool_rename:`` so the included rules apply
+    out of the box (``{exec: bash}`` etc.).
+    """
+    sel = PackSelection()
+    tool_inventory = tool_inventory or []
+    tool_names = [t.get("name", "") for t in tool_inventory if t.get("name")]
+
+    sel.packs.append("sponsio:core/universal")
+    sel.evidence.append("universal: applies to every LLM agent")
+
+    if framework in _RUNAWAY_FRAMEWORKS:
+        sel.packs.append("sponsio:core/runaway")
+        sel.evidence.append(
+            f"runaway: agentic-loop framework ({framework}) has budget exposure"
+        )
+
+    # Shell pack
+    shell_renames: dict[str, str] = {}
+    for name in tool_names:
+        canonical = _match_alias(name, _SHELL_TOOL_ALIASES)
+        if canonical and canonical not in shell_renames:
+            shell_renames[canonical] = name
+    if shell_renames:
+        sel.packs.append("sponsio:capability/shell")
+        matched = ", ".join(f"{k}->{v}" for k, v in shell_renames.items())
+        sel.evidence.append(f"shell: tools resemble exec ({matched})")
+        for k, v in shell_renames.items():
+            if k != v:
+                sel.tool_rename[k] = v
+
+    # Filesystem pack
+    fs_renames: dict[str, str] = {}
+    for name in tool_names:
+        canonical = _match_alias(name, _FS_TOOL_ALIASES)
+        if canonical and canonical not in fs_renames:
+            fs_renames[canonical] = name
+    if fs_renames:
+        sel.packs.append("sponsio:capability/filesystem")
+        matched = ", ".join(f"{k}->{v}" for k, v in fs_renames.items())
+        sel.evidence.append(f"filesystem: tools resemble file IO ({matched})")
+        sel.needs_workspace = True
+        for k, v in fs_renames.items():
+            if k != v:
+                sel.tool_rename[k] = v
+
+    return sel
+
+
+# ---------------------------------------------------------------------------
 # YAML composition
 # ---------------------------------------------------------------------------
 
@@ -425,6 +597,12 @@ class OnboardReport:
     # exit code.  Tests can assert on the count of failed checks.
     doctor_results: list | None = None
     doctor_exit_code: int | None = None
+    # Populated by :func:`select_packs`.  None preserves the older
+    # report shape for callers that don't care about pack picks;
+    # the field is present whenever ``run_onboard`` ran the
+    # selection step (always, currently — kept Optional only for
+    # forward compat with `auto_select=False` flag we may add).
+    pack_selection: PackSelection | None = None
 
     def to_dict(self) -> dict:
         d: dict = {
@@ -464,6 +642,13 @@ class OnboardReport:
                 "error": getattr(ar, "error", ""),
                 "diff": getattr(ar, "diff", ""),
             }
+        if self.pack_selection is not None:
+            d["packs"] = {
+                "selected": list(self.pack_selection.packs),
+                "tool_rename": dict(self.pack_selection.tool_rename),
+                "needs_workspace": self.pack_selection.needs_workspace,
+                "evidence": list(self.pack_selection.evidence),
+            }
         if self.doctor_results is not None:
             d["doctor"] = {
                 "exit_code": self.doctor_exit_code,
@@ -477,6 +662,89 @@ class OnboardReport:
                 ],
             }
         return d
+
+
+def _emit_pack_block(
+    selection: PackSelection,
+    workspace: str | None,
+) -> list[str]:
+    """Render the ``include:`` / ``workspace:`` / ``tool_rename:`` lines
+    that get spliced under the agent block.
+
+    The lines are agent-scoped: indented ``    `` (4 spaces, the
+    agent block's body indent in the scan YAML).  Each pack has a
+    one-line comment explaining why it was selected so users
+    reading the YAML understand the picks without consulting docs.
+    Returns an empty list when no packs were selected (only happens
+    in edge cases where the universal pack itself fails to register).
+    """
+    if not selection.packs:
+        return []
+
+    out: list[str] = []
+    if workspace is not None and selection.needs_workspace:
+        out.append("    # Project root — resolves the `<workspace>/` placeholder")
+        out.append("    # used by the filesystem pack rules below.  Edit if your")
+        out.append("    # agent runs from a different directory at deploy time.")
+        out.append(f'    workspace: "{workspace}"')
+        out.append("")
+
+    if selection.tool_rename:
+        out.append("    # Maps the packs' canonical tool names onto the names your")
+        out.append("    # codebase actually uses.  Pre-populated from the scanned")
+        out.append("    # tool inventory; remove an entry if it's wrong.")
+        out.append("    tool_rename:")
+        for canonical, host in selection.tool_rename.items():
+            out.append(f"      {canonical}: {host}")
+        out.append("")
+
+    out.append("    # Auto-selected contract packs.  Each pack ships a curated set")
+    out.append("    # of rules; use `overrides:` below to disable individual ones")
+    out.append("    # without forking the pack.")
+    out.append("    include:")
+    for pack, why in zip(selection.packs, selection.evidence):
+        out.append(f"      - {pack}  # {why}")
+    out.append("")
+    return out
+
+
+def _splice_pack_block_into_agent(
+    yaml_text: str,
+    agent_id: str,
+    pack_lines: list[str],
+) -> str:
+    """Insert the pack block immediately after the agent's header line.
+
+    The scan YAML shape we splice into is::
+
+        agents:
+          <agent_id>:
+            contracts:
+              - E: ...
+
+    We want the result to be::
+
+        agents:
+          <agent_id>:
+            include:
+              - sponsio:core/universal
+            contracts:
+              - E: ...
+
+    Splicing right after ``  <agent_id>:`` keeps ``include:`` adjacent
+    to ``workspace:`` and ``tool_rename:`` (the same agent-scoped
+    settings cluster together — better for scanning).  No-op when
+    ``pack_lines`` is empty.
+    """
+    if not pack_lines:
+        return yaml_text
+    lines = yaml_text.split("\n")
+    agent_header = f"  {agent_id}:"
+    for i, ln in enumerate(lines):
+        if ln.rstrip() == agent_header:
+            lines = lines[: i + 1] + pack_lines + lines[i + 1 :]
+            return "\n".join(lines)
+    return yaml_text
 
 
 def _compose_yaml(
@@ -797,6 +1065,16 @@ def run_onboard(
             "and re-run `sponsio onboard --force` for richer inference."
         )
 
+    # --- Stage 3.5: pack auto-selection ---------------------------------
+    pack_selection = select_packs(framework.framework, tool_inventory)
+    if pack_selection.packs:
+        _emit(
+            f"packs: +{len(pack_selection.packs)} auto-selected "
+            f"({', '.join(p.split(':', 1)[1] for p in pack_selection.packs)})"
+        )
+    pack_workspace = str(root.resolve()) if pack_selection.needs_workspace else None
+    pack_lines = _emit_pack_block(pack_selection, pack_workspace)
+
     # --- Stage 4: compose + write ---------------------------------------
     final_yaml = _compose_yaml(
         provider=provider,
@@ -804,6 +1082,7 @@ def run_onboard(
         agent_id=agent_id,
         scan_yaml=scan_yaml,
     )
+    final_yaml = _splice_pack_block_into_agent(final_yaml, agent_id, pack_lines)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(final_yaml)
     _emit(f"wrote {out_path}")
@@ -866,7 +1145,21 @@ def run_onboard(
         except Exception as e:  # noqa: BLE001
             warnings.append(f"sponsio doctor failed to run: {e}")
 
-    final_contract_count = _count_contracts(final_yaml)
+    # Authoritative count: the number of contracts the user's agent
+    # will actually have at runtime.  Includes pack-pulled contracts
+    # via ``include:``, which the inline-scanning ``_count_contracts``
+    # heuristic misses by design.  We fall back to the heuristic only
+    # when the load fails (which would itself surface as a warning
+    # in the doctor stage above) so the report still has a sensible
+    # number to print.
+    try:
+        from sponsio.config import load_config as _load_for_count
+
+        _loaded = _load_for_count(out_path)
+        final_contract_count = len(_loaded.agents[agent_id].contracts)
+    except Exception as e:  # noqa: BLE001
+        warnings.append(f"could not load emitted yaml to count contracts: {e}")
+        final_contract_count = _count_contracts(final_yaml)
     return OnboardReport(
         out_path=out_path,
         agent_id=agent_id,
@@ -881,6 +1174,7 @@ def run_onboard(
         apply_result=apply_result,
         doctor_results=doctor_results,
         doctor_exit_code=doctor_exit_code,
+        pack_selection=pack_selection,
     )
 
 
