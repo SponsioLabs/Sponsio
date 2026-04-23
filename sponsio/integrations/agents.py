@@ -111,6 +111,10 @@ class AgentsSDKGuard(BaseGuard):
 
         guard = self
         tool_name = getattr(tool, "name", getattr(tool, "__name__", str(tool)))
+        # SDK kwarg name moved from ``name`` → ``name_override`` mid-2024.
+        # Pick whichever the installed SDK accepts so users on either
+        # side of the rename keep working.
+        _name_kw = _function_tool_name_kw(function_tool)
 
         # Get the original callable
         original_fn = _extract_function(tool)
@@ -137,7 +141,7 @@ class AgentsSDKGuard(BaseGuard):
 
                 return result
 
-            return function_tool(name=tool_name)(guarded_async)
+            return function_tool(**{_name_kw: tool_name})(guarded_async)
         else:
 
             @functools.wraps(original_fn)
@@ -160,7 +164,7 @@ class AgentsSDKGuard(BaseGuard):
 
                 return result
 
-            return function_tool(name=tool_name)(guarded_sync)
+            return function_tool(**{_name_kw: tool_name})(guarded_sync)
 
     def wrap(self, tools: list[Any]) -> list[Any]:
         """Wrap tools with contract enforcement for OpenAI Agents SDK.
@@ -203,6 +207,30 @@ class AgentsSDKGuard(BaseGuard):
         check = self.guard_before(tool_name, args)
         self.last_check = check
         return check
+
+
+def _function_tool_name_kw(function_tool: Callable) -> str:
+    """Return the kwarg name :func:`agents.function_tool` uses for the tool name.
+
+    The OpenAI Agents SDK renamed this kwarg from ``name`` →
+    ``name_override`` mid-2024.  We inspect the signature so users on
+    either side of the rename keep working without us hard-pinning a
+    minimum SDK version (which would block adoption on older
+    deployments).
+
+    Falls back to ``"name_override"`` (the post-rename spelling)
+    when the signature is unintrospectable, since that's the version
+    we recommend in the README and the older SDK is mostly retired.
+    """
+    try:
+        sig = inspect.signature(function_tool)
+    except (TypeError, ValueError):
+        return "name_override"
+    if "name_override" in sig.parameters:
+        return "name_override"
+    if "name" in sig.parameters:
+        return "name"
+    return "name_override"
 
 
 def _extract_function(tool: Any) -> Callable:

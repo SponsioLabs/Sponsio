@@ -8,7 +8,118 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **``runtime:`` section in ``sponsio.yaml``** pins enforcement mode
+  and dashboard URL in one place instead of spreading them across
+  ``SPONSIO_MODE`` / ``SPONSIO_DASHBOARD`` env vars and constructor
+  kwargs in every integration script. Example::
+
+        runtime:
+          mode: observe         # or "enforce"
+          dashboard: http://localhost:8000   # URL | true | false | null
+
+  Precedence is *explicit ctor arg > env var > yaml > default* for
+  dashboard, and *env > ctor arg > yaml > default* for mode (the env
+  must still win over explicit args so ops can flip production
+  behaviour without a code change). ``SPONSIO_DASHBOARD`` now also
+  accepts ``true`` / ``false`` / ``none`` as boolean shorthands, in
+  sync with the yaml value so copy-pasting between them Just Works.
+  New dataclass: ``sponsio.config.RuntimeSection``.
+
+- **``sponsio scan -t / --trace``** — statistical contract mining
+  from execution traces. Accepts::
+
+        # OpenTelemetry OTLP/JSON (what OTel Collector, Phoenix, Langfuse emit)
+        sponsio scan src/ -t 'traces/*.json'
+
+        # OTLP JSONL streaming exports
+        sponsio scan src/ -t spans.jsonl
+
+        # Native Sponsio traces (from ``sponsio benchmark`` and fixtures)
+        sponsio scan src/ -t trace.json
+
+        # Sponsio session logs (~/.sponsio/sessions/<agent>/*.jsonl)
+        sponsio scan src/ -t ~/.sponsio/sessions/bot/*.jsonl
+
+  Mines ``must_precede``, ``mutual_exclusion``, ``rate_limit`` /
+  ``idempotent``, and ``always_followed_by`` patterns and merges
+  them with code/policy proposals (dedupe on ``(pattern, args)``).
+  Each trace-sourced contract is labeled ``source: trace`` in the
+  YAML. Tune with ``--trace-min-support`` (default ``1``) and
+  ``--trace-confidence-threshold`` (default ``0.95``). No LLM
+  required.
+
+- **Unified trace loader** (``sponsio.discovery.loaders.load_trace``
+  / ``load_traces``) sniffs format from content (not extension) so a
+  ``.log`` file of OTLP spans still loads. Recognises OTLP/JSON,
+  OTLP JSONL (batches merged per file), native Sponsio
+  JSON/JSONL/array, and session event streams. Supports recursive
+  globs (``sessions/**/*.jsonl``) and mixed paths. Used by both
+  ``sponsio scan --trace`` and ``sponsio check --trace``.
+
+- **OpenInference attributes** recognised in ``otel_to_trace``
+  alongside OTel Gen AI semantics, so traces emitted by Arize
+  Phoenix, MLflow, and Langfuse flow through without adapters:
+  ``openinference.span.kind``, ``llm.model_name``,
+  ``llm.input_messages.{i}.message.content``,
+  ``llm.output_messages.{i}.message.content``,
+  ``llm.token_count.prompt`` / ``.completion``, ``tool.name``,
+  ``tool.parameters`` (JSON-decoded), ``input.value`` / ``output.value``
+  as last-resort fallbacks.
+
+### Changed
+- **``sponsio check --trace``** now accepts the same formats as
+  ``scan --trace`` (OTLP/JSON, OTLP JSONL, native JSON/JSONL,
+  session JSONL) via the unified loader. Multi-trace files are
+  merged into one logical trace for evaluation, with a note on
+  stderr.
+
 ### Fixed
+- **Trace loader recognises real `SessionLogger` output** at
+  ``~/.sponsio/sessions/<agent>/*.jsonl``. The first cut of the
+  unified loader only knew the per-line ``Event`` shape — but the
+  runtime logger writes per-decision ``MonitorEvent`` records
+  (``ts`` + ``action`` + ``pipeline`` + ``result``). Loading a real
+  session file would raise ``ValueError: Unrecognized JSONL trace
+  format`` despite being the headline ``--trace`` use case.
+  ``MonitorEvent`` records are now translated into synthetic
+  ``tool_call`` Events with ``constraint`` / ``pipeline`` / ``decision``
+  surfaced on ``args``, so ``sponsio scan -t ~/.sponsio/sessions/...``
+  Just Works.
+- **`sponsio scan -t <directory>` and `load_trace(<directory>)` no
+  longer crash with `IsADirectoryError`.** Directories are now
+  expanded to their top-level ``*.json`` / ``*.jsonl`` / ``*.ndjson``
+  files (use a glob like ``dir/**/*.jsonl`` for recursion). Empty
+  directories raise a friendly ``ValueError`` instead of leaking the
+  OS error.
+- **`~` is now expanded** in every loader entry point — previously
+  ``load_trace("~/...")`` and ``load_traces(["~/.sponsio/sessions/bot/*.jsonl"])``
+  treated ``~`` as a literal directory and silently returned nothing
+  / raised ``FileNotFoundError`` despite the documented support.
+- **Mixed-shape JSONL drops surface as a stderr warning.** When the
+  loader sniffs the first line and subsequent lines disagree, the
+  non-matching lines are still dropped (assumed homogeneous), but a
+  ``[sponsio] warning: ... dropped N non-matching line(s)`` line is
+  emitted so weak downstream proposals are explainable.
+- **``sponsio check --trace`` now catches ``FileNotFoundError`` and
+  ``IsADirectoryError`` symmetrically with ``scan -t``,** turning
+  user-input mistakes into a friendly red line rather than a Python
+  traceback.
+- **``sponsio.agents`` survives both the old (``name=``) and new
+  (``name_override=``) ``function_tool`` SDK signatures.** A
+  signature probe at first call picks the right kwarg, so users
+  pinned to either side of the mid-2024 SDK rename keep working
+  without us forcing a minimum version bump.
+- **`sponsio doctor` no longer silently inspects cwd's `sponsio.yaml`**
+  when given an unrelated path. Previously ``check_sponsio_yaml(/tmp/foo)``
+  would walk up to ``$PWD/sponsio.yaml`` and report on *that* — surprising
+  in the CLI and broke the "missing config → skip" contract. The CLI's
+  `path` already defaults to `"."` so the project-root use case is
+  unaffected; what's gone is the cross-directory fallback.
+- **`sponsio.agents` integration compatible with current `openai-agents` SDK.**
+  The SDK renamed `function_tool(name=...)` → `name_override=...` in a
+  recent release; ``AgentsSDKGuard.wrap_tool`` now uses the new kwarg so
+  Sponsio-wrapped tools attach without a ``TypeError``.
 - **Default Anthropic model** bumped from ``claude-3-5-sonnet-latest`` →
   ``claude-3-5-sonnet-20241022``. Anthropic retired the ``-latest`` alias
   and now returns ``404 not_found_error`` for it, which caused

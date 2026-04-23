@@ -289,6 +289,22 @@ class TestCheckSponsioYaml:
         assert r.status == "ok"
         assert "extractor=openai" in r.detail
 
+    def test_env_var_in_comment_is_ignored(self, tmp_path, monkeypatch):
+        """``sponsio onboard`` writes example commented-out hints like
+        ``# api_key: ${GOOGLE_API_KEY}`` for users who later want to
+        opt in.  Those references aren't actually consumed by the
+        loader, so doctor must not flag them as missing."""
+        monkeypatch.delenv("UNSET_HINT_VAR", raising=False)
+        (tmp_path / "sponsio.yaml").write_text(
+            "version: 1\n"
+            "# extractor:\n"
+            "#   provider: openai\n"
+            "#   api_key: ${UNSET_HINT_VAR}\n"
+        )
+        r = check_sponsio_yaml(tmp_path)
+        assert r.status == "ok", r.detail
+        assert "UNSET_HINT_VAR" not in r.detail
+
 
 # ---------------------------------------------------------------------------
 # LLM ping (network — patched out so tests stay offline)

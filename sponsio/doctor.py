@@ -266,10 +266,16 @@ def check_project_scan(path: Path) -> CheckResult:
 def _resolve_yaml_path(path: Path) -> Path | None:
     """Find the sponsio.yaml that ``doctor`` should examine, if any.
 
-    Three search strategies in priority order:
+    Two search strategies in priority order:
       1. ``path`` IS a yaml file → use it directly.
       2. ``path`` is a dir containing ``sponsio.yaml`` → use it.
-      3. cwd contains ``sponsio.yaml`` (and was different from path) → use it.
+
+    The CLI defaults ``path`` to ``"."``, so strategy (2) already
+    covers "user runs ``sponsio doctor`` from their project root".
+    We deliberately do **not** fall back to cwd when the user gives
+    an explicit unrelated path — silently inspecting a different
+    yaml would mask real "missing config" issues and surprise users
+    who expect ``doctor /some/dir`` to be self-contained.
 
     Returns ``None`` when nothing matches; the caller surfaces this as
     ``skip`` rather than ``warn`` because YAML config is optional.
@@ -278,9 +284,6 @@ def _resolve_yaml_path(path: Path) -> Path | None:
         return path
     if path.is_dir() and (path / "sponsio.yaml").exists():
         return path / "sponsio.yaml"
-    cwd = Path.cwd()
-    if cwd != path and (cwd / "sponsio.yaml").exists():
-        return cwd / "sponsio.yaml"
     return None
 
 
@@ -336,7 +339,15 @@ def check_sponsio_yaml(path: Path) -> CheckResult:
         return CheckResult("Config file", "warn", f"{yaml_path.name}: {e}")
 
     missing_vars: list[str] = []
-    for m in _RAW_ENV_RE.finditer(raw_text):
+    # Strip YAML comment-only lines before scanning — `${VAR}` inside a
+    # commented hint (e.g. ``# api_key: ${GOOGLE_API_KEY}``) is not an
+    # actual reference and shouldn't trigger a "missing env var" warning.
+    # We strip the WHOLE line when it starts with ``#`` after leading
+    # whitespace, which is the only form PyYAML treats as a comment.
+    scannable_text = "\n".join(
+        ln for ln in raw_text.splitlines() if not ln.lstrip().startswith("#")
+    )
+    for m in _RAW_ENV_RE.finditer(scannable_text):
         var, default = m.group(1), m.group(2)
         if default is not None:
             continue  # has a default — never "missing"

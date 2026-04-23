@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import builtins
+import sys
 
 import pytest
 
@@ -9,6 +11,7 @@ from sponsio.integrations.agents import (
     AgentsSDKGuard,
     ToolCallBlocked,
     _extract_function,
+    _function_tool_name_kw,
 )
 
 
@@ -126,7 +129,25 @@ class TestToolCallBlocked:
 
 
 class TestWrapTool:
-    def test_wrap_tool_requires_agents(self):
+    def test_wrap_tool_requires_agents(self, monkeypatch):
+        # Force the import inside ``wrap_tool`` to fail regardless of
+        # whether ``openai-agents`` is installed in the test env.
+        # We patch ``builtins.__import__`` so the relative-from import
+        # (``from agents import function_tool``) raises just like in a
+        # bare environment, without disturbing other imports the test
+        # suite needs.
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "agents":
+                raise ImportError("No module named 'agents'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        # Drop any cached module entry too so a previously-imported
+        # ``agents`` package can't shadow the simulated ImportError.
+        monkeypatch.setitem(sys.modules, "agents", None)
+
         guard = AgentsSDKGuard(contracts=["tool `A` must precede `B`"])
 
         def dummy_tool():
@@ -134,6 +155,31 @@ class TestWrapTool:
 
         with pytest.raises(ImportError, match="openai-agents is required"):
             guard.wrap_tool(dummy_tool)
+
+
+class TestFunctionToolNameKw:
+    """`_function_tool_name_kw` picks the kwarg name accepted by the
+    installed Agents SDK.  Pre-rename SDKs took ``name=``;
+    post-rename SDKs take ``name_override=``.  We pin both branches
+    so a future SDK swap can't silently regress."""
+
+    def test_post_rename_sdk(self):
+        def fake(name_override=None):  # mimic new SDK signature
+            return name_override
+
+        assert _function_tool_name_kw(fake) == "name_override"
+
+    def test_pre_rename_sdk(self):
+        def fake(name=None):  # mimic old SDK signature
+            return name
+
+        assert _function_tool_name_kw(fake) == "name"
+
+    def test_unintrospectable_falls_back_to_override(self):
+        # C-implemented callables sometimes refuse signature
+        # inspection; we default to the post-rename spelling since
+        # that's what the README documents.
+        assert _function_tool_name_kw(len) == "name_override"
 
 
 # ---------------------------------------------------------------------------
