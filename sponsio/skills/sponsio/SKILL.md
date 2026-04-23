@@ -340,12 +340,14 @@ Jump to W3. Don't disable in a panic — add a targeted `overrides:` entry with 
 
 ### "`sponsio onboard` detected the wrong framework."
 
-Override with `--framework <name>` (see `sponsio onboard --help` for valid values). If the framework isn't supported, fall back to manual:
+`onboard` doesn't currently take a `--framework` override flag. Fall back to the manual two-step:
 
 ```bash
 sponsio init --agent <id>
 sponsio scan <paths> --agent <id> -o sponsio.yaml
 ```
+
+Then hand-apply the integration snippet for your framework from the "Integration snippets" section below.
 
 ---
 
@@ -490,7 +492,7 @@ If asked for something out of scope (e.g., "also check my DB schema"), say so an
 
 This skill only uses these. Internal refactors are safe as long as these stay stable.
 
-1. **CLI**: `sponsio onboard [--apply] [--framework N]`, `sponsio scan PATHS [--agent N] [--llm] [--policy P] [-t GLOB] [-o FILE] [--append]`, `sponsio refresh [-c FILE] [-a AGENT] [-t GLOB] [--since DUR] [--mode add-only|replace-trace] [--apply]`, `sponsio validate [--config FILE | "NL string"] [--json]`, `sponsio check --trace FILE --config FILE --agent ID`, `sponsio report --agent ID --since DUR`, `sponsio doctor`, `sponsio patterns`, `sponsio packs`, `sponsio skill install [--tool cursor|claude|codex|both|auto]`. Exit 0 on success.
+1. **CLI**: `sponsio onboard [--apply]`, `sponsio scan PATHS [--agent N] [--llm] [--policy P] [-t GLOB] [-o FILE] [--append]`, `sponsio refresh [-c FILE] [-a AGENT] [-t GLOB] [--since DUR] [--mode add-only|replace-trace] [--apply]`, `sponsio validate [--config FILE | "NL string"] [--json]`, `sponsio check --trace FILE --config FILE --agent ID`, `sponsio report --agent ID --since DUR`, `sponsio doctor`, `sponsio patterns`, `sponsio packs`, `sponsio skill install [--tool cursor|claude|codex|both|auto]`. Exit 0 on success.
 2. **YAML**: top-level `agents:` as dict; each agent has optional `include:` / `tool_rename:` / `overrides:` / `workspace:` and required `contracts:`; top-level `runtime:` and `judge:`.
 3. **Patterns**: names in the table above keep their semantics. Renaming is a breaking change for this skill.
 4. **`validate --json` shape**: per-contract `ok` / `type` / `pattern` / `formula` / `agent`.
