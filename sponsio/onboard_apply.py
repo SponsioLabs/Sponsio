@@ -197,7 +197,9 @@ def apply_patch(
     lines = original.splitlines(keepends=True)
 
     # 1. Wrap each target call's tools argument.
-    edits: list[tuple[int, int, int, str]] = []  # (lineno, col_offset, end_col_offset, replacement)
+    edits: list[
+        tuple[int, int, int, str]
+    ] = []  # (lineno, col_offset, end_col_offset, replacement)
     wrapped_count = 0
     for call in call_sites:
         tools_arg = _resolve_tools_arg(call)
@@ -357,7 +359,11 @@ def _summarize_diff(before: str, after: str) -> str:
     # Insertion — show the inserted block by walking until streams
     # diverge, then printing the inserted lines.
     i = 0
-    while i < len(before_lines) and i < len(after_lines) and before_lines[i] == after_lines[i]:
+    while (
+        i < len(before_lines)
+        and i < len(after_lines)
+        and before_lines[i] == after_lines[i]
+    ):
         i += 1
     inserted = len(after_lines) - len(before_lines)
     out = []

@@ -40,7 +40,13 @@ _FRAMEWORK_IMPORT_SIGNATURES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("langchain", ("langchain.",)),
     ("claude_agent", ("claude_agent_sdk", "anthropic.agents")),
     ("crewai", ("crewai",)),
-    ("openai_agents", ("openai_agents", "agents.",)),
+    (
+        "openai_agents",
+        (
+            "openai_agents",
+            "agents.",
+        ),
+    ),
     ("openai", ("openai",)),
     ("vercel_ai", ("ai ",)),  # placeholder; JS-only, rarely reachable from .py
     ("mcp", ("mcp.",)),
@@ -187,8 +193,7 @@ def detect_framework(root: Path) -> FrameworkHint:
                     framework=fw_id,
                     factory=_FRAMEWORK_FACTORY[fw_id],
                     evidence=(
-                        f"found {count} `{fw_id}` import(s) "
-                        f"(first: {hit_file.name})"
+                        f"found {count} `{fw_id}` import(s) (first: {hit_file.name})"
                     ),
                     entry_file=hit_file,
                 )
@@ -332,8 +337,7 @@ def detect_provider(
             base_url=f"{ollama_url.rstrip('/')}/v1",
             model=model or "llama3.1",
             evidence=(
-                f"Ollama reachable on {ollama_url} "
-                f"(model: {model or 'llama3.1'})"
+                f"Ollama reachable on {ollama_url} (model: {model or 'llama3.1'})"
             ),
         )
 
@@ -455,9 +459,7 @@ class OnboardReport:
             d["apply"] = {
                 "applied": getattr(ar, "applied", False),
                 "file": (str(ar.file) if getattr(ar, "file", None) else None),
-                "backup": (
-                    str(ar.backup) if getattr(ar, "backup", None) else None
-                ),
+                "backup": (str(ar.backup) if getattr(ar, "backup", None) else None),
                 "reason": getattr(ar, "reason", ""),
                 "error": getattr(ar, "error", ""),
                 "diff": getattr(ar, "diff", ""),
@@ -498,12 +500,8 @@ def _compose_yaml(
     lines: list[str] = ["version: 1", ""]
 
     if provider.provider == "ollama":
-        lines.append(
-            "# Parse-time LLM via local Ollama.  Free & private, but the"
-        )
-        lines.append(
-            "# starter-pack rules below remain useful even if the daemon"
-        )
+        lines.append("# Parse-time LLM via local Ollama.  Free & private, but the")
+        lines.append("# starter-pack rules below remain useful even if the daemon")
         lines.append("# is offline when `sponsio scan --refresh` runs.")
         lines.append("extractor:")
         lines.append("  provider: openai")  # OpenAI-compatible schema
@@ -511,9 +509,7 @@ def _compose_yaml(
         lines.append(f"  base_url: {provider.base_url}")
         lines.append("")
     elif provider.provider in {"openai", "anthropic", "gemini"}:
-        lines.append(
-            "# Parse-time LLM (used by `sponsio scan` to turn code/docs into"
-        )
+        lines.append("# Parse-time LLM (used by `sponsio scan` to turn code/docs into")
         lines.append(
             "# contracts).  Offline & one-shot — favour accuracy over latency."
         )
@@ -534,9 +530,7 @@ def _compose_yaml(
         lines.append(
             "# No LLM configured — `sponsio scan` currently runs AST + starter-pack"
         )
-        lines.append(
-            "# only.  To enable richer inference, uncomment and fill in:"
-        )
+        lines.append("# only.  To enable richer inference, uncomment and fill in:")
         lines.append("# extractor:")
         lines.append("#   provider: gemini   # 1500 req/day free tier")
         lines.append("#   api_key: ${GOOGLE_API_KEY}")
@@ -545,12 +539,8 @@ def _compose_yaml(
     lines.append(
         "# Runtime sto-judge (evaluates stochastic atoms like `injection_free`)"
     )
-    lines.append(
-        "# on the agent's hot path.  Favour cheap+fast model; fault tolerance"
-    )
-    lines.append(
-        "# matters because LLM outages must NOT cascade into agent outages."
-    )
+    lines.append("# on the agent's hot path.  Favour cheap+fast model; fault tolerance")
+    lines.append("# matters because LLM outages must NOT cascade into agent outages.")
     lines.append("judge:")
     if provider.provider in {"openai", "anthropic", "gemini"} and provider.env_var:
         lines.append(f"  provider: {provider.provider}")
@@ -562,9 +552,7 @@ def _compose_yaml(
     lines.append("")
 
     lines.append("defaults:")
-    lines.append(
-        f"  mode: {mode}  # observe|enforce — observe = shadow (safe default)"
-    )
+    lines.append(f"  mode: {mode}  # observe|enforce — observe = shadow (safe default)")
     lines.append("")
 
     # Drop every line from the scan output until we hit ``tools:`` or
@@ -796,9 +784,7 @@ def run_onboard(
         starter = _dedup_starter_proposals(starter, scan_yaml)
         if starter:
             starter_pack_used = True
-            scan_yaml = _append_proposals_to_yaml(
-                scan_yaml, starter, agent_id=agent_id
-            )
+            scan_yaml = _append_proposals_to_yaml(scan_yaml, starter, agent_id=agent_id)
             _emit(
                 f"starter-pack: +{len(starter)} contract(s) "
                 f"from name-heuristic safety rules"
@@ -876,9 +862,7 @@ def run_onboard(
         try:
             from sponsio.doctor import run_doctor as _run_doctor
 
-            doctor_results, doctor_exit_code = _run_doctor(
-                root, with_llm=False
-            )
+            doctor_results, doctor_exit_code = _run_doctor(root, with_llm=False)
         except Exception as e:  # noqa: BLE001
             warnings.append(f"sponsio doctor failed to run: {e}")
 
@@ -1100,9 +1084,7 @@ def _append_proposals_to_yaml(
         appended.append(f"          pattern: {pattern}")
         args = p.evidence.get("args") if isinstance(p.evidence, dict) else None
         if args:
-            appended.append(
-                f"          args: {CodeAnalyzer._emit_yaml_list(args)}"
-            )
+            appended.append(f"          args: {CodeAnalyzer._emit_yaml_list(args)}")
         appended.append("          source: scan")
 
     # Find the end of this agent's block (next top-level key or EOF).
