@@ -779,6 +779,197 @@ def _load_pack_contracts(
     return pulled
 
 
+# ---------------------------------------------------------------------------
+# tool_rename: + workspace: — rewrite pulled-in pack contents into
+# the host's vocabulary
+# ---------------------------------------------------------------------------
+
+
+_WORKSPACE_PLACEHOLDER = "<workspace>/"
+
+
+def _rewrite_string(
+    text: str,
+    workspace: str | None,
+    tool_rename: dict[str, str],
+) -> str:
+    """Apply workspace + tool-rename rewrites to a single string.
+
+    * ``<workspace>/`` — literal substring replacement.  Skipped when
+      ``workspace`` is None; the caller decides whether unresolved
+      placeholders should error.
+    * Tool renames — whole-word identifier substitution (``\\b{name}\\b``)
+      so a rename of ``exec → bash`` doesn't accidentally hit
+      ``executor`` or ``rexec``.
+    """
+    out = text
+    if workspace is not None and _WORKSPACE_PLACEHOLDER in out:
+        ws = workspace.rstrip("/") + "/"
+        out = out.replace(_WORKSPACE_PLACEHOLDER, ws)
+    if tool_rename:
+        for old, new in tool_rename.items():
+            out = re.sub(rf"\b{re.escape(old)}\b", new, out)
+    return out
+
+
+def _rewrite_arg(arg: Any, workspace: str | None, tool_rename: dict[str, str]) -> Any:
+    """Rewrite one ``args`` element.
+
+    Strings get string-level rewrites.  Lists recurse so
+    ``args: [scope_limit, [<workspace>/, /tmp/]]`` works.  Tool-rename
+    on a *whole* string arg additionally honours exact-match aliasing —
+    ``args: [exec, 50]`` with ``tool_rename = {exec: bash}`` becomes
+    ``[bash, 50]`` even when ``exec`` is the entire arg (no word
+    boundary on a single token).  Non-string scalars pass through.
+    """
+    if isinstance(arg, str):
+        rewritten = _rewrite_string(arg, workspace, tool_rename)
+        if tool_rename and rewritten in tool_rename:
+            rewritten = tool_rename[rewritten]
+        return rewritten
+    if isinstance(arg, list):
+        return [_rewrite_arg(a, workspace, tool_rename) for a in arg]
+    return arg
+
+
+def _rewrite_constraint_entry(
+    ce: ConstraintEntry,
+    workspace: str | None,
+    tool_rename: dict[str, str],
+    agent_id: str,
+    enforce_placeholder_check: bool,
+) -> None:
+    """Mutate ``ce`` in place: apply rewrites to ``args`` and ``ltl``.
+
+    ``nl`` / ``pattern`` / ``desc`` / ``source`` are intentionally
+    left alone — NL is fluid prose (rewrites would corrupt grammar),
+    pattern names are stable identifiers, and ``source`` is metadata
+    only.
+
+    Args:
+        enforce_placeholder_check: When True, raise if any
+            ``<workspace>/`` placeholder remains after substitution.
+            Only the include-resolution path turns this on — direct
+            loads of a pack file (``load_config("sponsio/contracts/
+            capability/filesystem.yaml")``) need to succeed for
+            ``sponsio validate`` and CI to inspect packs without a
+            host config.
+
+    Raises:
+        ConfigError: When ``enforce_placeholder_check`` is True and a
+            placeholder leaked through.  Naming the offending entry
+            beats discovering it at first-event evaluation time.
+    """
+    if ce.args:
+        ce.args = [_rewrite_arg(a, workspace, tool_rename) for a in ce.args]
+    if ce.ltl:
+        ce.ltl = _rewrite_string(ce.ltl, workspace, tool_rename)
+
+    if enforce_placeholder_check and workspace is None:
+        leftover = []
+        for a in ce.args or []:
+            if isinstance(a, str) and _WORKSPACE_PLACEHOLDER in a:
+                leftover.append(a)
+            elif isinstance(a, list):
+                leftover.extend(
+                    s for s in a if isinstance(s, str) and _WORKSPACE_PLACEHOLDER in s
+                )
+        if ce.ltl and _WORKSPACE_PLACEHOLDER in ce.ltl:
+            leftover.append(ce.ltl)
+        if leftover:
+            raise ConfigError(
+                f"Agent '{agent_id}': pattern '{ce.pattern or 'ltl'}' uses "
+                f"the '<workspace>/' placeholder but the agent has no "
+                f"'workspace:' set. Add `workspace: \"/path/to/your/repo\"` "
+                f"to this agent.  Offending values: {leftover!r}"
+            )
+
+
+def _rewrite_contract_entry(
+    contract: ContractEntry,
+    workspace: str | None,
+    tool_rename: dict[str, str],
+    agent_id: str,
+) -> None:
+    """Walk both ``enforcement`` and ``assumption`` (each may be a
+    single ConstraintEntry or a list) and apply rewrites in place.
+
+    The ``<workspace>/`` leftover check fires only on contracts that
+    came in via ``include:`` (``contract.pack_source is not None``).
+    Locally-authored or direct-loaded pack contracts are considered
+    the user's responsibility — they may be inspecting a pack file
+    via ``sponsio validate`` and need it to load even without a host
+    workspace set.
+    """
+    enforce_check = contract.pack_source is not None
+
+    def walk(field):
+        if field is None:
+            return
+        if isinstance(field, list):
+            for ce in field:
+                _rewrite_constraint_entry(
+                    ce, workspace, tool_rename, agent_id, enforce_check
+                )
+        else:
+            _rewrite_constraint_entry(
+                field, workspace, tool_rename, agent_id, enforce_check
+            )
+
+    walk(contract.enforcement)
+    walk(contract.assumption)
+
+
+def _parse_tool_rename(raw: Any, agent_id: str) -> dict[str, str]:
+    """Validate and normalize the ``tool_rename:`` mapping.
+
+    Schema: ``{old_name: new_name, ...}`` — both string, both
+    non-empty.  The mapping must not be cyclic; cycles would make
+    rewrite order observable, which is a bad surface to expose.
+
+    Returns an empty dict when the section is absent, so callers can
+    treat "rename" uniformly.
+    """
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ConfigError(
+            f"Agent '{agent_id}': 'tool_rename' must be a mapping of "
+            f"old_name -> new_name, got {type(raw).__name__}"
+        )
+    out: dict[str, str] = {}
+    for k, v in raw.items():
+        if not isinstance(k, str) or not k.strip():
+            raise ConfigError(
+                f"Agent '{agent_id}': 'tool_rename' keys must be non-empty "
+                f"strings; got {k!r}"
+            )
+        if not isinstance(v, str) or not v.strip():
+            raise ConfigError(
+                f"Agent '{agent_id}': 'tool_rename' values must be non-empty "
+                f"strings; got {v!r} for key {k!r}"
+            )
+        out[k] = v
+    # Reject self-mappings before the cycle check — ``exec: exec``
+    # technically satisfies ``out[v] == k`` but the dedicated message
+    # is more actionable than "cycle between exec and exec".
+    for k, v in out.items():
+        if k == v:
+            raise ConfigError(
+                f"Agent '{agent_id}': 'tool_rename' has a no-op self-mapping "
+                f"{k!r} -> {v!r}; remove the entry"
+            )
+    # Cycle check — rewrite order would be observable otherwise (a→b
+    # then b→a flips back).
+    for k, v in out.items():
+        if v in out and out[v] == k:
+            raise ConfigError(
+                f"Agent '{agent_id}': 'tool_rename' contains a cycle "
+                f"between {k!r} and {v!r}"
+            )
+    return out
+
+
 def load_config(path: str | Path) -> SponsoConfig:
     """Load and validate a sponsio.yaml config file.
 
@@ -869,6 +1060,16 @@ def load_config(path: str | Path) -> SponsoConfig:
                 )
             ac = AgentConfig(agent_id=agent_id)
 
+            workspace_raw = agent_data.get("workspace")
+            if workspace_raw is not None and (
+                not isinstance(workspace_raw, str) or not workspace_raw.strip()
+            ):
+                raise ConfigError(
+                    f"Agent '{agent_id}': 'workspace' must be a non-empty "
+                    f"string path, got {workspace_raw!r}"
+                )
+            tool_rename = _parse_tool_rename(agent_data.get("tool_rename"), agent_id)
+
             includes = agent_data.get("include", [])
             if includes:
                 if not isinstance(includes, list):
@@ -887,6 +1088,12 @@ def load_config(path: str | Path) -> SponsoConfig:
                 raise ConfigError(f"Agent '{agent_id}': 'contracts' must be a list")
             for item in contracts_raw:
                 ac.contracts.append(_parse_contract_entry(item, agent_id))
+
+            for contract in ac.contracts:
+                _rewrite_contract_entry(
+                    contract, workspace_raw, tool_rename, agent_id
+                )
+
             config.agents[agent_id] = ac
         else:
             raise ConfigError(f"Agent '{agent_id}': value must be a mapping or list")

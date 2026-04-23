@@ -223,7 +223,10 @@ class TestIncludeIntoAgent:
     def test_pulled_contracts_compile(self, tmp_path):
         """Inclusion is value-add only if the pulled contracts actually
         compile in the host context.  This verifies that the routing
-        path is end-to-end clean — no half-included packs."""
+        path is end-to-end clean — no half-included packs.  The
+        filesystem pack uses ``<workspace>/`` placeholders, so the
+        host must set ``workspace:`` — exercising the same path real
+        users will hit."""
         from sponsio.config import _compile_field
 
         cfg_path = _write_yaml(
@@ -232,6 +235,7 @@ class TestIncludeIntoAgent:
             """
             agents:
               bot:
+                workspace: "/Users/me/proj"
                 include:
                   - sponsio:core/universal
                   - sponsio:capability/filesystem
