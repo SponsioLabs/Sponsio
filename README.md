@@ -200,48 +200,24 @@ A `support_bot` is just an example. Same shape works for a coding agent, a loan 
 <summary><b>📋 Or paste this one-prompt setup into Cursor / Claude Code</b></summary>
 
 ````text
-Set up Sponsio (https://github.com/Sponsio-ai/sponsio) in my project.
-Sponsio is an open-source contract layer for LLM agents — it sits in
-front of every tool call and enforces deterministic + LLM-judge
-contracts (rate limits, irreversible-action gates, ordering rules,
-PII filters, dangerous-shell blocks) before the agent can act.
+Set up Sponsio (https://pypi.org/project/sponsio/) in my project.
 
-Steps:
-  1. `pip install sponsio`     # or add to pyproject.toml / requirements.txt
-  2. `sponsio onboard . --apply`
+    pip install sponsio
+    sponsio onboard .
 
-The `onboard` command will:
-  * Detect my agent framework (langgraph / langchain / crewai /
-    openai-agents / claude-agent-sdk / mcp / openai) by grepping
-    imports + dependency files.
-  * Auto-detect an LLM provider for richer contract inference —
-    GOOGLE_API_KEY (free tier, preferred) > ANTHROPIC_API_KEY >
-    OPENAI_API_KEY > local Ollama on :11434. When none is found,
-    falls back to a name-heuristic starter pack so the generated
-    `sponsio.yaml` is never empty.
-  * Generate `sponsio.yaml` in `mode: observe` (logs every
-    would-have-blocked decision to `~/.sponsio/sessions/`, never
-    raises).
-  * Patch my agent entry file with `_sponsio_guard.wrap(tools)`,
-    leaving a `.sponsio.bak` backup; if patching can't be done
-    safely, prints the 2-3 line snippet for manual insertion.
-  * Run `sponsio doctor` and report wiring health.
+`onboard` detects my framework, writes sponsio.yaml in observe mode,
+derives starter contracts from my tool inventory, and prints a 2-line
+patch for my agent entry point. Apply the patch — that's it.
 
-Then:
-  3. Show me (a) the generated `sponsio.yaml`, (b) the diff applied
-     to my entry file, (c) any `sponsio doctor` warnings.
-  4. Open `sponsio.yaml` and trim/tune the auto-generated contracts
-     against what my tools actually do — drop rules that don't fit,
-     tighten `confidence: <0.6` rules if they're real, bump
-     `rate_limit` numbers if my agent legitimately needs more.
-  5. Leave `mode: observe`. After a day of real traffic, run
-     `sponsio report --since 24h` to see what *would* have been
-     blocked, then flip `mode: enforce` only on the rules that look
-     correct.
+Nothing is blocked on day 1 (observe mode). Sponsio logs every
+would-have-blocked decision to ~/.sponsio/sessions/<agent_id>/*.jsonl.
 
-If `--apply` reports the framework isn't auto-patchable yet (currently
-only langgraph / langchain are auto-applied), apply the printed wrap
-snippet to my agent entry point manually.
+After running, show me sponsio.yaml, the patch you applied, and any
+`sponsio doctor` warnings.
+
+Later:
+    sponsio report --since 24h   # what would have been blocked
+    # prune false positives in sponsio.yaml, then flip `mode: enforce`
 ````
 
 </details>
