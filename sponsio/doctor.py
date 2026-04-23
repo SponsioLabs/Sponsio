@@ -457,6 +457,102 @@ def check_llm_ping(extractor_section: Any = None) -> CheckResult:
     )
 
 
+def check_skill_installed() -> CheckResult:
+    """Report whether the Sponsio Agent Skill is installed + healthy
+    in any of the discovery directories Cursor / Claude Code / Codex
+    look at.
+
+    Three interesting outcomes:
+
+    * **skip** — no skill installed anywhere, and the user hasn't
+      chosen to use the skill system (no tool dirs exist at all).
+      Not a bug; just surfaces the ``sponsio skill install`` hint so
+      users know the feature exists.
+
+    * **ok** — at least one tool has a healthy, up-to-date skill.
+      List which ones.
+
+    * **warn** — at least one tool has a stale *copy* (the packaged
+      SKILL.md has moved ahead of what's installed).  This is the
+      classic ``pip install -U sponsio`` foot-gun: the Python API got
+      upgraded but the skill the agent dispatcher reads is still
+      V(n-1).  Nudge with the one-line fix.
+
+    * **fail** — an install exists but is structurally broken
+      (missing SKILL.md, wrong frontmatter, etc.).  Worth flagging
+      loudly because the user thinks they're using Sponsio's skill
+      but their agent isn't actually seeing it.
+    """
+    # Lazy import to avoid a hard cli → doctor circular reference and
+    # to keep doctor's module-load cheap when these helpers aren't
+    # needed (e.g. ``doctor --json`` in a Lambda).
+    try:
+        from sponsio.cli import (
+            _packaged_skill_source,
+            _SKILL_TOOL_DIRS,
+            _verify_skill_install_target,
+        )
+    except Exception as e:  # pragma: no cover — cli always importable
+        return CheckResult("Agent Skill", "skip", f"cli helpers unavailable: {e}")
+
+    try:
+        src = _packaged_skill_source()
+    except FileNotFoundError as e:
+        # The wheel itself is missing the skill data.  That's a
+        # packaging bug, not a user config issue — flag it.
+        return CheckResult("Agent Skill", "fail", f"packaged skill missing: {e}")
+
+    probes = [
+        _verify_skill_install_target(name, parent, src)
+        for name, parent in _SKILL_TOOL_DIRS.items()
+    ]
+
+    ok = [p for p in probes if p.status == "ok"]
+    drift = [p for p in probes if p.status == "drift"]
+    broken = [p for p in probes if p.status == "broken"]
+
+    if broken:
+        names = ", ".join(p.tool for p in broken)
+        return CheckResult(
+            "Agent Skill",
+            "fail",
+            f"broken at {names} — re-run `sponsio skill install --force`",
+        )
+    if drift:
+        names = ", ".join(p.tool for p in drift)
+        return CheckResult(
+            "Agent Skill",
+            "warn",
+            f"stale copy at {names} — `sponsio skill install --force` to refresh",
+        )
+    if ok:
+        names = ", ".join(p.tool for p in ok)
+        # Distinguish link vs copy so users know whether they're on
+        # auto-upgrade rails or need to manually re-install after
+        # ``pip install -U``.
+        modes = sorted({p.mode for p in ok})
+        return CheckResult(
+            "Agent Skill",
+            "ok",
+            f"installed in {names} ({', '.join(modes)})",
+        )
+
+    # Nothing installed anywhere.  Check whether any of the tool
+    # discovery dirs exist — if they do, the user has at least one
+    # agent that would accept a skill; give them the specific hint.
+    any_dir = any(parent.is_dir() for _, parent in _SKILL_TOOL_DIRS.items())
+    hint = "`sponsio skill install` to register"
+    return CheckResult(
+        "Agent Skill",
+        "skip",
+        (
+            f"not installed — {hint}"
+            if any_dir
+            else f"not installed (no Cursor/Claude/Codex skills dir found) — {hint}"
+        ),
+    )
+
+
 def check_guard_smoke() -> CheckResult:
     """Build a real guard, run a fake tool cycle, verify it traced.
 
@@ -561,6 +657,10 @@ def run_doctor(path: Path, *, with_llm: bool = False) -> tuple[list[CheckResult]
         lambda: check_sponsio_yaml(path),
         lambda: check_project_scan(path),
         check_guard_smoke,
+        # Skill check last: it's informational ("the Agent Skill
+        # feature is optional"), so it should never distract from
+        # hard failures above.
+        check_skill_installed,
     ]
 
     if with_llm:

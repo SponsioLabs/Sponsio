@@ -542,3 +542,115 @@ def _fixture_dummy():
 
 # Need CliRunner imported — added at top of CLI test classes
 from click.testing import CliRunner  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# Agent Skill check — probes ~/.cursor/skills etc. for the installed
+# skill and surfaces drift / breakage as warn / fail.
+# ---------------------------------------------------------------------------
+
+
+class TestCheckSkillInstalled:
+    """These tests monkeypatch ``_SKILL_TOOL_DIRS`` so we never touch
+    the developer's real ``~/.cursor`` / ``~/.claude`` on CI."""
+
+    def _set_fake_dirs(self, monkeypatch, tmp_path, *, with_cursor=True):
+        from sponsio import cli as cli_mod
+
+        dirs = {
+            "cursor": tmp_path / "fake_cursor" if with_cursor else tmp_path / "no_c",
+            "claude": tmp_path / "fake_claude",
+            "codex": tmp_path / "fake_codex",
+        }
+        for name, path in dirs.items():
+            monkeypatch.setitem(cli_mod._SKILL_TOOL_DIRS, name, path)
+        return dirs
+
+    def _install_into(self, dest):
+        from sponsio.cli import cli as root_cli
+
+        # --force because the dest dir may pre-exist in fixtures.
+        result = CliRunner().invoke(
+            root_cli, ["skill", "install", "--dest", str(dest), "--force"]
+        )
+        assert result.exit_code == 0, result.output
+
+    def test_skip_when_nothing_installed_anywhere(self, tmp_path, monkeypatch):
+        """No skills dir on disk → ``skip`` with a hint about ``sponsio
+        skill install``.  Not a failure (feature is opt-in)."""
+        from sponsio.doctor import check_skill_installed
+
+        self._set_fake_dirs(monkeypatch, tmp_path)
+        r = check_skill_installed()
+        assert r.status == "skip"
+        assert "sponsio skill install" in r.detail
+
+    def test_ok_when_copy_install_is_in_sync(self, tmp_path, monkeypatch):
+        """Fresh copy install → ``ok`` and call out ``copy`` mode so
+        users know they'll need to re-install after ``pip install -U``."""
+        from sponsio.doctor import check_skill_installed
+
+        dirs = self._set_fake_dirs(monkeypatch, tmp_path)
+        self._install_into(dirs["cursor"])
+
+        r = check_skill_installed()
+        assert r.status == "ok", r.detail
+        assert "cursor" in r.detail
+        assert "copy" in r.detail
+
+    def test_warn_when_installed_copy_drifts_from_packaged(self, tmp_path, monkeypatch):
+        """If the installed SKILL.md no longer matches the packaged
+        one (classic ``pip install -U`` footgun), the check must
+        warn — loudly enough that users know to re-install."""
+        from sponsio.doctor import check_skill_installed
+
+        dirs = self._set_fake_dirs(monkeypatch, tmp_path)
+        self._install_into(dirs["cursor"])
+
+        # Mutate the installed SKILL.md to simulate an outdated copy.
+        skill_md = dirs["cursor"] / "sponsio" / "SKILL.md"
+        skill_md.write_text(skill_md.read_text() + "\n# stale marker\n")
+
+        r = check_skill_installed()
+        assert r.status == "warn", r.detail
+        assert "stale" in r.detail.lower()
+        assert "sponsio skill install" in r.detail
+
+    def test_fail_when_frontmatter_broken(self, tmp_path, monkeypatch):
+        """Broken SKILL.md (no frontmatter) → ``fail``.  Users think
+        their agent has Sponsio's skill but the dispatcher rejects
+        frontmatter-less files."""
+        from sponsio.doctor import check_skill_installed
+
+        dirs = self._set_fake_dirs(monkeypatch, tmp_path)
+        self._install_into(dirs["cursor"])
+
+        skill_md = dirs["cursor"] / "sponsio" / "SKILL.md"
+        skill_md.write_text("no frontmatter here — just prose body")
+
+        r = check_skill_installed()
+        assert r.status == "fail", r.detail
+        assert "broken" in r.detail.lower()
+        assert "--force" in r.detail
+
+    def test_multiple_healthy_tools_are_listed_together(self, tmp_path, monkeypatch):
+        from sponsio.doctor import check_skill_installed
+
+        dirs = self._set_fake_dirs(monkeypatch, tmp_path)
+        self._install_into(dirs["cursor"])
+        self._install_into(dirs["claude"])
+
+        r = check_skill_installed()
+        assert r.status == "ok", r.detail
+        assert "cursor" in r.detail
+        assert "claude" in r.detail
+
+    def test_doctor_integration_includes_skill_check(self, tmp_path, monkeypatch):
+        """End-to-end: the report from ``run_doctor`` must include an
+        ``Agent Skill`` entry; otherwise silently losing this check
+        wouldn't fail any test."""
+
+        self._set_fake_dirs(monkeypatch, tmp_path)
+        results, _code = run_doctor(tmp_path)
+        names = [r.name for r in results]
+        assert "Agent Skill" in names, names

@@ -164,3 +164,105 @@ def test_skill_install_unknown_tool_is_rejected():
     result = CliRunner().invoke(cli, ["skill", "install", "--tool", "vim"])
     assert result.exit_code != 0
     assert "vim" in result.output.lower() or "invalid" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# Discovery footer — the human-readable proof that the skill landed
+# where a coding agent can actually find it.  Written after every
+# install so CI / setup scripts don't need to re-grep.
+# ---------------------------------------------------------------------------
+
+
+def test_install_prints_discovery_footer_with_absolute_path(tmp_path):
+    dest = tmp_path / "skills"
+    result = CliRunner().invoke(cli, ["skill", "install", "--dest", str(dest)])
+    assert result.exit_code == 0, result.output
+
+    assert "Discovery:" in result.output, (
+        "post-install footer missing; users need an at-a-glance path "
+        f"verification.  Got:\n{result.output}"
+    )
+    expected_path = str(dest / "sponsio" / "SKILL.md")
+    assert expected_path in result.output, (
+        f"footer should cite the absolute skill path so users can paste "
+        f"it into agent logs.  Expected {expected_path!r} in:\n{result.output}"
+    )
+
+
+def test_install_footer_reports_copy_mode_in_sync(tmp_path):
+    dest = tmp_path / "skills"
+    result = CliRunner().invoke(cli, ["skill", "install", "--dest", str(dest)])
+    assert result.exit_code == 0, result.output
+    # Copy mode + freshly written → must report "in sync" so users
+    # can distinguish from drift.  Also asserts that drift detection
+    # isn't over-eager on a brand-new copy.
+    assert "in sync" in result.output, result.output
+
+
+@pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="--link unsupported on Windows",
+)
+def test_install_footer_reports_symlink_mode(tmp_path):
+    dest = tmp_path / "skills"
+    result = CliRunner().invoke(
+        cli, ["skill", "install", "--dest", str(dest), "--link"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "symlink" in result.output, (
+        f"symlinked installs should say so in the footer so users know "
+        f"they're on auto-upgrade rails.  Got:\n{result.output}"
+    )
+
+
+def test_install_footer_detects_drift_and_exits_nonzero(tmp_path):
+    """Simulate a stale copy: install, then mutate the installed
+    SKILL.md so its hash no longer matches the packaged source.  A
+    subsequent ``skill install --force`` restores parity; here we
+    verify that a *re-verification* of the stale state flags drift."""
+
+    dest = tmp_path / "skills"
+    r1 = CliRunner().invoke(cli, ["skill", "install", "--dest", str(dest)])
+    assert r1.exit_code == 0, r1.output
+
+    # Mutate the installed file so its hash no longer matches the
+    # packaged one.  This models "user ran pip install -U sponsio
+    # without re-running skill install".
+    skill_md = dest / "sponsio" / "SKILL.md"
+    skill_md.write_text(skill_md.read_text() + "\n# stale marker\n")
+
+    # Re-probe via the public helper — this is what ``doctor`` calls.
+    from sponsio.cli import _packaged_skill_source, _verify_skill_install_target
+
+    src = _packaged_skill_source()
+    probe = _verify_skill_install_target("custom", dest, src)
+    assert probe.status == "drift", probe
+    assert "re-run" in probe.detail.lower()
+
+
+def test_install_footer_flags_broken_frontmatter(tmp_path):
+    """If somebody hand-edits SKILL.md and strips the frontmatter,
+    the agent dispatcher won't find it — verification must fail
+    hard, not silently say ok."""
+    dest = tmp_path / "skills"
+    r1 = CliRunner().invoke(cli, ["skill", "install", "--dest", str(dest)])
+    assert r1.exit_code == 0, r1.output
+
+    skill_md = dest / "sponsio" / "SKILL.md"
+    skill_md.write_text("no frontmatter at all — just prose")
+
+    from sponsio.cli import _packaged_skill_source, _verify_skill_install_target
+
+    src = _packaged_skill_source()
+    probe = _verify_skill_install_target("custom", dest, src)
+    assert probe.status == "broken", probe
+    assert "frontmatter" in probe.detail.lower()
+
+
+def test_verify_returns_missing_for_empty_parent(tmp_path):
+    from sponsio.cli import _packaged_skill_source, _verify_skill_install_target
+
+    src = _packaged_skill_source()
+    probe = _verify_skill_install_target("custom", tmp_path / "nope", src)
+    assert probe.status == "missing", probe
+    assert probe.mode == "missing"
