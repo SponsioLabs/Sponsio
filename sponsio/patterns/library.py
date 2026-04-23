@@ -126,6 +126,63 @@ class DetFormula:
 AnnotatedFormula = DetFormula
 
 
+def _ensure_non_empty(value: str, *, pattern: str, arg: str) -> str:
+    """Reject ``""``, ``None``, or whitespace-only tool names at factory time.
+
+    Why this exists
+    ---------------
+    ``_called("")`` produces the atom ``called()`` which the grounding layer
+    never emits, so the formula is vacuously satisfied *and* vacuously
+    unreachable. Silent vacuity is the exact failure mode we're hardening
+    against here — the operator thinks they added a guard; the runtime sees
+    nothing.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(
+            f"{pattern}: argument {arg!r} must be a non-empty string "
+            f"(got {value!r}). An empty tool name silently disables the "
+            "contract — this is almost never what you want."
+        )
+    return value
+
+
+def _ensure_distinct(
+    a: str, b: str, *, pattern: str, arg_a: str, arg_b: str
+) -> None:
+    """Reject degenerate ``f(x, x)`` pattern calls.
+
+    Why this exists
+    ---------------
+    Most two-arg patterns (``must_precede``, ``always_followed_by``,
+    ``mutual_exclusion``, ``no_reversal``, ``deadline``, …) become trivially
+    satisfied or trivially violated when the two tool names collide:
+
+    * ``must_precede("A", "A")`` compiles to ``!called(A) U called(A)`` —
+      every call to ``A`` satisfies the Until at the same step, so the
+      constraint is *always* True. Operators typing the same tool twice by
+      mistake get a silent no-op.
+    * ``mutual_exclusion("A", "A")`` is ``G(called(A) → G(!called(A)))``,
+      which forbids any second call to ``A`` (silently turning into a weak
+      ``idempotent`` with a misleading pattern name).
+    * ``deadline("A", "A", n)`` is satisfied at the trigger step itself
+      and is therefore a no-op.
+
+    All of these are almost certainly user errors; surface them at
+    construction time with a clear message instead of letting the trace
+    evaluator quietly pass.
+    """
+    _ensure_non_empty(a, pattern=pattern, arg=arg_a)
+    _ensure_non_empty(b, pattern=pattern, arg=arg_b)
+    if a == b:
+        raise ValueError(
+            f"{pattern}: {arg_a!r} and {arg_b!r} must refer to different "
+            f"tools (got {a!r} for both). A same-tool pattern is either "
+            "vacuously satisfied or silently degenerates into a different "
+            "contract — use ``idempotent`` / ``rate_limit`` if you meant "
+            "'at most once' / 'at most N times'."
+        )
+
+
 def must_precede(before: str, after: str, desc: str = "") -> DetFormula:
     """Enforces that one action must happen before another.
 
@@ -140,6 +197,9 @@ def must_precede(before: str, after: str, desc: str = "") -> DetFormula:
     Returns:
         A ``DetFormula`` encoding the ordering constraint.
     """
+    _ensure_distinct(
+        before, after, pattern="must_precede", arg_a="before", arg_b="after"
+    )
     # after is forbidden until before appears, OR after is never called
     formula = Or(
         U(Not(_called(after)), _called(before)),
@@ -165,6 +225,9 @@ def always_followed_by(trigger: str, response: str, desc: str = "") -> DetFormul
     Returns:
         A ``DetFormula`` encoding the liveness constraint.
     """
+    _ensure_distinct(
+        trigger, response, pattern="always_followed_by", arg_a="trigger", arg_b="response"
+    )
     formula = G(Implies(_called(trigger), F(_called(response))))
     return DetFormula(
         formula=formula,
@@ -221,6 +284,13 @@ def no_reversal(commitment: str, contradiction: str, desc: str = "") -> DetFormu
     Returns:
         A ``DetFormula`` encoding the no-reversal constraint.
     """
+    _ensure_distinct(
+        commitment,
+        contradiction,
+        pattern="no_reversal",
+        arg_a="commitment",
+        arg_b="contradiction",
+    )
     formula = G(Implies(_called(commitment), G(Not(_called(contradiction)))))
     return DetFormula(
         formula=formula,
@@ -263,6 +333,9 @@ def no_data_leak(source: str, external: str, desc: str = "") -> DetFormula:
     Returns:
         A ``DetFormula`` encoding the data-leak prohibition.
     """
+    _ensure_distinct(
+        source, external, pattern="no_data_leak", arg_a="source", arg_b="external"
+    )
     formula = G(Implies(Atom("contains", source), Not(Atom("flow", source, external))))
     return DetFormula(
         formula=formula,
@@ -289,6 +362,7 @@ def mutual_exclusion(a: str, b: str, desc: str = "") -> DetFormula:
     Returns:
         A ``DetFormula`` encoding the mutual-exclusion constraint.
     """
+    _ensure_distinct(a, b, pattern="mutual_exclusion", arg_a="a", arg_b="b")
     formula = And(
         G(Implies(_called(a), G(Not(_called(b))))),
         G(Implies(_called(b), G(Not(_called(a))))),
@@ -387,6 +461,14 @@ def deadline(trigger: str, action: str, steps: int, desc: str = "") -> DetFormul
     Returns:
         A ``DetFormula`` encoding the deadline constraint.
     """
+    _ensure_distinct(
+        trigger, action, pattern="deadline", arg_a="trigger", arg_b="action"
+    )
+    if not isinstance(steps, int) or steps < 1:
+        raise ValueError(
+            f"deadline: 'steps' must be a positive integer (got {steps!r}). "
+            "A non-positive deadline is unsatisfiable."
+        )
     formula = G(
         Implies(
             _called(trigger),
@@ -474,6 +556,7 @@ def segregation_of_duty(a: str, b: str, desc: str = "") -> DetFormula:
     Returns:
         A ``DetFormula`` encoding the segregation-of-duty constraint.
     """
+    _ensure_distinct(a, b, pattern="segregation_of_duty", arg_a="a", arg_b="b")
     formula = And(
         G(Implies(_called(a), G(Not(_called(b))))),
         G(Implies(_called(b), G(Not(_called(a))))),
@@ -733,6 +816,27 @@ def untrusted_source_gate(
         A tuple of ``(assumption_formula, enforcement_formula)`` — both
         ``DetFormula``. Use with ``Contract(assumption=..., enforcement=...)``.
     """
+    if not sources:
+        raise ValueError(
+            "untrusted_source_gate: 'sources' must not be empty; "
+            "without a source, the assumption never fires and the gate is a no-op."
+        )
+    if not sinks:
+        raise ValueError(
+            "untrusted_source_gate: 'sinks' must not be empty; "
+            "without a sink there is nothing to guard."
+        )
+    for s in sources:
+        _ensure_non_empty(s, pattern="untrusted_source_gate", arg="sources")
+    for s in sinks:
+        _ensure_non_empty(s, pattern="untrusted_source_gate", arg="sinks")
+    overlap = set(sources) & set(sinks)
+    if overlap:
+        raise ValueError(
+            f"untrusted_source_gate: sources and sinks overlap on {sorted(overlap)!r}. "
+            "A tool listed as both 'tainted input' and 'sensitive output' makes "
+            "the gate self-triggering — every call becomes its own unconfirmed sink."
+        )
     # Assumption: any source has been called
     if len(sources) == 1:
         src_formula = _called(sources[0])
@@ -795,6 +899,30 @@ def required_steps_completion(
     Returns:
         A ``DetFormula`` (liveness).
     """
+    _ensure_non_empty(trigger, pattern="required_steps_completion", arg="trigger")
+    if not required_set:
+        raise ValueError(
+            "required_steps_completion: 'required_set' must not be empty. "
+            "An empty checklist is vacuously satisfied for every trigger."
+        )
+    # Reject duplicate / self-referential steps: they either no-op (dup) or
+    # silently collapse the contract into a tautology (trigger also in set).
+    seen: set[str] = set()
+    for r in required_set:
+        _ensure_non_empty(r, pattern="required_steps_completion", arg="required_set")
+        if r == trigger:
+            raise ValueError(
+                f"required_steps_completion: trigger {trigger!r} cannot also "
+                "appear in required_set — the trigger would be its own "
+                "follow-up, making the constraint trivially satisfied."
+            )
+        if r in seen:
+            raise ValueError(
+                f"required_steps_completion: required_set contains a duplicate "
+                f"step {r!r}. Deduplicate before building the contract."
+            )
+        seen.add(r)
+
     obligations = F(_called(required_set[0]))
     for r in required_set[1:]:
         obligations = And(obligations, F(_called(r)))
@@ -1032,6 +1160,9 @@ def confirm_after_source(
     Returns:
         Tuple of ``(assumption, enforcement)`` — both ``DetFormula``.
     """
+    _ensure_distinct(
+        source, action, pattern="confirm_after_source", arg_a="source", arg_b="action"
+    )
     confirm = f"confirm_{action}"
 
     assumption = DetFormula(

@@ -1,10 +1,13 @@
 """Unit tests for sponsio/patterns/library.py — constraint DSL."""
 
+import pytest
+
 from sponsio.formulas.evaluator import evaluate
 from sponsio.patterns.library import (
     DetFormula,
     always_followed_by,
     bounded_retry,
+    confirm_after_source,
     cooldown,
     deadline,
     idempotent,
@@ -15,8 +18,10 @@ from sponsio.patterns.library import (
     no_data_leak,
     no_reversal,
     rate_limit,
+    required_steps_completion,
     requires_permission,
     segregation_of_duty,
+    untrusted_source_gate,
 )
 
 
@@ -427,3 +432,90 @@ def test_bounded_retry_zero():
     af = bounded_retry("api_call", 3)
     trace = [{}]
     assert evaluate(af.formula, trace) is True
+
+
+# ---------------------------------------------------------------------------
+# Degenerate-pattern rejection (Issue #14)
+#
+# Same-tool two-arg patterns and duplicated / empty tool names used to
+# silently compile into either a tautology or a misleading no-op. The
+# factory helpers now raise ValueError at construction time so the
+# operator sees the mistake instead of a vacuously-passing contract.
+# ---------------------------------------------------------------------------
+
+
+class TestDegeneratePatternsRejected:
+    @pytest.mark.parametrize(
+        "factory, kwargs",
+        [
+            (must_precede, {"before": "A", "after": "A"}),
+            (always_followed_by, {"trigger": "A", "response": "A"}),
+            (no_reversal, {"commitment": "A", "contradiction": "A"}),
+            (mutual_exclusion, {"a": "A", "b": "A"}),
+            (segregation_of_duty, {"a": "A", "b": "A"}),
+            (no_data_leak, {"source": "A", "external": "A"}),
+        ],
+    )
+    def test_same_tool_rejected(self, factory, kwargs):
+        """``f(X, X)`` now errors — previously compiled to a tautology."""
+        with pytest.raises(ValueError, match="must refer to different"):
+            factory(**kwargs)
+
+    def test_deadline_same_tool_rejected(self):
+        with pytest.raises(ValueError, match="must refer to different"):
+            deadline("A", "A", 3)
+
+    def test_deadline_nonpositive_steps_rejected(self):
+        with pytest.raises(ValueError, match="positive integer"):
+            deadline("trigger", "action", 0)
+        with pytest.raises(ValueError, match="positive integer"):
+            deadline("trigger", "action", -1)
+
+    @pytest.mark.parametrize(
+        "factory, kwargs",
+        [
+            (must_precede, {"before": "", "after": "B"}),
+            (must_precede, {"before": "   ", "after": "B"}),
+            (always_followed_by, {"trigger": "A", "response": ""}),
+            (mutual_exclusion, {"a": "", "b": "B"}),
+        ],
+    )
+    def test_empty_tool_name_rejected(self, factory, kwargs):
+        """Empty / whitespace tool names silently disabled the contract."""
+        with pytest.raises(ValueError, match="non-empty string"):
+            factory(**kwargs)
+
+    def test_confirm_after_source_same_tool_rejected(self):
+        with pytest.raises(ValueError, match="must refer to different"):
+            confirm_after_source("web_fetch", "web_fetch")
+
+    def test_required_steps_trigger_in_set_rejected(self):
+        """Trigger appearing as its own follow-up silently satisfied the F()."""
+        with pytest.raises(ValueError, match="trigger .* cannot also appear"):
+            required_steps_completion("start", ["start", "cleanup"])
+
+    def test_required_steps_duplicate_rejected(self):
+        with pytest.raises(ValueError, match="duplicate"):
+            required_steps_completion("start", ["cleanup", "cleanup"])
+
+    def test_required_steps_empty_rejected(self):
+        with pytest.raises(ValueError, match="must not be empty"):
+            required_steps_completion("start", [])
+
+    def test_untrusted_source_gate_empty_sources_rejected(self):
+        with pytest.raises(ValueError, match="'sources' must not be empty"):
+            untrusted_source_gate([], ["send_email"])
+
+    def test_untrusted_source_gate_overlap_rejected(self):
+        """A tool that is both source and sink would trigger its own guard."""
+        with pytest.raises(ValueError, match="overlap"):
+            untrusted_source_gate(["do_it"], ["do_it"])
+
+    def test_distinct_pairs_still_work(self):
+        """Non-degenerate construction must not regress."""
+        must_precede("verify", "transfer")
+        always_followed_by("order", "deliver")
+        mutual_exclusion("approve", "reject")
+        deadline("alert", "respond", 3)
+        required_steps_completion("open_case", ["triage", "close_case"])
+        untrusted_source_gate(["web_fetch"], ["send_email"])

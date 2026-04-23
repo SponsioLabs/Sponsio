@@ -21,6 +21,12 @@ import {
   requiredStepsCompletion,
   loopDetection,
   mutualExclusion,
+  mustPrecede,
+  alwaysFollowedBy,
+  noReversal,
+  noDataLeak,
+  confirmAfterSource,
+  untrustedSourceGate,
 } from "../core/patterns.js";
 
 let passed = 0;
@@ -239,11 +245,111 @@ function testDeadlineNlParity() {
 // Run
 // ─────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────
+// Issue #14: degenerate pattern construction must throw at factory time
+// (parity with Python ``_ensure_distinct`` / ``_ensure_non_empty``). A
+// same-tool ``mustPrecede("A", "A")`` silently compiled to a tautology
+// in both SDKs before the fix — the runtime would then cheerfully accept
+// everything and the operator would never know their guard was dead.
+// ─────────────────────────────────────────────────────────────────────────
+
+function expectThrows(fn: () => unknown, matches: RegExp, label: string): void {
+  try {
+    fn();
+    assert(false, `${label}: expected to throw, but did not`);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    assert(
+      matches.test(msg),
+      `${label}: error message should match ${matches}, got: ${msg}`,
+    );
+  }
+}
+
+function testDegeneratePatternRejection() {
+  console.log("\n[degenerate-pattern rejection (Issue #14)]");
+
+  expectThrows(
+    () => mustPrecede("A", "A"),
+    /must refer to different/,
+    "mustPrecede(X, X) rejected",
+  );
+  expectThrows(
+    () => alwaysFollowedBy("A", "A"),
+    /must refer to different/,
+    "alwaysFollowedBy(X, X) rejected",
+  );
+  expectThrows(
+    () => noReversal("A", "A"),
+    /must refer to different/,
+    "noReversal(X, X) rejected",
+  );
+  expectThrows(
+    () => mutualExclusion("A", "A"),
+    /must refer to different/,
+    "mutualExclusion(X, X) rejected",
+  );
+  expectThrows(
+    () => noDataLeak("A", "A"),
+    /must refer to different/,
+    "noDataLeak(X, X) rejected",
+  );
+  expectThrows(
+    () => deadline("A", "A", 3),
+    /must refer to different/,
+    "deadline(X, X, n) rejected",
+  );
+  expectThrows(
+    () => deadline("A", "B", 0),
+    /positive integer/,
+    "deadline with non-positive steps rejected",
+  );
+  expectThrows(
+    () => mustPrecede("", "B"),
+    /non-empty string/,
+    "empty tool name rejected",
+  );
+  expectThrows(
+    () => confirmAfterSource("fetch", "fetch"),
+    /must refer to different/,
+    "confirmAfterSource(X, X) rejected",
+  );
+  expectThrows(
+    () => untrustedSourceGate("fetch", "fetch"),
+    /must refer to different/,
+    "untrustedSourceGate(X, X) rejected",
+  );
+  expectThrows(
+    () => requiredStepsCompletion("start", ["start", "cleanup"]),
+    /cannot also appear/,
+    "requiredStepsCompletion with trigger in steps rejected",
+  );
+  expectThrows(
+    () => requiredStepsCompletion("start", ["a", "a"]),
+    /duplicate/,
+    "requiredStepsCompletion with duplicate step rejected",
+  );
+  expectThrows(
+    () => requiredStepsCompletion("start", []),
+    /must not be empty/,
+    "requiredStepsCompletion with empty steps rejected",
+  );
+
+  // Sanity: distinct args still produce a formula.
+  try {
+    const f = mustPrecede("A", "B");
+    assert(f.formula !== null, "mustPrecede(A, B) still works");
+  } catch (e) {
+    assert(false, `non-degenerate mustPrecede should not throw: ${e}`);
+  }
+}
+
 console.log("=== TS↔Python Parity Regression Tests ===\n");
 testBoundedEventuallyDeadline();
 testRequiredStepsCompletion();
 testGuardBeforeRollback();
 testDeadlineNlParity();
+testDegeneratePatternRejection();
 
 console.log(`\n${"=".repeat(40)}`);
 console.log(`Results: ${passed} passed, ${failed} failed`);

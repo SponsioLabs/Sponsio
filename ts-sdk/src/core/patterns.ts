@@ -57,6 +57,51 @@ function physicalTool(tool: string): string {
   return tool.includes(":") ? tool.split(":", 1)[0] : tool;
 }
 
+/**
+ * Reject empty / whitespace-only tool names at factory time.
+ *
+ * An empty atom (``called()``) is never emitted by the grounding layer, so
+ * the contract silently becomes a no-op. Parity with Python
+ * ``_ensure_non_empty`` in ``sponsio/patterns/library.py``.
+ */
+function ensureNonEmpty(value: string, pattern: string, arg: string): void {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(
+      `${pattern}: argument \`${arg}\` must be a non-empty string ` +
+        `(got ${JSON.stringify(value)}). An empty tool name silently disables ` +
+        `the contract — this is almost never what you want.`,
+    );
+  }
+}
+
+/**
+ * Reject degenerate ``f(x, x)`` construction.
+ *
+ * Parity with Python ``_ensure_distinct``. Two-arg temporal patterns
+ * (``mustPrecede``, ``alwaysFollowedBy``, ``mutualExclusion``,
+ * ``noReversal``, ``deadline``, …) collapse into a tautology or change
+ * their meaning entirely when the two tools collide; almost always a
+ * user typo. Surface it at construction time.
+ */
+function ensureDistinct(
+  a: string,
+  b: string,
+  pattern: string,
+  argA: string,
+  argB: string,
+): void {
+  ensureNonEmpty(a, pattern, argA);
+  ensureNonEmpty(b, pattern, argB);
+  if (a === b) {
+    throw new Error(
+      `${pattern}: \`${argA}\` and \`${argB}\` must refer to different tools ` +
+        `(got ${JSON.stringify(a)} for both). A same-tool pattern is either ` +
+        `vacuously satisfied or silently degenerates into a different contract — ` +
+        `use \`idempotent\` / \`rateLimit\` if you meant 'at most once' / 'at most N times'.`,
+    );
+  }
+}
+
 /** Bounded eventually: phi within N steps (parity with Python ``_bounded_eventually``).
  *
  * For ``n = 1`` the result is ``phi`` (current step only); for ``n = 2`` it is
@@ -85,6 +130,7 @@ function boundedNever(phi: Formula, n: number): Formula {
 // --- Core temporal patterns ---
 
 export function mustPrecede(before: string, after: string): DetFormula {
+  ensureDistinct(before, after, "mustPrecede", "before", "after");
   const f = new Or(
     new U(new Not(called(after)), called(before)),
     new G(new Not(called(after))),
@@ -98,6 +144,7 @@ export function mustPrecede(before: string, after: string): DetFormula {
 }
 
 export function alwaysFollowedBy(trigger: string, response: string): DetFormula {
+  ensureDistinct(trigger, response, "alwaysFollowedBy", "trigger", "response");
   const f = new G(new Implies(called(trigger), new F(called(response))));
   return {
     formula: f,
@@ -108,6 +155,7 @@ export function alwaysFollowedBy(trigger: string, response: string): DetFormula 
 }
 
 export function noReversal(commitment: string, contradiction: string): DetFormula {
+  ensureDistinct(commitment, contradiction, "noReversal", "commitment", "contradiction");
   const f = new G(new Implies(called(commitment), new G(new Not(called(contradiction)))));
   return {
     formula: f,
@@ -128,6 +176,7 @@ export function requiresPermission(tool: string, permission: string): DetFormula
 }
 
 export function noDataLeak(source: string, external: string): DetFormula {
+  ensureDistinct(source, external, "noDataLeak", "source", "external");
   const f = new G(new Implies(
     new Atom("contains", [source]),
     new Not(new Atom("flow", [source, external])),
@@ -141,6 +190,7 @@ export function noDataLeak(source: string, external: string): DetFormula {
 }
 
 export function mutualExclusion(a: string, b: string): DetFormula {
+  ensureDistinct(a, b, "mutualExclusion", "a", "b");
   const f = new And(
     new G(new Implies(called(a), new G(new Not(called(b))))),
     new G(new Implies(called(b), new G(new Not(called(a))))),
@@ -168,6 +218,13 @@ export function idempotent(tool: string): DetFormula {
 }
 
 export function deadline(trigger: string, action: string, steps: number): DetFormula {
+  ensureDistinct(trigger, action, "deadline", "trigger", "action");
+  if (!Number.isInteger(steps) || steps < 1) {
+    throw new Error(
+      `deadline: 'steps' must be a positive integer (got ${steps}). ` +
+        `A non-positive deadline is unsatisfiable.`,
+    );
+  }
   const f = new G(new Implies(
     called(trigger),
     new X(boundedEventually(called(action), steps)),
@@ -208,7 +265,9 @@ export function cooldown(action: string, steps: number): DetFormula {
 }
 
 export function segregationOfDuty(a: string, b: string): DetFormula {
-  // Same structure as mutual_exclusion, different semantic name.
+  // Validation runs inside mutualExclusion; re-raising with a
+  // segregation-of-duty pattern name would be nicer, but keeping the
+  // message consistent is sufficient and avoids duplicating the check.
   const me = mutualExclusion(a, b);
   return {
     ...me,
@@ -321,6 +380,7 @@ export function untrustedSourceGate(
   sink: string,
   confirm: string = "",
 ): AssumptionEnforcementPair {
+  ensureDistinct(source, sink, "untrustedSourceGate", "source", "sink");
   const confirmAction = confirm || `confirm_${sink}`;
   return {
     assumption: {
@@ -339,6 +399,31 @@ export function requiredStepsCompletion(trigger: string, steps: string[]): DetFo
   // (No outer ``X(...)``: the obligation must be discharged starting from the
   // trigger step, and weak-X at end-of-trace must NOT vacuously satisfy a
   // trigger that fires at the last step before any step has happened.)
+  ensureNonEmpty(trigger, "requiredStepsCompletion", "trigger");
+  if (!steps || steps.length === 0) {
+    throw new Error(
+      "requiredStepsCompletion: 'steps' must not be empty. An empty checklist " +
+        "is vacuously satisfied for every trigger.",
+    );
+  }
+  const seen = new Set<string>();
+  for (const r of steps) {
+    ensureNonEmpty(r, "requiredStepsCompletion", "steps");
+    if (r === trigger) {
+      throw new Error(
+        `requiredStepsCompletion: trigger ${JSON.stringify(trigger)} cannot also ` +
+          `appear in steps — the trigger would be its own follow-up, making the ` +
+          `constraint trivially satisfied.`,
+      );
+    }
+    if (seen.has(r)) {
+      throw new Error(
+        `requiredStepsCompletion: steps contains a duplicate ${JSON.stringify(r)}. ` +
+          `Deduplicate before building the contract.`,
+      );
+    }
+    seen.add(r);
+  }
   let body: Formula = new F(called(steps[0]));
   for (let i = 1; i < steps.length; i++) {
     body = new And(body, new F(called(steps[i])));
@@ -419,6 +504,7 @@ export function irreversibleOnce(action: string): DetFormula {
 }
 
 export function confirmAfterSource(source: string, action: string): AssumptionEnforcementPair {
+  ensureDistinct(source, action, "confirmAfterSource", "source", "action");
   const confirm = `confirm_${action}`;
   return {
     assumption: {
