@@ -171,7 +171,7 @@ def run_with_guard() -> None:
     # ────────────────────────────────────────────────────────────────────
     from sponsio.langgraph import Sponsio, ToolCallBlocked
 
-    guard = Sponsio(agent_id="trial_recruiter", contracts=contracts)
+    guard = Sponsio(agent_id="trial_recruiter", contracts=contracts, mode="enforce")
     wrapped = guard.wrap(TOOLS)
 
     for name, args in GEMINI_TRAJECTORY:

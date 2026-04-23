@@ -180,7 +180,7 @@ def run_with_guard() -> None:
     # ────────────────────────────────────────────────────────────────────
     from sponsio.crewai import Sponsio
 
-    guard = Sponsio(agent_id="loan_agent", contracts=contracts)
+    guard = Sponsio(agent_id="loan_agent", contracts=contracts, mode="enforce")
     tools_by_name = {t.name: t for t in guard.wrap(TOOLS)}
 
     for name, args in GEMINI_TRAJECTORY:

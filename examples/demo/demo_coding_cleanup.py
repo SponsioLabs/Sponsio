@@ -156,7 +156,7 @@ def run_with_guard() -> None:
     # ────────────────────────────────────────────────────────────────────
     from sponsio.claude_agent import Sponsio
 
-    guard = Sponsio(agent_id="coding_agent", contracts=contracts)
+    guard = Sponsio(agent_id="coding_agent", contracts=contracts, mode="enforce")
     pre_tool_hook = guard.hooks()["PreToolUse"][0].hooks[0]
 
     async def drive() -> None:
