@@ -6,6 +6,7 @@ import json
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
+from api.trace_adapter import trace_from_import_payload
 from api.schemas import (
     AddContractRequest,
     MonitorEventResponse,
@@ -13,7 +14,6 @@ from api.schemas import (
     ReVerifyRequest,
     TraceEventPush,
     TraceEventResponse,
-    TraceImportRequest,
     TraceResponse,
 )
 from api.state import state
@@ -197,13 +197,9 @@ def push_event(event: TraceEventPush):
 
 
 @router.post("/import")
-def import_trace(data: TraceImportRequest):
-    from sponsio.models.trace import Trace
-
-    trace = Trace.from_dict(
-        {"events": [e.dict() for e in data.events], "metadata": data.metadata}
-    )
-    state.monitor.trace = trace
+def import_trace(data: dict):
+    trace = trace_from_import_payload(data)
+    state.monitor.import_trace(trace)
     return {"status": "imported", "event_count": len(trace.events)}
 
 

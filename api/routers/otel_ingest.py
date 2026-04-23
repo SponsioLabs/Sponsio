@@ -18,7 +18,9 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 
+from api.state import state
 from api.trace_store import TraceStore
+from sponsio.tracer.otel_consumer import otel_to_trace
 
 router = APIRouter()
 
@@ -27,11 +29,16 @@ trace_store = TraceStore()
 
 
 @router.post("/v1/traces")
-async def ingest_traces(payload: dict):
+async def ingest_traces(payload: dict, sync_monitor: bool = False):
     """Receive OTLP JSON traces from any OTEL SDK."""
     resource_spans = payload.get("resourceSpans", [])
     count = trace_store.ingest(resource_spans)
-    return {"status": "ok", "spans_received": count}
+    response = {"status": "ok", "spans_received": count}
+    if sync_monitor:
+        trace = otel_to_trace(payload)
+        state.monitor.import_trace(trace)
+        response["native_events_imported"] = len(trace.events)
+    return response
 
 
 @router.get("/traces")

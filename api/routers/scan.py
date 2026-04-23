@@ -6,7 +6,7 @@ import shutil
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import List
+from typing import List, Literal
 
 import yaml
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
@@ -145,10 +145,11 @@ def _tools_from_yaml(path: Path) -> List[ToolDef]:
     return tools
 
 
+ScanSource = Literal["upload", "cli"]
 _VALID_SOURCES = {"upload", "cli"}
 
 
-def _source_use_case(source: str) -> str:
+def _source_use_case(source: ScanSource) -> str:
     """Map a source value to its use_case tag in the DB."""
     return "scan_cli" if source == "cli" else "scan_upload"
 
@@ -156,7 +157,7 @@ def _source_use_case(source: str) -> str:
 @router.post("/upload", response_model=ScoreResponse)
 async def upload_scan(
     file: UploadFile = File(...),
-    source: str = Query(
+    source: ScanSource = Query(
         "upload",
         description="Where this scan came from: 'upload' (browser) or 'cli' (sponsio scan --push)",
     ),
@@ -262,7 +263,7 @@ class ScanDetailResponse(BaseModel):
 _SCAN_USE_CASES = {"scan_upload", "scan_cli"}
 
 
-def _matches_source(row: dict, source: str | None) -> bool:
+def _matches_source(row: dict, source: ScanSource | None) -> bool:
     """True if row belongs to the requested source (or any source if None)."""
     use_case = row.get("use_case")
     if use_case not in _SCAN_USE_CASES:
@@ -275,7 +276,7 @@ def _matches_source(row: dict, source: str | None) -> bool:
 @router.get("/history")
 def list_scan_history(
     limit: int = 10,
-    source: str | None = Query(
+    source: ScanSource | None = Query(
         None, description="Filter by source: 'upload', 'cli', or omit for both"
     ),
 ):
@@ -302,7 +303,7 @@ def list_scan_history(
 
 @router.get("/latest", response_model=ScanDetailResponse | None)
 def get_latest_scan(
-    source: str | None = Query(
+    source: ScanSource | None = Query(
         None, description="Filter by source: 'upload', 'cli', or omit for either"
     ),
 ):
@@ -333,7 +334,7 @@ def get_latest_scan(
 
 @router.delete("/history")
 def clear_scan_history(
-    source: str | None = Query(
+    source: ScanSource | None = Query(
         None, description="Clear only one source; omit to clear both"
     ),
 ):

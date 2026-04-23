@@ -248,6 +248,14 @@ class RuntimeMonitor:
     def trace(self) -> Trace:
         return self._trace
 
+    def import_trace(self, trace: Trace) -> None:
+        """Replace the current trace and invalidate derived verifier state."""
+        self._trace = trace
+        self._verifier.reset()
+        self._last_turn_span = None
+        self._turn_spans.clear()
+        self._atom_caches.clear()
+
     @property
     def performance_tracker(self) -> PerformanceTracker:
         """The :class:`PerformanceTracker` recording per-check latencies.

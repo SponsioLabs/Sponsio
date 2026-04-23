@@ -12,9 +12,13 @@ from api.routers.otel_ingest import trace_store
 @pytest.fixture(autouse=True)
 def _clear_store():
     """Clear the trace store before each test."""
+    from api.state import state
+
     trace_store.clear()
+    state.reset()
     yield
     trace_store.clear()
+    state.reset()
 
 
 client = TestClient(app)
@@ -141,6 +145,32 @@ class TestIngestion:
         r = client.post("/api/otel/v1/traces", json={"resourceSpans": []})
         assert r.status_code == 200
         assert r.json()["spans_received"] == 0
+
+    def test_sync_monitor_imports_native_trace(self):
+        payload = _otlp_payload(
+            [
+                _span(
+                    "lookup_order",
+                    span_id="s1",
+                    attributes=[
+                        {"key": "tool.input.order_id", "value": {"stringValue": "A1"}}
+                    ],
+                ),
+                _span("issue_refund", span_id="s2", start_ns=1_000_200_000_000),
+            ],
+            service_name="otel_bot",
+        )
+        r = client.post("/api/otel/v1/traces?sync_monitor=true", json=payload)
+        assert r.status_code == 200
+        assert r.json()["spans_received"] == 2
+        assert r.json()["native_events_imported"] == 2
+
+        trace = client.get("/api/monitor/trace").json()
+        assert [e["tool"] for e in trace["events"]] == [
+            "lookup_order",
+            "issue_refund",
+        ]
+        assert trace["events"][0]["agent"] == "otel_bot"
 
     def test_accumulate_spans(self):
         payload1 = _otlp_payload([_span("span_a", span_id="s1")])

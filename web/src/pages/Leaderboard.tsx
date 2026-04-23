@@ -28,10 +28,14 @@ export default function Leaderboard() {
   const [period, setPeriod] = useState<Period>('all');
   const [showBadge, setShowBadge] = useState<string | null>(null);
 
+  const fetchLeaderboard = useCallback(() =>
+    Promise.all([getLeaderboard(50, 0, period, frameworkFilter || undefined), getLeaderboardStats()])
+  , [frameworkFilter, period]);
+
   const load = useCallback(() => {
     setLoading(true);
     setError('');
-    Promise.all([getLeaderboard(), getLeaderboardStats()])
+    fetchLeaderboard()
       .then(([lb, st]) => { setEntries(lb.entries); setStats(st); })
       .catch(() => {
         // API offline — fall back to mock leaderboard for demo mode
@@ -39,31 +43,46 @@ export default function Leaderboard() {
         setStats(MOCK_LEADERBOARD_STATS);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [fetchLeaderboard]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve()
+      .then(() => {
+        if (cancelled) return undefined;
+        setLoading(true);
+        setError('');
+        return fetchLeaderboard();
+      })
+      .then((result) => {
+        if (cancelled || !result) return;
+        const [lb, st] = result;
+        setEntries(lb.entries);
+        setStats(st);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setEntries(MOCK_LEADERBOARD_ENTRIES);
+        setStats(MOCK_LEADERBOARD_STATS);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [fetchLeaderboard]);
 
   if (error) return <PageError message={error} onRetry={load} />;
   if (loading) return <div className="flex items-center justify-center h-64"><Spinner /></div>;
 
-  // Filtering
-  const frameworks = [...new Set(entries.map(e => e.framework).filter(Boolean))] as string[];
-  let filtered = frameworkFilter
-    ? entries.filter(e => e.framework === frameworkFilter)
-    : entries;
-
-  if (period === 'today') {
-    const today = new Date().toDateString();
-    filtered = filtered.filter(e => new Date(e.timestamp).toDateString() === today);
-  } else if (period === 'week') {
-    // Rolling 7d window from "now" (intentionally wall-clock relative).
-    // eslint-disable-next-line react-hooks/purity -- time-relative filter, not render-idempotent
-    const weekAgo = Date.now() - 7 * 86400000;
-    filtered = filtered.filter(e => new Date(e.timestamp).getTime() > weekAgo);
-  }
+  const frameworks = [
+    ...new Set([
+      ...Object.keys(stats?.framework_distribution ?? {}),
+      ...entries.map(e => e.framework).filter(Boolean),
+    ]),
+  ] as string[];
 
   // Sorting
-  const sorted = [...filtered].sort((a, b) => {
+  const sorted = [...entries].sort((a, b) => {
     let cmp = 0;
     if (sortBy === 'rank') cmp = a.rank - b.rank;
     else if (sortBy === 'score') cmp = b.score - a.score;

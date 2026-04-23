@@ -141,8 +141,20 @@ export const runLiveDemo = (demoId: string) =>
   });
 
 // Leaderboard
-export const getLeaderboard = (limit = 50, offset = 0) =>
-  json<{ entries: LeaderboardEntry[]; count: number }>(`/leaderboard?limit=${limit}&offset=${offset}`);
+export const getLeaderboard = (
+  limit = 50,
+  offset = 0,
+  period = 'all',
+  framework?: string,
+) => {
+  const qs = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+    period,
+  });
+  if (framework) qs.set('framework', framework);
+  return json<{ entries: LeaderboardEntry[]; count: number }>(`/leaderboard?${qs}`);
+};
 export const getLeaderboardStats = () => json<LeaderboardStats>('/leaderboard/stats');
 
 // Scoring

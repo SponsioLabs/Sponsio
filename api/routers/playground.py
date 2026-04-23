@@ -30,6 +30,7 @@ def simulate_action(req: PlaygroundActionRequest):
     # Rollback the event from trace if blocked (same as BaseGuard.guard_before)
     if blocked and state.monitor.trace.events:
         state.monitor.trace.events.pop()
+        state.monitor.verifier.reset()
 
     return PlaygroundActionResponse(
         allowed=not blocked,
