@@ -75,16 +75,33 @@ class ToolEntry:
 
 @dataclass
 class ConstraintEntry:
-    """A single constraint — either NL string or structured pattern+args."""
+    """A single constraint — one of three shapes:
+
+    1. **NL** (``nl="every send_email needs confirmation"``) — passed to
+       the structured-IR / LLM extractor at compile time.
+    2. **Pattern** (``pattern="rate_limit"``, ``args=[exec, 50]``) —
+       resolved against the registered pattern library.
+    3. **LTL** (``ltl="G(called(exec) -> count(confirm) >= count(exec))"``)
+       — raw infix LTL parsed by :func:`sponsio.formulas.parser.parse_repr`.
+       This is the escape hatch for properties that mix predicate-on-arg
+       conditionals with count dominance, which the structured patterns
+       can't express directly (e.g. "sudo exec needs confirmation but
+       plain exec doesn't").
+    """
 
     nl: str | None = None
     pattern: str | None = None
     args: list[Any] = field(default_factory=list)
+    ltl: str | None = None
     source: str | None = None
 
     @property
     def is_structured(self) -> bool:
         return self.pattern is not None
+
+    @property
+    def is_ltl(self) -> bool:
+        return self.ltl is not None
 
 
 @dataclass
@@ -405,11 +422,33 @@ def _parse_judge_section(raw: Any) -> JudgeSection:
 
 
 def _parse_constraint_entry(item: Any) -> ConstraintEntry:
-    """Parse a single constraint entry (string or dict)."""
+    """Parse a single constraint entry (string or dict).
+
+    Recognised dict shapes:
+
+    * ``{pattern: ..., args: [...]}``        — structured pattern
+    * ``{ltl: "G(...)"}``                    — raw LTL escape hatch
+    * ``{nl: "..."}``                        — natural-language description
+      (also accepted as a bare string item)
+
+    Either ``pattern`` or ``ltl`` is required; specifying both is a config
+    error since they take separate compile paths and silently picking one
+    would mask user intent.
+    """
     if isinstance(item, str):
         return ConstraintEntry(nl=item)
     elif isinstance(item, dict):
-        if "pattern" in item:
+        has_pattern = "pattern" in item
+        has_ltl = "ltl" in item
+        has_nl = "nl" in item
+        if has_pattern and has_ltl:
+            raise ConfigError(
+                "Constraint dict has both 'pattern' and 'ltl' keys — pick "
+                "one.  ``pattern`` resolves against the registered pattern "
+                "library; ``ltl`` parses a raw infix formula via "
+                "sponsio.formulas.parser.parse_repr."
+            )
+        if has_pattern:
             args = item.get("args", [])
             if not isinstance(args, list):
                 args = [args]
@@ -418,10 +457,22 @@ def _parse_constraint_entry(item: Any) -> ConstraintEntry:
                 args=args,
                 source=item.get("source"),
             )
-        else:
-            raise ConfigError(
-                f"Constraint dict must have 'pattern' key, got: {list(item.keys())}"
+        if has_ltl:
+            ltl_text = item["ltl"]
+            if not isinstance(ltl_text, str) or not ltl_text.strip():
+                raise ConfigError(
+                    f"Constraint 'ltl' must be a non-empty string, got: {ltl_text!r}"
+                )
+            return ConstraintEntry(
+                ltl=ltl_text,
+                source=item.get("source"),
             )
+        if has_nl:
+            return ConstraintEntry(nl=item["nl"], source=item.get("source"))
+        raise ConfigError(
+            "Constraint dict must have 'pattern', 'ltl', or 'nl' key, "
+            f"got: {list(item.keys())}"
+        )
     else:
         raise ConfigError(f"Constraint must be a string or dict, got: {type(item)}")
 
@@ -642,6 +693,38 @@ def _compile_structured(entry: ConstraintEntry) -> Any:
     return fn(*coerced_args)
 
 
+def _compile_ltl(entry: ConstraintEntry) -> Any:
+    """Compile a raw-LTL constraint entry to a :class:`DetFormula`.
+
+    Wraps the parsed formula in a ``DetFormula`` so the runtime treats
+    it identically to any pattern-library output.  ``pattern_name`` is
+    set to ``"ltl"`` so attribution / metrics can distinguish raw-LTL
+    contracts from registered patterns; ``desc`` falls back to the LTL
+    text itself when the YAML didn't supply one.
+
+    Raised errors:
+        ConfigError: When the LTL string fails to parse.  We re-raise
+            with the original LTL text included so the user can locate
+            the offending entry in their YAML; the parse error alone
+            (e.g. "Expected ')' at position 12") is unactionable
+            without the source line.
+    """
+    from sponsio.formulas.parser import ParseError, parse_repr
+    from sponsio.patterns.library import DetFormula
+
+    try:
+        formula = parse_repr(entry.ltl)
+    except ParseError as e:
+        raise ConfigError(
+            f"Failed to parse ltl formula {entry.ltl!r}: {e}"
+        ) from e
+    return DetFormula(
+        formula=formula,
+        desc=entry.ltl,
+        pattern_name="ltl",
+    )
+
+
 def _compile_field(
     field_value: ConstraintEntry | list[ConstraintEntry] | None,
     llm_extractor: Any = None,
@@ -675,6 +758,9 @@ def _compile_single(
 
     if entry.is_structured:
         return _compile_structured(entry)
+
+    if entry.is_ltl:
+        return _compile_ltl(entry)
 
     try:
         result = parse_nl_unified(

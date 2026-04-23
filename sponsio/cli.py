@@ -479,6 +479,22 @@ def validate(contracts, config_path, agent_id, as_json):
                             formula = ""
                             kind = "ERROR"
                             nl = str(e)
+                    elif entry.is_ltl:
+                        from sponsio.config import _compile_ltl
+
+                        try:
+                            compiled = _compile_ltl(entry)
+                            ok = True
+                            pattern = "ltl"
+                            formula = repr(compiled.formula)
+                            kind = "DET"
+                            nl = entry.ltl or ""
+                        except Exception as e:
+                            ok = False
+                            pattern = "ltl"
+                            formula = ""
+                            kind = "ERROR"
+                            nl = str(e)
                     else:
                         nl = entry.nl
                         try:
@@ -614,6 +630,16 @@ def _resolve_entry(entry):
                 return nl, UnifiedParseResult(original_nl=nl, hard=compiled)
             except Exception:
                 return str(entry.pattern), None
+        elif entry.is_ltl:
+            from sponsio.config import _compile_ltl
+
+            try:
+                compiled = _compile_ltl(entry)
+                return entry.ltl or "", UnifiedParseResult(
+                    original_nl=entry.ltl or "", hard=compiled
+                )
+            except Exception:
+                return entry.ltl or "ltl", None
         else:
             nl = entry.nl
     else:
@@ -1419,7 +1445,11 @@ def _filter_invalid_contracts(yaml_content: str) -> tuple[str, list[dict]]:
         return yaml_content, []
 
     try:
-        from sponsio.config import _compile_structured, _parse_constraint_entry
+        from sponsio.config import (
+            _compile_ltl,
+            _compile_structured,
+            _parse_constraint_entry,
+        )
         from sponsio.generation.nl_to_contract import (
             ContractSyntaxError,
             parse_nl_unified,
@@ -1450,6 +1480,12 @@ def _filter_invalid_contracts(yaml_content: str) -> tuple[str, list[dict]]:
             except Exception as e:  # noqa: BLE001
                 args = ", ".join(str(a) for a in (entry.args or []))
                 return False, f"{entry.pattern}({args})", str(e)
+            return True, "", ""
+        elif entry.is_ltl:
+            try:
+                _compile_ltl(entry)
+            except Exception as e:  # noqa: BLE001
+                return False, (entry.ltl or "")[:120], str(e)
             return True, "", ""
         else:
             nl = entry.nl or ""

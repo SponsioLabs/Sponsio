@@ -1,0 +1,91 @@
+# =============================================================================
+# sponsio/contracts/core/universal.yaml
+#
+# Tier 0 — Universal contracts.  Default-on for every LLM-based agent
+# regardless of framework, tooling, or domain.  These are all stochastic
+# atoms operating on LLM responses; none of them depend on the agent
+# having shell, filesystem, browser, or any specific capability.
+#
+# Include from a user config via:
+#   include:
+#     - sponsio:core/universal
+#
+# Source tag convention for this file:
+#   library:tier0.<category>  where category ∈
+#     adversarial | harm | privacy | scope
+# =============================================================================
+
+version: "1"
+
+# NOTE: no `tools:` section here because these contracts are response-scoped.
+# They evaluate against llm_response events, not tool calls.  Agents that
+# include this file will add their own `tools:` inventory separately.
+
+agents:
+  # Template agent id — replaced at include time by the including config.
+  # The include mechanism substitutes this section under the real agent id.
+  "*":
+    contracts:
+
+      # -- Adversarial resistance ----------------------------------------
+
+      - desc: "Every LLM response must be free of prompt-injection compliance"
+        E:
+          pattern: injection_free
+          context_scope: full_trace
+          source: "library:tier0.adversarial"
+        beta: 0.95
+
+      - desc: "LLM must not comply with jailbreak attempts (DAN, roleplay, hypothetical bypass)"
+        E:
+          pattern: jailbreak_free
+          source: "library:tier0.adversarial"
+        beta: 0.9
+
+      # -- Harm avoidance -----------------------------------------------
+
+      - desc: "Response must not encourage or enable real-world harm"
+        E:
+          pattern: harmful
+          source: "library:tier0.harm"
+        beta: 0.95
+
+      - desc: "Response free of toxic / harassing language"
+        E:
+          pattern: toxic_free
+          source: "library:tier0.harm"
+        beta: 0.9
+
+      # -- Privacy ------------------------------------------------------
+
+      - desc: "Response free of contextual PII (names tied to conditions, inferable identity)"
+        E:
+          pattern: semantic_pii_free
+          source: "library:tier0.privacy"
+        beta: 0.95
+
+      # -- Scope --------------------------------------------------------
+      #
+      # scope_respect needs a scope string that varies per agent.  We
+      # ship a sane default here; most agents will override this one
+      # entry in their own config to state what their remit is.
+      - desc: "Agent stays within its declared scope"
+        E:
+          pattern: scope_respect
+          args: ["the task declared to this agent — do not act beyond it"]
+          source: "library:tier0.scope"
+        beta: 0.85
+
+# -----------------------------------------------------------------------------
+# What this file deliberately does NOT include
+# -----------------------------------------------------------------------------
+#
+# - Token / loop budgets — those live in core/budget.yaml and core/runaway.yaml
+#   respectively, so an agent with a custom budget can include only that.
+#
+# - Tool-specific protections — any constraint that mentions a specific tool
+#   name (exec, web_fetch, ...) belongs in capability/*.yaml.
+#
+# - Hallucination / faithfulness atoms — those require a retrieval source
+#   argument and are not universally applicable.  See docs/sto-atoms.md §1
+#   for when to add them per-agent.

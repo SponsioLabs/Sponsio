@@ -390,9 +390,16 @@ def _parse_repr_unary(peek, consume, parse_expr):
     t = peek()
     if t == "!":
         consume("!")
-        consume("(")
-        child = parse_expr()
-        consume(")")
+        # ``!`` binds tighter than the binary ops in ``parse_expr``, so we
+        # recurse into another unary rather than back to ``parse_expr``.
+        # This lets us accept all of:
+        #   * ``!(expr)``        — historic form
+        #   * ``!called(x)``     — predicate-tight (most LTL packs use this)
+        #   * ``!F(...)``, ``!G(...)``, ``!X(...)``, ``!flow(...)``
+        #   * ``!!x``            — double-negation, harmless
+        # Without this the LTL pack files written in the natural infix
+        # style fail to parse on the very first ``!flow`` token.
+        child = _parse_repr_unary(peek, consume, parse_expr)
         return Not(child)
     elif t == "(":
         consume("(")

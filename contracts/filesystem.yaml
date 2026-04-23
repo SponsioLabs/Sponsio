@@ -1,0 +1,246 @@
+# =============================================================================
+# sponsio/contracts/capability/filesystem.yaml
+#
+# Capability pack — filesystem access.  Include when your agent exposes
+# read / write / edit / apply_patch tools against the host filesystem.
+#
+# Real-world incidents this pack defends against:
+#
+#   - OpenClaw "weather-skill" incident: skill exfiltrated
+#     ~/.clawdbot/.env, leaking paid AI API keys.
+#   - OpenClaw AMOS payload: stole SSH keys, keychain, browser creds.
+#   - Cursor forum (Apr 2024 → Dec 2025): `.cursorignore` not honored in
+#     Auto Context; .env content silently sent to AI server.
+#   - Claude Code Issue #10077: recursive delete wiped /home files.
+#   - OpenClaw agent editing its own AGENTS.md / SOUL.md bootstrap files
+#     → persistent-prompt-injection at bootstrap time.
+#
+# Tool name conventions in this file:
+#   - read, write, edit, apply_patch  (OpenClaw / Claude Code default)
+# Rename to match your agent (e.g. Cursor uses edit_file/read_file).
+#
+# Include via:
+#   include:
+#     - sponsio:capability/filesystem
+#
+# Source tag convention:
+#   library:tier1.filesystem
+# =============================================================================
+
+version: "1"
+
+tools:
+  - name: read
+    description: "Read file contents"
+    params: "path: str"
+  - name: write
+    description: "Create or overwrite a file"
+    params: "path: str, content: str"
+  - name: edit
+    description: "In-place edit of an existing file"
+    params: "path: str, patch: str"
+  - name: apply_patch
+    description: "Apply a unified diff"
+    params: "path: str, diff: str"
+
+agents:
+  "*":
+    contracts:
+
+      # =================================================================
+      # § 1 — Sensitive-path hard denies
+      #
+      # These paths never have a legitimate reason to appear in an agent
+      # trace.  If the agent needs one of them (e.g. a git credential
+      # rotator that legitimately reads .aws/credentials), the including
+      # config overrides this section.
+      # =================================================================
+
+      - desc: "Deny reads of SSH keys, AWS credentials, browser keychains, dotenv secrets"
+        E:
+          pattern: arg_blacklist
+          args:
+            - read
+            - path
+            - - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/credentials"
+              - "(^|/)\\.aws/config"
+              - "(^|/)\\.env(\\.|$)"
+              - "(^|/)\\.netrc"
+              - "(^|/)\\.pgpass"
+              - "(^|/)\\.kube/config"
+              - "(^|/)\\.docker/config\\.json"
+              - "(^|/)Library/Keychains"
+              - "(^|/)\\.gnupg/"
+              - "(^|/)id_rsa($|\\.)"
+              - "(^|/)id_ed25519($|\\.)"
+          source: "library:tier1.filesystem"
+
+      - desc: "Deny writes / edits into sensitive paths (prevent persistence or cred overwrite)"
+        E:
+          pattern: arg_blacklist
+          args:
+            - write
+            - path
+            - - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/"
+              - "(^|/)\\.bashrc$"
+              - "(^|/)\\.zshrc$"
+              - "(^|/)\\.profile$"
+              - "(^|/)crontab"
+              - "(^|/)LaunchAgents/"
+              - "(^|/)LaunchDaemons/"
+              - "/etc/"
+              - "/usr/local/bin/"
+          source: "library:tier1.filesystem"
+
+      - desc: "Same denial applies to in-place edits"
+        E:
+          pattern: arg_blacklist
+          args:
+            - edit
+            - path
+            - - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/"
+              - "(^|/)\\.bashrc$"
+              - "(^|/)\\.zshrc$"
+              - "(^|/)\\.profile$"
+              - "(^|/)crontab"
+              - "(^|/)LaunchAgents/"
+              - "(^|/)LaunchDaemons/"
+              - "/etc/"
+          source: "library:tier1.filesystem"
+
+      - desc: "And to unified-diff patches"
+        E:
+          pattern: arg_blacklist
+          args:
+            - apply_patch
+            - path
+            - - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/"
+              - "/etc/"
+          source: "library:tier1.filesystem"
+
+      # =================================================================
+      # § 2 — Workspace scoping
+      #
+      # Writes are confined to an explicit workspace.  Reads get a more
+      # permissive scope (workspace + tmp + explicit project dirs) since
+      # many agents legitimately need to read system headers, stdlib,
+      # etc.
+      #
+      # `<workspace>/` is a literal string here — users should replace
+      # it with their actual workspace root before loading, or integrate
+      # with an integration-side resolver that does the substitution.
+      # =================================================================
+
+      - desc: "Writes restricted to workspace"
+        E:
+          pattern: scope_limit
+          args:
+            - write
+            - ["<workspace>/"]
+          source: "library:tier1.filesystem"
+
+      - desc: "In-place edits restricted to workspace"
+        E:
+          pattern: scope_limit
+          args:
+            - edit
+            - ["<workspace>/"]
+          source: "library:tier1.filesystem"
+
+      - desc: "Patch application restricted to workspace"
+        E:
+          pattern: scope_limit
+          args:
+            - apply_patch
+            - ["<workspace>/"]
+          source: "library:tier1.filesystem"
+
+      - desc: "Reads restricted to workspace, /tmp, and common stdlib paths"
+        E:
+          pattern: scope_limit
+          args:
+            - read
+            - ["<workspace>/", "/tmp/", "/usr/include/", "/usr/local/include/"]
+          source: "library:tier1.filesystem"
+
+      # =================================================================
+      # § 3 — Operational hygiene
+      # =================================================================
+
+      - desc: "Must read a file before editing it (no blind patches)"
+        E:
+          pattern: must_precede
+          args: [read, edit]
+          source: "library:tier1.filesystem"
+
+      - desc: "Must read a file before apply_patch (no blind diffs)"
+        E:
+          pattern: must_precede
+          args: [read, apply_patch]
+          source: "library:tier1.filesystem"
+
+      # =================================================================
+      # § 4 — Self-modification guardrails
+      #
+      # Agents with a persistent workspace often have "bootstrap" files
+      # whose contents get injected into the system prompt every
+      # session (OpenClaw: AGENTS.md, SOUL.md, IDENTITY.md, USER.md;
+      # Claude Code: CLAUDE.md; Cursor: .cursorrules).  The agent
+      # editing these is persistent prompt injection — an attacker who
+      # compromises one session can seed instructions that fire every
+      # future session.
+      #
+      # We gate self-modification behind a confirm_reconfirmed marker.
+      # =================================================================
+
+      - desc: "Editing bootstrap / system-prompt files requires human confirmation"
+        E:
+          ltl: 'G(called_with(edit, "(AGENTS|SOUL|IDENTITY|USER|CLAUDE|\\.cursorrules)\\.md?") -> count(confirm_reconfirmed) >= count_with(edit, "(AGENTS|SOUL|IDENTITY|USER|CLAUDE|\\.cursorrules)\\.md?"))'
+          source: "library:tier1.filesystem"
+
+      - desc: "apply_patch against bootstrap files requires confirmation"
+        E:
+          ltl: 'G(called_with(apply_patch, "(AGENTS|SOUL|IDENTITY|USER|CLAUDE|\\.cursorrules)\\.md?") -> count(confirm_reconfirmed) >= count_with(apply_patch, "(AGENTS|SOUL|IDENTITY|USER|CLAUDE|\\.cursorrules)\\.md?"))'
+          source: "library:tier1.filesystem"
+
+      # =================================================================
+      # § 5 — Data-leak prevention
+      #
+      # Generic no-data-leak from read → external sinks.  The including
+      # config must name the external sinks (send_message, http_post,
+      # etc.) — we can't enumerate them here since sink inventory is
+      # agent-specific.  The `send_message` form below is the most
+      # common instance and OpenClaw-derived; it's harmless to keep
+      # here because if the agent doesn't have send_message the formula
+      # is vacuously satisfied.
+      # =================================================================
+
+      - desc: "Data read from filesystem must not flow to outbound messages"
+        E:
+          pattern: no_data_leak
+          args: [read, send_message]
+          source: "library:tier1.filesystem"
+
+# -----------------------------------------------------------------------------
+# Integration requirements
+# -----------------------------------------------------------------------------
+#
+# - `<workspace>/` is a literal prefix — resolve it at include time or
+#   pre-process the YAML with a sed substitution before handing to
+#   config.load().  A cleaner fix is a resolver hook in the include
+#   mechanism; tracked as future work.
+#
+# - `confirm_reconfirmed` must be emitted by the integration on human
+#   approval.  Same marker convention as capability/shell.yaml.
+#
+# - If your agent's filesystem tools aren't named read/write/edit/
+#   apply_patch, rename them at include time or at config-load.
+#
+# - The sensitive-path blacklists are conservative.  Agents with a
+#   legitimate reason to touch one of those paths (e.g. an SSH key
+#   rotator, a cron editor) should narrow the blacklist in their own
+#   config rather than removing this file from the include chain.
