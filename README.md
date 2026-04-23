@@ -222,6 +222,37 @@ Later:
 
 </details>
 
+<details>
+<summary><b>🧠 Or install Sponsio as a reusable Agent Skill</b></summary>
+
+The one-prompt setup above is a one-shot. If you want your coding agent (Cursor, Claude Code, Codex) to know how to `onboard` / `scan` / `report` / tune / flip-to-enforce on *every* project without re-pasting the prompt, install Sponsio as an Agent Skill:
+
+```bash
+pip install sponsio
+sponsio skill install          # auto-detects Cursor / Claude Code / Codex
+```
+
+This drops the canonical `SKILL.md` (shipped inside the `sponsio` wheel) into:
+
+- `~/.cursor/skills/sponsio/`   — Cursor
+- `~/.claude/skills/sponsio/`   — Claude Code
+- `~/.codex/skills/sponsio/`    — Codex CLI
+
+…and your agent auto-triggers on phrases like *"add sponsio", "add guardrails", "explain my sponsio.yaml", "why is this rule firing"*. The skill covers five lifecycle workflows: initial setup, audit & refine, tune in observe, flip to enforce, and troubleshoot.
+
+Tool-specific:
+
+```bash
+sponsio skill install --tool claude            # just Claude Code
+sponsio skill install --tool all --link        # all three, via symlink
+                                               # (upgrades follow `pip install -U sponsio`)
+sponsio skill install --dest /custom/path      # custom location
+```
+
+Upgrade path: `pip install -U sponsio && sponsio skill install --force` (or use `--link` once and upgrades propagate automatically).
+
+</details>
+
 ---
 
 ## Pattern Library

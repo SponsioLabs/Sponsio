@@ -94,6 +94,13 @@ sponsio = [
     # — see `sponsio.config._resolve_include_spec`.  Layout is
     # ``contracts/<category>/<name>.yaml`` (core / capability / incident).
     "contracts/*/*.yaml",
+    # Agent Skills (Cursor / Claude Code / Codex).  Bundled so
+    # ``sponsio skill install`` can locate the canonical source after
+    # a pip install — see `sponsio.cli::skill_install`.  Keep the nested
+    # ``skills/<skill-name>/`` layout so multiple skills can ship side
+    # by side without path collision.
+    "skills/*/SKILL.md",
+    "skills/*/*.md",
 ]
 
 [tool.pytest.ini_options]

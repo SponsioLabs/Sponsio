@@ -409,6 +409,216 @@ def packs():
 
 
 # ---------------------------------------------------------------------------
+# skill — install the bundled Agent Skill into Cursor / Claude Code / Codex
+# ---------------------------------------------------------------------------
+
+
+@cli.group()
+def skill():
+    """Install / manage the bundled Sponsio Agent Skill.
+
+    Sponsio ships an Agent Skill (``SKILL.md``) that teaches Cursor,
+    Claude Code, and Codex how to run the ``onboard``/``scan``/``report``
+    lifecycle end-to-end.  The source file lives inside the installed
+    package at ``sponsio/skills/sponsio/SKILL.md``; this subcommand
+    puts it where the respective coding agent will discover it.
+
+    The canonical source is packaged, not developer-local, so:
+
+    * ``pip install sponsio`` → ``sponsio skill install`` works.
+    * Upgrading Sponsio refreshes the skill via pip; re-run
+      ``sponsio skill install`` (or use ``--link`` once) to propagate.
+    """
+
+
+# Per-tool discovery paths.  Keep the mapping in one place so
+# ``--tool both`` / ``auto`` can iterate over it without duplicating
+# knowledge about where each tool looks.
+_SKILL_TOOL_DIRS: dict[str, Path] = {
+    "cursor": Path("~/.cursor/skills").expanduser(),
+    "claude": Path("~/.claude/skills").expanduser(),
+    "codex": Path("~/.codex/skills").expanduser(),
+}
+
+
+def _packaged_skill_source() -> Path:
+    """Return the absolute path to the packaged ``sponsio/skills/sponsio/``
+    directory.  Raises ``FileNotFoundError`` if the install is missing
+    the skill — which means a broken wheel or a dev checkout without
+    ``pip install -e`` (common footgun)."""
+    from importlib.resources import files
+
+    try:
+        src = Path(str(files("sponsio") / "skills" / "sponsio"))
+    except (ModuleNotFoundError, FileNotFoundError) as exc:  # pragma: no cover
+        raise FileNotFoundError(
+            "sponsio/skills/sponsio/ not found in the installed package. "
+            "If you're running from a source checkout, `pip install -e .` "
+            "first so package-data is registered."
+        ) from exc
+    if not src.is_dir() or not (src / "SKILL.md").is_file():
+        raise FileNotFoundError(
+            f"Expected {src / 'SKILL.md'} to exist but it doesn't. "
+            "The sponsio wheel may be incomplete — re-install sponsio."
+        )
+    return src
+
+
+def _detect_installed_tools() -> list[str]:
+    """Return the list of tools whose personal-skills dir already exists.
+
+    Used by ``--tool auto``.  We prefer "dir already exists" over
+    "tool is installed" because the dir is a stronger signal of "the
+    user actually uses this tool's skill system" — Cursor / Claude
+    Code both create it on first skill install.
+    """
+    return [name for name, path in _SKILL_TOOL_DIRS.items() if path.is_dir()]
+
+
+@skill.command("install")
+@click.option(
+    "--tool",
+    type=click.Choice(["cursor", "claude", "codex", "both", "all", "auto"]),
+    default="auto",
+    show_default=True,
+    help=(
+        "Which coding agent's skill directory to install into.  "
+        "``auto`` detects which of ``~/.cursor/skills``, "
+        "``~/.claude/skills``, ``~/.codex/skills`` already exists and "
+        "installs into every one that does (falls back to cursor+claude "
+        "when none do).  ``both`` = cursor+claude only.  ``all`` = all "
+        "three."
+    ),
+)
+@click.option(
+    "--link",
+    "mode",
+    flag_value="link",
+    default="copy",
+    help=(
+        "Symlink the bundled skill instead of copying it.  Upgrades via "
+        "``pip install -U sponsio`` then propagate automatically; the "
+        "default ``--copy`` requires re-running this command after "
+        "upgrades.  Not supported on Windows."
+    ),
+)
+@click.option(
+    "--copy",
+    "mode",
+    flag_value="copy",
+    help="Copy the bundled skill (default).  Safer cross-platform.",
+)
+@click.option(
+    "--dest",
+    type=click.Path(path_type=Path),
+    default=None,
+    help=(
+        "Install to an explicit directory instead of the per-tool "
+        "default.  The skill is placed under ``<dest>/sponsio/``."
+    ),
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Overwrite an existing ``<dest>/sponsio/`` entry.",
+)
+def skill_install(tool: str, mode: str, dest: Path | None, force: bool):
+    """Install the bundled Sponsio Agent Skill into a coding-agent's
+    skills directory.
+
+    Examples:\n
+        sponsio skill install\n
+        sponsio skill install --tool claude\n
+        sponsio skill install --tool all --link\n
+        sponsio skill install --dest /custom/path --force
+    """
+    import shutil
+
+    src = _packaged_skill_source()
+
+    # Resolve target directories.
+    if dest is not None:
+        dest = dest.expanduser().resolve()
+        targets = [(f"custom:{dest}", dest)]
+    else:
+        if tool == "auto":
+            detected = _detect_installed_tools()
+            if detected:
+                names = detected
+            else:
+                # Nothing detected — pick a sensible default pair rather
+                # than erroring.  Most Cursor/Claude users will have
+                # one of these even if the dir hasn't been created yet
+                # (first-time install case).
+                names = ["cursor", "claude"]
+                click.echo(
+                    click.style(
+                        "· no existing skills dir detected — installing "
+                        "into cursor + claude defaults",
+                        fg="bright_black",
+                        dim=True,
+                    ),
+                    err=True,
+                )
+        elif tool == "both":
+            names = ["cursor", "claude"]
+        elif tool == "all":
+            names = ["cursor", "claude", "codex"]
+        else:
+            names = [tool]
+        targets = [(name, _SKILL_TOOL_DIRS[name]) for name in names]
+
+    if mode == "link" and sys.platform.startswith("win"):
+        click.echo(
+            click.style(
+                "warning: --link isn't reliable on Windows; falling back to --copy",
+                fg="yellow",
+            ),
+            err=True,
+        )
+        mode = "copy"
+
+    any_written = False
+    for label, parent in targets:
+        target = parent / "sponsio"
+        parent.mkdir(parents=True, exist_ok=True)
+
+        if target.exists() or target.is_symlink():
+            if not force:
+                click.echo(
+                    click.style("✗ ", fg="yellow")
+                    + f"{label}: {target} already exists — pass --force to replace",
+                    err=True,
+                )
+                continue
+            if target.is_symlink() or target.is_file():
+                target.unlink()
+            else:
+                shutil.rmtree(target)
+
+        if mode == "link":
+            try:
+                target.symlink_to(src, target_is_directory=True)
+            except OSError as exc:
+                click.echo(
+                    click.style("✗ ", fg="red")
+                    + f"{label}: symlink failed ({exc}); retry with --copy",
+                    err=True,
+                )
+                continue
+            click.echo(
+                click.style("✓ ", fg="green") + f"{label}: linked {target} → {src}"
+            )
+        else:
+            shutil.copytree(src, target)
+            click.echo(click.style("✓ ", fg="green") + f"{label}: copied to {target}")
+        any_written = True
+
+    if not any_written:
+        raise SystemExit(1)
+
+
+# ---------------------------------------------------------------------------
 # validate
 # ---------------------------------------------------------------------------
 

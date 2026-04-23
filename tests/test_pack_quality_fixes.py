@@ -340,7 +340,7 @@ class TestUsabilityTuning:
         )
         assert m, (
             "shell.yaml §4 confirm-1:1 rule must gate on "
-            "`A: \"called `confirm_reconfirmed`\"` — otherwise every "
+            '`A: "called `confirm_reconfirmed`"` — otherwise every '
             "exec call flags until the marker tool is wired in."
         )
 
@@ -360,7 +360,7 @@ class TestUsabilityTuning:
             )
             assert m, (
                 f"openclaw.yaml §8 rule '{desc_frag}' must gate on "
-                "`A: \"called `confirm_reconfirmed`\"` to avoid day-1 "
+                '`A: "called `confirm_reconfirmed`"` to avoid day-1 '
                 "false positives."
             )
 
@@ -439,12 +439,7 @@ class TestUsabilityTuning:
         it back to the old workspace-plus-tmp-only form."""
         # Rather than regex-matching the YAML shape (brittle as the
         # file evolves), load the pack and assert the effective args
-        # on the `read`-scope rule.
-        cfg_path = (
-            Path(__file__).parent
-            / "tmp_fs_scope_check_sponsio.yaml"  # tmp name — unused
-        )
-        # Inline-include via tmp path to avoid polluting a real file.
+        # on the `read`-scope rule via an inline tmp config.
         import tempfile
 
         with tempfile.TemporaryDirectory() as td:
