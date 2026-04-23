@@ -284,3 +284,70 @@ guard = Sponsio(
     otel_exporter=exporter,
 )
 ```
+
+## Long-Running Agents — Session Rotation
+
+Sponsio's enforcement semantics are whole-trace: every `check_action`
+appends to `monitor.trace.events` and the verifier's atom caches, and
+they only shrink on explicit reset. That's correct for short sessions
+(one conversation, one task) but unbounded for a **24/7 service agent**
+— a customer-service bot that runs for weeks eventually sits on
+hundreds of MB of trace data and a proportionally slow
+`_check_contract_with_confidence` sweep.
+
+`guard.rotate_session()` is the supported way to cap this:
+
+```python
+# Long-running agent loop — rotate every N turns, or every T minutes,
+# or at a business boundary like "customer hung up".
+for turn_idx, user_msg in enumerate(conversation):
+    response = agent_step(user_msg)
+
+    if turn_idx > 0 and turn_idx % 1000 == 0:
+        summary = guard.rotate_session()
+        audit_logger.info(
+            "sponsio.rotate",
+            extra={
+                "events": summary["events"],
+                "turns": summary["turns"],
+                "violations": summary["violations_cleared"],
+                "pending_liveness": summary["pending_liveness_violations"],
+            },
+        )
+```
+
+**What rotation preserves**: contracts on the underlying `System`,
+perf tracker aggregates, callbacks, and dashboard / OTEL wiring. The
+guard keeps doing exactly what it was doing — just with a fresh trace
+window.
+
+**What rotation clears**: `trace.events`, `monitor.turn_spans`,
+`monitor.log`, `_atom_caches`, `guard.violations`, and
+`_pending_liveness_violations`.
+
+**Liveness caveat**. Formulas whose semantics depend on the entire
+trace — `F(response)`, `always_followed_by(trigger, response)`,
+whole-trace `rate_limit(tool, N)` — can't survive a rotation: the
+post-rotation verifier doesn't see the original `trigger` and can
+never report the missing `response`. `rotate_session` calls
+`finish_session` by default *before* wiping, so a pending liveness
+obligation is flushed as a violation first. Opt out with
+`run_finish_session=False` only if you're running `finish_session` at
+a different cadence. Use `require_finish_session=True` to fail loudly
+instead of silently rotating when finalisation was skipped.
+
+**How to pick a rotation cadence**. Three common patterns:
+
+- **Turn-based** (`turn_idx % N == 0`): simple, predictable.
+  Recommended default for tool-heavy agents. Pick `N` such that
+  `N × avg_tool_calls_per_turn ≈ 10_000` events per window.
+- **Wall-clock** (every T minutes via APScheduler / cron): matches
+  ops dashboards' refresh cadence. Pick `T` so a typical window
+  holds one "unit of work" (e.g. one customer conversation).
+- **Semantic** (at the natural end of a conversation / task / user
+  session): cleanest — liveness obligations naturally complete or
+  expire at the boundary, so the caveat above is a non-issue.
+
+Contracts themselves are **not** touched — re-register them only if
+you're actually changing the contract set. Rotation is a *trace*
+operation, not a *system* operation.

@@ -1400,6 +1400,136 @@ class BaseGuard:
         self._pending_liveness_violations.clear()
         self._monitor.reset()
 
+    def rotate_session(
+        self,
+        *,
+        run_finish_session: bool = True,
+        require_finish_session: bool = False,
+    ) -> dict:
+        """Rotate to a fresh session window; return a hand-off summary.
+
+        This is the memory-management primitive for **long-running
+        agents** — services that process thousands of tool calls across
+        hours or days without an obvious session boundary. Sponsio's
+        per-monitor state (``trace.events``, ``_atom_caches``,
+        ``_turn_spans``, ``_log``, ``_violations``) grows monotonically
+        because that's what whole-trace LTL semantics requires; without
+        rotation, a 24-hour customer-service agent eventually sits on
+        hundreds of MB of trace data. Rotation caps it without tearing
+        up the contract definitions.
+
+        Typical wiring::
+
+            # Every N turns, or every T minutes, or at a business
+            # boundary like "end of customer conversation".
+            summary = guard.rotate_session()
+            audit_logger.info(
+                "sponsio.rotate",
+                extra={
+                    "events": summary["events"],
+                    "violations": summary["violations_cleared"],
+                    "turns": summary["turns"],
+                },
+            )
+
+        Liveness handling
+        -----------------
+        Formulas like ``F(response)`` or
+        ``always_followed_by(trigger, response)`` that depend on the
+        entire trace **cannot** survive a rotation — the post-rotation
+        verifier doesn't see the original ``trigger`` and will never
+        report the missed ``response``. To avoid silently swallowing
+        these obligations, ``rotate_session`` runs
+        :meth:`finish_session` **first by default**, so any pending
+        liveness obligation is flushed into violations / spans / the
+        audit log *before* the trace is wiped. Set
+        ``run_finish_session=False`` if the caller is managing
+        finalisation separately (e.g. running ``finish_session`` at a
+        different cadence from rotation).
+
+        Parameters
+        ----------
+        run_finish_session
+            When ``True`` (default) run :meth:`finish_session` before
+            clearing state, so pending liveness violations are emitted
+            normally. Has no effect if ``finish_session`` was already
+            called for this window (it's idempotent).
+        require_finish_session
+            When ``True``, refuse to rotate if ``finish_session``
+            hasn't run yet. Useful as a safety net in code paths where
+            forgetting to finalise would be a silent bug. Default
+            ``False`` — most callers prefer the "just do the right
+            thing" behaviour of ``run_finish_session=True``.
+
+        Returns
+        -------
+        dict
+            ``{"events": int, "turns": int, "log_entries": int,
+            "violations_cleared": int,
+            "pending_liveness_violations": int}`` — the size of the
+            window that just closed. ``pending_liveness_violations``
+            counts obligations that ``finish_session`` surfaced at
+            rotation time (zero if ``run_finish_session=False`` or no
+            pending obligations).
+        """
+        # Preflight: require_finish_session is a read-only check, no
+        # lock needed (a concurrent mutation would lose the race
+        # anyway, and the caller has asked for strictness).
+        if require_finish_session and not self._finish_session_called:
+            raise RuntimeError(
+                "rotate_session(require_finish_session=True) called "
+                "before finish_session. Call finish_session() first so "
+                "pending liveness obligations are recorded, or use "
+                "rotate_session(run_finish_session=True) to have rotate "
+                "call it for you."
+            )
+
+        # Step 1 — finalise liveness *outside* ``self._lock`` because
+        # ``finish_session`` takes the same (non-reentrant) lock.
+        pending_count = 0
+        if run_finish_session and not self._finish_session_called:
+            try:
+                pending = self.finish_session()
+                pending_count = len(pending) if pending else 0
+            except Exception as exc:  # noqa: BLE001
+                # finish_session failures shouldn't stop rotation —
+                # the alternative is memory leak. Surface as warning
+                # so ops can investigate.
+                import warnings
+
+                warnings.warn(
+                    f"rotate_session: finish_session raised {exc!r} — "
+                    "rotating anyway to bound memory. Pending liveness "
+                    "obligations may be lost.",
+                    stacklevel=2,
+                )
+        else:
+            pending_count = len(self._pending_liveness_violations)
+
+        # Step 2 — snapshot guard-side counts under the lock, rotate
+        # the monitor, clear guard-side state. A concurrent
+        # ``guard_before`` either fully observes the old window (if it
+        # beat us into ``self._lock``) or fully observes the new
+        # window (if it came after) — never a mix.
+        with self._lock:
+            violation_count = len(self._violations)
+            monitor_summary = self._monitor.rotate_session()
+            summary = {
+                "events": monitor_summary["events"],
+                "turns": monitor_summary["turns"],
+                "log_entries": monitor_summary["log_entries"],
+                "violations_cleared": violation_count,
+                "pending_liveness_violations": pending_count,
+            }
+            # Clear guard-side state. Don't call ``self.reset()`` —
+            # that would re-invoke ``monitor.reset()`` on an already
+            # cleared monitor and is a waste of a lock acquisition.
+            self._violations.clear()
+            self._finish_session_called = False
+            self._pending_liveness_violations.clear()
+
+        return summary
+
     # -----------------------------------------------------------------
     # Ad-hoc verification (non-enforcement query surface)
     # -----------------------------------------------------------------

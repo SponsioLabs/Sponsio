@@ -9,6 +9,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **``guard.rotate_session()`` / ``RuntimeMonitor.rotate_session()``**
+  — supported memory-bound primitive for **long-running agents**.
+  Previously the only way to cap ``trace.events`` / ``_atom_caches`` /
+  ``_turn_spans`` / ``_violations`` was ``reset()``, which reads as
+  "something went wrong, start over" and has no return value; ops
+  using it for periodic housekeeping on a 24/7 service agent had no
+  way to audit what was flushed. ``rotate_session()`` is the same
+  clearing with intent signalling and a structured summary:
+  ``{"events", "turns", "log_entries", "violations_cleared",
+  "pending_liveness_violations"}``. By default it runs
+  ``finish_session()`` **before** wiping, so a pending
+  ``F(response)`` obligation is recorded as a violation rather than
+  silently dropped at the rotation boundary. Opt out with
+  ``run_finish_session=False`` when ``finish_session`` is being
+  called on a different cadence; opt into strictness with
+  ``require_finish_session=True`` to refuse rotation when
+  finalisation was forgotten. Contracts on the underlying
+  ``System``, the perf tracker, callbacks, and dashboard / OTEL
+  wiring are all preserved. See the new "Long-Running Agents —
+  Session Rotation" section in ``docs/integrations.md`` for
+  cadence-picking guidance.
+
 - **``runtime:`` section in ``sponsio.yaml``** pins enforcement mode
   and dashboard URL in one place instead of spreading them across
   ``SPONSIO_MODE`` / ``SPONSIO_DASHBOARD`` env vars and constructor
