@@ -148,10 +148,14 @@ agents:
         A: { pattern: called, args: [read, ".env"] }
         E: { ltl: "G(!called(git_commit) & !called(git_push))" }
 
-judge:                                 # only when any include uses sto
-  provider: openai
+judge:                                 # only when any include uses sto (LLM-judged contracts)
+  provider: openai                     # openai | anthropic | gemini | ollama | (any OpenAI-compatible)
   model: gpt-4o-mini
+  # api_key is read from env (OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY / …)
+  # fallback_mode: allow               # allow | deny | skip — what to do if LLM times out
 ```
+
+**API keys, full provider list, default models, `base_url` for OpenRouter / DeepSeek / Ollama / Azure:** see [`docs/cli.md` → Provider matrix](docs/cli.md#provider-matrix). The same env-var auto-detection applies to both `judge` (runtime) and `sponsio scan --llm` (onboarding).
 
 Run `sponsio packs` to list shipped packs with rule counts and include syntax.
 

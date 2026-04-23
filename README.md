@@ -36,32 +36,19 @@ Sponsio installs next to your agent — no Docker, no API key, no framework SDK.
 # 1. Install
 pip install sponsio
 
-# 2. Onboard — detects framework, writes sponsio.yaml,
-#    prints a 2-line patch for your agent entry file
+# 2. Onboard — scan your code, draft starter contracts into sponsio.yaml
 sponsio onboard .
 
 # 3. Paste the printed patch (snippet below)
 ```
 
-One `assume`, one `enforce` — that's the whole mental model. `coding_agent` is just an example; same shape works for a support bot, a loan officer, a clinical-trial recruiter, any agent that calls tools.
-
 **LangGraph**
 
 ```python
-from sponsio import contract
 from sponsio.langgraph import Sponsio
 from langgraph.prebuilt import create_react_agent
 
-guard = Sponsio(
-    agent_id="coding_agent",
-    contracts=[
-        contract("confirm before destructive delete")
-            .assume("called `delete_file`")
-            .enforce("must call `confirm_with_user` "
-                     "before `delete_file`"),
-    ],
-)
-
+guard = Sponsio(config="sponsio.yaml", agent_id="coding_agent")
 agent = create_react_agent(model, guard.wrap(tools))
 ```
 
@@ -70,25 +57,12 @@ agent = create_react_agent(model, guard.wrap(tools))
 
 ```python
 from openai import OpenAI
-from sponsio import contract
-from sponsio.openai import Sponsio
+from sponsio.openai import Sponsio, patch_openai
 
-guard = Sponsio(
-    agent_id="support_bot",
-    contracts=[
-        contract("policy check before refund")
-            .assume("called `issue_refund`")
-            .enforce("must call `check_policy` "
-                     "before `issue_refund`"),
-    ],
-)
-
+guard = Sponsio(config="sponsio.yaml", agent_id="support_bot")
 client = OpenAI()
-resp = client.chat.completions.create(model="gpt-4o-mini", messages=[...])
-guard.check_response(resp)   # blocks / retries based on tool_calls in resp
+patch_openai(client, guard)   # every client.chat.completions.create(...) is now guarded
 ```
-
-Prefer a drop-in patch? `from sponsio.openai import patch_openai; patch_openai(client, guard)` auto-wraps every `client.chat.completions.create(...)` call.
 
 </details>
 
@@ -97,23 +71,11 @@ Prefer a drop-in patch? `from sponsio.openai import patch_openai; patch_openai(c
 
 ```python
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
-from sponsio import contract
 from sponsio.claude_agent import Sponsio
 
-guard = Sponsio(
-    agent_id="coding_agent",
-    contracts=[
-        contract("confirm before destructive delete")
-            .assume("called `delete_file`")
-            .enforce("must call `confirm_with_user` "
-                     "before `delete_file`"),
-    ],
-)
-
+guard = Sponsio(config="sponsio.yaml", agent_id="coding_agent")
 options = ClaudeAgentOptions(hooks=guard.hooks())
 ```
-
-No `guard.wrap(tools)` needed — Claude Agent SDK exposes a hook API, so Sponsio plugs in natively.
 
 </details>
 
@@ -121,17 +83,9 @@ No `guard.wrap(tools)` needed — Claude Agent SDK exposes a hook API, so Sponsi
 <summary><b>No framework — any tool-calling loop</b></summary>
 
 ```python
-from sponsio import Sponsio, contract
+import sponsio
 
-guard = Sponsio(
-    agent_id="refund_bot",
-    contracts=[
-        contract("policy check before refund")
-            .assume("called `issue_refund`")
-            .enforce("must call `check_policy` "
-                     "before `issue_refund`"),
-    ],
-)
+guard = sponsio.Sponsio(config="sponsio.yaml", agent_id="refund_bot")
 
 result = guard.guard_before(tool_name, tool_args)
 if result.allowed:
@@ -142,6 +96,8 @@ if result.allowed:
 Use this if you hand-roll the agent loop (FastAPI endpoint, cron job, MCP server, custom ReAct loop, anything).
 
 </details>
+
+> The `sponsio.yaml` referenced above is the contract library `onboard` just wrote — for format, packs, overrides, and the `sponsio refresh` lifecycle, see [QUICKSTART.md → Configuration](QUICKSTART.md#configuration).
 
 ```bash
 # 4. Observe, then flip — review would-have-blocked decisions, then enforce
@@ -157,7 +113,9 @@ export SPONSIO_MODE=enforce         # no code change
 # 1. Install
 npm install @sponsio/sdk
 
-# 2. Wrap your agent (snippet below)
+# 2. Draft contracts — list NL rules in sponsio.contracts.ts (see blockquote below)
+
+# 3. Wrap your agent (snippet below)
 ```
 
 **LangChain.js / LangGraph**
@@ -166,21 +124,16 @@ npm install @sponsio/sdk
 import { Sponsio } from "@sponsio/sdk";
 import { wrapTools } from "@sponsio/sdk/langchain";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
+import { contracts } from "./sponsio.contracts";
 
-const guard = new Sponsio({
-  agentId: "coding_agent",
-  contracts: [
-    "must call `confirm_with_user` before `delete_file`",
-  ],
-});
-
+const guard = new Sponsio({ agentId: "coding_agent", contracts });
 const toolNode = new ToolNode(wrapTools(tools, guard));
 ```
 
-The TS SDK accepts NL strings directly; the Python SDK adds an explicit `contract().assume(...).enforce(...)` builder for assume-guarantee pairs and inline metadata.
+> `sponsio.contracts.ts` is `export const contracts = ["must call \`confirm_with_user\` before \`delete_file\`", …]` — an array of NL strings. TS has no `sponsio.yaml` loader today, so hand-author them alongside your agent; same NL grammar as the Python yaml, vocabulary reference: [QUICKSTART.md → Configuration](QUICKSTART.md#configuration).
 
 ```bash
-# 3. Observe, then flip
+# 4. Observe, then flip
 export SPONSIO_MODE=enforce         # no code change
 ```
 
