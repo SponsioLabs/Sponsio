@@ -83,7 +83,9 @@ tools:
 
 # -----------------------------------------------------------------------------
 agents:
-  openclaw_local:
+  # Template agent id — replaced at include time by the including config.
+  # Matches the convention used by the other packs (core/*, capability/*).
+  "*":
     contracts:
 
       # =====================================================================
@@ -332,7 +334,7 @@ agents:
       # data_write(key=fetched_content, contains=[untrusted]) after web_fetch.
       - desc: "Content tainted as untrusted must not flow to external recipients"
         E:
-          ltl: "G(contains(untrusted) -> !flow(openclaw_local, external))"
+          ltl: "G(contains(untrusted) -> !flow(<agent>, external))"
           source: "incident:CVE-2026-22708"
 
       # =====================================================================

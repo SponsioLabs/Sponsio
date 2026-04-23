@@ -237,10 +237,11 @@ class TestPacksStillLoadAfterFixes:
     each pack through the include/load path with the minimum
     surrounding config (just `workspace:` for the fs pack)."""
 
-    # openclaw.yaml is intentionally NOT included here — it's a
-    # standalone reference config (uses agent id `openclaw_local`,
-    # not the `*` template), not a reusable include target.  See
-    # the file's own header comment.
+    # All five shipped packs must round-trip through include + load.
+    # openclaw was historically excluded (it used a hard-coded agent
+    # id `openclaw_local` instead of the `*` template), but is now
+    # template-shaped like the others and uses `<agent>` for the
+    # one LTL atom that needs to reference the running agent.
     @pytest.mark.parametrize(
         "spec,needs_workspace",
         [
@@ -248,6 +249,7 @@ class TestPacksStillLoadAfterFixes:
             ("sponsio:core/runaway", False),
             ("sponsio:capability/shell", False),
             ("sponsio:capability/filesystem", True),
+            ("sponsio:incident/openclaw", True),
         ],
     )
     def test_pack_loads(self, tmp_path, spec, needs_workspace):
@@ -260,3 +262,44 @@ class TestPacksStillLoadAfterFixes:
         # nonzero lower bound catches "the rewrites broke parsing"
         # regressions.
         assert len(cfg.agents["bot"].contracts) > 0
+
+
+# ---------------------------------------------------------------------------
+# H — `<agent>` placeholder in LTL atoms gets substituted on include
+# ---------------------------------------------------------------------------
+
+
+class TestAgentPlaceholderRewrite:
+    """openclaw § 5.2 has ``flow(<agent>, external)`` — the host's
+    agent_id must be substituted in at include time, otherwise the
+    taint contract becomes a silent no-op for any agent not literally
+    named ``<agent>``."""
+
+    def test_openclaw_taint_ltl_substitutes_agent_id(self, tmp_path):
+        cfg_path = tmp_path / "sponsio.yaml"
+        cfg_path.write_text(
+            "agents:\n  myagent:\n"
+            '    workspace: "/proj"\n'
+            "    include: ['sponsio:incident/openclaw']\n"
+        )
+        cfg = load_config(cfg_path)
+        ltls = []
+        for c in cfg.agents["myagent"].contracts:
+            es = c.enforcement if isinstance(c.enforcement, list) else [c.enforcement]
+            for ce in es:
+                if ce is not None and ce.ltl:
+                    ltls.append(ce.ltl)
+        # The taint LTL must reference `myagent`, not the literal
+        # placeholder, and definitely not the historical `openclaw_local`.
+        assert any("flow(myagent, external)" in s for s in ltls), (
+            "expected `<agent>` to be substituted with `myagent` in "
+            f"openclaw's taint LTL.  Got LTLs: {ltls!r}"
+        )
+        assert not any("<agent>" in s for s in ltls), (
+            "no LTL should retain the unresolved `<agent>` placeholder "
+            f"after include.  Got: {ltls!r}"
+        )
+        assert not any("openclaw_local" in s for s in ltls), (
+            "openclaw's LTL still mentions the historical hard-coded "
+            f"agent name.  Got: {ltls!r}"
+        )

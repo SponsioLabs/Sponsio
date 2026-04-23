@@ -804,18 +804,25 @@ def _load_pack_contracts(
 
 
 _WORKSPACE_PLACEHOLDER = "<workspace>/"
+_AGENT_PLACEHOLDER = "<agent>"
 
 
 def _rewrite_string(
     text: str,
     workspace: str | None,
     tool_rename: dict[str, str],
+    agent_id: str | None = None,
 ) -> str:
-    """Apply workspace + tool-rename rewrites to a single string.
+    """Apply workspace + agent + tool-rename rewrites to a single string.
 
     * ``<workspace>/`` — literal substring replacement.  Skipped when
       ``workspace`` is None; the caller decides whether unresolved
       placeholders should error.
+    * ``<agent>`` — replaced with the host ``agent_id`` so packs can
+      reference the running agent in LTL atoms like
+      ``flow(<agent>, external)`` portably.  Skipped when ``agent_id``
+      is None.  Word-boundary substitution to avoid clobbering
+      ``<agentless>`` and similar.
     * Tool renames — whole-word identifier substitution (``\\b{name}\\b``)
       so a rename of ``exec → bash`` doesn't accidentally hit
       ``executor`` or ``rexec``.
@@ -824,13 +831,20 @@ def _rewrite_string(
     if workspace is not None and _WORKSPACE_PLACEHOLDER in out:
         ws = workspace.rstrip("/") + "/"
         out = out.replace(_WORKSPACE_PLACEHOLDER, ws)
+    if agent_id is not None and _AGENT_PLACEHOLDER in out:
+        out = out.replace(_AGENT_PLACEHOLDER, agent_id)
     if tool_rename:
         for old, new in tool_rename.items():
             out = re.sub(rf"\b{re.escape(old)}\b", new, out)
     return out
 
 
-def _rewrite_arg(arg: Any, workspace: str | None, tool_rename: dict[str, str]) -> Any:
+def _rewrite_arg(
+    arg: Any,
+    workspace: str | None,
+    tool_rename: dict[str, str],
+    agent_id: str | None = None,
+) -> Any:
     """Rewrite one ``args`` element.
 
     Strings get string-level rewrites.  Lists recurse so
@@ -841,12 +855,12 @@ def _rewrite_arg(arg: Any, workspace: str | None, tool_rename: dict[str, str]) -
     boundary on a single token).  Non-string scalars pass through.
     """
     if isinstance(arg, str):
-        rewritten = _rewrite_string(arg, workspace, tool_rename)
+        rewritten = _rewrite_string(arg, workspace, tool_rename, agent_id)
         if tool_rename and rewritten in tool_rename:
             rewritten = tool_rename[rewritten]
         return rewritten
     if isinstance(arg, list):
-        return [_rewrite_arg(a, workspace, tool_rename) for a in arg]
+        return [_rewrite_arg(a, workspace, tool_rename, agent_id) for a in arg]
     return arg
 
 
@@ -879,9 +893,9 @@ def _rewrite_constraint_entry(
             beats discovering it at first-event evaluation time.
     """
     if ce.args:
-        ce.args = [_rewrite_arg(a, workspace, tool_rename) for a in ce.args]
+        ce.args = [_rewrite_arg(a, workspace, tool_rename, agent_id) for a in ce.args]
     if ce.ltl:
-        ce.ltl = _rewrite_string(ce.ltl, workspace, tool_rename)
+        ce.ltl = _rewrite_string(ce.ltl, workspace, tool_rename, agent_id)
 
     if enforce_placeholder_check and workspace is None:
         leftover = []
