@@ -138,6 +138,17 @@ class RuntimeMonitor:
     dual pipelines (det/sto), and applies per-constraint enforcement
     strategies.
 
+    Thread safety: ``check_action``, ``reset``, ``import_trace``, and
+    the ``log`` / ``turn_spans`` snapshot accessors are serialised by
+    an internal :class:`~threading.RLock`. This is the configuration
+    that matters for the FastAPI demo server (``api/state.py`` —
+    thread-pool sync routes) and the MCP proxy (``sponsio.integrations.mcp`` —
+    one proxy shared across concurrent tool clients). Callbacks fire
+    *outside* the lock so a slow exporter (dashboard HTTP, OTel) can't
+    stall the agent loop. Contract authoring APIs on the underlying
+    ``System`` (e.g. ``system._contracts.append``) are **not** guarded —
+    treat contracts as write-once at startup.
+
     Args:
         system: The System whose contracts are being enforced.
         sto_evaluator: Optional StoEvaluator for sto constraints.
@@ -206,7 +217,17 @@ class RuntimeMonitor:
         self._feedback_generator = FeedbackGenerator()
         import threading
 
-        self._lock = threading.Lock()
+        # Reentrant: ``check_action`` takes the lock for the full pipeline
+        # (trace mutation, verifier sync, sto eval, span collection) and
+        # internally calls ``_emit`` which also takes this lock. Using an
+        # RLock lets ``_emit`` re-enter without deadlocking the hot path.
+        # The concurrency guarantee: at most one thread runs a
+        # ``check_action`` / ``reset`` / ``import_trace`` at a time on a
+        # given monitor, so ``trace.events`` ordering, ``_verifier`` sync
+        # state, and ``_atom_caches`` can't interleave. Callbacks fire
+        # outside the lock (same as before) so a slow exporter doesn't
+        # back-pressure the agent loop.
+        self._lock = threading.RLock()
         self._log: list[MonitorEvent] = []
         self._trace = Trace(events=[])
         self._callbacks: list[Callable[[MonitorEvent], None]] = []
@@ -272,12 +293,19 @@ class RuntimeMonitor:
         return self._trace
 
     def import_trace(self, trace: Trace) -> None:
-        """Replace the current trace and invalidate derived verifier state."""
-        self._trace = trace
-        self._verifier.reset()
-        self._last_turn_span = None
-        self._turn_spans.clear()
-        self._atom_caches.clear()
+        """Replace the current trace and invalidate derived verifier state.
+
+        Thread-safe: a concurrent ``check_action`` must not see a trace
+        that's been replaced while the verifier's ``_grounded_upto`` is
+        still pointing at the old trace's length — ``sync`` would try
+        to ``ground_event`` for a nonexistent index.
+        """
+        with self._lock:
+            self._trace = trace
+            self._verifier.reset()
+            self._last_turn_span = None
+            self._turn_spans.clear()
+            self._atom_caches.clear()
 
     @property
     def performance_tracker(self) -> PerformanceTracker:
@@ -301,7 +329,11 @@ class RuntimeMonitor:
 
     @property
     def turn_spans(self) -> list[AgentTurnSpan]:
-        return list(self._turn_spans)
+        # Snapshot under the lock — the list is being appended to by
+        # any concurrent ``check_action`` and reading mid-append can
+        # intermittently return an inconsistent Python list state.
+        with self._lock:
+            return list(self._turn_spans)
 
     def render_last_turn(self, colorize: bool = True) -> str:
         if self._last_turn_span is None:
@@ -311,18 +343,26 @@ class RuntimeMonitor:
         return render_tree(self._last_turn_span, colorize=colorize)
 
     def reset(self) -> None:
-        """Resets the monitor state (trace, log, spans, verifier cache)."""
-        self._trace = Trace(events=[])
-        self._log.clear()
-        self._last_turn_span = None
-        self._turn_spans.clear()
-        self._verifier.reset()
-        # Clear the per-contract atom memo — entries are keyed by
-        # (id(atom), position) and positions are about to be reused.
-        self._atom_caches.clear()
-        for strategy in self._policy.values():
-            if isinstance(strategy, RetryWithConstraint):
-                strategy.reset()
+        """Resets the monitor state (trace, log, spans, verifier cache).
+
+        Thread-safe: holds ``self._lock`` for the duration so a
+        concurrent ``check_action`` on another thread doesn't observe a
+        half-cleared state (e.g. trace empty but ``_atom_caches`` still
+        pointing at the old positions, which would have the next event
+        reuse stale cached atom scores).
+        """
+        with self._lock:
+            self._trace = Trace(events=[])
+            self._log.clear()
+            self._last_turn_span = None
+            self._turn_spans.clear()
+            self._verifier.reset()
+            # Clear the per-contract atom memo — entries are keyed by
+            # (id(atom), position) and positions are about to be reused.
+            self._atom_caches.clear()
+            for strategy in self._policy.values():
+                if isinstance(strategy, RetryWithConstraint):
+                    strategy.reset()
         # Intentionally DO NOT reset the perf tracker.  Perf is a
         # session-scoped aggregate; a user resetting the trace to
         # re-run doesn't want to lose the speed evidence.  If they do
@@ -336,58 +376,73 @@ class RuntimeMonitor:
         event_type: str = "tool_call",
         metadata: dict | None = None,
     ) -> list[EnforcementResult]:
-        """Checks a proposed agent action against all applicable contracts."""
-        meta = metadata or {}
+        """Checks a proposed agent action against all applicable contracts.
 
-        event = Event(
-            ts=len(self._trace.events),
-            agent=agent_id,
-            event_type=event_type,
-            tool=action if event_type == "tool_call" else None,
-            key=meta.get("key"),
-            contains=meta.get("contains"),
-            to=meta.get("to"),
-            args=meta.get("args"),
-            content=meta.get("content"),
-        )
-        self._trace.events.append(event)
+        Thread-safe: the full pipeline — event construction + trace
+        append + det evaluation + sto evaluation + span collection —
+        runs under ``self._lock`` (an RLock). This is the only way to
+        get a consistent ``ts`` ordering when multiple threads call
+        ``check_action`` on the same monitor (FastAPI sync routes in
+        ``api/state.py``, MCP proxy serving concurrent clients). Pre-fix
+        two threads could race on ``trace.events.append`` and
+        ``verifier.sync``: one writes ts=5, the other writes ts=5 too,
+        the verifier double-processes the same slot, atom caches
+        interleave, and the resulting trace is silently inconsistent.
+        """
+        with self._lock:
+            meta = metadata or {}
 
-        context = ActionContext(
-            agent_id=agent_id,
-            action=action,
-            trace_length=len(self._trace.events),
-            metadata=meta,
-        )
-
-        results: list[EnforcementResult] = []
-
-        with SpanCollector(agent_id, action) as collector:
-            hard_results = self._check_det(agent_id, context, collector)
-            results.extend(hard_results)
-
-            sto_results = self._check_sto(agent_id, context, collector)
-            results.extend(sto_results)
-
-            collector.root.total_contracts_checked = sum(
-                1
-                for c in collector.root.children
-                if c.span_type == "sponsio.contract_check"
+            event = Event(
+                ts=len(self._trace.events),
+                agent=agent_id,
+                event_type=event_type,
+                tool=action if event_type == "tool_call" else None,
+                key=meta.get("key"),
+                contains=meta.get("contains"),
+                to=meta.get("to"),
+                args=meta.get("args"),
+                content=meta.get("content"),
             )
-            for child in collector.root.children:
-                if child.span_type == "sponsio.sto_check":
-                    collector.root.total_contracts_checked += sum(
-                        1 for sc in child.children if sc.span_type == "sponsio.sto_eval"
-                    )
-            collector.root.det_violations = len(hard_results)
-            collector.root.sto_violations = len(sto_results)
-            collector.root.blocked = any(r.action == "blocked" for r in results)
-            if results:
-                collector.root.status = "violated"
+            self._trace.events.append(event)
 
-        self._last_turn_span = collector.root
-        self._turn_spans.append(collector.root)
+            context = ActionContext(
+                agent_id=agent_id,
+                action=action,
+                trace_length=len(self._trace.events),
+                metadata=meta,
+            )
 
-        return results
+            results: list[EnforcementResult] = []
+
+            with SpanCollector(agent_id, action) as collector:
+                hard_results = self._check_det(agent_id, context, collector)
+                results.extend(hard_results)
+
+                sto_results = self._check_sto(agent_id, context, collector)
+                results.extend(sto_results)
+
+                collector.root.total_contracts_checked = sum(
+                    1
+                    for c in collector.root.children
+                    if c.span_type == "sponsio.contract_check"
+                )
+                for child in collector.root.children:
+                    if child.span_type == "sponsio.sto_check":
+                        collector.root.total_contracts_checked += sum(
+                            1
+                            for sc in child.children
+                            if sc.span_type == "sponsio.sto_eval"
+                        )
+                collector.root.det_violations = len(hard_results)
+                collector.root.sto_violations = len(sto_results)
+                collector.root.blocked = any(r.action == "blocked" for r in results)
+                if results:
+                    collector.root.status = "violated"
+
+            self._last_turn_span = collector.root
+            self._turn_spans.append(collector.root)
+
+            return results
 
     # -----------------------------------------------------------------
     # Det pipeline

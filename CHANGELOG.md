@@ -75,6 +75,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   stderr.
 
 ### Fixed (runtime correctness + performance)
+- **``RuntimeMonitor`` is now actually thread-safe.** Pre-fix the
+  ``_lock`` only wrapped ``_emit`` / ``_callbacks`` / ``register_callback``;
+  the ``check_action`` body (event construction, ``trace.events.append``,
+  ``verifier.sync``, ``_atom_caches`` writes, ``_turn_spans.append``)
+  ran without any mutex. That shipped a real race under the two code
+  paths that share one monitor across threads: the FastAPI demo server
+  (``api/state.AppState.monitor`` — sync routes are dispatched on a
+  thread pool) and the MCP proxy (``sponsio.integrations.mcp`` serving
+  concurrent tool clients). Two threads could read ``len(trace.events)``
+  before either appended, resulting in duplicate ``ts`` values, a
+  verifier whose ``_grounded_upto`` lagged real length, and
+  intermittently corrupt atom caches. The lock is now a
+  :class:`~threading.RLock` (so ``check_action`` → ``_emit`` re-entry
+  still works) and covers ``check_action``, ``reset``, ``import_trace``,
+  and the ``log`` / ``turn_spans`` snapshot accessors. Callbacks still
+  fire *outside* the lock so a slow exporter can't back-pressure the
+  agent loop. Documented as a class-level guarantee so the behaviour
+  is pinned down, not an emergent property.
+
 - **``observe_tool_output`` no longer emits a phantom ``tool_call``
   event.** The previous implementation called
   ``check_action(event_type="tool_call")`` to attach output content to
