@@ -170,6 +170,22 @@ agents:
       # A single confirm_reconfirmed cannot authorize two exec actions.
       # count-dominance is a proxy for principal identity until a
       # principal() atom ships.
+      #
+      # NOTE on batch approvals: this rule enforces a strict 1:1
+      # confirmation-to-exec ratio.  Some workflows legitimately
+      # batch-approve (CI pipelines, planned migrations).  If your
+      # workflow does, override this rule in your config:
+      #
+      #     overrides:
+      #       - match: {desc: "Each exec call needs its own confirm_reconfirmed (no confirmation reuse)"}
+      #         disabled: true
+      #     contracts:
+      #       - desc: "Batch confirm — one confirm authorizes the next 5 execs"
+      #         E:
+      #           ltl: "G(called(exec) -> count(confirm_batch_5) > 0)"
+      #
+      # The batch marker (e.g. `confirm_batch_5`) must be emitted by
+      # your integration when the human signs off on a batch.
       # =================================================================
 
       - desc: "Each exec call needs its own confirm_reconfirmed (no confirmation reuse)"

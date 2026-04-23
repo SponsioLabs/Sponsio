@@ -56,6 +56,16 @@ agents:
       # config overrides this section.
       # =================================================================
 
+      # The .env regex deliberately *excludes* the conventional
+      # non-secret variants (.env.example / .env.sample / .env.template
+      # / .env.dist) — those files exist to be committed to git and
+      # serve as documentation of expected variables.  Blocking them
+      # would generate noisy false positives on day 1, which is the
+      # fastest way to get a security pack disabled.  All other
+      # `.env` and `.env.<suffix>` paths are still blocked.
+      #
+      # `crontab` is end-anchored to avoid matching paths like
+      # `/projects/crontab-tests/` or `mycrontab.txt`.
       - desc: "Deny reads of SSH keys, AWS credentials, browser keychains, dotenv secrets"
         E:
           pattern: arg_blacklist
@@ -65,7 +75,7 @@ agents:
             - - "(^|/)\\.ssh/"
               - "(^|/)\\.aws/credentials"
               - "(^|/)\\.aws/config"
-              - "(^|/)\\.env(\\.|$)"
+              - "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[\\w.-]+)?$"
               - "(^|/)\\.netrc"
               - "(^|/)\\.pgpass"
               - "(^|/)\\.kube/config"
@@ -87,7 +97,7 @@ agents:
               - "(^|/)\\.bashrc$"
               - "(^|/)\\.zshrc$"
               - "(^|/)\\.profile$"
-              - "(^|/)crontab"
+              - "(^|/)crontab$"
               - "(^|/)LaunchAgents/"
               - "(^|/)LaunchDaemons/"
               - "/etc/"
@@ -105,7 +115,7 @@ agents:
               - "(^|/)\\.bashrc$"
               - "(^|/)\\.zshrc$"
               - "(^|/)\\.profile$"
-              - "(^|/)crontab"
+              - "(^|/)crontab$"
               - "(^|/)LaunchAgents/"
               - "(^|/)LaunchDaemons/"
               - "/etc/"
