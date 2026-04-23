@@ -42,7 +42,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sponsio.integrations.base import BaseGuard, CheckResult
+from sponsio.integrations.base import BaseGuard, CheckResult, format_sto_retry_message
 from sponsio.models.system import System
 from sponsio.runtime.evaluators import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
@@ -152,10 +152,8 @@ class VercelAIGuard(BaseGuard):
                                 ai.ToolResultPart(
                                     tool_call_id=part.tool_call_id,
                                     tool_name=part.tool_name,
-                                    result=(
-                                        f"Quality check failed. "
-                                        f"Feedback: {post.feedback}. "
-                                        f"Original: {part.result}"
+                                    result=format_sto_retry_message(
+                                        post.feedback, part.result
                                     ),
                                     is_error=True,
                                 )

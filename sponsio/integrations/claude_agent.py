@@ -141,6 +141,17 @@ class ClaudeAgentGuard(BaseGuard):
             post = guard.guard_after(tool_name, str(tool_output))
 
             if post.needs_retry and post.feedback:
+                # NOTE (#12): other adapters surface sto feedback via the
+                # tool-result channel using
+                # :func:`format_sto_retry_message`. Claude Agent's
+                # ``additionalContext`` is a sidecar hint — the real tool
+                # output is kept intact — so the "Tool succeeded but
+                # output quality check failed. Original output: ..."
+                # template used elsewhere would misdescribe the channel
+                # (the output isn't being replaced here). The bracketed
+                # prefix tags this as Sponsio-originated and is
+                # retained. This is the one *intentional* deviation from
+                # the shared helper; see base.format_sto_retry_message.
                 return {
                     "hookSpecificOutput": {
                         "hookEventName": "PostToolUse",

@@ -160,6 +160,50 @@ def _resolve_mode(mode: str | None) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Unified sto-violation surface
+#
+# Issue #12: each framework adapter (LangGraph / OpenAI Agents / CrewAI /
+# Vercel AI / Claude Agent) wrote its own phrasing for the sto
+# retry-feedback message, and LangGraph additionally *raised* while the
+# others returned feedback inline. The behavioural split is the serious
+# part — raising aborts the agent loop; returning inline lets the model
+# self-correct on the next turn, which is the documented sto retry
+# strategy. The wording split is just annoying (QA grepping for
+# "quality check failed" used to miss half the frameworks).
+#
+# Both concerns are fixed here, in one place, by:
+#
+# * ``format_sto_retry_message`` — the canonical message every adapter
+#   should hand back to the model when ``needs_retry and feedback``.
+# * A documented contract (see ``BaseGuard.guard_after``) that sto
+#   violations MUST be surfaced to the model via the adapter's normal
+#   result channel (return value / tool-result message / additional
+#   context) and MUST NOT raise. Raising is reserved for det blocks.
+# ---------------------------------------------------------------------------
+
+
+def format_sto_retry_message(feedback: str, original: Any) -> str:
+    """Canonical sto-retry feedback string used by every adapter.
+
+    This is the one-liner that surfaces to the LLM when a tool's output
+    *succeeded* (no det block) but the sto pipeline flagged it (e.g.
+    toxic response, scope leak, injection echo). Keeping it centralised
+    means ops can grep a single phrase across LangGraph / OpenAI Agents
+    / CrewAI / Claude Agent / Vercel AI logs, and a future change to
+    the template fans out to every integration in one commit.
+
+    The format is deliberately plain text — no JSON, no XML tags — so
+    that agents in every framework treat it as a regular tool result
+    and the self-correct loop triggers without any special schema
+    handling on the model side.
+    """
+    return (
+        f"Tool succeeded but output quality check failed. "
+        f"Feedback: {feedback}. Original output: {original}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Check result (returned by guard_before / guard_after)
 # ---------------------------------------------------------------------------
 

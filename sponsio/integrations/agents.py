@@ -40,7 +40,7 @@ import functools
 import inspect
 from typing import Any, Callable
 
-from sponsio.integrations.base import BaseGuard, CheckResult
+from sponsio.integrations.base import BaseGuard, CheckResult, format_sto_retry_message
 from sponsio.models.system import System
 from sponsio.runtime.evaluators import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
@@ -137,7 +137,7 @@ class AgentsSDKGuard(BaseGuard):
 
                 post = guard.guard_after(tool_name, str(result))
                 if post.needs_retry and post.feedback:
-                    return f"Tool succeeded but quality check failed. Feedback: {post.feedback}. Original: {result}"
+                    return format_sto_retry_message(post.feedback, result)
 
                 return result
 
@@ -160,7 +160,7 @@ class AgentsSDKGuard(BaseGuard):
 
                 post = guard.guard_after(tool_name, str(result))
                 if post.needs_retry and post.feedback:
-                    return f"Tool succeeded but quality check failed. Feedback: {post.feedback}. Original: {result}"
+                    return format_sto_retry_message(post.feedback, result)
 
                 return result
 

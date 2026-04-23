@@ -37,7 +37,7 @@ from __future__ import annotations
 import functools
 from typing import Any
 
-from sponsio.integrations.base import BaseGuard, CheckResult
+from sponsio.integrations.base import BaseGuard, CheckResult, format_sto_retry_message
 from sponsio.models.system import System
 from sponsio.runtime.evaluators import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
@@ -127,11 +127,7 @@ class CrewAIGuard(BaseGuard):
         check = self.guard_after(tool_name, result)
 
         if check.needs_retry and check.feedback:
-            return (
-                f"Tool succeeded but output quality check failed. "
-                f"Feedback: {check.feedback}. "
-                f"Original output: {result}"
-            )
+            return format_sto_retry_message(check.feedback, result)
 
         return None  # Keep original result
 
@@ -184,10 +180,7 @@ class CrewAIGuard(BaseGuard):
                     result = orig(*args, **kwargs)
                     post = guard.guard_after(name, str(result))
                     if post.needs_retry and post.feedback:
-                        return (
-                            f"Tool succeeded but output quality check failed. "
-                            f"Feedback: {post.feedback}. Original output: {result}"
-                        )
+                        return format_sto_retry_message(post.feedback, result)
                     return result
 
                 guarded.__name__ = name

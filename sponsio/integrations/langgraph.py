@@ -28,7 +28,7 @@ from __future__ import annotations
 from typing import Any, Dict
 from uuid import UUID
 
-from sponsio.integrations.base import BaseGuard, CheckResult
+from sponsio.integrations.base import BaseGuard, CheckResult, format_sto_retry_message
 from sponsio.models.system import System
 from sponsio.runtime.evaluators import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
@@ -165,19 +165,31 @@ class LangGraphGuard(BaseGuard):
                 message=f"BLOCKED by contract: {msg}",
             )
 
-    def _guard_post_check(self, tool_name: str, result: Any):
-        """Run guard_after and raise if sto constraint fails."""
-        # Auto-tagging happens inside ``BaseGuard.guard_after`` when
-        # ``tag_outputs`` / ``tag_pii`` are set on the guard — no
-        # integration-specific logic needed here.
+    def _guard_post_check(self, tool_name: str, result: Any) -> Any:
+        """Run guard_after and, on sto failure, return feedback inline.
+
+        Historical note (#12): this method used to *raise*
+        ``ToolCallBlocked`` when the sto pipeline flagged the tool
+        output. Every other framework adapter (OpenAI Agents, CrewAI,
+        Vercel AI, Claude Agent) instead returns the feedback as the
+        tool result so the model self-corrects on the next turn — which
+        is what the sto ``RetryWithConstraint`` strategy was designed
+        for. Raising aborted the whole LangGraph run, making sto
+        violations functionally identical to det blocks and defeating
+        the retry strategy entirely.
+
+        Now harmonised: we return the feedback string through the tool
+        result channel like every other adapter, using the shared
+        :func:`format_sto_retry_message` template.
+
+        Auto-tagging happens inside ``BaseGuard.guard_after`` when
+        ``tag_outputs`` / ``tag_pii`` are set on the guard — no
+        integration-specific logic needed here.
+        """
         post = self.guard_after(tool_name, str(result))
         if post.needs_retry and post.feedback:
-            raise ToolCallBlocked(
-                tool_name=tool_name,
-                constraint="sto constraint",
-                message=f"Tool succeeded but output quality check failed. "
-                f"Feedback: {post.feedback}. Original output: {result}",
-            )
+            return format_sto_retry_message(post.feedback, result)
+        return result
 
     def _wrap_tool(self, tool: Any) -> Any:
         """Wrap a single LangChain tool with contract enforcement."""
@@ -190,14 +202,15 @@ class LangGraphGuard(BaseGuard):
         def guarded_func(**kwargs):
             guard._guard_check(tool.name, kwargs)
             result = original_func(**kwargs)
-            guard._guard_post_check(tool.name, result)
-            return result
+            # _guard_post_check returns the (possibly patched) result —
+            # a plain string if the sto pipeline flagged it, otherwise
+            # the original tool output unchanged.
+            return guard._guard_post_check(tool.name, result)
 
         async def guarded_coro(**kwargs):
             guard._guard_check(tool.name, kwargs)
             result = await original_coro(**kwargs)
-            guard._guard_post_check(tool.name, result)
-            return result
+            return guard._guard_post_check(tool.name, result)
 
         return StructuredTool(
             name=tool.name,
