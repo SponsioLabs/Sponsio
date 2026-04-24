@@ -39,6 +39,7 @@ _FRAMEWORK_IMPORT_SIGNATURES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("langgraph", ("langgraph",)),
     ("langchain", ("langchain.",)),
     ("claude_agent", ("claude_agent_sdk", "anthropic.agents")),
+    ("google_adk", ("google.adk",)),
     ("crewai", ("crewai",)),
     (
         "openai_agents",
@@ -59,6 +60,7 @@ _FRAMEWORK_DEPENDENCY_HINTS: dict[str, tuple[str, ...]] = {
     "langgraph": ("langgraph",),
     "langchain": ("langchain",),
     "claude_agent": ("claude-agent-sdk", "claude_agent_sdk"),
+    "google_adk": ("google-adk", "google_adk"),
     "crewai": ("crewai",),
     "openai_agents": ("openai-agents", "openai_agents"),
     "openai": ("openai",),
@@ -72,6 +74,7 @@ _FRAMEWORK_FACTORY: dict[str, str] = {
     "langgraph": "sponsio.langgraph",
     "langchain": "sponsio.langgraph",  # LC tools plug into the same adapter
     "claude_agent": "sponsio.claude_agent",
+    "google_adk": "sponsio.google_adk",
     "crewai": "sponsio.crewai",
     "openai_agents": "sponsio.agents",
     "openai": "sponsio.openai",
@@ -402,7 +405,14 @@ def _ollama_pick_model(url: str, timeout_s: float) -> str | None:
 # when the loop exists in the first place.  A bare `openai` chat
 # completion call doesn't qualify; LangGraph / CrewAI etc. do.
 _RUNAWAY_FRAMEWORKS = frozenset(
-    {"langgraph", "langchain", "crewai", "openai_agents", "claude_agent"}
+    {
+        "langgraph",
+        "langchain",
+        "crewai",
+        "openai_agents",
+        "claude_agent",
+        "google_adk",
+    }
 )
 
 # Tool-name → pack tool slot.  Each pack ships rules keyed on a
@@ -880,6 +890,11 @@ def _wrap_snippet(framework: str, agent_id: str) -> str:
             f'guard = Sponsio(config="sponsio.yaml", agent_id="{agent_id}")\n'
             f"crew = guard.wrap(crew)"
         ),
+        "google_adk": (
+            f"from sponsio.google_adk import Sponsio\n"
+            f'guard = Sponsio(config="sponsio.yaml", agent_id="{agent_id}")\n'
+            f"tools = guard.wrap(tools)"
+        ),
         "openai_agents": (
             f"from sponsio.agents import Sponsio\n"
             f'guard = Sponsio(config="sponsio.yaml", agent_id="{agent_id}")\n'
@@ -1040,7 +1055,7 @@ def run_onboard(
         starter = starter_contracts(
             tool_names,
             include_delegation_limit=framework.framework
-            in {"langgraph", "crewai", "openai_agents"},
+            in {"langgraph", "crewai", "openai_agents", "google_adk"},
         )
         # Dedup against contracts the scan already emitted.  We drop
         # starter rules — never the other way round — because the

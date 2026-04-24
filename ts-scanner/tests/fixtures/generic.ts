@@ -23,6 +23,17 @@ export const cancelOrder = Sponsio.tool({
   schema: z.object({ order_id: z.string() }),
 });
 
+// Google ADK TypeScript exposes FunctionTool-shaped tool objects.
+export const searchFlights = new FunctionTool({
+  name: "search_flights",
+  description: "Search available flights.",
+  parameters: z.object({
+    origin: z.string(),
+    destination: z.string(),
+  }),
+  execute: async (_args: { origin: string; destination: string }) => "ok",
+});
+
 // Negative case: looks like a tool factory but only carries one of
 // the shape keys (``id`` is not in TOOL_SHAPE_KEYS).  Generic
 // extractor must NOT emit a tool entry here, otherwise random calls
@@ -51,5 +62,8 @@ class CustomerAgent {
 }
 
 declare function createTool<T>(config: T): unknown;
+declare class FunctionTool<T> {
+  constructor(config: T);
+}
 declare const Sponsio: { tool: <T>(config: T) => unknown };
 declare function tool(...args: any[]): any;

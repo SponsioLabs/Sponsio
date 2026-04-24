@@ -99,6 +99,21 @@ describe("Generic fallback extractor", () => {
     ).toHaveProperty("order_id");
   });
 
+  it("extracts Google ADK ``new FunctionTool({...})`` tools", async () => {
+    const { tools } = await scan([path.join(FIXTURES, "generic.ts")]);
+    const map = byName(tools);
+    expect(map).toHaveProperty("search_flights");
+    expect(map["search_flights"].function.description).toContain(
+      "Search available flights"
+    );
+    expect(
+      map["search_flights"].function.parameters.properties
+    ).toHaveProperty("origin");
+    expect(
+      map["search_flights"].function.parameters.properties
+    ).toHaveProperty("destination");
+  });
+
   it("ignores call sites that lack the tool object shape", async () => {
     // ``createTool({ id: 5 })`` only has one TOOL_SHAPE_KEY hit, so
     // it should NOT appear in the output — guards against false

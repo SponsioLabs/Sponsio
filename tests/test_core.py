@@ -41,6 +41,17 @@ class TestInit:
         )
         assert type(guard).__name__ == "OpenAIGuard"
 
+    def test_init_google_adk_framework(self):
+        import sponsio
+
+        guard = sponsio.Sponsio(
+            framework="google-adk",
+            agent_id="bot",
+            contracts=["tool `X` at most 3 times"],
+            verbose=False,
+        )
+        assert type(guard).__name__ == "GoogleADKGuard"
+
     def test_framework_namespace_init(self):
         from sponsio.langgraph import Sponsio as langgraph_Sponsio
         from sponsio.openai import Sponsio as openai_Sponsio
@@ -369,6 +380,11 @@ class TestTopLevelImports:
         from sponsio import AgentsGuard, AgentsSDKGuard
 
         assert AgentsGuard is AgentsSDKGuard
+
+    def test_import_google_adk_guard(self):
+        from sponsio import GoogleADKGuard
+
+        assert GoogleADKGuard is not None
 
     def test_import_patch_openai(self):
         from sponsio import patch_openai, unpatch_openai

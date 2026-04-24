@@ -113,6 +113,28 @@ agent = Agent(
         # safety contracts based on the names; that's covered elsewhere.)
         assert len(_call_graph_only(results)) == 0
 
+    def test_agent_constructor_resolves_local_function_tools(self, tmp_path):
+        source = '''
+from google.adk.agents.llm_agent import Agent
+
+def search_flights(origin: str, destination: str) -> str:
+    """Search available flights."""
+    return "found"
+
+root_agent = Agent(
+    name="travel",
+    model="gemini-flash-latest",
+    tools=[search_flights],
+)
+'''
+        analyzer = CodeAnalyzer()
+        f = tmp_path / "agent.py"
+        f.write_text(source)
+        inventory = analyzer.get_tool_inventory([str(f)])
+        tool = next(t for t in inventory if t["name"] == "search_flights")
+        assert tool["docstring"] == "Search available flights."
+        assert tool["params"] == "origin: str, destination: str"
+
 
 class TestEdgeCases:
     def test_syntax_error_returns_empty(self):

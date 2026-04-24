@@ -51,6 +51,7 @@ crewai = ["crewai"]
 agents = ["openai-agents"]
 agents-sdk = ["openai-agents"]
 claude-agent = ["claude-agent-sdk"]
+google-adk = ["google-adk"]
 vercel-ai = ["vercel-ai-sdk"]
 web = ["fastapi>=0.100", "uvicorn[standard]>=0.20", "python-multipart>=0.0.6"]
 config = ["pyyaml>=6.0"]
@@ -69,6 +70,7 @@ all = [
     "crewai",
     "openai-agents",
     "claude-agent-sdk",
+    "google-adk",
     "vercel-ai-sdk",
     "fastapi>=0.100", "uvicorn[standard]>=0.20", "python-multipart>=0.0.6",
     "opentelemetry-api>=1.20",

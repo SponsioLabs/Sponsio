@@ -51,7 +51,8 @@ attaches a human-facing description for reports.
 The framework-agnostic factory ``sponsio.core.Sponsio`` is also available;
 the framework shims (``sponsio.langgraph``, ``sponsio.openai``,
 ``sponsio.crewai``, ``sponsio.claude_agent``, ``sponsio.agents``,
-``sponsio.vercel_ai``) are thin wrappers that pre-fill ``framework=...``.
+``sponsio.vercel_ai``, ``sponsio.google_adk``) are thin wrappers that
+pre-fill ``framework=...``.
 """
 
 from __future__ import annotations
@@ -102,11 +103,13 @@ _FRAMEWORK_REGISTRY: dict[str, tuple[str, str]] = {
     "agents_sdk": ("sponsio.integrations.agents", "AgentsSDKGuard"),
     "vercel_ai": ("sponsio.integrations.vercel_ai", "VercelAIGuard"),
     "claude_agent": ("sponsio.integrations.claude_agent", "ClaudeAgentGuard"),
+    "google_adk": ("sponsio.integrations.google_adk", "GoogleADKGuard"),
 }
 
 _FRAMEWORK_EXTRAS: dict[str, str] = {
     "agents_sdk": "agents-sdk",
     "claude_agent": "claude-agent",
+    "google_adk": "google-adk",
     "vercel_ai": "vercel-ai",
 }
 
@@ -275,8 +278,8 @@ def Sponsio(  # noqa: N802 — branded factory function
 
     Args:
         framework: One of "langgraph", "mcp", "openai", "crewai",
-            "agents_sdk", "vercel_ai", "claude_agent". If None, returns
-            BaseGuard (framework-agnostic).
+            "agents_sdk", "vercel_ai", "claude_agent", "google_adk".
+            If None, returns BaseGuard (framework-agnostic).
         agent_id: Logical name for the agent.
         config: Path to a sponsio.yaml config file.
         contracts: List of contract entries. Each entry is one of:

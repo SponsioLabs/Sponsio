@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { describe, it, expect } from "vitest";
 import { dump } from "js-yaml";
 import {
@@ -29,8 +32,27 @@ describe("onboard heuristics", () => {
   it("detectFramework sees langgraph from package.json", () => {
     // repo root is wrong — no package.json in ts-scanner root with deps. Use a fixture path? Skip.
     const fw = detectFramework(process.cwd());
-    expect(["none", "langgraph", "vercel", "openai", "mcp", "claude"]).toContain(
-      fw
-    );
+    expect([
+      "none",
+      "langgraph",
+      "vercel",
+      "openai",
+      "mcp",
+      "claude",
+      "google_adk",
+    ]).toContain(fw);
+  });
+
+  it("detectFramework sees Google ADK from package.json", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sponsio-adk-"));
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ dependencies: { "@google/adk": "^0.2.0" } }),
+      );
+      expect(detectFramework(dir)).toBe("google_adk");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -71,7 +71,15 @@ class TestSelectPacks:
         assert sel.needs_workspace is False
 
     @pytest.mark.parametrize(
-        "fw", ["langgraph", "langchain", "crewai", "openai_agents", "claude_agent"]
+        "fw",
+        [
+            "langgraph",
+            "langchain",
+            "crewai",
+            "openai_agents",
+            "claude_agent",
+            "google_adk",
+        ],
     )
     def test_runaway_picked_for_agentic_frameworks(self, fw):
         """Agentic loops have budget exposure (token spend, infinite

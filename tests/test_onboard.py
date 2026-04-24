@@ -158,6 +158,15 @@ class TestDetectFramework:
         hint = detect_framework(tmp_path)
         assert hint.framework == "crewai"
 
+    def test_google_adk_imports(self, tmp_path: Path):
+        (tmp_path / "agent.py").write_text(
+            "from google.adk.agents.llm_agent import Agent\n"
+        )
+        hint = detect_framework(tmp_path)
+        assert hint.framework == "google_adk"
+        assert hint.factory == "sponsio.google_adk"
+        assert hint.entry_file is not None
+
     def test_openai_imports(self, tmp_path: Path):
         (tmp_path / "bot.py").write_text("import openai\n")
         hint = detect_framework(tmp_path)
@@ -171,6 +180,14 @@ class TestDetectFramework:
         hint = detect_framework(tmp_path)
         assert hint.framework == "langgraph"
         assert "pyproject.toml" in hint.evidence
+
+    def test_google_adk_dependency_fallback(self, tmp_path: Path):
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\ndependencies = ["google-adk>=0.5"]\n'
+        )
+        hint = detect_framework(tmp_path)
+        assert hint.framework == "google_adk"
+        assert hint.factory == "sponsio.google_adk"
 
     def test_empty_directory_returns_none(self, tmp_path: Path):
         hint = detect_framework(tmp_path)
@@ -417,6 +434,24 @@ class TestRunOnboard:
         # Default id not accidentally also present.
         assert "agent" not in cfg.agents
         assert 'agent_id="customer_bot"' in report.wrap_snippet
+
+    def test_google_adk_onboard_prints_adk_snippet(
+        self, tmp_path: Path, clean_provider_env
+    ):
+        (tmp_path / "agent.py").write_text(
+            "from google.adk.agents.llm_agent import Agent\n\n"
+            "def search_flights(origin: str, destination: str) -> str:\n"
+            "    return 'found'\n\n"
+            "root_agent = Agent(\n"
+            "    name='travel',\n"
+            "    model='gemini-flash-latest',\n"
+            "    tools=[search_flights],\n"
+            ")\n"
+        )
+        report = run_onboard(tmp_path, probe_ollama=False)
+        assert report.framework.framework == "google_adk"
+        assert "from sponsio.google_adk import Sponsio" in report.wrap_snippet
+        assert "tools = guard.wrap(tools)" in report.wrap_snippet
 
 
 class TestOnboardCli:

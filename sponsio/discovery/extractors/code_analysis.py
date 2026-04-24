@@ -897,6 +897,15 @@ class CodeAnalyzer:
     def _find_agent_tools(self, tree: ast.AST, filename: str) -> list[ToolInfo]:
         """Find tools from Agent(tools=[...]) or similar constructor patterns."""
         tools: list[ToolInfo] = []
+        local_funcs: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {
+            node.name: node
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        try:
+            source_lines = Path(filename).read_text().splitlines()
+        except Exception:
+            source_lines = []
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -908,13 +917,24 @@ class CodeAnalyzer:
                     for elt in keyword.value.elts:
                         name = self._extract_name(elt)
                         if name:
-                            tools.append(
-                                ToolInfo(
-                                    name=name,
-                                    filepath=filename,
-                                    line=node.lineno,
-                                )
+                            tool_info = ToolInfo(
+                                name=name,
+                                filepath=filename,
+                                line=node.lineno,
                             )
+                            func_node = local_funcs.get(name)
+                            if func_node is not None:
+                                tool_info.line = func_node.lineno
+                                tool_info.docstring = ast.get_docstring(func_node) or ""
+                                tool_info.params = self._extract_params(func_node)
+                                if source_lines and hasattr(func_node, "end_lineno"):
+                                    start = func_node.lineno - 1
+                                    end = min(
+                                        func_node.end_lineno or start + 30,
+                                        start + 30,
+                                    )
+                                    tool_info.source = "\n".join(source_lines[start:end])
+                            tools.append(tool_info)
         return tools
 
     def _find_langgraph_nodes(

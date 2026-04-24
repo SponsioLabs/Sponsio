@@ -53,6 +53,7 @@ const FACTORY_NAMES = new Set([
   "registerTool",
   "buildTool",
   "Tool",
+  "FunctionTool",
 ]);
 
 /** Decorator names treated as a tool registration marker. */
@@ -89,14 +90,14 @@ function jsdocDescription(node: Node): string {
   return text.trim();
 }
 
-/** Extract via ``createTool({...})`` / ``tool({...})`` / etc. */
+/** Extract via ``createTool({...})`` / ``tool({...})`` / ``new FunctionTool({...})`` / etc. */
 function extractCallExpressions(
   sourceFile: SourceFile
 ): { tool: OpenAITool; provenance: ToolProvenance }[] {
   const found: { tool: OpenAITool; provenance: ToolProvenance }[] = [];
 
   sourceFile.forEachDescendant((node) => {
-    if (!Node.isCallExpression(node)) return;
+    if (!Node.isCallExpression(node) && !Node.isNewExpression(node)) return;
 
     const callee = node.getExpression();
     let calleeName: string | undefined;

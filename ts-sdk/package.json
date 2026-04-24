@@ -26,6 +26,10 @@
       "types": "./dist/integrations/openai-agents.d.ts",
       "default": "./dist/integrations/openai-agents.js"
     },
+    "./google-adk": {
+      "types": "./dist/integrations/google-adk.d.ts",
+      "default": "./dist/integrations/google-adk.js"
+    },
     "./langchain": {
       "types": "./dist/integrations/langchain.d.ts",
       "default": "./dist/integrations/langchain.js"
@@ -51,12 +55,16 @@
   },
   "peerDependencies": {
     "@langchain/core": ">=0.3.0",
+    "@google/adk": ">=0.2.0",
     "ai": ">=4.0.0",
     "claude-agent-sdk": ">=0.1.0",
     "openai": ">=4.0.0"
   },
   "peerDependenciesMeta": {
     "claude-agent-sdk": {
+      "optional": true
+    },
+    "@google/adk": {
       "optional": true
     },
     "ai": {

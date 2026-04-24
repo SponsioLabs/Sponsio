@@ -36,6 +36,7 @@ export type TsOnboardFramework =
   | "openai"
   | "mcp"
   | "claude"
+  | "google_adk"
   | "none";
 
 export interface OnboardOptions {
@@ -120,6 +121,7 @@ export function detectFramework(root: string): TsOnboardFramework {
   if (d["@modelcontextprotocol/sdk"]) return "mcp";
   if (d["@langchain/langgraph"] || d["@langchain/core"]) return "langgraph";
   if (d["@anthropic-ai/claude-agent-sdk"] || d["claude-agent-sdk"]) return "claude";
+  if (d["@google/adk"]) return "google_adk";
   if (d["ai"] || d["@ai-sdk/openai"]) return "vercel";
   if (d["openai"]) return "openai";
   return "none";
@@ -147,6 +149,15 @@ function wrapSnippetFor(framework: TsOnboardFramework, agent: string, configRel:
         ``,
         `const guard = new Sponsio({ config: ${cfg}, agentId: ${ag} });`,
         `const client = new ClaudeSDKClient({ hooks: sponsioHooks(guard) });`,
+      ].join("\n");
+    case "google_adk":
+      return [
+        `import { Sponsio } from "@sponsio/sdk";`,
+        `import { wrapGoogleAdkTools } from "@sponsio/sdk/google-adk";`,
+        ``,
+        `const guard = new Sponsio({ config: ${cfg}, agentId: ${ag} });`,
+        `const guardedTools = wrapGoogleAdkTools(tools, guard);`,
+        `// pass guardedTools to new LlmAgent({ tools: guardedTools, ... })`,
       ].join("\n");
     case "none":
       return [

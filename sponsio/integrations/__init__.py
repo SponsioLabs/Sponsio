@@ -8,6 +8,7 @@ to a specific agent framework:
 - OpenAIGuard     — OpenAI Chat Completions (patch/unpatch)
 - CrewAIGuard     — CrewAI (before/after hooks)
 - AgentsSDKGuard  — OpenAI Agents SDK (tool wrapping)
+- GoogleADKGuard  — Google ADK (function tool wrapping)
 """
 
 from sponsio.integrations.base import BaseGuard, CheckResult

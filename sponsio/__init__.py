@@ -69,6 +69,7 @@ def __getattr__(name: str):
         "MCPContractProxy": "sponsio.integrations.mcp",
         "VercelAIGuard": "sponsio.integrations.vercel_ai",
         "ClaudeAgentGuard": "sponsio.integrations.claude_agent",
+        "GoogleADKGuard": "sponsio.integrations.google_adk",
         # Backward compat aliases
         "ContractGuard": "sponsio.integrations.langgraph",
         "AgentsGuard": "sponsio.integrations.agents",

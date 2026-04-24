@@ -163,7 +163,7 @@ def _resolve_mode(mode: str | None) -> str:
 # Unified sto-violation surface
 #
 # Issue #12: each framework adapter (LangGraph / OpenAI Agents / CrewAI /
-# Vercel AI / Claude Agent) wrote its own phrasing for the sto
+# Vercel AI / Claude Agent / Google ADK) wrote its own phrasing for the sto
 # retry-feedback message, and LangGraph additionally *raised* while the
 # others returned feedback inline. The behavioural split is the serious
 # part — raising aborts the agent loop; returning inline lets the model
@@ -189,8 +189,8 @@ def format_sto_retry_message(feedback: str, original: Any) -> str:
     *succeeded* (no det block) but the sto pipeline flagged it (e.g.
     toxic response, scope leak, injection echo). Keeping it centralised
     means ops can grep a single phrase across LangGraph / OpenAI Agents
-    / CrewAI / Claude Agent / Vercel AI logs, and a future change to
-    the template fans out to every integration in one commit.
+    / CrewAI / Claude Agent / Vercel AI / Google ADK logs, and a future
+    change to the template fans out to every integration in one commit.
 
     The format is deliberately plain text — no JSON, no XML tags — so
     that agents in every framework treat it as a regular tool result
