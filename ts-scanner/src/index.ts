@@ -114,3 +114,15 @@ export async function scan(
 
   return { tools, provenance, diagnostics };
 }
+
+/**
+ * Re-exported after ``scan`` is defined to avoid a circular
+ * `index → onboard → index` import while ``scan`` is still in TDZ.
+ */
+export {
+  runOnboard,
+  suggestDetNlContracts,
+  buildFallbackPayload,
+  detectFramework,
+} from "./onboard";
+export type { OnboardOptions, OnboardResult, TsOnboardFramework } from "./onboard";

@@ -33,6 +33,7 @@ async function main() {
   const guard = new Sponsio({
     agentId: "publisher",
     contracts: CONTRACTS,
+    mode: "enforce",
   });
 
   // Simulate what the Vercel AI middleware would do

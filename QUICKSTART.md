@@ -52,9 +52,10 @@ sponsio demo --scenario loan --no-guard   # same trajectory without contracts
 One command — detects your agent framework, writes `sponsio.yaml` in observe mode, runs `sponsio doctor`, and prints the three lines to paste into your agent entry file:
 
 ```bash
-cd your-project/
 sponsio onboard .
 ```
+
+The `.` is the codebase to scan — any path works (`sponsio onboard src/`, `sponsio onboard /srv/agent`); it defaults to the current directory, so plain `sponsio onboard` is equivalent. `onboard` only reads; it writes a single `sponsio.yaml` into CWD.
 
 Typical output:
 
@@ -90,6 +91,18 @@ What it does:
 No LLM key? `onboard` still ships a name-heuristic starter plus `sponsio:core/runaway` (token budgets, delegation depth, loop caps) — all deterministic, zero LLM calls.
 
 Pass `--apply` to additionally patch your agent entry file in-place (with a `.sponsio.bak` backup). Currently supported for LangGraph / LangChain; other frameworks print the snippet and you paste it yourself. Other framework adapters are a one-line import swap — see [`docs/integrations.md`](docs/integrations.md).
+
+### TypeScript (Node.js)
+
+If your agent is TypeScript, use the static scanner and the same `sponsio scan` / `sponsio.yaml` pipeline. Install the SDK, the `yaml` package (loaded when you use `Sponsio({ config: "sponsio.yaml" })`), and the scanner, then run `onboard` as a *subcommand* of the `sponsio-scan-ts` binary:
+
+```bash
+npm install @sponsio/sdk yaml
+npm install -D @sponsio/scan-ts
+npx sponsio-scan-ts onboard .
+```
+
+When the Python [`sponsio` CLI](https://pypi.org/project/sponsio/) is on `PATH`, that command pipes the extracted tool JSON into `sponsio scan` and writes a full `sponsio.yaml` (same as the manual pipe in [`ts-scanner`’s README](ts-scanner/README.md)). If `sponsio` is not installed, it still writes a small observe-mode file with a few det-only `E: …` natural-language rules so the TypeScript `Sponsio` class can start without Python. `sponsio-scan-ts onboard . --llm` passes `--llm` through to `sponsio scan` (set `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` as in [`docs/cli.md` → Provider matrix](docs/cli.md#provider-matrix)).
 
 ## 4. Run your agent and observe
 

@@ -27,9 +27,15 @@ npx @sponsio/scan-ts ./src > tools.json
 # …or to a file
 npx @sponsio/scan-ts ./src --out tools.json --pretty
 
-# Pipe into `sponsio scan` for contract proposals
-npx @sponsio/scan-ts ./src | sponsio scan --stdin --out sponsio.yaml
+# Pipe into `sponsio scan` (writes a temp file — `sponsio` has no --stdin)
+npx @sponsio/scan-ts ./src --out /tmp/sponsio-tools.json
+sponsio scan /tmp/sponsio-tools.json -o sponsio.yaml
+#
+# Or use the bundled one-shot (same idea + optional `sponsio` on PATH)
+npx sponsio-scan-ts onboard .
 ```
+
+`onboard` is implemented in [`src/onboard.ts`](src/onboard.ts): run the static scan, then `sponsio scan` on a temp tool-inventory file when the Python CLI is on `PATH` (or emit a det-only `sponsio.yaml` as a fallback). The published npm binary is `sponsio-scan-ts` (package `@sponsio/scan-ts`).
 
 Flags:
 

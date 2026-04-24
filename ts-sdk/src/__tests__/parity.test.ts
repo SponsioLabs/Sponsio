@@ -169,6 +169,8 @@ function testGuardBeforeRollback() {
       mutualExclusion("safe", "risky"),
       loopDetection("safe", 3),
     ],
+    mode: "enforce",
+    sessionLog: false,
   });
 
   for (let i = 0; i < 3; i++) {
@@ -215,6 +217,8 @@ function testDeadlineNlParity() {
   // TS NL: same convention after the parity fix.
   const guard = new Sponsio({
     contracts: ["after `X`, `Y` must occur within 1 step"],
+    mode: "enforce",
+    sessionLog: false,
   });
 
   // Smoke: contract parsed successfully and the underlying formula is

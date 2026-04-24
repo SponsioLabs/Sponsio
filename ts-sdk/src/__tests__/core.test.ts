@@ -43,7 +43,7 @@ function assert(condition: boolean, msg: string) {
 async function testCoreGuard() {
   console.log("[Core guardBefore]");
   for (const scenario of SCENARIOS) {
-    const guard = new Sponsio({ agentId: "xtest", contracts: scenario.contracts });
+    const guard = new Sponsio({ agentId: "xtest", contracts: scenario.contracts, mode: "enforce", sessionLog: false });
     for (let i = 0; i < scenario.steps.length; i++) {
       const step = scenario.steps[i];
       const result = guard.guardBefore(step.tool, step.args ?? {});
@@ -60,7 +60,7 @@ async function testCoreGuard() {
 async function testClaudeHooks() {
   console.log("\n[Claude Agent hooks]");
   for (const scenario of SCENARIOS) {
-    const guard = new Sponsio({ agentId: "xtest_hooks", contracts: scenario.contracts });
+    const guard = new Sponsio({ agentId: "xtest_hooks", contracts: scenario.contracts, mode: "enforce", sessionLog: false });
     const hooks = sponsioHooks(guard);
     const preHook = hooks.PreToolUse[0].hooks[0];
     const postHook = hooks.PostToolUse[0].hooks[0];
@@ -105,6 +105,8 @@ async function testPerformance() {
   const guard = new Sponsio({
     agentId: "perf",
     contracts: ["tool `A` must precede `B`", "tool `B` at most 50 times"],
+    mode: "enforce",
+    sessionLog: false,
   });
   guard.guardBefore("A", {});
   guard.guardAfter("A", "ok");

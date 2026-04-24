@@ -22,7 +22,7 @@ function testPatterns() {
 
   // mustConfirm
   {
-    const g = new Sponsio({ contracts: [mustConfirm("delete")] });
+    const g = new Sponsio({ contracts: [mustConfirm("delete")], mode: "enforce", sessionLog: false });
     assert(g.guardBefore("delete").blocked, "mustConfirm blocks without confirm");
     g.reset();
     assert(!g.guardBefore("confirm_delete").blocked, "confirm_delete allowed");
@@ -32,7 +32,7 @@ function testPatterns() {
 
   // boundedRetry
   {
-    const g = new Sponsio({ contracts: [boundedRetry("retry", 2)] });
+    const g = new Sponsio({ contracts: [boundedRetry("retry", 2)], mode: "enforce", sessionLog: false });
     assert(!g.guardBefore("retry").blocked, "retry 1");
     g.guardAfter("retry");
     assert(!g.guardBefore("retry").blocked, "retry 2");
@@ -42,7 +42,7 @@ function testPatterns() {
 
   // irreversibleOnce
   {
-    const g = new Sponsio({ contracts: [irreversibleOnce("launch")] });
+    const g = new Sponsio({ contracts: [irreversibleOnce("launch")], mode: "enforce", sessionLog: false });
     assert(!g.guardBefore("launch").blocked, "first launch ok");
     g.guardAfter("launch");
     assert(g.guardBefore("launch").blocked, "second launch blocked");
@@ -50,7 +50,7 @@ function testPatterns() {
 
   // loopDetection
   {
-    const g = new Sponsio({ contracts: [loopDetection("poll", 3)] });
+    const g = new Sponsio({ contracts: [loopDetection("poll", 3)], mode: "enforce", sessionLog: false });
     for (let i = 0; i < 3; i++) {
       assert(!g.guardBefore("poll").blocked, `poll ${i+1}`);
       g.guardAfter("poll");

@@ -17,6 +17,9 @@
     "test": "node --test dist/__tests__/*.test.js",
     "test:src": "npx tsx src/__tests__/core.test.ts"
   },
+  "dependencies": {
+    "yaml": "^2.7.0"
+  },
   "devDependencies": {
     "@types/node": "^25.6.0",
     "tsx": "^4.0.0",

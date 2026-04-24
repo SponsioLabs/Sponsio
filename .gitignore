@@ -22,6 +22,9 @@ htmlcov/
 # real configs live next to integrating projects, not in this repo.
 /sponsio.yaml
 
+# Root-level npm noise (e.g. mistaken `npm install` in repo root)
+/node_modules/
+
 # Local environments and secrets
 *.env
 .env

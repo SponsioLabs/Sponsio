@@ -24,6 +24,7 @@
 
 import { promises as fs } from "fs";
 import { loadConfig, ConfigError, type SponsioConfig } from "./config";
+import { runOnboardCli } from "./onboard";
 import { scan } from "./index";
 
 interface CliArgs {
@@ -64,8 +65,9 @@ const HELP =
     "EXAMPLES:",
     "  sponsio-scan-ts ./src",
     '  sponsio-scan-ts "src/tools/**/*.ts" --out tools.json',
-    "  sponsio-scan-ts --config sponsio.yaml --pretty",
-    "  sponsio-scan-ts ./src --pretty | sponsio scan --stdin",
+  "  sponsio-scan-ts --config sponsio.yaml --pretty",
+  "  sponsio-scan-ts ./src --out /tmp/inv.json && sponsio scan /tmp/inv.json -o sponsio.yaml",
+  "  sponsio-scan-ts onboard .",
     "",
     "CONFIG FILE SHAPE:",
     "  # sponsio.yaml",
@@ -109,7 +111,18 @@ function parseArgs(argv: string[]): CliArgs {
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const raw = process.argv.slice(2);
+  if (raw[0] === "onboard") {
+    try {
+      await runOnboardCli(raw.slice(1));
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  const args = parseArgs(raw);
 
   if (args.help) {
     process.stdout.write(HELP);

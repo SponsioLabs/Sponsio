@@ -33,6 +33,7 @@ async function main() {
   const guard = new Sponsio({
     agentId: "hr_bot",
     contracts: CONTRACTS,
+    mode: "enforce",
   });
 
   // Simulate what LangGraph's ToolNode would do

@@ -1,4 +1,5 @@
 node_modules/
 dist/
+sponsio.yaml
 *.log
 .npm/

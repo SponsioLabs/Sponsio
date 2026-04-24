@@ -26,6 +26,7 @@ async function main() {
   const guard = new Sponsio({
     agentId: "db_admin",
     contracts: CONTRACTS,
+    mode: "enforce",
   });
 
   // Simulate tool calls (in real usage, wrapOpenAI intercepts the OpenAI client)

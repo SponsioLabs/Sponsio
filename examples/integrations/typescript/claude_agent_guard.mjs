@@ -36,6 +36,7 @@ async function main() {
   const guard = new Sponsio({
     agentId: "support_bot",
     contracts: CONTRACTS,
+    mode: "enforce",
   });
   const hooks = sponsioHooks(guard);
   // ======================================

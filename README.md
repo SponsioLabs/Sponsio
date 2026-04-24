@@ -111,11 +111,13 @@ export SPONSIO_MODE=enforce         # no code change
 
 ```bash
 # 1. Install
-npm install @sponsio/sdk
+npm install @sponsio/sdk yaml
+npm install -D @sponsio/scan-ts
 
-# 2. Draft contracts — list NL rules in sponsio.contracts.ts (see blockquote below)
+# 2. Onboard — static-scan tools, then `sponsio scan` (when pip’s `sponsio` is on PATH) or a det-only yaml fallback
+npx sponsio-scan-ts onboard .
 
-# 3. Wrap your agent (snippet below)
+# 3. Paste the integration snippet the command prints (or the LangGraph one below)
 ```
 
 **LangChain.js / LangGraph**
@@ -124,20 +126,20 @@ npm install @sponsio/sdk
 import { Sponsio } from "@sponsio/sdk";
 import { wrapTools } from "@sponsio/sdk/langchain";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
-import { contracts } from "./sponsio.contracts";
 
-const guard = new Sponsio({ agentId: "coding_agent", contracts });
+const guard = new Sponsio({ config: "sponsio.yaml", agentId: "agent" });
 const toolNode = new ToolNode(wrapTools(tools, guard));
 ```
 
-> `sponsio.contracts.ts` is `export const contracts = ["must call \`confirm_with_user\` before \`delete_file\`", …]` — an array of NL strings. TS has no `sponsio.yaml` loader today, so hand-author them alongside your agent; same NL grammar as the Python yaml, vocabulary reference: [QUICKSTART.md → Configuration](QUICKSTART.md#configuration).
+> **Onboard (step 2):** the `sponsio-scan-ts` binary (from `npm i -D @sponsio/scan-ts`) static-scans your repo, then runs `sponsio scan` on the emitted tool JSON when the [Python `sponsio` CLI](https://pypi.org/project/sponsio/) is on `PATH` (same output shape as `sponsio onboard` in a Python project). If `sponsio` is not installed, a minimal `sponsio.yaml` with det-only natural-language contracts is still written so `new Sponsio({ config:… })` works. Packs and sto rules need Python at generation time; the TS runtime skips those entries with one console warning. `SPONSIO_MODE` and env-based LLM keys work the same as on the Python side — see [QUICKSTART.md → Configuration](QUICKSTART.md#configuration) and [docs/cli.md → Provider matrix](docs/cli.md#provider-matrix). Use `sponsio-scan-ts onboard . --llm` to pass `--llm` through to `sponsio scan`.
 
 ```bash
-# 4. Observe, then flip
+# 4. Observe, then flip — review would-have-blocked decisions, then enforce
+sponsio report --since 24h
 export SPONSIO_MODE=enforce         # no code change
 ```
 
-The TS SDK honours `SPONSIO_MODE` and writes the same `~/.sponsio/sessions/<agent_id>/*.jsonl` log — run `pip install sponsio` in the same repo if you want the `sponsio` CLI (`demo`, `onboard`, `report`) on top of a TypeScript agent.
+`onboard` writes `sponsio.yaml` in observe mode, the TS SDK honours `SPONSIO_MODE`, and both languages share the same `~/.sponsio/sessions/<agent_id>/*.jsonl` log — so `sponsio report` works identically on a TS agent.
 
 Full matrix of supported frameworks (Vercel AI SDK, CrewAI, OpenAI Agents SDK, MCP …) in [Integrations](#integrations). Runnable versions of every snippet above: [`examples/integrations/`](examples/integrations/).
 
