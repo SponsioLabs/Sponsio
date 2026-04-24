@@ -2,26 +2,28 @@
 
 This document maps the [OWASP Top 10 for Agentic Applications (2026)](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) to the deterministic patterns and stochastic atoms shipped in Sponsio.
 
-**Scope.** Sponsio is a runtime contract-enforcement layer. It enforces rules about which actions an agent may or may not take, in what order, and under what conditions. It does **not** issue identities, sign SBOMs, or encrypt transport — so for the three infrastructure-adjacent risks (ASI-03 identity, ASI-04 supply chain provenance, ASI-07 inter-agent transport) the coverage is clearly marked as **partial**. All ten risks have Sponsio controls; seven are addressed end-to-end at the action boundary.
+## Scope
+
+Sponsio is a **runtime contract-enforcement layer**. It sits at the action boundary — between the agent and any tool, file, API, or database it can touch — and blocks behavior that violates your rules. That's the layer this document claims coverage for.
+
+Three of the ten risks (ASI-03 Identity, ASI-04 Supply Chain, ASI-07 Inter-Agent Comms) span two layers: a **behavioral** layer (what the agent does with identities / tools / channels) and an **infrastructure** layer (how identities are issued, SBOMs are signed, channels are encrypted). **Sponsio covers the behavioral layer of all ten risks.** The infrastructure layer is handled by your framework, IAM, or transport stack — we integrate with whatever primitives your stack emits. Where this happens, it's called out explicitly in that risk's section.
 
 ## Coverage summary
 
-| # | OWASP Risk | Coverage | Primary Sponsio surface |
-|---|------------|----------|--------------------------|
-| [ASI-01](#asi-01-agent-goal-hijacking) | Agent Goal Hijacking | ✅ Full | Det: sink-gating after untrusted source · Sto: injection/jailbreak judge |
-| [ASI-02](#asi-02-tool-misuse--exploitation) | Tool Misuse & Exploitation | ✅ Full | Det: tool allowlist, arg blacklist, destructive-action gates |
-| [ASI-03](#asi-03-identity--privilege-abuse) | Identity & Privilege Abuse | ⚠️ Partial | Det: permission requirements, segregation of duty (identity issuance itself is framework-provided) |
-| [ASI-04](#asi-04-agentic-supply-chain-vulnerabilities) | Agentic Supply Chain | ⚠️ Partial | Det: tool allowlist, arg blacklist (SBOM/provenance out of scope) |
-| [ASI-05](#asi-05-unexpected-code-execution) | Unexpected Code Execution | ✅ Full | Det: dangerous bash/SQL verbs, arg length/value caps, scope limit |
-| [ASI-06](#asi-06-memory--context-poisoning) | Memory & Context Poisoning | ✅ Full | Det: data integrity, no-reversal, untrusted-source gate · Sto: faithfulness, hallucination |
-| [ASI-07](#asi-07-insecure-inter-agent-communication) | Insecure Inter-Agent Comms | ⚠️ Partial | Det: delegation depth, no-data-leak, SoD (transport encryption out of scope) |
-| [ASI-08](#asi-08-cascading-failures) | Cascading Failures | ✅ Full | Det: rate limit, bounded retry, loop detection, cooldown, token budget, deadline |
-| [ASI-09](#asi-09-human-agent-trust-exploitation) | Human-Agent Trust Exploitation | ✅ Full | Det: must-confirm, destructive-action gate, irreversible-once, required-steps · Sto: tone, omission |
-| [ASI-10](#asi-10-rogue-agents) | Rogue Agents | ✅ Full | Det: tool allowlist, rate limit, mutual exclusion, required steps · Sto: goal coverage, metric integrity |
+| ID | OWASP risk | Status | Sponsio controls |
+|----|-----------|:------:|------------------|
+| [ASI-01](#asi-01--agent-goal-hijacking) | Agent Goal Hijacking | ✅ | `untrusted_source_gate`, `confirm_after_source`, `tool_allowlist`; sto `injection_free`, `jailbreak_free`, `scope_respect` |
+| [ASI-02](#asi-02--tool-misuse--exploitation) | Tool Misuse & Exploitation | ✅ | `tool_allowlist`, `arg_blacklist`, `arg_length_limit`, `arg_value_range`, `scope_limit`, `requires_permission`, `destructive_action_gate` |
+| [ASI-03](#asi-03--identity--privilege-abuse) | Identity & Privilege Abuse | ✅ | `requires_permission`, `segregation_of_duty`, `destructive_action_gate` (identity issuance is framework-provided) |
+| [ASI-04](#asi-04--agentic-supply-chain-vulnerabilities) | Agentic Supply Chain | ✅ | `tool_allowlist`, `arg_blacklist` (SBOM / CVE scanning is build-time, complementary) |
+| [ASI-05](#asi-05--unexpected-code-execution) | Unexpected Code Execution | ✅ | `dangerous_bash_commands`, `dangerous_sql_verbs`, `arg_blacklist`, `arg_length_limit`, `scope_limit` |
+| [ASI-06](#asi-06--memory--context-poisoning) | Memory & Context Poisoning | ✅ | `data_intact`, `no_reversal`, `untrusted_source_gate`; sto `faithfulness`, `hallucination_free` |
+| [ASI-07](#asi-07--insecure-inter-agent-communication) | Insecure Inter-Agent Comms | ✅ | `delegation_depth_limit`, `no_data_leak`, `segregation_of_duty`; sto `scope_respect` (transport encryption is infrastructure) |
+| [ASI-08](#asi-08--cascading-failures) | Cascading Failures | ✅ | `rate_limit`, `bounded_retry`, `loop_detection`, `cooldown`, `token_budget`, `delegation_depth_limit`, `deadline` |
+| [ASI-09](#asi-09--human-agent-trust-exploitation) | Human-Agent Trust Exploitation | ✅ | `must_confirm`, `destructive_action_gate`, `irreversible_once`, `required_steps_completion`; sto `tone_match`, `no_omission` |
+| [ASI-10](#asi-10--rogue-agents) | Rogue Agents | ✅ | `tool_allowlist`, `rate_limit`, `mutual_exclusion`, `required_steps_completion`; sto `goal_coverage`, `metric_integrity` |
 
-Legend — ✅ Full: Sponsio's runtime-enforcement model directly addresses the abuse mechanism. ⚠️ Partial: Sponsio enforces *use* of the underlying asset (identity, tool registry, channel) but does not provide the asset itself.
-
-All risk IDs link to the [OWASP landing page](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) — OWASP publishes the list as a single resource rather than per-risk pages.
+All ten link to the [OWASP landing page](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) — OWASP publishes the Top 10 as a single resource rather than per-risk pages.
 
 ---
 
@@ -68,7 +70,7 @@ contracts:
 
 ---
 
-## ASI-03 — Identity & Privilege Abuse ⚠️ Partial
+## ASI-03 — Identity & Privilege Abuse
 
 **Threat.** An agent escalates privileges or operates with credentials beyond its intended scope.
 
@@ -78,13 +80,13 @@ contracts:
 - `segregation_of_duty` — prevents the same agent from performing two incompatible actions (e.g., both requesting and approving a refund).
 - `destructive_action_gate` — destructive privileges require the gate satisfied for this run.
 
-**Partial by design.** Sponsio enforces *use* of identities. Identity issuance itself (DIDs, OAuth clients, mTLS certs, role assignment) is handled by your agent framework or IAM stack. Sponsio integrates with whatever identity primitives your framework emits as events.
+**Scope boundary.** Sponsio enforces how identities are *used*. Identity issuance itself — OAuth clients, DIDs, service accounts, mTLS certs, role assignment — belongs to your agent framework or IAM stack. Sponsio integrates with whatever identity primitives your framework emits as trace events, so the behavioral layer of this risk is covered end-to-end on top of any identity source.
 
 📖 [OWASP reference →](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)
 
 ---
 
-## ASI-04 — Agentic Supply Chain Vulnerabilities ⚠️ Partial
+## ASI-04 — Agentic Supply Chain Vulnerabilities
 
 **Threat.** Vulnerabilities in third-party tools, plugins, agent registries, or runtime dependencies compromise the agent.
 
@@ -93,7 +95,7 @@ contracts:
 - `tool_allowlist` — blocks invocation of unauthorized / typosquatted tools.
 - `arg_blacklist` — catches known-malicious argument patterns even if the tool itself is legitimate.
 
-**Partial by design.** Sponsio does not issue or verify SBOMs, does not sign or attest tools, and does not monitor upstream CVEs. Pair with `pip-audit` / `osv-scanner` / Dependabot at build time, and Sigstore/cosign at distribution. Sponsio stops *behavior* from a compromised tool at runtime; it does not certify the tool is safe.
+**Scope boundary.** Sponsio covers the runtime behavioral layer — it stops a compromised tool from *doing* damaging things at call time. The complementary build-time layer (SBOM attestation, CVE scanning, dependency signing, typosquat detection at install) is what `pip-audit` / `osv-scanner` / Dependabot / Sigstore-cosign are for. Running both is the defense-in-depth posture; Sponsio takes care of runtime.
 
 📖 [OWASP reference →](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)
 
@@ -131,7 +133,7 @@ contracts:
 
 ---
 
-## ASI-07 — Insecure Inter-Agent Communication ⚠️ Partial
+## ASI-07 — Insecure Inter-Agent Communication
 
 **Threat.** Agents in a multi-agent system exchange messages without adequate authentication, confidentiality, or validation.
 
@@ -140,8 +142,9 @@ contracts:
 - `delegation_depth_limit` — caps how deep an agent-to-agent delegation chain can go; blocks runaway recursion and tree explosion.
 - `no_data_leak` — prevents specific data categories (secrets, PII, internal handles) from flowing out in delegation payloads.
 - `segregation_of_duty` — enforces which agent may hand off to which.
+- Sto `scope_respect` — flags delegated work that drifts from the original brief.
 
-**Partial by design.** Transport encryption, message signing, and channel authentication are at the framework / infrastructure layer (gRPC/mTLS, message bus auth). Sponsio polices what agents *say* to each other; the channel itself is framework-provided.
+**Scope boundary.** Sponsio governs *what* agents are allowed to say to each other and *how much*. The channel itself — mTLS, gRPC auth, message signing, transport-layer confidentiality — is infrastructure handled by your framework or service mesh. Sponsio's policy layer operates on top of whatever transport authenticates the messages.
 
 📖 [OWASP reference →](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)
 

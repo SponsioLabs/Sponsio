@@ -15,9 +15,9 @@ tools can split if needed.
 
 <p align="center">
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-orange.svg" alt="License"></a>
-  <a href="https://pypi.org/project/sponsio/"><img src="https://img.shields.io/pypi/dm/sponsio?color=blue&label=downloads" alt="PyPI Downloads"></a>
+  <a href="https://pypi.org/project/sponsio/"><img src="https://img.shields.io/pypi/dm/sponsio?color=blue&label=downloads&cacheSeconds=86400" alt="PyPI Downloads"></a>
   <a href="https://cursor.com/link/prompt?text=Set%20up%20Sponsio%20%28runtime%20contract%20enforcement%29%20in%20this%20project.%0A%0ARun%3A%0A%20%20pip%20install%20sponsio%0A%20%20sponsio%20onboard%20.%0A%0A%60onboard%60%20detects%20my%20agent%20framework%2C%20writes%20sponsio.yaml%20in%20observe%20mode%2C%20and%20derives%20starter%20contracts%20from%20my%20tool%20inventory.%20It%20then%20prints%20a%202-3%20line%20patch%20for%20my%20agent%20entry%20file.%0A%0AApply%20the%20patch.%20Nothing%20is%20blocked%20on%20day%201%20%28observe%20mode%29%20%E2%80%94%20every%20would-have-blocked%20decision%20lands%20in%20~/.sponsio/sessions/%3Cagent_id%3E/%2A.jsonl.%0A%0AAfter%20running%2C%20show%20me%3A%20the%20generated%20sponsio.yaml%2C%20the%20patch%20you%20applied%2C%20and%20any%20%60sponsio%20doctor%60%20warnings."><img src="https://img.shields.io/badge/Set%20Up%20with-Cursor-181818?logo=cursor&logoColor=white&labelColor=555555" alt="Set Up With Cursor"></a>
-  <a href="https://sponsio.dev"><img src="https://img.shields.io/badge/Visit-sponsio.dev-181818?logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxODAgMTgwIj48ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgtNDAyLC03NzApIHRyYW5zbGF0ZSgwLDIwNDgpIHNjYWxlKDAuMSwtMC4xKSIgZmlsbD0iI0I0RUE0QyI%2bPHBhdGggZD0iTTUwMTAgMTI1MDEgYy01OCAtOSAtMTg3IC00MSAtMjY3IC02NiAtMjYgLTkgLTk5IC00MSAtMTYwIC03MSAtMzU0IC0xNzQgLTYxMyAtNDc2IC03MzYgLTg1OSAtNDMgLTEzMyAtNjQgLTI1MSAtNzMgLTQwNyBsLTcgLTExOCAtNDYyIDAgLTQ2MyAwIC02IC0yMiBjLTMgLTEzIC0zIC02NiAwIC0xMTggMTYgLTI4NCAxMDYgLTU1NiAyNjAgLTc4OCAxMTMgLTE2OCAzMjQgLTM1NiA1MTYgLTQ2MCAyNzIgLTE0NyA2MzcgLTE5MCA5NjggLTExNSAyMzYgNTMgNDU2IDE3OCA2NDAgMzYzIDI3MiAyNzMgNDEzIDYxMSA0MjMgMTAyMCBsMyAxMTUgNDU1IDUgNDU0IDUgMyA0NSBjNCA0NyAtMTIgMjA3IC0yOSAzMDAgLTEwNyA1OTIgLTUyMyAxMDMxIC0xMDk0IDExNTcgLTc5IDE3IC0zNDEgMjYgLTQyNSAxNHogbTMyMCAtOTYwIGM3MyAtMjcgMTYyIC05OSAyMDUgLTE2NCA1OCAtODcgMTA0IC0yMzkgMTA1IC0zNDUgbDAgLTUyIC00NTcgMiAtNDU4IDMgLTMgNDggYy01IDczIDI0IDIwNCA2MCAyNzcgNjEgMTE5IDE5MSAyMjUgMzEwIDI1MCA2NCAxMyAxNzYgNSAyMzggLTE5eiBtLTYxMiAtNjQxIGMxMyAtMjk1IC0xOTEgLTUyMCAtNDcwIC01MjAgLTIxNyAwIC0zOTMgMTQ0IC00NTMgMzcxIC0xNSA1NSAtMjAgMjEwIC04IDIyMiAzIDQgMjE0IDYgNDY3IDUgbDQ2MSAtMyAzIC03NXoiLz48L2c%2bPC9zdmc%2b&logoColor=white&labelColor=555555" alt="Visit sponsio.dev"></a>
+  <a href="https://sponsio.dev"><img src="https://img.shields.io/badge/Visit-sponsio.dev-181818?logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjI4MyA3NjMgMzczIDM3MyI%2bPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwyMDQ4KSBzY2FsZSgwLjEsLTAuMSkiIGZpbGw9IiNGRkZGRkYiPjxwYXRoIGQ9Ik01MDEwIDEyNTAxIGMtNTggLTkgLTE4NyAtNDEgLTI2NyAtNjYgLTI2IC05IC05OSAtNDEgLTE2MCAtNzEgLTM1NCAtMTc0IC02MTMgLTQ3NiAtNzM2IC04NTkgLTQzIC0xMzMgLTY0IC0yNTEgLTczIC00MDcgbC03IC0xMTggLTQ2MiAwIC00NjMgMCAtNiAtMjIgYy0zIC0xMyAtMyAtNjYgMCAtMTE4IDE2IC0yODQgMTA2IC01NTYgMjYwIC03ODggMTEzIC0xNjggMzI0IC0zNTYgNTE2IC00NjAgMjcyIC0xNDcgNjM3IC0xOTAgOTY4IC0xMTUgMjM2IDUzIDQ1NiAxNzggNjQwIDM2MyAyNzIgMjczIDQxMyA2MTEgNDIzIDEwMjAgbDMgMTE1IDQ1NSA1IDQ1NCA1IDMgNDUgYzQgNDcgLTEyIDIwNyAtMjkgMzAwIC0xMDcgNTkyIC01MjMgMTAzMSAtMTA5NCAxMTU3IC03OSAxNyAtMzQxIDI2IC00MjUgMTR6IG0zMjAgLTk2MCBjNzMgLTI3IDE2MiAtOTkgMjA1IC0xNjQgNTggLTg3IDEwNCAtMjM5IDEwNSAtMzQ1IGwwIC01MiAtNDU3IDIgLTQ1OCAzIC0zIDQ4IGMtNSA3MyAyNCAyMDQgNjAgMjc3IDYxIDExOSAxOTEgMjI1IDMxMCAyNTAgNjQgMTMgMTc2IDUgMjM4IC0xOXogbS02MTIgLTY0MSBjMTMgLTI5NSAtMTkxIC01MjAgLTQ3MCAtNTIwIC0yMTcgMCAtMzkzIDE0NCAtNDUzIDM3MSAtMTUgNTUgLTIwIDIxMCAtOCAyMjIgMyA0IDIxNCA2IDQ2NyA1IGw0NjEgLTMgMyAtNzV6Ii8%2bPC9nPjwvc3ZnPg==&logoColor=white&labelColor=555555" alt="Visit sponsio.dev"></a>
   <a href="docs/owasp-agentic-top-10.md"><img src="https://img.shields.io/badge/OWASP%20Agentic%20Top%2010-10%2F10%20Covered-2E7D32?labelColor=555555" alt="OWASP Agentic Top 10 Covered"></a>
 </p>
 
@@ -49,19 +49,45 @@ tools can split if needed.
 LLM ─▶ Sponsio Boundary ─▶ Tool / API / DB / File
 ```
 
-On [ODCV-Bench](#benchmarks) — 12 LLMs × 80 KPI-pressure scenarios where SOTA models silently falsify data to hit metrics — Sponsio catches **~84% of high-risk trajectories**. On `Financial-Audit-Fraud-Finding`, 19 of 24 models commit the fraud unguarded; with Sponsio, none do.
+On [ODCV-Bench](#benchmarks--performance) — 12 LLMs × 80 KPI-pressure scenarios where SOTA models silently falsify data to hit metrics — Sponsio catches **~84% of high-risk trajectories**. On `Financial-Audit-Fraud-Finding`, 19 of 24 models commit the fraud unguarded; with Sponsio, none do.
 
-**Three contract types,** all deterministic, all checked before the side effect:
+### Three contract types
 
-- **Per-action** — prohibit or require a specific tool. *"No `rm -rf`"*, *"`confirm_with_user` before `delete_file`"*.
-- **Sequential** — enforce order. *"`run_tests` before `deploy_production`"*, *"after `run_aml_check`, loan files are immutable"*.
-- **Bounded** — rate limits, loop caps, delegation depth. *"`check_balance` at most 5 times"*. Stops the retry loop that silently drains your bill.
+All deterministic, all checked before the side effect.
 
-**Four ways to write them:** auto-inferred from your tool signatures (`sponsio onboard`), picked from the **pattern library** (29 patterns + starter bundles for Claude Code, OpenAI Agents SDK, CrewAI, MCP), written in natural language (`sponsio validate "..."` compiles to LTL), or extracted from a policy doc (`sponsio scan --policy security.md`).
+| Type | What it catches | Example |
+|------|------|---------|
+| **Per-action** | Prohibited or required tool calls | *"no `rm -rf`"* · *"`confirm_with_user` before `delete_file`"* |
+| **Sequential** | Out-of-order calls, post-gate tampering | *"`run_tests` before `deploy_production`"* · *"after `run_aml_check`, loan files immutable"* |
+| **Bounded** | Retry loops, delegation fan-out, token runaway | *"`check_balance` at most 5 times"* · *"delegation depth ≤ 3"* |
 
-**Rollout path.** Start in observe mode — every would-have-blocked decision logged, nothing blocked. Flip `SPONSIO_MODE=enforce` with no code change once the report is clean. Run `sponsio serve --dev` for the bundled dashboard (live span tree, per-contract pass rates, violation feed), or OTEL-export violations to your existing observability stack.
+### Four ways to write them
 
-**What it isn't.** Not a prompt-injection shield (the model can still be fooled — Sponsio stops the *action*, not the thought). Not an output-assertion wrapper (those flag post-hoc; Sponsio blocks before the side effect). Not a probabilistic drift score (contracts are deterministic pass/fail).
+- **Auto-inferred** — `sponsio onboard` reads your tool signatures
+- **Pattern library** — 29 patterns + starter bundles for Claude Code, OpenAI Agents SDK, CrewAI, MCP
+- **Natural language** — `sponsio validate "..."` compiles plain English to LTL
+- **Policy doc** — `sponsio scan --policy security.md` parses existing compliance docs
+
+### Rollout path
+
+`observe → report → enforce`. Start with every contract evaluated but nothing blocked; prune false positives from the report; flip `SPONSIO_MODE=enforce` with no code change. Live via `sponsio serve --dev` dashboard, or OTEL-export to your existing observability stack.
+
+### Compared to other approaches
+
+Sponsio is complementary, not competing:
+
+| Layer | Runs | Catches |
+|-------|------|---------|
+| System prompt | Before generation | — (advisory only; model may ignore) |
+| Output monitor | After generation | Bad text — not bad actions |
+| **Sponsio (det)** | **Before tool execution** | **Unsafe tool calls, file writes, API hits, DB mutations** |
+| Sponsio (sto) | After generation | Semantic violations — tone, scope, PII, metric integrity |
+
+### What it isn't
+
+- Not a prompt-injection shield — the model can still be fooled; Sponsio stops the *action*, not the thought
+- Not an output-assertion wrapper — those flag post-hoc; Sponsio blocks before the side effect
+- Not a probabilistic drift score — contracts are deterministic pass/fail
 
 ---
 
@@ -211,32 +237,19 @@ Run the packaged versions locally with `sponsio demo --scenario cleanup|trial|lo
 
 ---
 
-## Compared to other approaches
+## Benchmarks & performance
 
-| Approach                              | Where it acts                    | Best at                                                                    |
-| ------------------------------------- | -------------------------------- | -------------------------------------------------------------------------- |
-| Prompting / system instructions       | Before generation                | Intent, style, policy reminders                                            |
-| Output assertions / response monitors | After generation                 | PII, tone, format, rubric checks                                           |
-| **Sponsio det contracts**             | **Before tool/action execution** | **Ordering, rate limits, irreversible-action gates, argument/path safety** |
-| **Sponsio sto contracts**             | After output / trace observation | Semantic PII, scope respect, hallucination, metric integrity               |
+### Benchmark results
 
----
-
-## Benchmarks
-
-
-| Suite                                                | What it tests                                                                  | Sponsio result                                                   |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
-| **ODCV-Bench** (12 LLMs × 80 KPI-pressure scenarios) | Intent-level integrity — agent falsifying data / gaming metrics under pressure | **~84 % protection** on high-risk trajectories                   |
-| **τ²-bench airline**                                 | Trace-level SOP compliance                                                     | **7-23 % recall** · **4-16 % FP** (model-dependent)              |
-| **τ²-bench retail**                                  | Content-quality compliance                                                     | Mostly out-of-scope for det checks; use sto / output constraints |
-
+| Suite | What it tests | Sponsio result |
+|-------|---------------|----------------|
+| **ODCV-Bench** (12 LLMs × 80 KPI-pressure scenarios) | Intent-level integrity — agent falsifying data / gaming metrics under pressure | **~84% protection** on high-risk trajectories |
+| **τ²-bench airline** | Trace-level SOP compliance | **7–23% recall** · **4–16% FP** (model-dependent) |
+| **τ²-bench retail** | Content-quality compliance | Mostly out-of-scope for det checks; use sto / output constraints |
 
 ODCV-Bench is the clearest fit: failures aren't adversarial prompts but rational KPI-driven cheating (editing source data, disabling checks, exploiting scripts). Det contracts catch those at the tool boundary during offline replay.
 
----
-
-## Performance
+### Hot-path performance
 
 ```text
 $ sponsio bench sponsio.yaml -n 30000
@@ -250,6 +263,9 @@ Det contracts compile to an LTL/DFA evaluator — no LLM on the hot path, no app
 ---
 
 ## Pattern Library
+
+<details>
+<summary><b>Pattern library</b> — <em>to be updated; content below is a snapshot</em></summary>
 
 **29 deterministic patterns** (formal evaluation, zero LLM calls):
 
@@ -269,6 +285,8 @@ Det contracts compile to an LTL/DFA evaluator — no LLM on the hot path, no app
 `tone`, `relevance`, `llm_judge`, `injection_free`, `semantic_pii_free`, `scope_respect`, `hallucination_free`, `metric_integrity`, and more. Some response properties (exact-PII regexes, length, format) stay deterministic — no judge call needed.
 
 Run `sponsio patterns` to browse the det library with NL examples. Full grammar: [Contract DSL](docs/contracts.md) and [Stochastic Atom Catalog](docs/sto-atoms.md).
+
+</details>
 
 ---
 
