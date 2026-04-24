@@ -45,6 +45,53 @@ function flattenTree(spans: SpanNode[]): FlatRow[] {
   return out;
 }
 
+/**
+ * One entry in the rendered list — either a single row or a folded
+ * run of ≥3 consecutive identical rows (e.g. ``poll_status × 47``).
+ * A run is *foldable* only when every span is clean (no block, no
+ * violation, no error) — we never want to hide the interesting one.
+ */
+type RowGroup =
+  | { kind: 'single'; row: FlatRow }
+  | { kind: 'fold'; key: string; rows: FlatRow[] };
+
+function isFoldable(r: FlatRow): boolean {
+  return !r.span.blocked && r.span.status !== 'violated' && r.span.status !== 'error' && !hasChildViolation(r.span);
+}
+
+function groupRows(rows: FlatRow[]): RowGroup[] {
+  const out: RowGroup[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    const head = rows[i];
+    const headLabel = spanLabel(head.span);
+    let j = i + 1;
+    while (
+      j < rows.length &&
+      isFoldable(head) &&
+      isFoldable(rows[j]) &&
+      rows[j].depth === head.depth &&
+      spanLabel(rows[j].span) === headLabel
+    ) {
+      j++;
+    }
+    const runLen = j - i;
+    if (runLen >= 3) {
+      // Fold key = first row's path + count; stable across rerenders
+      // unless the underlying group itself changes.
+      out.push({
+        kind: 'fold',
+        key: `fold:${head.path.join('.')}:${runLen}`,
+        rows: rows.slice(i, j),
+      });
+    } else {
+      for (let k = i; k < j; k++) out.push({ kind: 'single', row: rows[k] });
+    }
+    i = j;
+  }
+  return out;
+}
+
 function hasChildViolation(span: SpanNode): boolean {
   if (span.blocked) return true;
   if (span.status === 'violated') return true;
@@ -95,13 +142,24 @@ function spanTypeBadge(s: SpanNode): { label: string; cls: string } | null {
 
 function fmtDuration(ms: number | null | undefined): string {
   if (ms == null) return '—';
-  if (ms < 1) return '<1ms';
-  if (ms < 1000) return `${ms.toFixed(0)}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
+  // Sub-ms: render in µs so short internal spans (contract_check,
+  // guarantee) don't all flatten to "<1ms".
+  if (ms < 1) return `${Math.max(1, Math.round(ms * 1000))}µs`;
+  // Low-ms: keep one decimal so 1.2ms / 3.7ms are distinguishable.
+  if (ms < 10) return `${ms.toFixed(1)}ms`;
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const m = Math.floor(ms / 60_000);
+  const s = Math.round((ms % 60_000) / 1000);
+  return s === 0 ? `${m}m` : `${m}m${s}s`;
 }
 
 export default function TraceWaterfall({ spans, onSelectSpan, selectedSpan, maxRows = 120 }: WaterfallProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Folded cycle runs (``poll_status × 47``). Keyed by ``RowGroup.key``
+  // so the expand state survives reorders without unfolding
+  // everything on each render.
+  const [unfolded, setUnfolded] = useState<Set<string>>(new Set());
 
   const { rows, globalStart, globalEnd, hiddenCount } = useMemo(() => {
     if (spans.length === 0) return { rows: [] as FlatRow[], globalStart: 0, globalEnd: 1, hiddenCount: 0 };
@@ -151,12 +209,18 @@ export default function TraceWaterfall({ spans, onSelectSpan, selectedSpan, maxR
     });
   };
 
-  // Time axis tick marks (5 ticks)
+  // Vertical guide positions only — the axis *labels* that used to
+  // show offsets like "0ms / 87ms / 175ms / 262ms / 350ms" were
+  // confusing: same unit and similar formatting as each row's
+  // individual duration label, but describing a different thing
+  // (offset-from-trace-start vs this-span's-length). Rows already
+  // communicate relative position via the bar's `leftPct`; dropping
+  // the tick *labels* (not the guide lines) removes the visual
+  // double-up without losing the grid rhythm.
   const tickCount = 5;
-  const ticks = Array.from({ length: tickCount + 1 }, (_, i) => {
-    const frac = i / tickCount;
-    return { frac, ms: Math.round(totalMs * frac) };
-  });
+  const ticks = Array.from({ length: tickCount + 1 }, (_, i) => ({
+    frac: i / tickCount,
+  }));
 
   return (
     <div className="rounded-xl border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 overflow-hidden">
@@ -176,109 +240,186 @@ export default function TraceWaterfall({ spans, onSelectSpan, selectedSpan, maxR
         )}
       </div>
 
-      {/* Time axis */}
-      <div className="px-3 pt-2 pb-1 border-b border-surface-100 dark:border-surface-800 relative">
-        <div className="flex justify-between text-[9px] text-muted font-mono" style={{ paddingLeft: '45%', paddingRight: '12%' }}>
-          {ticks.map(t => (
-            <span key={t.frac}>{fmtDuration(t.ms)}</span>
-          ))}
-        </div>
-      </div>
+      {/* Axis strip kept as empty border so guide lines below have a
+          natural top cap. See the note on the tick block above for
+          why the labels themselves were removed. */}
+      <div className="h-1 border-b border-surface-100 dark:border-surface-800" />
 
       {/* Rows */}
       <div className="overflow-y-auto max-h-[540px]">
-        {rows.map((row, rowIdx) => {
-          const { span, depth, path } = row;
-          const spanStart = ((span.start_time - globalStart) * 1000);
-          const spanDur = span.duration_ms ?? Math.max(1, (span.end_time ?? span.start_time) - span.start_time) * 1000;
-          const leftPct = Math.max(0, (spanStart / totalMs) * 100);
-          const widthPct = Math.max(0.4, (spanDur / totalMs) * 100);
-          const label = spanLabel(span);
-          const badge = spanTypeBadge(span);
-          const hasKids = (span.children?.length ?? 0) > 0;
-          const key = path.join('.');
-          const isCollapsed = collapsed.has(key);
-          const isSelected = selectedSpan === span;
-          const llm = extractLlmMetrics(span);
-          const errorMsg = span.status === 'error'
-            ? (span.attributes?.['error.message'] as string | undefined)
-            : undefined;
+        {(() => {
+          const groups = groupRows(rows);
 
-          return (
-            <div
-              key={rowIdx}
-              className={`flex items-stretch border-b border-surface-100 dark:border-surface-800/60 border-l-[3px] ${statusBorderClass(span)} ${rowBgClass(span, isSelected)} transition-colors cursor-pointer group`}
-              onClick={() => onSelectSpan?.(span)}
-              style={{ minHeight: '30px' }}
-            >
-              {/* Left: label column (45%) */}
+          // Per-row renderer — reused for both single rows and
+          // expanded fold groups. Keyed by ``rk`` so React can
+          // distinguish the same FlatRow across different group
+          // contexts (folded vs expanded).
+          const renderRow = (row: FlatRow, rk: string) => {
+            const { span, depth, path } = row;
+            const spanStart = ((span.start_time - globalStart) * 1000);
+            const spanDur = span.duration_ms ?? Math.max(1, (span.end_time ?? span.start_time) - span.start_time) * 1000;
+            const leftPct = Math.max(0, (spanStart / totalMs) * 100);
+            const widthPct = Math.max(0.4, (spanDur / totalMs) * 100);
+            const label = spanLabel(span);
+            const badge = spanTypeBadge(span);
+            const hasKids = (span.children?.length ?? 0) > 0;
+            const key = path.join('.');
+            const isCollapsed = collapsed.has(key);
+            const isSelected = selectedSpan === span;
+            const llm = extractLlmMetrics(span);
+            const errorMsg = span.status === 'error'
+              ? (span.attributes?.['error.message'] as string | undefined)
+              : undefined;
+
+            return (
               <div
-                className="flex items-center gap-1.5 min-w-0 py-1 pr-2"
-                style={{ width: '45%', paddingLeft: `${8 + depth * 14}px` }}
+                key={rk}
+                className={`flex items-stretch border-b border-surface-100 dark:border-surface-800/60 border-l-[3px] ${statusBorderClass(span)} ${rowBgClass(span, isSelected)} transition-colors cursor-pointer group`}
+                onClick={() => onSelectSpan?.(span)}
+                style={{ minHeight: '30px' }}
               >
-                {hasKids && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); toggleCollapse(path); }}
-                    className="text-[10px] text-muted w-3 shrink-0 hover:text-stone-900 dark:hover:text-white"
-                    aria-label={isCollapsed ? 'expand' : 'collapse'}
-                  >
-                    {isCollapsed ? '▸' : '▾'}
-                  </button>
-                )}
-                {!hasKids && <span className="w-3 shrink-0" />}
-                {badge && (
-                  <span className={`text-[9px] font-mono px-1 py-0.5 rounded shrink-0 ${badge.cls}`}>
-                    {badge.label}
-                  </span>
-                )}
-                <span className="text-xs font-mono text-stone-900 dark:text-zinc-100 truncate" title={label}>
-                  {label}
-                </span>
-                {span.agent_id && (
-                  <span className="text-[10px] text-muted shrink-0 ml-auto font-mono">{span.agent_id}</span>
-                )}
-              </div>
-
-              {/* Right: bar column (55%) */}
-              <div className="flex-1 relative py-1">
-                {/* Axis guide lines */}
-                {ticks.slice(1, -1).map(t => (
-                  <span
-                    key={t.frac}
-                    className="absolute top-0 bottom-0 border-l border-dashed border-surface-100 dark:border-surface-800 pointer-events-none"
-                    style={{ left: `${t.frac * 100}%` }}
-                  />
-                ))}
-                {/* Bar */}
+                {/* Left: label column (45%) */}
                 <div
-                  className={`absolute h-[18px] rounded-sm top-1/2 -translate-y-1/2 ${
-                    span.blocked ? 'bg-red-500/70' :
-                    span.status === 'violated' ? 'bg-red-500/50' :
-                    span.status === 'error' ? 'bg-orange-500/50' :
-                    'bg-stone-400/60 dark:bg-zinc-500/60'
-                  } group-hover:opacity-100 opacity-90 transition-opacity`}
-                  style={{ left: `${leftPct}%`, width: `${widthPct}%`, minWidth: '3px' }}
-                />
-                {/* Duration / tokens inline label */}
-                <div
-                  className="absolute top-1/2 -translate-y-1/2 text-[10px] font-mono text-muted whitespace-nowrap pointer-events-none"
-                  style={{ left: `calc(${Math.min(leftPct + widthPct, 90)}% + 4px)` }}
+                  className="flex items-center gap-1.5 min-w-0 py-1 pr-2"
+                  style={{ width: '45%', paddingLeft: `${8 + depth * 14}px` }}
                 >
-                  {fmtDuration(span.duration_ms)}
-                  {llm?.totalTokens !== undefined && (
-                    <span className="text-muted/80 ml-1.5">· {formatTokens(llm.totalTokens)} tok</span>
+                  {hasKids && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleCollapse(path); }}
+                      className="text-[10px] text-muted w-3 shrink-0 hover:text-stone-900 dark:hover:text-white"
+                      aria-label={isCollapsed ? 'expand' : 'collapse'}
+                    >
+                      {isCollapsed ? '▸' : '▾'}
+                    </button>
                   )}
-                  {llm?.costUsd !== undefined && llm.costUsd > 0 && (
-                    <span className="text-muted/80 ml-1">· {formatCost(llm.costUsd)}</span>
+                  {!hasKids && <span className="w-3 shrink-0" />}
+                  {badge && (
+                    <span className={`text-[9px] font-mono px-1 py-0.5 rounded shrink-0 ${badge.cls}`}>
+                      {badge.label}
+                    </span>
                   )}
-                  {errorMsg && (
-                    <span className="text-orange-500 ml-1.5">· {errorMsg.slice(0, 32)}{errorMsg.length > 32 ? '…' : ''}</span>
+                  <span className="text-xs font-mono text-stone-900 dark:text-zinc-100 truncate" title={label}>
+                    {label}
+                  </span>
+                  {span.agent_id && (
+                    <span className="text-[10px] text-muted shrink-0 ml-auto font-mono">{span.agent_id}</span>
                   )}
                 </div>
+
+                {/* Right: bar column (55%) */}
+                <div className="flex-1 relative py-1">
+                  {/* Axis guide lines */}
+                  {ticks.slice(1, -1).map(t => (
+                    <span
+                      key={t.frac}
+                      className="absolute top-0 bottom-0 border-l border-dashed border-surface-100 dark:border-surface-800 pointer-events-none"
+                      style={{ left: `${t.frac * 100}%` }}
+                    />
+                  ))}
+                  <div
+                    className={`absolute h-[18px] rounded-sm top-1/2 -translate-y-1/2 ${
+                      span.blocked ? 'bg-red-500/70' :
+                      span.status === 'violated' ? 'bg-red-500/50' :
+                      span.status === 'error' ? 'bg-orange-500/50' :
+                      'bg-stone-400/60 dark:bg-zinc-500/60'
+                    } group-hover:opacity-100 opacity-90 transition-opacity`}
+                    style={{ left: `${leftPct}%`, width: `${widthPct}%`, minWidth: '3px' }}
+                  />
+                  <div
+                    className="absolute top-1/2 -translate-y-1/2 text-[10px] font-mono text-muted whitespace-nowrap pointer-events-none"
+                    style={{ left: `calc(${Math.min(leftPct + widthPct, 90)}% + 4px)` }}
+                  >
+                    {fmtDuration(span.duration_ms)}
+                    {llm?.totalTokens !== undefined && (
+                      <span className="text-muted/80 ml-1.5">· {formatTokens(llm.totalTokens)} tok</span>
+                    )}
+                    {llm?.costUsd !== undefined && llm.costUsd > 0 && (
+                      <span className="text-muted/80 ml-1">· {formatCost(llm.costUsd)}</span>
+                    )}
+                    {errorMsg && (
+                      <span className="text-orange-500 ml-1.5">· {errorMsg.slice(0, 32)}{errorMsg.length > 32 ? '…' : ''}</span>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          };
+
+          // Render a compact "× N" pill for a fold group. Click
+          // expands the whole run inline. Shows the group's
+          // aggregate duration so the user knows how much time the
+          // cycle cost without having to open it.
+          const renderFold = (group: Extract<RowGroup, { kind: 'fold' }>) => {
+            const first = group.rows[0];
+            const last = group.rows[group.rows.length - 1];
+            const runStart = first.span.start_time;
+            const runEnd = (last.span.end_time ?? (last.span.start_time + (last.span.duration_ms ?? 0) / 1000));
+            const runMs = Math.max(0, (runEnd - runStart) * 1000);
+            const leftPct = Math.max(0, ((runStart - globalStart) * 1000 / totalMs) * 100);
+            const widthPct = Math.max(0.4, (runMs / totalMs) * 100);
+            const label = spanLabel(first.span);
+            const badge = spanTypeBadge(first.span);
+            return (
+              <div
+                key={group.key}
+                className="flex items-stretch border-b border-dashed border-surface-200 dark:border-surface-700/70 border-l-[3px] border-l-stone-400/60 dark:border-l-zinc-600/60 hover:bg-surface-50 dark:hover:bg-surface-800/40 cursor-pointer group"
+                onClick={() => setUnfolded(prev => { const n = new Set(prev); n.add(group.key); return n; })}
+                style={{ minHeight: '30px' }}
+                title={`Expand ${group.rows.length} identical calls`}
+              >
+                <div
+                  className="flex items-center gap-1.5 min-w-0 py-1 pr-2"
+                  style={{ width: '45%', paddingLeft: `${8 + first.depth * 14}px` }}
+                >
+                  <span className="w-3 shrink-0 text-[10px] text-muted">▸</span>
+                  {badge && (
+                    <span className={`text-[9px] font-mono px-1 py-0.5 rounded shrink-0 ${badge.cls}`}>
+                      {badge.label}
+                    </span>
+                  )}
+                  <span className="text-xs font-mono text-stone-900 dark:text-zinc-100 truncate" title={label}>
+                    {label}
+                  </span>
+                  <span className="text-[10px] font-mono text-brand bg-brand/10 px-1.5 rounded shrink-0 ml-1">
+                    × {group.rows.length}
+                  </span>
+                </div>
+                <div className="flex-1 relative py-1">
+                  {ticks.slice(1, -1).map(t => (
+                    <span
+                      key={t.frac}
+                      className="absolute top-0 bottom-0 border-l border-dashed border-surface-100 dark:border-surface-800 pointer-events-none"
+                      style={{ left: `${t.frac * 100}%` }}
+                    />
+                  ))}
+                  <div
+                    className="absolute h-[18px] rounded-sm top-1/2 -translate-y-1/2 bg-stone-400/40 dark:bg-zinc-500/40 border border-dashed border-stone-400/70 dark:border-zinc-500/70"
+                    style={{ left: `${leftPct}%`, width: `${widthPct}%`, minWidth: '3px' }}
+                  />
+                  <div
+                    className="absolute top-1/2 -translate-y-1/2 text-[10px] font-mono text-muted whitespace-nowrap pointer-events-none"
+                    style={{ left: `calc(${Math.min(leftPct + widthPct, 90)}% + 4px)` }}
+                  >
+                    {fmtDuration(runMs)} total
+                  </div>
+                </div>
+              </div>
+            );
+          };
+
+          return groups.map((g, gi) => {
+            if (g.kind === 'single') {
+              return renderRow(g.row, `s${gi}`);
+            }
+            // Fold — show compact pill unless the user clicked expand.
+            if (!unfolded.has(g.key)) return renderFold(g);
+            return (
+              <div key={g.key}>
+                {g.rows.map((r, ri) => renderRow(r, `f${gi}-${ri}`))}
+              </div>
+            );
+          });
+        })()}
       </div>
 
       {/* Truncation notice */}

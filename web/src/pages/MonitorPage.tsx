@@ -321,8 +321,13 @@ function OverviewTab({ data }: { data: MonitorData }) {
         </div>
       </div>
 
-      {/* Metric cards (6 cards: events, det blocks, sto retries, cost, latency p95, error rate) */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      {/* Metric cards: 6 cards in 3-up grid (2 rows × 3 cols at lg). The
+          rows below use `lg:grid-cols-3`, so this keeps card edges
+          vertically aligned throughout the page — top 3 metrics
+          (violation-centric) sit above the next 3 (operational) which
+          sit above the 3 main panels (Risky Agents / Contract Health /
+          Enforcement). */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <MetricCard
           label="Pass Rate"
           value={`${passRate}%`}
@@ -558,6 +563,18 @@ function EmptyState() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 type TracesFilter = 'all' | 'violated' | 'passed' | 'error';
+type TimeWindow = '15m' | '1h' | '6h' | '24h' | 'all';
+
+/**
+ * Unix-seconds lower bound for a time-window label. ``all`` → 0.
+ * Returns a stable number for a given ``now`` so downstream
+ * ``useMemo`` keys don't thrash on every render tick.
+ */
+function windowCutoff(w: TimeWindow, now: number): number {
+  if (w === 'all') return 0;
+  const secs = w === '15m' ? 900 : w === '1h' ? 3600 : w === '6h' ? 21_600 : 86_400;
+  return now - secs;
+}
 
 interface TraceRowData {
   id: string;
@@ -641,7 +658,15 @@ function TracesTab({ data, onReload, query, setQuery }: TracesTabProps) {
   const [filter, setFilter] = useState<TracesFilter>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
-  const [groupBySession, setGroupBySession] = useState(false);
+  // Default ON — long-running agents produce thousands of traces
+  // across a handful of sessions. Flat-list view gets overwhelming
+  // fast; session grouping is the "sane" default even when you only
+  // have two sessions.
+  const [groupBySession, setGroupBySession] = useState(true);
+  // Default 1h — the sweet spot for "am I debugging something that
+  // just happened?". 15m is tight for most agent runs; 6h+ is
+  // usually too broad once production traffic kicks in.
+  const [timeWindow, setTimeWindow] = useState<TimeWindow>('1h');
 
   // P8 fix: dedupe trace rows. When a live span and a history summary point
   // to the same trace_id, prefer the span row (richer detail panel).
@@ -652,12 +677,31 @@ function TracesTab({ data, onReload, query, setQuery }: TracesTabProps) {
     return [...spanRows, ...histRows];
   }, [spans, traces]);
 
+  // Time-window filter first (cheapest reduction), then status filter.
+  // The cutoff is memoised on a 30s tick to avoid re-running the filter
+  // chain on every React render while ``now`` silently advances.
+  const [nowSec, setNowSec] = useState(() => Date.now() / 1000);
+  useEffect(() => {
+    const id = setInterval(() => setNowSec(Date.now() / 1000), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const cutoff = windowCutoff(timeWindow, nowSec);
+
   const filtered = allRows.filter(r => {
+    if (cutoff > 0 && r.startTime < cutoff) return false;
     if (filter === 'violated' && r.hardViolations === 0 && r.softViolations === 0) return false;
     if (filter === 'passed' && (r.hardViolations > 0 || r.softViolations > 0 || r.hasError)) return false;
     if (filter === 'error' && !r.hasError) return false;
     return true;
   });
+
+  // Count of rows dropped by the time-window filter — surfaced in the
+  // empty-state so the user isn't confused by an empty list when a
+  // wider window would have traces to show.
+  const droppedByWindow = useMemo(() => {
+    if (timeWindow === 'all') return 0;
+    return allRows.filter(r => r.startTime < cutoff).length;
+  }, [allRows, cutoff, timeWindow]);
 
   // B4 fix: extend _all with synthetic tokens (blocked, pass, error, retry, det, sto)
   // so the placeholder's "-pass" example actually works.
@@ -717,6 +761,25 @@ function TracesTab({ data, onReload, query, setQuery }: TracesTabProps) {
             className="w-full pl-8 pr-3 py-1.5 text-xs bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 rounded-lg text-stone-900 dark:text-zinc-100 placeholder:text-muted focus:outline-none focus:border-brand/40 transition-colors"
           />
         </div>
+        {/* Time window — primary filter for long-running agents. Sits
+            before the status filter because "when" is the more common
+            question than "what outcome". */}
+        <div className="flex items-center gap-0.5 bg-surface-100 dark:bg-surface-800 rounded-lg p-0.5">
+          {(['15m', '1h', '6h', '24h', 'all'] as TimeWindow[]).map(w => (
+            <button
+              key={w}
+              onClick={() => setTimeWindow(w)}
+              className={`px-2 py-1 text-[11px] rounded-md font-medium transition-colors ${
+                timeWindow === w
+                  ? 'bg-white dark:bg-surface-900 text-stone-900 dark:text-white shadow-sm'
+                  : 'text-muted hover:text-stone-700 dark:hover:text-stone-200'
+              }`}
+              title={w === 'all' ? 'No time-window filter' : `Last ${w}`}
+            >
+              {w}
+            </button>
+          ))}
+        </div>
         <div className="flex items-center gap-0.5 bg-surface-100 dark:bg-surface-800 rounded-lg p-0.5">
           {(['all', 'violated', 'passed', 'error'] as TracesFilter[]).map(f => (
             <button
@@ -757,8 +820,16 @@ function TracesTab({ data, onReload, query, setQuery }: TracesTabProps) {
       {searched.length === 0 ? (
         <div className="rounded-xl border border-dashed border-surface-300 dark:border-surface-700 bg-white dark:bg-surface-900 p-10 text-center">
           <p className="text-sm text-muted">No traces match the current filter.</p>
-          {(query || filter !== 'all') && (
-            <button onClick={() => { setQuery(''); setFilter('all'); }} className="mt-2 text-xs text-brand hover:text-brand/80">
+          {droppedByWindow > 0 && (
+            <p className="text-xs text-muted mt-1">
+              {droppedByWindow} older trace{droppedByWindow !== 1 ? 's' : ''} hidden by the <code className="font-mono text-[10px] bg-surface-100 dark:bg-surface-800 px-1 rounded">{timeWindow}</code> window.
+            </p>
+          )}
+          {(query || filter !== 'all' || timeWindow !== 'all') && (
+            <button
+              onClick={() => { setQuery(''); setFilter('all'); setTimeWindow('all'); }}
+              className="mt-2 text-xs text-brand hover:text-brand/80"
+            >
               Clear filters
             </button>
           )}
