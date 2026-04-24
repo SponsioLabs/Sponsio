@@ -100,7 +100,8 @@ sponsio report --since 1h
 export SPONSIO_MODE=enforce
 ```
 
-**TypeScript example** — LangChain.js / LangGraph
+<details>
+<summary><b>TypeScript example</b> — LangChain.js / LangGraph</summary>
 
 ```bash
 npm install @sponsio/sdk
@@ -121,9 +122,10 @@ const toolNode = new ToolNode(wrapTools(tools, guard));
 
 YAML config (`config="sponsio.yaml"`) is Python-only today; TS honours the same `SPONSIO_MODE` env var and writes to the same session log.
 
+</details>
 
-
-**One-shot prompt** (Cursor / Claude Code / Codex)
+<details>
+<summary><b>One-shot prompt</b> (Cursor / Claude Code / Codex)</summary>
 
 ```text
 Set up Sponsio (https://pypi.org/project/sponsio/) in my project.
@@ -142,9 +144,10 @@ After running, show me sponsio.yaml, the patch you applied, and any
 `sponsio doctor` warnings.
 ```
 
+</details>
 
-
-**Install as a reusable Agent Skill** (works across every project)
+<details>
+<summary><b>Install as a reusable Agent Skill</b> (works across every project)</summary>
 
 ```bash
 pip install sponsio
@@ -154,6 +157,8 @@ sponsio skill install        # auto-detects Cursor / Claude Code / Codex
 Drops `SKILL.md` into `~/.cursor/skills/sponsio/`, `~/.claude/skills/sponsio/`, or `~/.codex/skills/sponsio/`. Auto-triggers on *"add sponsio"*, *"add guardrails"*, *"explain my sponsio.yaml"*, *"why is this rule firing"*. Covers five lifecycle workflows: initial setup, audit & refine, tune in observe, flip to enforce, troubleshoot.
 
 Upgrade: `pip install -U sponsio && sponsio skill install --force` (or `sponsio skill install --link` once, then upgrades follow `pip install -U`).
+
+</details>
 
 
 
@@ -273,158 +278,12 @@ Run `sponsio patterns` to browse the det library with NL examples. Full grammar:
 
 ---
 
-## From demo to production
-
-Sponsio is designed as a staged rollout. Each step adds trust without rewriting what came before; you can stop at any stage and still get value.
-
-```
- demo ─▶ integrate ─▶ scan ─▶ validate + check ─▶ observe ─▶ report ─▶ enforce ─▶ observability
-  30s        60s        2m          CI              day 1       day 2       day 3       ongoing
-```
-
-### 1. Try it — 30 seconds, no setup
-
-```bash
-pip install sponsio && sponsio demo --scenario loan
-```
-
-The packaged demo replays an unsafe loan-approval trajectory locally — no API key, no framework SDK. Sponsio blocks the file edit before the agent can falsify the AML input. Three packaged scenarios: `cleanup` (coding), `trial` (healthcare), `loan` (finance).
-
-### 2. Bootstrap contracts from your code — `sponsio scan`
-
-Hand-authoring a dozen contracts is the tall part of the curve. `sponsio scan` reads your tool definitions, optional policy docs, and optional execution traces, then drafts a `sponsio.yaml` with inferred tools and candidate contracts:
-
-```bash
-sponsio scan src/agents/                                    # AST-based, no API key
-sponsio scan src/agents/ --llm                              # + LLM inference (BYOK)
-sponsio scan src/ --policy security.md --llm                # + policy docs
-sponsio scan src/ -t '~/.sponsio/sessions/bot/*.jsonl'      # + execution traces
-```
-
-`--llm` works with whatever you have: `GOOGLE_API_KEY` (Gemini, **1500 req/day free**), `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY`. For local / OpenAI-compatible endpoints (Ollama, OpenRouter, vLLM, Azure …), pass `--base-url`. Trace mining requires no LLM and works with OTLP/JSON, OTLP JSONL, native Sponsio JSON/JSONL, and Sponsio session logs. See the [provider matrix](docs/cli.md#provider-matrix).
-
-Scanned contracts are flagged `source: scan` (or `source: trace`) so they're easy to tell apart from hand-written ones.
-
-**What's in the generated `sponsio.yaml`** — `scan` and `onboard` pull pre-built packs for common agent capabilities, then add any inferred rules on top. Five packs ship today; `sponsio packs` lists them:
-
-
-| Pack                            | Rules    | Turns on when                                                                              |
-| ------------------------------- | -------- | ------------------------------------------------------------------------------------------ |
-| `sponsio:core/universal`        | 5 sto    | LLM-judge safety net (injection / jailbreak / toxic / PII / harm). Needs a `judge:` block. |
-| `sponsio:core/runaway`          | 5 det    | Always-safe. Token budgets, delegation depth, loop caps. No LLM calls.                     |
-| `sponsio:capability/shell`      | 11 det   | Any tool executing shell commands.                                                         |
-| `sponsio:capability/filesystem` | 13 det   | Any tool reading/writing files. Needs `workspace:`.                                        |
-| `sponsio:incident/openclaw`     | 45 mixed | Opt-in; CVE-derived rules for OpenClaw-style agents.                                       |
-
-
-Run `sponsio packs` to list them with live counts and include syntax.
-
-What the yaml looks like once you have one — every field below is optional except `version` and `agents`:
-
-```yaml
-version: 1
-agents:
-  support_bot:
-    workspace: "/srv/support-bot"         # required by filesystem / incident packs
-
-    include:                               # pre-built packs (edit freely)
-      - sponsio:core/runaway
-      - sponsio:capability/shell
-      - sponsio:capability/filesystem
-
-    tool_rename:                           # map your tools to the canonical names
-      run_command: exec                    #   used by the shell pack
-      read_file:   read
-
-    overrides:                             # silence specific rules without forking a pack
-      - match: { desc: "Cap exec calls per session" }
-        args: [exec, 500]                  # coding agents legitimately hit >50 execs
-
-    contracts:                             # your own rules, added on top of packs
-      - desc: "After reading .env, no git commit or push"
-        A: { pattern: called, args: [read, ".env"] }
-        E: { ltl: "G(!called(git_commit) & !called(git_push))" }
-
-runtime:
-  mode: observe                            # flip to "enforce" after pruning
-  dashboard: http://localhost:8000
-
-judge:                                     # only when any include uses sto
-  provider: openai
-  model: gpt-4o-mini
-```
-
-Two things worth knowing on day 1:
-
-- Rules gated on markers your integration doesn't emit are **vacuous-true**, not false-positive. The shell pack's "each exec needs a confirm_reconfirmed" rule has `A: "called \`confirm_reconfirmed"` — so if you never wire the marker, the rule is silent. The moment you do, 1:1 enforcement kicks in.
-- Packs are read-only on disk but fully overridable. Use `overrides:` with a `match:` clause (by `desc`, `pattern`, `pack_source`, or `source` tag) to tune, disable, or replace args without editing the pack file.
-
-See [docs/contracts.md](docs/contracts.md) for the full field reference.
-
-### 3. Validate and replay in CI
-
-Treat contracts like tests. Both commands exit non-zero on failure and drop into any CI:
-
-```bash
-sponsio validate --config sponsio.yaml --json                          # parse + structural checks
-sponsio check --trace trace.json --config sponsio.yaml --agent bot     # replay against a saved trace
-```
-
-`sponsio check --trace` is the regression-test piece: record one real production trajectory and any future contract change that would have flipped the verdict shows up as a red CI build.
-
-### 4. Ship in shadow mode first
-
-Deploy with `mode="observe"` — every contract is evaluated, nothing is blocked. Sponsio writes every would-have-blocked decision to `~/.sponsio/sessions/<agent_id>/*.jsonl`.
-
-Pin the runtime knobs in `sponsio.yaml` so your integration script stays env-only:
-
-```yaml
-runtime:
-  mode: observe                    # "enforce" | "observe"
-  dashboard: http://localhost:8000 # URL | true | false | null
-
-agents:
-  support_bot:
-    contracts: [...]
-```
-
-```python
-guard = Sponsio(agent_id="support_bot", config="sponsio.yaml")
-```
-
-Precedence: explicit ctor arg > env (`SPONSIO_MODE`, `SPONSIO_DASHBOARD`) > yaml > default. Ops can flip production with `SPONSIO_MODE=enforce` — no code change.
-
-After a day or two:
-
-```bash
-sponsio report --agent support_bot --since 24h
-```
-
-Prune false positives, then flip enforce.
-
-### 5. Observe in production
-
-
-| Use case                       | What to use                                                                                                            |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| Local dev & contract iteration | `sponsio serve --dev` — API on `:8000`, dashboard on `:5173` (live span tree, per-contract pass rates, violation feed) |
-| Production observability       | OTEL export — point any collector (Datadog, Honeycomb, Grafana, …) at `POST /api/otel/v1/traces`                       |
-| Ad-hoc review                  | `guard.print_summary()` or `sponsio report --agent <id>`                                                               |
-
-
-The bundled dashboard is for local iteration; ship via OTEL into your existing observability stack.
-
-### 6. Depth — stochastic contracts
-
-Once your det layer is stable, layer in fuzzy output-quality rules — tone, scope, semantic PII, hallucination, metric integrity. Same factory, same YAML; sto evaluators run post-tool-call and route violations to `RetryWithConstraint` instead of hard blocks. See [docs/sto-atoms.md](docs/sto-atoms.md).
-
----
-
 ## Integrations
 
 Pick your framework — each block expands to a drop-in snippet. Python and TypeScript share the same engine and DSL.
 
-**No framework** — custom tool-calling loop
+<details>
+<summary><b>No framework</b> — custom tool-calling loop</summary>
 
 ```python
 from sponsio import Sponsio
@@ -465,9 +324,10 @@ if (!result.blocked) {
 
 Runnable: [python](examples/integrations/python/vanilla_guard.py) · [typescript](examples/integrations/typescript/vanilla_guard.mjs)
 
+</details>
 
-
-**LangGraph / LangChain.js** — wrap tools
+<details>
+<summary><b>LangGraph / LangChain.js</b> — wrap tools</summary>
 
 ```python
 from sponsio.langgraph import Sponsio
@@ -494,9 +354,10 @@ const toolNode = new ToolNode(wrapTools(tools, guard));
 
 Runnable: [python](examples/integrations/python/langgraph_guard.py) · [typescript](examples/integrations/typescript/langgraph_guard.mjs)
 
+</details>
 
-
-**Claude Agent SDK** — native hooks, zero tool wrapping
+<details>
+<summary><b>Claude Agent SDK</b> — native hooks, zero tool wrapping</summary>
 
 ```python
 from sponsio.claude_agent import Sponsio
@@ -526,9 +387,10 @@ const hooks = sponsioHooks(guard);
 
 Runnable: [python](examples/integrations/python/claude_agent_guard.py) · [typescript](examples/integrations/typescript/claude_agent_guard.mjs)
 
+</details>
 
-
-**OpenAI SDK** — monkey-patch or explicit wrap
+<details>
+<summary><b>OpenAI SDK</b> — monkey-patch or explicit wrap</summary>
 
 Easiest — patch the global client:
 
@@ -564,9 +426,10 @@ const client = wrapOpenAI(new OpenAI(), guard);
 
 Runnable: [python](examples/integrations/python/openai_guard.py) · [typescript](examples/integrations/typescript/openai_guard.mjs)
 
+</details>
 
-
-**OpenAI Agents SDK** — wrap Agent tools
+<details>
+<summary><b>OpenAI Agents SDK</b> — wrap Agent tools</summary>
 
 ```python
 from sponsio.agents import Sponsio
@@ -590,9 +453,10 @@ TypeScript: not yet supported.
 
 Runnable: [python](examples/integrations/python/agents_sdk_guard.py)
 
+</details>
 
-
-**Vercel AI SDK** — middleware
+<details>
+<summary><b>Vercel AI SDK</b> — middleware</summary>
 
 ```python
 from sponsio.vercel_ai import Sponsio
@@ -619,9 +483,10 @@ const middleware = sponsioMiddleware(guard);
 
 Runnable: [python](examples/integrations/python/vercel_ai_guard.py) · [typescript](examples/integrations/typescript/vercel_ai_guard.mjs)
 
+</details>
 
-
-**CrewAI** — Crew-level hooks
+<details>
+<summary><b>CrewAI</b> — Crew-level hooks</summary>
 
 ```python
 from sponsio.crewai import Sponsio
@@ -645,9 +510,10 @@ TypeScript: not yet supported.
 
 Runnable: [python](examples/integrations/python/crewai_guard.py)
 
+</details>
 
-
-**MCP** — proxy the MCP client
+<details>
+<summary><b>MCP</b> — proxy the MCP client</summary>
 
 ```python
 from sponsio.mcp import MCPContractProxy
@@ -663,32 +529,7 @@ TypeScript: not yet supported.
 
 Runnable: [python](examples/integrations/python/mcp_guard.py)
 
-
-
----
-
-## Architecture
-
-```
-NL rules / YAML / scan ──▶ Pattern Library ──▶ LTL Formula AST
-                                                      │
-                                        ┌─────────────┴──────────────┐
-                                        ▼                            ▼
-                                  Det Pipeline                 Sto Pipeline
-                                  (before tool)                (after tool)
-                                  binary pass / fail           scored 0–1
-                                        │                            │
-                                        ▼                            ▼
-                                  Block / Escalate           Retry with feedback
-```
-
-Sponsio compiles natural-language rules into Linear Temporal Logic (LTL) formulas and evaluates them against a grounded event trace. That's what lets a contract express *"the refund was actually processed within 3 turns of the policy check"* or *"this tool was never called after that irreversible action"* — temporal properties regex- or keyword-based guardrails cannot check.
-
-- **Det** — formal LTL evaluation, ~5μs p50 / ~12μs p99 per check, zero LLM calls. Violations route to `DetBlock` / `EscalateToHuman`.
-- **Sto** — LLM-scored evaluation (0-1) for fuzzy properties. Violations route to `RetryWithConstraint` / `RedirectToSafe`.
-- **Zero core dependencies** — the engine and pattern library are pure Python. Framework packages are optional extras.
-
-Full design: [docs/architecture.md](docs/architecture.md).
+</details>
 
 ---
 
@@ -712,6 +553,7 @@ Patches, issue reports, and new pattern proposals are welcome. Start with [CONTR
 
 Apache 2.0 — see [LICENSE](LICENSE).
 
+
 <!-- ====================================================================== -->
 <!-- FILE: QUICKSTART.md  -->
 <!-- ====================================================================== -->
@@ -719,6 +561,31 @@ Apache 2.0 — see [LICENSE](LICENSE).
 # Quick Start
 
 Get Sponsio blocking an unsafe tool call in under 60 seconds — no API key, no framework SDK, no Docker.
+
+## Architecture overview
+
+```
+NL rules / YAML / scan ──▶ Pattern Library ──▶ LTL Formula AST
+                                                      │
+                                        ┌─────────────┴──────────────┐
+                                        ▼                            ▼
+                                  Det Pipeline                 Sto Pipeline
+                                  (before tool)                (after tool)
+                                  binary pass / fail           scored 0–1
+                                        │                            │
+                                        ▼                            ▼
+                                  Block / Escalate           Retry with feedback
+```
+
+Sponsio compiles natural-language rules into Linear Temporal Logic (LTL) formulas and evaluates them against a grounded event trace. That's what lets a contract express *"the refund was actually processed within 3 turns of the policy check"* or *"this tool was never called after that irreversible action"* — temporal properties regex- or keyword-based guardrails cannot check.
+
+- **Det** — formal LTL evaluation, ~5μs p50 / ~12μs p99 per check, zero LLM calls. Violations route to `DetBlock` / `EscalateToHuman`.
+- **Sto** — LLM-scored evaluation (0-1) for fuzzy properties. Violations route to `RetryWithConstraint` / `RedirectToSafe`.
+- **Zero core dependencies** — the engine and pattern library are pure Python. Framework packages are optional extras.
+
+Full design: [docs/architecture.md](docs/architecture.md).
+
+---
 
 ## 1. Install
 
@@ -889,6 +756,151 @@ judge:                                 # only when any include uses sto (LLM-jud
 **API keys, full provider list, default models, `base_url` for OpenRouter / DeepSeek / Ollama / Azure:** see [`docs/cli.md` → Provider matrix](docs/cli.md#provider-matrix). The same env-var auto-detection applies to both `judge` (runtime) and `sponsio scan --llm` (onboarding).
 
 Run `sponsio packs` to list shipped packs with rule counts and include syntax.
+
+## From demo to production
+
+Sponsio is designed as a staged rollout. Each step adds trust without rewriting what came before; you can stop at any stage and still get value.
+
+```
+ demo ─▶ integrate ─▶ scan ─▶ validate + check ─▶ observe ─▶ report ─▶ enforce ─▶ observability
+  30s        60s        2m          CI              day 1       day 2       day 3       ongoing
+```
+
+### 1. Try it — 30 seconds, no setup
+
+```bash
+pip install sponsio && sponsio demo --scenario loan
+```
+
+The packaged demo replays an unsafe loan-approval trajectory locally — no API key, no framework SDK. Sponsio blocks the file edit before the agent can falsify the AML input. Three packaged scenarios: `cleanup` (coding), `trial` (healthcare), `loan` (finance).
+
+### 2. Bootstrap contracts from your code — `sponsio scan`
+
+Hand-authoring a dozen contracts is the tall part of the curve. `sponsio scan` reads your tool definitions, optional policy docs, and optional execution traces, then drafts a `sponsio.yaml` with inferred tools and candidate contracts:
+
+```bash
+sponsio scan src/agents/                                    # AST-based, no API key
+sponsio scan src/agents/ --llm                              # + LLM inference (BYOK)
+sponsio scan src/ --policy security.md --llm                # + policy docs
+sponsio scan src/ -t '~/.sponsio/sessions/bot/*.jsonl'      # + execution traces
+```
+
+`--llm` works with whatever you have: `GOOGLE_API_KEY` (Gemini, **1500 req/day free**), `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY`. For local / OpenAI-compatible endpoints (Ollama, OpenRouter, vLLM, Azure …), pass `--base-url`. Trace mining requires no LLM and works with OTLP/JSON, OTLP JSONL, native Sponsio JSON/JSONL, and Sponsio session logs. See the [provider matrix](docs/cli.md#provider-matrix).
+
+Scanned contracts are flagged `source: scan` (or `source: trace`) so they're easy to tell apart from hand-written ones.
+
+**What's in the generated `sponsio.yaml`** — `scan` and `onboard` pull pre-built packs for common agent capabilities, then add any inferred rules on top. Five packs ship today; `sponsio packs` lists them:
+
+
+| Pack                            | Rules    | Turns on when                                                                              |
+| ------------------------------- | -------- | ------------------------------------------------------------------------------------------ |
+| `sponsio:core/universal`        | 5 sto    | LLM-judge safety net (injection / jailbreak / toxic / PII / harm). Needs a `judge:` block. |
+| `sponsio:core/runaway`          | 5 det    | Always-safe. Token budgets, delegation depth, loop caps. No LLM calls.                     |
+| `sponsio:capability/shell`      | 11 det   | Any tool executing shell commands.                                                         |
+| `sponsio:capability/filesystem` | 13 det   | Any tool reading/writing files. Needs `workspace:`.                                        |
+| `sponsio:incident/openclaw`     | 45 mixed | Opt-in; CVE-derived rules for OpenClaw-style agents.                                       |
+
+
+Run `sponsio packs` to list them with live counts and include syntax.
+
+What the yaml looks like once you have one — every field below is optional except `version` and `agents`:
+
+```yaml
+version: 1
+agents:
+  support_bot:
+    workspace: "/srv/support-bot"         # required by filesystem / incident packs
+
+    include:                               # pre-built packs (edit freely)
+      - sponsio:core/runaway
+      - sponsio:capability/shell
+      - sponsio:capability/filesystem
+
+    tool_rename:                           # map your tools to the canonical names
+      run_command: exec                    #   used by the shell pack
+      read_file:   read
+
+    overrides:                             # silence specific rules without forking a pack
+      - match: { desc: "Cap exec calls per session" }
+        args: [exec, 500]                  # coding agents legitimately hit >50 execs
+
+    contracts:                             # your own rules, added on top of packs
+      - desc: "After reading .env, no git commit or push"
+        A: { pattern: called, args: [read, ".env"] }
+        E: { ltl: "G(!called(git_commit) & !called(git_push))" }
+
+runtime:
+  mode: observe                            # flip to "enforce" after pruning
+  dashboard: http://localhost:8000
+
+judge:                                     # only when any include uses sto
+  provider: openai
+  model: gpt-4o-mini
+```
+
+Two things worth knowing on day 1:
+
+- Rules gated on markers your integration doesn't emit are **vacuous-true**, not false-positive. The shell pack's "each exec needs a confirm_reconfirmed" rule has `A: "called \`confirm_reconfirmed"` — so if you never wire the marker, the rule is silent. The moment you do, 1:1 enforcement kicks in.
+- Packs are read-only on disk but fully overridable. Use `overrides:` with a `match:` clause (by `desc`, `pattern`, `pack_source`, or `source` tag) to tune, disable, or replace args without editing the pack file.
+
+See [docs/contracts.md](docs/contracts.md) for the full field reference.
+
+### 3. Validate and replay in CI
+
+Treat contracts like tests. Both commands exit non-zero on failure and drop into any CI:
+
+```bash
+sponsio validate --config sponsio.yaml --json                          # parse + structural checks
+sponsio check --trace trace.json --config sponsio.yaml --agent bot     # replay against a saved trace
+```
+
+`sponsio check --trace` is the regression-test piece: record one real production trajectory and any future contract change that would have flipped the verdict shows up as a red CI build.
+
+### 4. Ship in shadow mode first
+
+Deploy with `mode="observe"` — every contract is evaluated, nothing is blocked. Sponsio writes every would-have-blocked decision to `~/.sponsio/sessions/<agent_id>/*.jsonl`.
+
+Pin the runtime knobs in `sponsio.yaml` so your integration script stays env-only:
+
+```yaml
+runtime:
+  mode: observe                    # "enforce" | "observe"
+  dashboard: http://localhost:8000 # URL | true | false | null
+
+agents:
+  support_bot:
+    contracts: [...]
+```
+
+```python
+guard = Sponsio(agent_id="support_bot", config="sponsio.yaml")
+```
+
+Precedence: explicit ctor arg > env (`SPONSIO_MODE`, `SPONSIO_DASHBOARD`) > yaml > default. Ops can flip production with `SPONSIO_MODE=enforce` — no code change.
+
+After a day or two:
+
+```bash
+sponsio report --agent support_bot --since 24h
+```
+
+Prune false positives, then flip enforce.
+
+### 5. Observe in production
+
+
+| Use case                       | What to use                                                                                                            |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| Local dev & contract iteration | `sponsio serve --dev` — API on `:8000`, dashboard on `:5173` (live span tree, per-contract pass rates, violation feed) |
+| Production observability       | OTEL export — point any collector (Datadog, Honeycomb, Grafana, …) at `POST /api/otel/v1/traces`                       |
+| Ad-hoc review                  | `guard.print_summary()` or `sponsio report --agent <id>`                                                               |
+
+
+The bundled dashboard is for local iteration; ship via OTEL into your existing observability stack.
+
+### 6. Depth — stochastic contracts
+
+Once your det layer is stable, layer in fuzzy output-quality rules — tone, scope, semantic PII, hallucination, metric integrity. Same factory, same YAML; sto evaluators run post-tool-call and route violations to `RetryWithConstraint` instead of hard blocks. See [docs/sto-atoms.md](docs/sto-atoms.md).
 
 ## Re-mine contracts from recent traces
 
