@@ -5,7 +5,7 @@ on:
     types: [published]
 
 permissions:
-  id-token: write
+  contents: read
 
 jobs:
   build:
@@ -36,6 +36,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     environment: testpypi
+    permissions:
+      id-token: write
     steps:
       - name: Download distribution artifacts
         uses: actions/download-artifact@v4
@@ -53,6 +55,8 @@ jobs:
     needs: [build, test-publish]
     runs-on: ubuntu-latest
     environment: pypi
+    permissions:
+      id-token: write
     steps:
       - name: Download distribution artifacts
         uses: actions/download-artifact@v4
