@@ -11,8 +11,6 @@ const Integrate = lazy(() => import('./pages/Integrate'));
 const MonitorPage = lazy(() => import('./pages/MonitorPage'));
 
 // Secondary pages
-const Leaderboard = lazy(() => import('./pages/Leaderboard'));
-const Analytics = lazy(() => import('./pages/Analytics'));
 const Playground = lazy(() => import('./pages/Playground'));
 
 function PageLoader() {
@@ -39,8 +37,6 @@ export default function App() {
             <Route path="/monitor" element={<Suspense fallback={<PageLoader />}><MonitorPage /></Suspense>} />
 
             {/* Secondary */}
-            <Route path="/leaderboard" element={<Suspense fallback={<PageLoader />}><Leaderboard /></Suspense>} />
-            <Route path="/analytics" element={<Suspense fallback={<PageLoader />}><Analytics /></Suspense>} />
             <Route path="/playground" element={<Suspense fallback={<PageLoader />}><Playground /></Suspense>} />
 
             {/* Fallback: unknown routes go to first pipeline step */}

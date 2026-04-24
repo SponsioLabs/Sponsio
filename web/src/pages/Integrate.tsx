@@ -1,45 +1,9 @@
-import { useState, useEffect } from 'react';
-import { listContracts, reVerifyContract } from '../api/client';
-import type { Contract, ReVerifyResponse } from '../types';
-import Spinner from '../components/Spinner';
+import { useState } from 'react';
+import { reVerifyContract } from '../api/client';
+import type { ReVerifyResponse } from '../types';
 import FileUpload from '../components/FileUpload';
 import PipelineNav from '../components/PipelineNav';
-
-// ─── YAML generation ──────────────────────────────────────────────────────────
-
-function buildYaml(contracts: Contract[]): string {
-  if (contracts.length === 0) {
-    return `version: "1"\nagents: {}\n`;
-  }
-
-  const lines: string[] = [`version: "1"`, `agents:`];
-
-  for (const c of contracts) {
-    lines.push(`  ${c.agent_id}:`);
-    lines.push(`    tools: []`);
-
-    if (c.guarantees.length > 0) {
-      lines.push(`    guarantees:`);
-      for (const g of c.guarantees) {
-        lines.push(`      - "${g.desc.replace(/"/g, '\\"')}"`);
-      }
-    } else {
-      lines.push(`    guarantees: []`);
-    }
-
-    if (c.assumptions.length > 0) {
-      lines.push(`    assumptions:`);
-      for (const a of c.assumptions) {
-        lines.push(`      - "${a.desc.replace(/"/g, '\\"')}"`);
-      }
-    } else {
-      lines.push(`    assumptions:`);
-      lines.push(`      - "environment provides tool access"`);
-    }
-  }
-
-  return lines.join('\n') + '\n';
-}
+import HighlightedCode from '../components/HighlightedCode';
 
 // ─── Integration snippets ─────────────────────────────────────────────────────
 
@@ -146,36 +110,14 @@ function copyText(text: string, setCopied: (v: boolean) => void) {
   });
 }
 
-function downloadYaml(yaml: string) {
-  const blob = new Blob([yaml], { type: 'text/yaml' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'sponsio.yaml';
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-// ─── CopyButton ───────────────────────────────────────────────────────────────
-
-function CopyButton({ text, className = '' }: { text: string; className?: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      onClick={() => copyText(text, setCopied)}
-      className={`px-2.5 py-1 text-xs rounded-lg border border-surface-200 dark:border-surface-700 text-zinc-600 dark:text-zinc-300 hover:text-stone-900 dark:hover:text-zinc-100 hover:border-surface-500 transition-colors font-mono ${className}`}
-    >
-      {copied ? 'Copied!' : 'Copy'}
-    </button>
-  );
+/** Map a framework key to a Shiki-supported language id. */
+function langFor(fw: Framework): 'python' | 'typescript' {
+  return fw.endsWith('(TS)') ? 'typescript' : 'python';
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function Integrate() {
-  const [contracts, setContracts] = useState<Contract[]>([]);
-  const [loading, setLoading] = useState(true);
-
   // Snippet select
   const [activeFramework, setActiveFramework] = useState<Framework>('LangGraph');
   const [snippetCopied, setSnippetCopied] = useState(false);
@@ -186,16 +128,6 @@ export default function Integrate() {
   const [verifying, setVerifying] = useState(false);
   const [verifyResults, setVerifyResults] = useState<ReVerifyResponse[]>([]);
   const [verifyError, setVerifyError] = useState('');
-
-  useEffect(() => {
-    setLoading(true);
-    listContracts()
-      .then((cs) => setContracts(cs))
-      .catch(() => setContracts([]))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const yaml = buildYaml(contracts);
 
   async function handleVerify() {
     const text = traceJson.trim();
@@ -228,39 +160,13 @@ export default function Integrate() {
       <div className="mb-8">
         <h1 className="text-3xl font-display text-stone-900 dark:text-white mb-1">Integrate</h1>
         <p className="text-zinc-600 dark:text-zinc-300 text-sm max-w-2xl">
-          Export the contracts you defined in Rulebook as <code className="font-mono text-xs bg-surface-100 dark:bg-surface-800 px-1 rounded">sponsio.yaml</code>,
-          then drop a 2-3 line snippet into your agent code. Supports Python and TypeScript — LangGraph,
-          Claude Agent SDK, OpenAI, Vercel AI, CrewAI, MCP, and more.
+          Your <code className="font-mono text-xs bg-surface-100 dark:bg-surface-800 px-1 rounded">sponsio.yaml</code> is
+          already on disk from <code className="font-mono text-xs bg-surface-100 dark:bg-surface-800 px-1 rounded">sponsio onboard</code>.
+          Drop a 2–3 line snippet into your agent entry file — pick your framework below. Supports Python and TypeScript.
         </p>
       </div>
 
-      {/* ── 1. Generated Config ───────────────────────────────────────────────── */}
-      <section className="rounded-xl border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-5 mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-[10px] text-zinc-600 dark:text-zinc-300 uppercase tracking-widest font-medium">Generated Config</h2>
-          <div className="flex items-center gap-2">
-            {loading ? (
-              <Spinner />
-            ) : (
-              <>
-                <CopyButton text={yaml} />
-                <button
-                  onClick={() => downloadYaml(yaml)}
-                  className="px-2.5 py-1 text-xs rounded-lg bg-brand text-black font-semibold hover:opacity-90 transition-opacity"
-                >
-                  Download sponsio.yaml
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-
-        <pre className="bg-surface-50 dark:bg-surface-900 rounded-xl px-4 py-3 font-mono text-sm text-zinc-600 dark:text-zinc-300 overflow-x-auto whitespace-pre">
-          {loading ? '# Loading contracts…' : yaml}
-        </pre>
-      </section>
-
-      {/* ── 2. Integration Snippet ────────────────────────────────────────────── */}
+      {/* ── Integration Snippet ───────────────────────────────────────────────── */}
       <section className="rounded-xl border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-5 mb-6">
         <h2 className="text-[10px] text-zinc-600 dark:text-zinc-300 uppercase tracking-widest font-medium mb-4">Integration Snippet</h2>
 
@@ -294,9 +200,10 @@ export default function Integrate() {
 
         {/* Snippet */}
         <div className="relative">
-          <pre className="bg-surface-50 dark:bg-surface-900 rounded-xl px-4 py-3 font-mono text-sm text-zinc-600 dark:text-zinc-300 overflow-x-auto whitespace-pre">
-            {SNIPPETS[activeFramework]}
-          </pre>
+          <HighlightedCode
+            code={SNIPPETS[activeFramework]}
+            lang={langFor(activeFramework)}
+          />
           <div className="absolute top-2 right-2">
             <button
               onClick={() => copyText(SNIPPETS[activeFramework], setSnippetCopied)}
@@ -357,7 +264,9 @@ export default function Integrate() {
                 disabled={!traceJson.trim() || verifying}
                 className="flex items-center gap-2 px-4 py-2 bg-brand text-black text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
               >
-                {verifying && <Spinner />}
+                {verifying && (
+                  <span className="w-3 h-3 border-2 border-black/40 border-t-black rounded-full animate-spin" />
+                )}
                 Verify
               </button>
               {verifyError && <p className="text-xs text-red-400">{verifyError}</p>}
@@ -434,7 +343,7 @@ export default function Integrate() {
 
       {/* Bottom nav */}
       <PipelineNav
-        prev={{ label: 'Back to Rulebook', path: '/rulebook' }}
+        prev={{ label: 'Back to Contract Library', path: '/rulebook' }}
         next={{ label: 'Start Monitoring', path: '/monitor' }}
       />
     </div>

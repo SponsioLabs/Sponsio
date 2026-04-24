@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 const SHORTCUTS = [
   { key: '1', label: 'Scan', path: '/scan' },
-  { key: '2', label: 'Rulebook', path: '/rulebook' },
+  { key: '2', label: 'Contract Library', path: '/rulebook' },
   { key: '3', label: 'Integrate', path: '/integrate' },
   { key: '4', label: 'Monitor', path: '/monitor' },
   { key: 'p', label: 'Playground', path: '/playground' },

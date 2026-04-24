@@ -21,7 +21,7 @@ const sections = [
       {
         to: '/rulebook',
         step: 2,
-        label: 'Rulebook',
+        label: 'Contract Library',
         icon: (
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
@@ -56,26 +56,6 @@ const sections = [
   {
     label: 'More',
     links: [
-      {
-        to: '/leaderboard',
-        label: 'Leaderboard',
-        icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-              d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-        ),
-      },
-      {
-        to: '/analytics',
-        label: 'Analytics',
-        icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-              d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-          </svg>
-        ),
-      },
       {
         to: '/playground',
         label: 'Playground',

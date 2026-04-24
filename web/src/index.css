@@ -42,3 +42,35 @@
     @apply bg-surface-600;
   }
 }
+
+/* ── Shiki dual-theme selector ───────────────────────────────────
+ *
+ * Shiki with `themes: { light, dark }` emits each token with CSS
+ * variables for both palettes. This block picks the right one
+ * based on the `html.dark` class Tailwind toggles. Without it,
+ * every token shows the *default* (light) theme regardless of the
+ * page's dark/light state.
+ */
+.shiki-wrap pre,
+.shiki-wrap pre span {
+  color: var(--shiki-light);
+  background-color: var(--shiki-light-bg);
+  font-style: var(--shiki-light-font-style);
+  font-weight: var(--shiki-light-font-weight);
+  text-decoration: var(--shiki-light-text-decoration);
+}
+.dark .shiki-wrap pre,
+.dark .shiki-wrap pre span {
+  color: var(--shiki-dark);
+  background-color: var(--shiki-dark-bg);
+  font-style: var(--shiki-dark-font-style);
+  font-weight: var(--shiki-dark-font-weight);
+  text-decoration: var(--shiki-dark-text-decoration);
+}
+.shiki-wrap pre {
+  padding: 0.75rem 1rem;
+  margin: 0;
+  line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-x: auto;
+}

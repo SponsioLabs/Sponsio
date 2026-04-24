@@ -245,23 +245,41 @@ export default function Playground() {
       {scenario && ((mode === 'mock' && (running || done || spans.length > 0)) || (mode === 'live' && done)) && (
         <>
           <div className="grid grid-cols-2 gap-4">
+            {/* Both panes use the vertical TraceTimeline — side-by-side
+                demo narrative reads clearest when the two columns are
+                the same bullet-list shape. Waterfall is the
+                observability view (Monitor); Playground is a
+                comparison story, and the vertical list aligns step-
+                by-step between the two columns. */}
             <div className="rounded-xl border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-5 min-h-[400px]">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-2 h-2 rounded-full bg-red-500" />
+                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Without Sponsio</h3>
+                <span className="ml-auto text-[10px] text-muted font-mono">
+                  {(mode === 'live' ? liveWithout : withoutSteps).length} step{(mode === 'live' ? liveWithout : withoutSteps).length !== 1 ? 's' : ''}
+                </span>
+              </div>
               <TraceTimeline
                 steps={mode === 'live' ? liveWithout : withoutSteps}
                 label="without"
                 contractDesc={contractLines.join('\n')}
                 animate={mode === 'mock' ? running : done}
-                title="Without Sponsio"
               />
             </div>
             <div className="rounded-xl border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-5 min-h-[400px]">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">With Sponsio</h3>
+                <span className="ml-auto text-[10px] text-muted font-mono">
+                  {(mode === 'live' ? liveWith : withSteps).length} step{(mode === 'live' ? liveWith : withSteps).length !== 1 ? 's' : ''}
+                </span>
+              </div>
               <TraceTimeline
                 steps={mode === 'live' ? liveWith : withSteps}
                 label="with"
                 spans={mode === 'live' ? liveSpans : spans}
                 contractDesc={contractLines.join('\n')}
                 animate={mode === 'live' ? done : false}
-                title="With Sponsio"
               />
             </div>
           </div>

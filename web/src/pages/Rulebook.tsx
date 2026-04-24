@@ -224,11 +224,11 @@ export default function Rulebook() {
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
       {/* Page header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-display text-stone-900 dark:text-white mb-1">Rulebook</h1>
+        <h1 className="text-3xl font-display text-stone-900 dark:text-white mb-1">Contract Library</h1>
         <p className="text-sm text-zinc-600 dark:text-zinc-300 max-w-2xl">
-          Define behavioral constraints for your agents in natural language. Each line is parsed
-          into an LTL/FOL formula and enforced at runtime. Start from the pattern library or paste
-          suggestions from Scan — the agent is auto-created on commit.
+          Your agents' behavioral contracts in natural language. Each line compiles to an LTL/FOL
+          formula and is enforced at runtime. Onboard or upload in Scan to pre-populate this page;
+          or hand-write from the pattern library below.
         </p>
       </div>
 
