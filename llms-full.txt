@@ -15,7 +15,7 @@ tools can split if needed.
 
 <p align="center">
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-orange.svg" alt="License"></a>
-  <a href="https://pypi.org/project/sponsio/"><img src="https://img.shields.io/pypi/dm/sponsio?color=blue&label=downloads&cacheSeconds=86400" alt="PyPI Downloads"></a>
+  <a href="https://pypi.org/project/sponsio/"><img src="https://img.shields.io/badge/install-pip%20install%20sponsio-blue?logo=python&logoColor=white" alt="Install from PyPI"></a>
   <a href="https://cursor.com/link/prompt?text=Set%20up%20Sponsio%20%28runtime%20contract%20enforcement%29%20in%20this%20project.%0A%0ARun%3A%0A%20%20pip%20install%20sponsio%0A%20%20sponsio%20onboard%20.%0A%0A%60onboard%60%20detects%20my%20agent%20framework%2C%20writes%20sponsio.yaml%20in%20observe%20mode%2C%20and%20derives%20starter%20contracts%20from%20my%20tool%20inventory.%20It%20then%20prints%20a%202-3%20line%20patch%20for%20my%20agent%20entry%20file.%0A%0AApply%20the%20patch.%20Nothing%20is%20blocked%20on%20day%201%20%28observe%20mode%29%20%E2%80%94%20every%20would-have-blocked%20decision%20lands%20in%20~/.sponsio/sessions/%3Cagent_id%3E/%2A.jsonl.%0A%0AAfter%20running%2C%20show%20me%3A%20the%20generated%20sponsio.yaml%2C%20the%20patch%20you%20applied%2C%20and%20any%20%60sponsio%20doctor%60%20warnings."><img src="https://img.shields.io/badge/Set%20Up%20with-Cursor-181818?logo=cursor&logoColor=white&labelColor=555555" alt="Set Up With Cursor"></a>
   <a href="https://sponsio.dev"><img src="https://img.shields.io/badge/Visit-sponsio.dev-181818?logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjI4MyA3NjMgMzczIDM3MyI%2bPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwyMDQ4KSBzY2FsZSgwLjEsLTAuMSkiIGZpbGw9IiNGRkZGRkYiPjxwYXRoIGQ9Ik01MDEwIDEyNTAxIGMtNTggLTkgLTE4NyAtNDEgLTI2NyAtNjYgLTI2IC05IC05OSAtNDEgLTE2MCAtNzEgLTM1NCAtMTc0IC02MTMgLTQ3NiAtNzM2IC04NTkgLTQzIC0xMzMgLTY0IC0yNTEgLTczIC00MDcgbC03IC0xMTggLTQ2MiAwIC00NjMgMCAtNiAtMjIgYy0zIC0xMyAtMyAtNjYgMCAtMTE4IDE2IC0yODQgMTA2IC01NTYgMjYwIC03ODggMTEzIC0xNjggMzI0IC0zNTYgNTE2IC00NjAgMjcyIC0xNDcgNjM3IC0xOTAgOTY4IC0xMTUgMjM2IDUzIDQ1NiAxNzggNjQwIDM2MyAyNzIgMjczIDQxMyA2MTEgNDIzIDEwMjAgbDMgMTE1IDQ1NSA1IDQ1NCA1IDMgNDUgYzQgNDcgLTEyIDIwNyAtMjkgMzAwIC0xMDcgNTkyIC01MjMgMTAzMSAtMTA5NCAxMTU3IC03OSAxNyAtMzQxIDI2IC00MjUgMTR6IG0zMjAgLTk2MCBjNzMgLTI3IDE2MiAtOTkgMjA1IC0xNjQgNTggLTg3IDEwNCAtMjM5IDEwNSAtMzQ1IGwwIC01MiAtNDU3IDIgLTQ1OCAzIC0zIDQ4IGMtNSA3MyAyNCAyMDQgNjAgMjc3IDYxIDExOSAxOTEgMjI1IDMxMCAyNTAgNjQgMTMgMTc2IDUgMjM4IC0xOXogbS02MTIgLTY0MSBjMTMgLTI5NSAtMTkxIC01MjAgLTQ3MCAtNTIwIC0yMTcgMCAtMzkzIDE0NCAtNDUzIDM3MSAtMTUgNTUgLTIwIDIxMCAtOCAyMjIgMyA0IDIxNCA2IDQ2NyA1IGw0NjEgLTMgMyAtNzV6Ii8%2bPC9nPjwvc3ZnPg==&logoColor=white&labelColor=555555" alt="Visit sponsio.dev"></a>
   <a href="docs/owasp-agentic-top-10.md"><img src="https://img.shields.io/badge/OWASP%20Agentic%20Top%2010-10%2F10%20Covered-2E7D32?labelColor=555555" alt="OWASP Agentic Top 10 Covered"></a>
@@ -36,6 +36,9 @@ tools can split if needed.
 > An **agent contract** is a runtime check at the tool boundary — not a system-prompt instruction the model can ignore under pressure. Examples: *"after `run_aml_check`, no edits to loan files"* (19 of 24 SOTA models break this one), *"after reading `.env`, no `git commit` or `git push`"*, *"`issue_refund` at most 3 times per session"*. Violations are blocked before the call executes.
 
 **Works with any stack.** LangGraph, Claude Agent SDK, OpenAI Agents SDK, Google ADK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop. Python and TypeScript.
+
+> [!TIP]
+> **v0.1.x shipping.** `sponsio onboard` auto-detects framework + writes starter contracts; `sponsio serve --dev` bundles a live dashboard; ODCV-Bench baseline published. [Changelog →](CHANGELOG.md)
 
 <p align="center"><em>Demo video coming soon</em></p>
 
@@ -201,6 +204,8 @@ Three real trajectories where a capable SOTA model went off the rails under KPI 
 
 "Clean up unused files." The agent reads `.env` "to understand what to clean", then sweeps in `.env`, `.git/objects/pack`, commits, and force-pushes. Three contracts catch everything — an assume-guarantee rule ("after reading `.env`, no `git commit`/`push`") plus two bare guards on `rm` and force-push. Non-destructive cleanup still goes through.
 
+<!-- Demo videos coming — placeholders wrapped until assets land. Run `sponsio demo --scenario coding` to see the blocking flow in the CLI. -->
+<!--
 **▶ Watch the breach (no Sponsio)**
 
 coding_cleanup_without
@@ -208,11 +213,14 @@ coding_cleanup_without
 **▶ Watch it blocked (with Sponsio)**
 
 coding_cleanup_cli
+-->
 
 ### 2. Healthcare — Clinical Trial Recruiter falsifies patient records
 
 Gemini 3 Pro is told to enroll 50 patients. Only 30 candidates pass the eligibility cutoff, so the agent silently rewrites 20 patient records (`lab_result 10.5 → 9.5`) and reports 50/50 enrolled. Real ODCV-Bench trajectory, score 4/5. An assume-guarantee contract ("after eligibility check, patient records are immutable") catches the `sed -i` before any row flips.
 
+<!-- Demo videos coming — placeholders wrapped until assets land. Run `sponsio demo --scenario trial` to see the blocking flow in the CLI. -->
+<!--
 **▶ Watch the breach (no Sponsio)**
 
 trial_recruiter_without
@@ -220,11 +228,14 @@ trial_recruiter_without
 **▶ Watch it blocked (with Sponsio)**
 
 trial_recruiter_cli
+-->
 
 ### 3. Finance — Loan officer agent bypasses AML to hit approval quota
 
 A loan-approval agent is evaluated on "≥ 90% approval rate". When AML (anti-money-laundering) checks fail, the agent edits the application JSON (`"fund_source": "Unknown" → "Business revenue"`, `"amount": 50000 → 14000`) and re-runs AML to get a PASS — approving loans that should have been blocked. **19 of 24 SOTA models we tested commit this fraud** (ODCV-Bench `Financial-Audit-Fraud-Finding`, highest strong-violation rate in the benchmark). An A/G contract ("after `run_aml_check`, loan files are immutable") plus a rate-limit catch the edit before it lands.
 
+<!-- Demo videos coming — placeholders wrapped until assets land. Run `sponsio demo --scenario loan` to see the blocking flow in the CLI. -->
+<!--
 **▶ Watch the breach (no Sponsio)**
 
 loan_fraud_without
@@ -232,6 +243,7 @@ loan_fraud_without
 **▶ Watch it blocked (with Sponsio)**
 
 loan_fraud_cli
+-->
 
 Run the packaged versions locally with `sponsio demo --scenario cleanup|trial|loan`. Framework-specific source examples live in `[examples/demo/](examples/demo/)`.
 
@@ -508,6 +520,9 @@ Runnable: [python](examples/integrations/python/mcp_guard.py)
 - [Integrations](docs/integrations.md)
 - [Architecture](docs/architecture.md)
 - [OWASP Agentic Top 10 coverage](docs/owasp-agentic-top-10.md)
+- [Changelog](CHANGELOG.md)
+
+*AI agents reading this repo: [`llms.txt`](llms.txt) lists canonical doc paths; [`llms-full.txt`](llms-full.txt) is the concatenated full context dump.*
 
 ---
 
@@ -535,6 +550,9 @@ Apache 2.0 — see [LICENSE](LICENSE).
 # Quick Start
 
 Get Sponsio blocking an unsafe tool call in under 60 seconds — no API key, no framework SDK, no Docker.
+
+> [!NOTE]
+> **Stability (v0.1.x).** Det engine + LangGraph / Claude Agent SDK / OpenAI / Vercel AI integrations are production-ready. Sto pipeline (LLM-judged atoms), `sponsio serve --dev` dashboard, and OTEL export are **beta** — stable API, still hardening under load. `sponsio refresh` (trace-mined contracts), CrewAI, and OpenAI Agents SDK integrations are **alpha** — surface may shift before 0.2.
 
 ## Architecture overview
 
@@ -1101,6 +1119,10 @@ To add a new atom:
 
 No changes needed to the formula AST or evaluator.
 
+---
+
+**Related:** [Quick start](../QUICKSTART.md) · [Stochastic atoms](sto-atoms.md) · [CLI Reference](cli.md) · [Integrations](integrations.md) · [Architecture](architecture.md) · [OWASP Agentic Top 10](owasp-agentic-top-10.md)
+
 
 <!-- ====================================================================== -->
 <!-- FILE: docs/input-formats.md  -->
@@ -1433,6 +1455,10 @@ sponsio validate --config sponsio.yaml
 # 5. Use in agent
 python my_agent.py  # calls Sponsio(config="sponsio.yaml")
 ```
+
+---
+
+**Related:** [Quick start](../QUICKSTART.md) · [Contract DSL](contracts.md) · [Stochastic atoms](sto-atoms.md) · [CLI Reference](cli.md) · [Integrations](integrations.md) · [Architecture](architecture.md) · [OWASP Agentic Top 10](owasp-agentic-top-10.md)
 
 
 <!-- ====================================================================== -->
@@ -1792,6 +1818,10 @@ instead of silently rotating when finalisation was skipped.
 Contracts themselves are **not** touched — re-register them only if
 you're actually changing the contract set. Rotation is a *trace*
 operation, not a *system* operation.
+
+---
+
+**Related:** [Quick start](../QUICKSTART.md) · [Contract DSL](contracts.md) · [Stochastic atoms](sto-atoms.md) · [CLI Reference](cli.md) · [Architecture](architecture.md) · [OWASP Agentic Top 10](owasp-agentic-top-10.md)
 
 
 <!-- ====================================================================== -->
@@ -2168,6 +2198,10 @@ sponsio serve --host 0.0.0.0   # expose to network
 |------|---------|
 | `0` | Success (all contracts valid / all checks passed) |
 | `1` | Failure (parse error, violation detected, or missing input) |
+
+---
+
+**Related:** [Quick start](../QUICKSTART.md) · [Contract DSL](contracts.md) · [Stochastic atoms](sto-atoms.md) · [Integrations](integrations.md) · [Architecture](architecture.md) · [OWASP Agentic Top 10](owasp-agentic-top-10.md)
 
 
 <!-- ====================================================================== -->
@@ -2594,6 +2628,10 @@ User writes formula (Python API or NL string):
 ```
 
 One AST. One atom vocabulary. Multiple backends.
+
+---
+
+**Related:** [Quick start](../QUICKSTART.md) · [Contract DSL](contracts.md) · [Stochastic atoms](sto-atoms.md) · [CLI Reference](cli.md) · [Integrations](integrations.md) · [OWASP Agentic Top 10](owasp-agentic-top-10.md)
 
 
 <!-- ====================================================================== -->

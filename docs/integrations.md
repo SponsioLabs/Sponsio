@@ -351,3 +351,7 @@ instead of silently rotating when finalisation was skipped.
 Contracts themselves are **not** touched — re-register them only if
 you're actually changing the contract set. Rotation is a *trace*
 operation, not a *system* operation.
+
+---
+
+**Related:** [Quick start](../QUICKSTART.md) · [Contract DSL](contracts.md) · [Stochastic atoms](sto-atoms.md) · [CLI Reference](cli.md) · [Architecture](architecture.md) · [OWASP Agentic Top 10](owasp-agentic-top-10.md)

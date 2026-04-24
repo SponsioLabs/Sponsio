@@ -470,3 +470,7 @@ Working backward from user value:
 | **Not sto** | `refusal_respected`, `confidence_threshold` | 🔵 | These belong in det — add as patterns in `library.py`, not here |
 
 The working rule: **ship atoms when they unblock a real demo or customer. Don't pre-ship speculatively — the judge-call cost is permanent.**
+
+---
+
+**Related:** [Quick start](../QUICKSTART.md) · [Contract DSL](contracts.md) · [CLI Reference](cli.md) · [Integrations](integrations.md) · [Architecture](architecture.md) · [OWASP Agentic Top 10](owasp-agentic-top-10.md)

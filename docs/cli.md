@@ -368,3 +368,7 @@ sponsio serve --host 0.0.0.0   # expose to network
 |------|---------|
 | `0` | Success (all contracts valid / all checks passed) |
 | `1` | Failure (parse error, violation detected, or missing input) |
+
+---
+
+**Related:** [Quick start](../QUICKSTART.md) · [Contract DSL](contracts.md) · [Stochastic atoms](sto-atoms.md) · [Integrations](integrations.md) · [Architecture](architecture.md) · [OWASP Agentic Top 10](owasp-agentic-top-10.md)

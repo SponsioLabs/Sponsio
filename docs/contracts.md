@@ -183,3 +183,7 @@ To add a new atom:
 3. Use in pattern functions via `Atom("new_atom", ...)`
 
 No changes needed to the formula AST or evaluator.
+
+---
+
+**Related:** [Quick start](../QUICKSTART.md) · [Stochastic atoms](sto-atoms.md) · [CLI Reference](cli.md) · [Integrations](integrations.md) · [Architecture](architecture.md) · [OWASP Agentic Top 10](owasp-agentic-top-10.md)

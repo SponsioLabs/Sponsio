@@ -79,3 +79,26 @@ jobs:
 
       - name: Check linting
         run: ruff check sponsio/ api/ tests/
+
+      - name: Check README/QUICKSTART command sync
+        run: |
+          # Canonical user-journey commands that must appear identically in
+          # both README.md (60-second version) and QUICKSTART.md (full
+          # walkthrough). Prevents CLI renames/drift from silently desyncing
+          # the two onboarding paths.
+          commands=(
+            "pip install sponsio"
+            "sponsio onboard"
+            "sponsio report"
+            "SPONSIO_MODE=enforce"
+          )
+          exit_code=0
+          for cmd in "${commands[@]}"; do
+            for file in README.md QUICKSTART.md; do
+              if ! grep -qF "$cmd" "$file"; then
+                echo "::error file=$file::Canonical command missing: $cmd"
+                exit_code=1
+              fi
+            done
+          done
+          exit $exit_code

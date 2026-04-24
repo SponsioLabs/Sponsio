@@ -325,3 +325,7 @@ sponsio validate --config sponsio.yaml
 # 5. Use in agent
 python my_agent.py  # calls Sponsio(config="sponsio.yaml")
 ```
+
+---
+
+**Related:** [Quick start](../QUICKSTART.md) · [Contract DSL](contracts.md) · [Stochastic atoms](sto-atoms.md) · [CLI Reference](cli.md) · [Integrations](integrations.md) · [Architecture](architecture.md) · [OWASP Agentic Top 10](owasp-agentic-top-10.md)

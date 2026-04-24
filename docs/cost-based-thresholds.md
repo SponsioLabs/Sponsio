@@ -224,3 +224,7 @@ The choice between independence assumption and union bound is a per-deployment d
 - **Joint α, β optimization** when α and β are correlated through judge uncertainty (e.g., the same judge produces both `conf(A)` and `conf(G)` and these are not independent)
 - **Online updating** of (α, β) from production violation logs — active learning loop
 - **Distributional cost**: when c_FP and c_FN are themselves random variables, the expected cost expression generalizes but the closed-form threshold does not
+
+---
+
+**Related:** [Quick start](../QUICKSTART.md) · [Contract DSL](contracts.md) · [Stochastic atoms](sto-atoms.md) · [CLI Reference](cli.md) · [Integrations](integrations.md) · [Architecture](architecture.md) · [OWASP Agentic Top 10](owasp-agentic-top-10.md)

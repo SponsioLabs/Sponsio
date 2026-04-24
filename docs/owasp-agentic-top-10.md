@@ -217,3 +217,7 @@ Beyond the ten risk-specific mappings, three Sponsio mechanisms apply broadly:
 - [OWASP GenAI Security Project announcement](https://genai.owasp.org/2025/12/09/owasp-top-10-for-agentic-applications-the-benchmark-for-agentic-security-in-the-age-of-autonomous-ai/)
 - [Agentic AI Threats and Mitigations (T01–T17 companion taxonomy)](https://genai.owasp.org/resource/agentic-ai-threats-and-mitigations/)
 - [Sponsio Contract DSL](contracts.md) · [Stochastic Atom Catalog](sto-atoms.md) · [Pattern Library](../README.md#pattern-library)
+
+---
+
+**Related:** [Quick start](../QUICKSTART.md) · [Contract DSL](contracts.md) · [Stochastic atoms](sto-atoms.md) · [CLI Reference](cli.md) · [Integrations](integrations.md) · [Architecture](architecture.md)

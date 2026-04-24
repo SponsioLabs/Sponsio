@@ -418,3 +418,7 @@ User writes formula (Python API or NL string):
 ```
 
 One AST. One atom vocabulary. Multiple backends.
+
+---
+
+**Related:** [Quick start](../QUICKSTART.md) · [Contract DSL](contracts.md) · [Stochastic atoms](sto-atoms.md) · [CLI Reference](cli.md) · [Integrations](integrations.md) · [OWASP Agentic Top 10](owasp-agentic-top-10.md)

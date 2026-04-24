@@ -2,6 +2,9 @@
 
 Get Sponsio blocking an unsafe tool call in under 60 seconds — no API key, no framework SDK, no Docker.
 
+> [!NOTE]
+> **Stability (v0.1.x).** Det engine + LangGraph / Claude Agent SDK / OpenAI / Vercel AI integrations are production-ready. Sto pipeline (LLM-judged atoms), `sponsio serve --dev` dashboard, and OTEL export are **beta** — stable API, still hardening under load. `sponsio refresh` (trace-mined contracts), CrewAI, and OpenAI Agents SDK integrations are **alpha** — surface may shift before 0.2.
+
 ## Architecture overview
 
 ```

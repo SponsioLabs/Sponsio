@@ -169,3 +169,7 @@ GOOGLE_API_KEY=... python eval_sponsio.py --domain airline
 # Rule-based only (no LLM)
 python eval_sponsio.py --domain retail --no-llm
 ```
+
+---
+
+**Related:** [Quick start](../QUICKSTART.md) · [Contract DSL](contracts.md) · [Stochastic atoms](sto-atoms.md) · [CLI Reference](cli.md) · [Integrations](integrations.md) · [Architecture](architecture.md) · [OWASP Agentic Top 10](owasp-agentic-top-10.md)
