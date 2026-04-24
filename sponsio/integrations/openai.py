@@ -217,9 +217,7 @@ class OpenAIGuard(BaseGuard):
         # subsequent choice records text content for ``llm_said`` /
         # ``output_has`` atoms but leaves token accounting alone.
         usage = getattr(response, "usage", None)
-        prompt_tokens_total = (
-            getattr(usage, "prompt_tokens", None) if usage else None
-        )
+        prompt_tokens_total = getattr(usage, "prompt_tokens", None) if usage else None
         completion_tokens_total = (
             getattr(usage, "completion_tokens", None) if usage else None
         )
