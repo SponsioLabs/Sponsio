@@ -1,7 +1,7 @@
 # Sponsio API — Cloud Run deployment (backend only)
 # AI Studio frontend calls this API via CORS.
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 WORKDIR /app
 
