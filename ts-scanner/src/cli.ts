@@ -25,6 +25,12 @@
 import { promises as fs } from "fs";
 import { loadConfig, ConfigError, type SponsioConfig } from "./config";
 import { runOnboardCli } from "./onboard";
+import { runReportCli } from "./report";
+import { runValidateCli } from "./validate";
+import { runPatternsCli } from "./patterns";
+import { runDoctorCli } from "./doctor";
+import { runPacksCli } from "./packs";
+import { runSkillCli } from "./skill";
 import { scan } from "./index";
 
 interface CliArgs {
@@ -68,6 +74,20 @@ const HELP =
   "  sponsio-scan-ts --config sponsio.yaml --pretty",
   "  sponsio-scan-ts ./src --out /tmp/inv.json && sponsio scan /tmp/inv.json -o sponsio.yaml",
   "  sponsio-scan-ts onboard .",
+  "  sponsio-scan-ts report --since 24h",
+  "  sponsio-scan-ts validate ./sponsio.yaml",
+  "  sponsio-scan-ts patterns",
+  "  sponsio-scan-ts doctor",
+  "  sponsio-scan-ts skill install",
+    "",
+    "SUBCOMMANDS:",
+    "  onboard [.]                Generate sponsio.yaml + print integration snippet",
+    "  report [--since 24h …]     Summarize ~/.sponsio/sessions/ into markdown/json",
+    "  validate [path]            Parse sponsio.yaml + report det/sto contract counts",
+    "  patterns [--category …]    List det patterns + sto atoms available in TS",
+    "  packs                      List the built-in pack library (Python-executed)",
+    "  doctor                     Env + config health check",
+    "  skill install              Drop SKILL.md into Cursor/Claude/Codex skill dirs",
     "",
     "CONFIG FILE SHAPE:",
     "  # sponsio.yaml",
@@ -115,6 +135,60 @@ async function main() {
   if (raw[0] === "onboard") {
     try {
       await runOnboardCli(raw.slice(1));
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
+      process.exit(1);
+    }
+    return;
+  }
+  if (raw[0] === "report") {
+    try {
+      await runReportCli(raw.slice(1));
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
+      process.exit(1);
+    }
+    return;
+  }
+  if (raw[0] === "validate") {
+    try {
+      await runValidateCli(raw.slice(1));
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
+      process.exit(1);
+    }
+    return;
+  }
+  if (raw[0] === "patterns") {
+    try {
+      await runPatternsCli(raw.slice(1));
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
+      process.exit(1);
+    }
+    return;
+  }
+  if (raw[0] === "packs") {
+    try {
+      await runPacksCli(raw.slice(1));
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
+      process.exit(1);
+    }
+    return;
+  }
+  if (raw[0] === "doctor") {
+    try {
+      await runDoctorCli(raw.slice(1));
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
+      process.exit(1);
+    }
+    return;
+  }
+  if (raw[0] === "skill") {
+    try {
+      await runSkillCli(raw.slice(1));
     } catch (err) {
       process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
       process.exit(1);

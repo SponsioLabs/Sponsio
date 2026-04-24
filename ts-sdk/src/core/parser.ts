@@ -141,9 +141,11 @@ function parseUnary(s: State): Formula {
   const t = peek(s);
   if (t === "!") {
     consume(s, "!");
-    consume(s, "(");
-    const child = parseExpr(s);
-    consume(s, ")");
+    // Accept both ``!(expr)`` and the bare ``!foo`` / ``!foo(a)`` /
+    // ``!Atom(...)`` forms. LTL-style yaml in the README writes
+    // ``!called(git_commit)`` without explicit parens — without
+    // this loosening the loader has to pre-wrap every negation.
+    const child = parseUnary(s);
     return new Not(child);
   } else if (t === "(") {
     consume(s, "(");

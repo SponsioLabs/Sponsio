@@ -1,8 +1,8 @@
 /**
  * Claude Agent SDK Guard — Customer Service (TypeScript)
  *
- * Same scenario as the Python version (../claude_agent_guard.py).
- * Shows the zero-wrapping hooks integration via Pyodide.
+ * Same scenario as the Python version (../python/claude_agent_guard.py).
+ * Shows the zero-wrapping hooks integration with the native TS SDK.
  *
  * Usage:
  *   cd ts-sdk && npm install
@@ -73,6 +73,8 @@ async function main() {
       const output = tools[call.tool](call.args);
       console.log(`  [OK]     ${call.tool}: ${output}`);
 
+      // postHook awaits guard.guardAfter internally — sto atoms (tone,
+      // llm_judge) declared in sponsio.yaml would fire here.
       await postHook(
         { hook_event_name: "PostToolUse", tool_name: call.tool, tool_result: output },
         input.tool_use_id,
@@ -81,7 +83,8 @@ async function main() {
     }
   }
 
-  console.log("\n" + guard.summary());
+  console.log("");
+  guard.printSummary();
 }
 
 main().catch(console.error);

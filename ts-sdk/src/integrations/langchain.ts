@@ -31,7 +31,7 @@ export function wrapTools<T extends LangChainTool>(tools: T[], guard: Sponsio): 
       }
 
       const output = await originalInvoke(input, config);
-      guard.guardAfter(toolName, String(output));
+      await guard.guardAfter(toolName, String(output));
       return output;
     } as typeof tool.invoke;
 

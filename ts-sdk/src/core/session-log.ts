@@ -144,17 +144,42 @@ export function rotateSessions(
   return removed;
 }
 
+/**
+ * Canonical action strings — byte-for-byte match with Python's
+ * ``ResultAction`` enum so ``sponsio report`` reads Python-produced
+ * and TS-produced logs through the same reducer.
+ *
+ * Historical: earlier TS builds wrote ``"allow" / "block" /
+ * "observe_log"`` (the observe_log suffix was a leftover from the
+ * grounding layer). The TS ``sponsio-scan-ts report`` CLI still
+ * accepts those legacy values so JSONL on disk before this change
+ * keeps rendering — but new writes use the canonical names below.
+ */
+export type SessionAction = "allowed" | "blocked" | "observed";
+
 export interface SessionRecord {
   /** Unix seconds, to match the Python writer (float). */
   ts: number;
   agent_id: string;
-  /** ``allow`` | ``block`` | ``observe_log``. */
-  action: "allow" | "block" | "observe_log";
-  pipeline: "det";
+  action: SessionAction;
+  /**
+   * ``det`` — deterministic LTL/DFA evaluation.
+   * ``sto`` — stochastic (LLM-judged) evaluation. Paired with the
+   * optional ``sto`` field at the record root, which carries the
+   * judge's numeric score and a short evidence snippet — matching
+   * ``sponsio/runtime/session_log.py`` so ``sponsio report`` can
+   * read TS-emitted sto records without a schema change.
+   */
+  pipeline: "det" | "sto";
   constraint: string;
   result: {
-    action: "allow" | "block" | "observe_log";
+    action: SessionAction;
     message: string;
+  };
+  /** Present only when ``pipeline === "sto"``. */
+  sto?: {
+    score: number;
+    evidence?: string;
   };
 }
 

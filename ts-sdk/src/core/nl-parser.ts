@@ -20,6 +20,7 @@ import {
   cooldown,
   deadline,
 } from "./patterns.js";
+import { Atom } from "./formula.js";
 
 /** Extract backtick-wrapped tool names from NL text. */
 function extractTools(text: string): string[] {
@@ -96,6 +97,32 @@ const KEYWORD_RULES: KeywordRule[] = [
   },
 ];
 
+/**
+ * Recognise bare "called \`X\`" / "calls \`X\`" / "\`X\` was called"
+ * phrasings — Python's parser treats these as standalone ``called(X)``
+ * atoms, which is what the ``contract().assume("called \`X\`")``
+ * builder snippet leans on. Keeping this as a fallback path (after
+ * the richer pattern rules) means a phrase like "tool \`A\` must
+ * precede \`B\`" still binds to ``must_precede`` first.
+ */
+function parseBareCalledAtom(text: string, tools: string[]): DetFormula | null {
+  if (tools.length !== 1) return null;
+  const lower = text.toLowerCase();
+  if (
+    /\bcalled\s+`[^`]+`/.test(lower) ||
+    /\bcalls\s+`[^`]+`/.test(lower) ||
+    /`[^`]+`\s+(?:was|is)\s+called/.test(lower)
+  ) {
+    return {
+      formula: new Atom("called", [tools[0]]),
+      desc: `called(${tools[0]})`,
+      patternName: "called",
+      liveness: false,
+    };
+  }
+  return null;
+}
+
 export function parseNl(text: string): DetFormula | null {
   const lower = text.toLowerCase();
   const tools = extractTools(text);
@@ -140,5 +167,6 @@ export function parseNl(text: string): DetFormula | null {
     }
   }
 
-  return null;
+  // Fallback: single-atom phrasings used in A/E contract assumptions.
+  return parseBareCalledAtom(text, tools);
 }

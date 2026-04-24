@@ -17,12 +17,14 @@ integrations/
 │   ├── mcp_guard.py            # MCP — MCPContractProxy
 │   └── shared.py               # Shared mock/real mode toggle
 │
-└── typescript/                 # TypeScript examples (5 frameworks)
-    ├── vanilla_guard.mjs       # No framework — guardBefore/guardAfter
-    ├── langgraph_guard.mjs     # LangChain.js — wrapTools(tools, guard)
-    ├── openai_guard.mjs        # OpenAI SDK — wrapOpenAI(client, guard)
-    ├── claude_agent_guard.mjs  # Claude Agent SDK — sponsioHooks(guard)
-    └── vercel_ai_guard.mjs     # Vercel AI SDK — sponsioMiddleware(guard)
+└── typescript/                 # TypeScript examples (7 — det + sto)
+    ├── vanilla_guard.mjs          # No framework — guardBefore/guardAfter + contract() builder
+    ├── langgraph_guard.mjs        # LangChain.js — wrapTools(tools, guard)
+    ├── openai_guard.mjs           # OpenAI SDK — patchOpenAI(client, guard)
+    ├── openai_agents_guard.mjs    # OpenAI Agents SDK — wrapAgentsTools(tools, guard)
+    ├── claude_agent_guard.mjs     # Claude Agent SDK — sponsioHooks(guard)
+    ├── vercel_ai_guard.mjs        # Vercel AI SDK — sponsioMiddleware(guard)
+    └── sto_tone_guard.mjs         # Sto pipeline — `tone` + `llm_judge` via judge:
 ```
 
 ## Quick Start
@@ -41,8 +43,8 @@ USE_MOCK=0 GOOGLE_API_KEY=... python3 examples/integrations/python/langgraph_gua
 ### TypeScript
 
 ```bash
-# Install Pyodide (one time)
-cd ts-sdk && npm install && cd ..
+# Build the SDK (one time — dist/ is gitignored)
+cd ts-sdk && npm install && npm run build && cd ..
 
 # Run examples
 node examples/integrations/typescript/vanilla_guard.mjs
@@ -56,14 +58,15 @@ node examples/integrations/typescript/langgraph_guard.mjs
 |-----------|--------|------------|-------------------|
 | No framework | `vanilla_guard.py` | `vanilla_guard.mjs` | `guard.guard_before()` / `guardBefore()` |
 | LangGraph / LangChain.js | `langgraph_guard.py` | `langgraph_guard.mjs` | `guard.wrap(tools)` / `wrapTools()` |
-| OpenAI SDK | `openai_guard.py` | `openai_guard.mjs` | `patch_openai()` / `wrapOpenAI()` |
+| OpenAI SDK | `openai_guard.py` | `openai_guard.mjs` | `patch_openai()` / `patchOpenAI()` |
+| OpenAI Agents SDK | `agents_sdk_guard.py` | `openai_agents_guard.mjs` | `guard.wrap(tools)` / `wrapAgentsTools()` |
 | Claude Agent SDK | `claude_agent_guard.py` | `claude_agent_guard.mjs` | `guard.hooks()` / `sponsioHooks()` |
 | Vercel AI SDK | `vercel_ai_guard.py` | `vercel_ai_guard.mjs` | `guard.wrap()` / `sponsioMiddleware()` |
-| OpenAI Agents SDK | `agents_sdk_guard.py` | — | `guard.wrap(tools)` |
+| Sto (tone / llm_judge) | `sto_*_guard.py` | `sto_tone_guard.mjs` | `E: { pattern: tone, args, threshold }` + `judge:` |
 | CrewAI | `crewai_guard.py` | — | `guard.wrap(tools)` |
 | MCP | `mcp_guard.py` | — | `MCPContractProxy()` |
 
-Python and TypeScript share the **same LTL engine** — TypeScript runs it via Pyodide (CPython in WASM). Cross-language tests in `tests/cross_language/` verify identical block/allow decisions.
+Python and TypeScript share the **same deterministic LTL engine** — TypeScript has its own native port (no Python runtime or WASM). Cross-language tests in `tests/cross_language/` verify identical block/allow decisions. The TS sto pipeline is intentionally minimal (two atoms: `tone`, `llm_judge`); semantic PII, hallucination, scope respect, and metric integrity remain Python-only today.
 
 ## API Keys
 

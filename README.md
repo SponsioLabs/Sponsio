@@ -135,8 +135,9 @@ const toolNode = new ToolNode(wrapTools(tools, guard));
 
 ```bash
 # 4. Observe, then flip — review would-have-blocked decisions, then enforce
-sponsio report --since 24h
-export SPONSIO_MODE=enforce         # no code change
+npx sponsio-scan-ts validate               # CI gate — parse yaml, report det/sto counts
+npx sponsio-scan-ts report --since 24h     # what would have been blocked
+export SPONSIO_MODE=enforce                # no code change
 ```
 
 `onboard` writes `sponsio.yaml` in observe mode, the TS SDK honours `SPONSIO_MODE`, and both languages share the same `~/.sponsio/sessions/<agent_id>/*.jsonl` log — so `sponsio report` works identically on a TS agent.
@@ -144,7 +145,7 @@ export SPONSIO_MODE=enforce         # no code change
 Full matrix of supported frameworks (Vercel AI SDK, CrewAI, OpenAI Agents SDK, MCP …) in [Integrations](#integrations). Runnable versions of every snippet above: [`examples/integrations/`](examples/integrations/).
 
 <details>
-<summary><b>📋 One-prompt setup for Cursor / Claude Code</b></summary>
+<summary><b>📋 One-prompt setup for Cursor / Claude Code (Python)</b></summary>
 
 ````text
 Set up Sponsio (https://pypi.org/project/sponsio/) in my project.
@@ -166,6 +167,34 @@ Later:
     sponsio report --since 24h   # what would have been blocked
     sponsio refresh --since 7d   # re-mine contracts from recent traces
     # prune false positives in sponsio.yaml, then flip `mode: enforce`
+````
+
+</details>
+
+<details>
+<summary><b>📋 One-prompt setup for Cursor / Claude Code (TypeScript)</b></summary>
+
+````text
+Set up Sponsio (https://www.npmjs.com/package/@sponsio/sdk) in my TypeScript project.
+
+    npm install @sponsio/sdk yaml
+    npm install -D @sponsio/scan-ts
+    npx sponsio-scan-ts onboard .
+
+`onboard` static-scans my tools, writes sponsio.yaml in observe mode,
+and prints an integration snippet for my agent entry point (LangChain.js,
+OpenAI SDK, Vercel AI SDK, Claude Agent SDK, or a plain tool loop).
+
+Nothing is blocked on day 1 (observe mode). The TS SDK honours
+SPONSIO_MODE and logs every would-have-blocked decision to
+~/.sponsio/sessions/<agent_id>/*.jsonl — the same path Python writes.
+
+After running, show me sponsio.yaml and the patch you applied.
+
+Later:
+    npx sponsio-scan-ts report --since 24h   # what would have been blocked
+    # prune false positives in sponsio.yaml, then flip `mode: enforce`
+                                             # (or: export SPONSIO_MODE=enforce)
 ````
 
 </details>
@@ -488,9 +517,12 @@ Prune false positives, then flip enforce.
 |---|---|
 | Local dev & contract iteration | `sponsio serve --dev` — API on `:8000`, dashboard on `:5173` (live span tree, per-contract pass rates, violation feed) |
 | Production observability | OTEL export — point any collector (Datadog, Honeycomb, Grafana, …) at `POST /api/otel/v1/traces` |
-| Ad-hoc review | `guard.print_summary()` or `sponsio report --agent <id>` |
+| Ad-hoc review (Python) | `guard.print_summary()` or `sponsio report --agent <id>` |
+| Ad-hoc review (TypeScript) | `guard.printSummary()` or `npx sponsio-scan-ts report --agent <id>` |
 
 The bundled dashboard is for local iteration; ship via OTEL into your existing observability stack.
+
+> **TypeScript projects**: the SDK reads the canonical `sponsio.yaml` end-to-end — NL-string contracts, structured det patterns (`E: { pattern: must_precede, args: [...] }`), raw LTL (`E: { ltl: "G(!called(x))" }`), A/E pairs (`A: { pattern: called, args: [...] }`), and all 8 sto atoms via a `judge:` block. The TS CLI covers the day-to-day loop — `sponsio-scan-ts onboard` / `report` / `validate` / `patterns` / `doctor` / `packs` / `skill install` — without Python on `PATH`. Tooling that still requires the Python runtime (`sponsio refresh`, `sponsio scan --llm`, `sponsio demo`, `sponsio serve` dashboard, pack includes) keeps working on a TS codebase: `pip install sponsio` and point it at the shared `~/.sponsio/sessions/<agent_id>/*.jsonl` log.
 
 ### 6. Depth — stochastic contracts
 
@@ -505,13 +537,16 @@ Once your det layer is stable, layer in fuzzy output-quality rules — tone, sco
 | Framework | Python | TypeScript |
 |-----------|--------|------------|
 | **No framework** | `sponsio.Sponsio(...)` + `guard.guard_before()` | `new Sponsio(...)` + `guard.guardBefore()` |
-| **LangGraph / LangChain.js** | `from sponsio.langgraph import Sponsio` | `wrapTools(tools, guard)` |
+| **LangGraph / LangChain.js** | `from sponsio.langgraph import Sponsio` | `wrapTools(tools, guard)` ¹ |
 | **Claude Agent SDK** | `from sponsio.claude_agent import Sponsio` | `sponsioHooks(guard)` |
-| **OpenAI SDK** | `from sponsio.openai import Sponsio` (or `patch_openai`) | `wrapOpenAI(client, guard)` |
+| **OpenAI SDK** | `from sponsio.openai import Sponsio` (or `patch_openai`) | `wrapOpenAI(client, guard)` (or `patchOpenAI`) |
 | **Vercel AI SDK** | `from sponsio.vercel_ai import Sponsio` | `sponsioMiddleware(guard)` |
-| **OpenAI Agents SDK** | `from sponsio.agents import Sponsio` | — |
+| **OpenAI Agents SDK** | `from sponsio.agents import Sponsio` | `wrapAgentsTools(tools, guard)` |
+| **Sto (LLM-as-judge)** | `tone`, `relevance`, `llm_judge`, `injection_free`, `semantic_pii_free`, `scope_respect`, `hallucination_free`, `metric_integrity` | same 8 atoms, via `judge:` in yaml + optional `guard.setContext({ query, source, scope })` |
 | **CrewAI** | `from sponsio.crewai import Sponsio` | — |
 | **MCP** | `from sponsio.mcp import MCPContractProxy` | — |
+
+¹ TypeScript binding is `@sponsio/sdk/langchain` → `wrapTools`. LangGraph.js uses the same LangChain tool objects, so pass the wrapped array into `new ToolNode(...)` — there is no separate LangGraph.js import on the TS side.
 
 Runnable examples for every framework: [`examples/integrations/`](examples/integrations/).
 

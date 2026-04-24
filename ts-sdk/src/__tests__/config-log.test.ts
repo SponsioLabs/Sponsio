@@ -106,14 +106,19 @@ agents:
     );
 
     const cfg = loadSponsoConfig(p, "bot");
-    expect(cfg.contracts.length === 1, "keeps the NL-string entry");
+    // token_budget is a built-in det pattern → kept as a compiled
+    // DetFormula. NL entry also kept. The sto-flag entry is skipped
+    // (no pattern:) and the pack is skipped (Python-only).
+    expect(cfg.contracts.length === 2, "keeps token_budget + NL-string");
+    expect(
+      cfg.contracts.some(
+        (c) => typeof c === "object" && c.patternName === "token_budget",
+      ),
+      "token_budget compiled via pattern factory",
+    );
     expect(
       cfg.skipped.some((s) => s.kind === "pack"),
       "flags the pack include",
-    );
-    expect(
-      cfg.skipped.some((s) => s.kind === "structured-contract"),
-      "flags the structured pattern",
     );
     expect(
       cfg.skipped.some((s) => s.kind === "sto-contract"),
@@ -137,8 +142,9 @@ agents:
 
     const cfg = loadSponsoConfig(p, "anything");
     expect(cfg.contracts.length === 1, "falls back to wildcard agent block");
+    const first = cfg.contracts[0];
     expect(
-      cfg.contracts[0].includes("must call"),
+      typeof first === "string" && first.includes("must call"),
       "uses desc when E is absent",
     );
   }
@@ -242,8 +248,8 @@ function testObserveModeDoesNotBlock(): void {
     .split("\n")
     .map((l) => JSON.parse(l));
   expect(
-    lines.some((rec) => rec.action === "observe_log"),
-    "observe_log record present",
+    lines.some((rec) => rec.action === "observed"),
+    "observed record present",
   );
 }
 
@@ -269,8 +275,8 @@ function testEnforceModeBlocksAndLogs(): void {
     .split("\n")
     .map((l) => JSON.parse(l));
   expect(
-    lines.some((rec) => rec.action === "block"),
-    "block record present in enforce mode",
+    lines.some((rec) => rec.action === "blocked"),
+    "blocked record present in enforce mode",
   );
 }
 
@@ -321,18 +327,18 @@ function testSessionLoggerBasics(): void {
   logger.log({
     ts: 1700000000,
     agent_id: "coding_agent",
-    action: "allow",
+    action: "allowed",
     pipeline: "det",
     constraint: "coding_agent.delete",
-    result: { action: "allow", message: "" },
+    result: { action: "allowed", message: "" },
   });
   logger.log({
     ts: 1700000001,
     agent_id: "coding_agent",
-    action: "block",
+    action: "blocked",
     pipeline: "det",
     constraint: "confirm first",
-    result: { action: "block", message: "BLOCKED: ..." },
+    result: { action: "blocked", message: "BLOCKED: ..." },
   });
 
   expect(
@@ -371,10 +377,10 @@ function testRotateSessions(): void {
   logger.log({
     ts: 1700000000,
     agent_id: "bot",
-    action: "allow",
+    action: "allowed",
     pipeline: "det",
     constraint: "bot.noop",
-    result: { action: "allow", message: "" },
+    result: { action: "allowed", message: "" },
   });
 
   const removed = rotateSessions(dir, /*keepDays*/ 7, /*maxMB*/ 100);

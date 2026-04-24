@@ -48,15 +48,17 @@ async function main() {
     const result = guard.guardBefore(call.tool, call.args);
 
     if (result.blocked) {
-      console.log(`  [BLOCKED] ${call.tool}: ${result.message}`);
+      const reason = result.detViolations[0]?.message ?? result.message;
+      console.log(`  [BLOCKED] ${call.tool}: ${reason}`);
     } else {
       const output = tools[call.tool](call.args);
       console.log(`  [OK]      ${call.tool}: ${output}`);
-      guard.guardAfter(call.tool, output);
+      await guard.guardAfter(call.tool, output);
     }
   }
 
-  console.log("\n" + guard.summary());
+  console.log("");
+  guard.printSummary();
 }
 
 main().catch(console.error);

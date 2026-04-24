@@ -10,6 +10,7 @@
     "./claude-agent": "./dist/integrations/claude-agent.js",
     "./vercel-ai": "./dist/integrations/vercel-ai.js",
     "./openai": "./dist/integrations/openai.js",
+    "./openai-agents": "./dist/integrations/openai-agents.js",
     "./langchain": "./dist/integrations/langchain.js"
   },
   "scripts": {

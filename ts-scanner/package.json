@@ -12,6 +12,7 @@
   "files": [
     "dist/",
     "bin/",
+    "skills/",
     "README.md",
     "CHANGELOG.md"
   ],

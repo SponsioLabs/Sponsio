@@ -130,9 +130,7 @@ function wrapSnippetFor(framework: TsOnboardFramework, agent: string, configRel:
   const ag = JSON.stringify(agent);
   switch (framework) {
     case "langgraph":
-    case "claude":
     case "mcp":
-    case "none":
       return [
         `import { Sponsio } from "@sponsio/sdk";`,
         `import { wrapTools } from "@sponsio/sdk/langchain";`,
@@ -140,6 +138,30 @@ function wrapSnippetFor(framework: TsOnboardFramework, agent: string, configRel:
         ``,
         `const guard = new Sponsio({ config: ${cfg}, agentId: ${ag} });`,
         `const toolNode = new ToolNode(wrapTools(tools, guard));`,
+      ].join("\n");
+    case "claude":
+      return [
+        `import { ClaudeSDKClient } from "claude-agent-sdk";`,
+        `import { Sponsio } from "@sponsio/sdk";`,
+        `import { sponsioHooks } from "@sponsio/sdk/claude-agent";`,
+        ``,
+        `const guard = new Sponsio({ config: ${cfg}, agentId: ${ag} });`,
+        `const client = new ClaudeSDKClient({ hooks: sponsioHooks(guard) });`,
+      ].join("\n");
+    case "none":
+      return [
+        `import { Sponsio } from "@sponsio/sdk";`,
+        ``,
+        `const guard = new Sponsio({ config: ${cfg}, agentId: ${ag} });`,
+        ``,
+        `// Wrap your tool loop:`,
+        `const check = guard.guardBefore(toolName, toolArgs);`,
+        `if (check.allowed) {`,
+        `  const output = await runTool(toolName, toolArgs);`,
+        `  await guard.guardAfter(toolName, output);`,
+        `} else {`,
+        `  // feed check.detViolations[0].message back to the model`,
+        `}`,
       ].join("\n");
     case "vercel":
       return [
@@ -427,5 +449,14 @@ export async function runOnboardCli(argv: string[]): Promise<void> {
   process.stdout.write("· wrote:     " + res.outPath + "\n");
   process.stdout.write("\nAdd to your agent entry file:\n\n");
   process.stdout.write(res.wrapSnippet + "\n");
+  process.stdout.write(
+    "\nNext steps (TypeScript):\n" +
+      "  npx sponsio-scan-ts validate        # parse check + det/sto counts\n" +
+      "  npx sponsio-scan-ts doctor          # env health\n" +
+      "  # run your agent, then…\n" +
+      "  npx sponsio-scan-ts report --since 24h\n" +
+      "  # once false positives are pruned:\n" +
+      "  export SPONSIO_MODE=enforce\n",
+  );
 }
 

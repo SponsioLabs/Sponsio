@@ -3,10 +3,14 @@
  *
  * Usage:
  *   import { Sponsio } from "@sponsio/sdk"
- *   import { wrapOpenAI } from "@sponsio/sdk/openai"
+ *   import { wrapOpenAI, patchOpenAI } from "@sponsio/sdk/openai"
  *
  *   const guard = new Sponsio({ contracts: [...] })
  *   const client = wrapOpenAI(new OpenAI(), guard)
+ *
+ * ``patchOpenAI`` is an alias matching Python's ``patch_openai``
+ * factory (same monkey-patch semantics — no wrapped return value
+ * required; the client passed in is mutated in place).
  */
 
 import type { Sponsio } from "../index.js";
@@ -57,7 +61,9 @@ export function wrapOpenAI(client: unknown, guard: Sponsio): unknown {
 
       msg.tool_calls = kept.length > 0 ? kept : null;
       if (blocked.length > 0 && !msg.tool_calls) {
-        msg.content = (msg.content ?? "") + "\n" + blocked.join("\n");
+        // Match Python's ``_filter_blocked_calls``: join with a newline
+        // separator but no leading newline before the first message.
+        msg.content = (msg.content ?? "") + blocked.join("\n");
       }
     }
 
@@ -66,3 +72,11 @@ export function wrapOpenAI(client: unknown, guard: Sponsio): unknown {
 
   return client;
 }
+
+/**
+ * Alias for ``wrapOpenAI`` — matches Python's
+ * ``from sponsio.openai import patch_openai`` naming. Both mutate
+ * the passed client in place and return it; use whichever name
+ * reads better alongside the Python snippet you're porting.
+ */
+export const patchOpenAI = wrapOpenAI;

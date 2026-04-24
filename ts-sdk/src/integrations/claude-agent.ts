@@ -55,7 +55,7 @@ export function sponsioHooks(guard: Sponsio) {
   ): Promise<Record<string, never>> {
     const toolName = (input.tool_name as string) ?? "";
     const toolResult = (input.tool_result as string) ?? "";
-    guard.guardAfter(toolName, String(toolResult));
+    await guard.guardAfter(toolName, String(toolResult));
     return {};
   }
 
