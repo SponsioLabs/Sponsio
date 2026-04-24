@@ -169,7 +169,10 @@ def test_ctx_matches_false_when_value_does_not_match():
         ground_event(e, i, state, content_atoms=content_atoms)
         for i, e in enumerate(trace.events)
     ]
-    assert valuations[1][pred_key("ctx_matches", "caller_id", r"^spiffe://prod/.*")] is False
+    assert (
+        valuations[1][pred_key("ctx_matches", "caller_id", r"^spiffe://prod/.*")]
+        is False
+    )
 
 
 def test_ctx_matches_false_when_key_absent():
@@ -237,9 +240,7 @@ def test_ctx_required_empty_allowed_values_rejected_at_factory_time():
 
 
 def test_ctx_matches_required_allows_pattern_match():
-    det = ctx_matches_required(
-        "wire_transfer", "caller_id", r"^spiffe://prod/.*"
-    )
+    det = ctx_matches_required("wire_transfer", "caller_id", r"^spiffe://prod/.*")
     # ``ctx_matches`` is a content atom — batch ``ground()`` needs the
     # pattern set via ``collect_content_atoms`` to know what to evaluate.
     # This mirrors how ``arg_has`` / ``llm_said`` / ``count_with`` are used.
@@ -253,9 +254,7 @@ def test_ctx_matches_required_allows_pattern_match():
 
 
 def test_ctx_matches_required_blocks_pattern_mismatch():
-    det = ctx_matches_required(
-        "wire_transfer", "caller_id", r"^spiffe://prod/.*"
-    )
+    det = ctx_matches_required("wire_transfer", "caller_id", r"^spiffe://prod/.*")
     content_atoms = collect_content_atoms([det.formula])
     trace = _trace(
         _ctx_update(0, "bot", {"caller_id": "spiffe://dev/test"}),

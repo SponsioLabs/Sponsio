@@ -1751,8 +1751,7 @@ def ctx_required(
     values_str = ", ".join(clean_values)
     return DetFormula(
         formula=formula,
-        desc=desc
-        or f"{tool} requires ctx[{key}] ∈ [{values_str}]",
+        desc=desc or f"{tool} requires ctx[{key}] ∈ [{values_str}]",
         pattern_name="ctx_required",
         args=(tool, key, tuple(clean_values)),
     )
