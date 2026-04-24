@@ -27,13 +27,40 @@ from pathlib import Path
 # file in context. Keep README first (product pitch), then user-facing
 # docs, then architecture / internals.
 FILES = [
+    # Entry points — most survive-truncation-worthy first.
     "README.md",
     "QUICKSTART.md",
-    "docs/contracts.md",
-    "docs/input-formats.md",
-    "docs/integrations.md",
-    "docs/cli.md",
-    "docs/architecture.md",
+    "docs/index.md",
+    # Getting started (docs/getting-started/quickstart.md is mirrored
+    # from root QUICKSTART.md — skip to avoid duplication).
+    "docs/getting-started/install.md",
+    "docs/getting-started/first-contract.md",
+    # Concepts.
+    "docs/concepts/overview.md",
+    "docs/concepts/architecture.md",
+    "docs/concepts/contracts.md",
+    "docs/concepts/stochastic.md",
+    # Guides.
+    "docs/guides/contract-sources.md",
+    "docs/guides/onboarding.md",
+    "docs/guides/observe-vs-enforce.md",
+    "docs/guides/reporting.md",
+    "docs/guides/observability.md",
+    # Integrations.
+    "docs/integrations/index.md",
+    # Reference.
+    "docs/reference/cli.md",
+    "docs/reference/patterns.md",
+    "docs/reference/sto-atoms.md",
+    "docs/reference/config-yaml.md",
+    # Benchmarks + advanced.
+    "docs/benchmarks/index.md",
+    "docs/advanced/cost-based-thresholds.md",
+    # FAQ + OWASP mapping + contributing.
+    "docs/faq.md",
+    "docs/owasp-agentic-top-10.md",
+    "docs/contributing.md",
+    # Changelog last.
     "CHANGELOG.md",
 ]
 
