@@ -81,6 +81,15 @@ class GroundingState:
     data_stores: dict[str, dict] = field(default_factory=dict)
     flow_pairs: set[tuple[str, str]] = field(default_factory=set)
     active_flows: set[str] = field(default_factory=set)
+    # External facts pushed by the integration via
+    # ``guard.observe_context({...})`` — caller identity, retrieved-
+    # content source, signed-message metadata, SOC2 scope, anything
+    # the host stack wants to expose to contracts. Persists across
+    # events until a later ``context_update`` event merges in new
+    # keys (or overwrites existing ones). Re-emitted as ``ctx(k, v)``
+    # atoms at every subsequent event so ``G(called(x) → ctx(k, v))``
+    # fires as expected.
+    current_ctx: dict[str, str] = field(default_factory=dict)
     # Pre-encoded ``"contains(field)"`` keys that should be
     # forward-propagated to every future timestep.  ``contains`` is
     # set on a ``data_write`` event; without forward propagation the
@@ -107,6 +116,7 @@ class GroundingState:
         self.delegation_depth = 0
         self.consecutive_counts.clear()
         self.last_tool = ""
+        self.current_ctx.clear()
 
 
 def _tool_matches(target_tool: str, event_tool: str, args_str: str) -> bool:
@@ -136,6 +146,12 @@ _CONTENT_PREDICATES = frozenset(
         "called_with",  # tool call: tool + args pattern = logical operation
         "count_with",  # tool call: cumulative count of tool + args pattern
         "arg_length_exceeds",  # tool call: arg field length > threshold
+        # ``ctx_matches(key, pattern)`` checks the **current** external-
+        # fact dict (populated by ``observe_context``) for a given key
+        # against a regex. Listed here so ``collect_content_atoms``
+        # extracts the ``(key, pattern)`` tuples that ``ground_event``
+        # needs at runtime.
+        "ctx_matches",
     }
 )
 
@@ -466,12 +482,49 @@ def ground_event(
         if event.to:
             v[pred_key("flow", event.agent, event.to)] = True
 
+    # ── context_update ─────────────────────────────────────────
+    # Merge user-pushed facts into the persistent ``current_ctx`` so
+    # every subsequent event sees them as ``ctx(k, v)`` atoms. The
+    # update is applied *before* the ctx-emission loop below so a
+    # contract at the same timestep as the update already observes
+    # the new keys — matches user intuition ("set the caller id, then
+    # the next tool call is attributed to it"). Non-string values are
+    # stringified so atom keys stay hashable.
+    elif event.event_type == "context_update":
+        if event.args:
+            for k, val in event.args.items():
+                if k is None:
+                    continue
+                state.current_ctx[str(k)] = str(val) if val is not None else ""
+
     # ── permissions (static, from Agent model) ─────────────────
     if agents:
         agent_obj = agents.get(event.agent)
         if agent_obj and hasattr(agent_obj, "permissions"):
             for p in agent_obj.permissions:
                 v[pred_key("perm", p)] = True
+
+    # ── ctx(k, v) / ctx_matches(k, pattern) ────────────────────
+    # Emit one atom per current_ctx entry at every event — these are
+    # the "external facts" that ``observe_context`` pushed in. A
+    # contract ``G(called(wire) → ctx(caller_id, "alice"))`` then
+    # fires whenever the current caller_id matches on a wire call.
+    if state.current_ctx:
+        for k, val in state.current_ctx.items():
+            v[pred_key("ctx", k, val)] = True
+    # ctx_matches uses content_atoms extraction — we only evaluate
+    # the (key, pattern) tuples the formula actually uses so we're
+    # not pre-compiling every possible regex.
+    if content_atoms and "ctx_matches" in content_atoms:
+        for args_tuple in content_atoms["ctx_matches"]:
+            if len(args_tuple) >= 2:
+                key, pattern = args_tuple[0], args_tuple[1]
+                cur_val = state.current_ctx.get(key)
+                if cur_val is not None:
+                    matched = bool(re.search(pattern, cur_val))
+                else:
+                    matched = False
+                v[pred_key("ctx_matches", *args_tuple)] = matched
 
     # ── Layer 2 atoms ────────────────────────────────────────────
 

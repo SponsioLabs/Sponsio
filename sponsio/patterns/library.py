@@ -1496,3 +1496,150 @@ def delegation_depth_limit(max_depth: int, desc: str = "") -> DetFormula:
         pattern_name="delegation_depth_limit",
         args=(max_depth,),
     )
+
+
+# ---------------------------------------------------------------------------
+# Layer 3 — External-fact (ctx) patterns
+#
+# Bridge Sponsio to the host stack's identity, provenance, and trust
+# systems. The raw plumbing is ``guard.observe_context({k: v, ...})``
+# which emits ``ctx(k, v)`` atoms at every subsequent event; this
+# factory wraps the common shape "when tool X is called, ctx[k] must
+# be one of these allowed values" so users don't hand-write the LTL
+# disjunction every time.
+#
+# Covers the runtime half of **ASI-03** (identity), **ASI-06** (memory
+# poisoning via content-source gating), and **ASI-07** (inter-agent
+# comm via msg_verified gating). Users supply their own key convention
+# — Sponsio doesn't hard-code "caller_id" vs "source" vs "msg_sender"
+# because each team has their own tagging scheme.
+# ---------------------------------------------------------------------------
+
+
+def ctx_required(
+    tool: str,
+    key: str,
+    allowed_values: list[str],
+    desc: str = "",
+) -> DetFormula:
+    """When ``tool`` is called, ``ctx[key]`` must be one of ``allowed_values``.
+
+    The external fact ``ctx[key]`` is populated by the integration via
+    ``guard.observe_context({key: value, ...})``. If the key is missing
+    from the current context at the time of the call, the contract
+    violates (fail-closed): this is a deliberate choice so forgetting
+    to wire up the host adapter is loud, not silent.
+
+    Covers: **ASI-03** (when ``key`` is an identity attestation),
+    **ASI-06** (when ``key`` is a content-source tag), **ASI-07**
+    (when ``key`` carries signed-message metadata).
+
+    Compiles to::
+
+        G(called(tool) → (ctx(key, v1) ∨ ctx(key, v2) ∨ … ∨ ctx(key, vN)))
+
+    Usage::
+
+        # ASI-03: wire_transfer only by attested prod agents
+        ctx_required("wire_transfer", "caller_id_prefix", ["spiffe://prod/"])
+
+        # ASI-06: the answer must cite canonical sources only
+        ctx_required("answer_policy", "content_source",
+                     ["canonical:/v3", "canonical:/v2"])
+
+        # ASI-07: downstream publish only when upstream msg was verified
+        ctx_required("publish", "msg_verified", ["true"])
+
+    Args:
+        tool: Tool name this contract applies to.
+        key: Context key whose value is checked.
+        allowed_values: Non-empty list of permitted values for ``ctx[key]``.
+        desc: Optional human-readable description.
+
+    Returns:
+        A ``DetFormula`` encoding the requirement.
+
+    Raises:
+        ValueError: If ``allowed_values`` is empty (an empty allowlist
+            would reject every call to ``tool``, almost certainly a
+            user error — surface it at construction time instead of
+            letting every call fail silently at runtime).
+    """
+    _ensure_non_empty(tool, pattern="ctx_required", arg="tool")
+    _ensure_non_empty(key, pattern="ctx_required", arg="key")
+    if not allowed_values:
+        raise ValueError(
+            "ctx_required: 'allowed_values' must not be empty — an empty "
+            "allowlist rejects every call to the tool. Use "
+            "`tool_allowlist([])` if you really want to block everything, "
+            "or pass at least one permitted value here."
+        )
+    clean_values = [str(v) for v in allowed_values]
+
+    # Build the disjunction: ctx(key, v1) ∨ ctx(key, v2) ∨ ...
+    disjunction: Formula = Atom("ctx", key, clean_values[0])
+    for val in clean_values[1:]:
+        disjunction = Or(disjunction, Atom("ctx", key, val))
+
+    formula = G(Implies(_called(tool), disjunction))
+
+    values_str = ", ".join(clean_values)
+    return DetFormula(
+        formula=formula,
+        desc=desc
+        or f"{tool} requires ctx[{key}] ∈ [{values_str}]",
+        pattern_name="ctx_required",
+        args=(tool, key, tuple(clean_values)),
+    )
+
+
+def ctx_matches_required(
+    tool: str,
+    key: str,
+    pattern: str,
+    desc: str = "",
+) -> DetFormula:
+    r"""When ``tool`` is called, ``ctx[key]`` must match the regex ``pattern``.
+
+    Regex variant of :func:`ctx_required` for cases where the allowed
+    set is better expressed as a pattern (e.g. ``spiffe://prod/.*``,
+    ``^canonical:/v[0-9]+$``) than an exhaustive list.
+
+    Covers: same ASI slice as ``ctx_required`` — identity / content-
+    source / signed-message gating where the valid value set is open-
+    ended.
+
+    Compiles to::
+
+        G(called(tool) → ctx_matches(key, pattern))
+
+    Usage::
+
+        # Any caller_id under the prod SPIFFE trust domain
+        ctx_matches_required("wire_transfer", "caller_id",
+                             r"^spiffe://prod/.*")
+
+        # Any canonical versioned policy (v1, v2, v3, ...)
+        ctx_matches_required("answer_policy", "content_source",
+                             r"^canonical:/v\d+$")
+
+    Args:
+        tool: Tool name this contract applies to.
+        key: Context key whose value is regex-matched.
+        pattern: Python regex to match ``ctx[key]`` against.
+        desc: Optional human-readable description.
+
+    Returns:
+        A ``DetFormula`` encoding the requirement.
+    """
+    _ensure_non_empty(tool, pattern="ctx_matches_required", arg="tool")
+    _ensure_non_empty(key, pattern="ctx_matches_required", arg="key")
+    _ensure_non_empty(pattern, pattern="ctx_matches_required", arg="pattern")
+
+    formula = G(Implies(_called(tool), Atom("ctx_matches", key, pattern)))
+    return DetFormula(
+        formula=formula,
+        desc=desc or f"{tool} requires ctx[{key}] to match /{pattern}/",
+        pattern_name="ctx_matches_required",
+        args=(tool, key, pattern),
+    )

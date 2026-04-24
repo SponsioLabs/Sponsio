@@ -1362,6 +1362,55 @@ class BaseGuard:
             metadata={"to": to_agent},
         )
 
+    def observe_context(self, facts: dict[str, str]) -> None:
+        """Push external facts from the host stack into the contract layer.
+
+        Sponsio stays thin on purpose — it doesn't know who the caller
+        cryptographically is, where a retrieved RAG chunk came from, or
+        whether an inter-agent message was signed. Those are the host
+        stack's job (SPIFFE / Okta / C2PA / signed A2A envelopes). This
+        hook is the bridge: whatever facts your integration already has,
+        push them in and subsequent events will carry them as ``ctx(k, v)``
+        atoms. Contracts can then say things like::
+
+            G(called(wire_transfer) → ctx_matches("caller_id", "spiffe://prod/.*"))
+            G(called(answer_policy)  → ctx("content_source", "canonical:/v3"))
+            G(called(publish)        → ctx("msg_verified", "true"))
+
+        Calls are **merge-on-write** — later ``observe_context`` calls
+        override keys seen before but don't clear unrelated ones. To
+        clear a key, set it to ``""`` or start a new session. Facts
+        persist until overridden, so you typically call this once per
+        tool-call boundary (or once per request if the identity is
+        stable for the whole session).
+
+        Why this is the hook instead of a dedicated atom per concept:
+        every team has their own SOC2 tags / tenant ids / data classes
+        / trust tiers. A generic ``ctx(k, v)`` + user-defined keys keeps
+        Sponsio's atom surface closed but lets users express arbitrary
+        provenance policies.
+
+        Args:
+            facts: String-to-string map of external facts to merge into
+                the current context. Non-string values are stringified
+                by the grounding layer so atom keys stay hashable.
+                Keys with ``None`` values are skipped.
+        """
+        if not facts:
+            return
+        # Filter None-valued keys at hook time so the trace doesn't
+        # store them — keeps the event JSON tight and avoids surprising
+        # ``ctx(k, "None")`` strings downstream.
+        clean = {k: v for k, v in facts.items() if k is not None and v is not None}
+        if not clean:
+            return
+        self._monitor.check_action(
+            agent_id=self.agent_id,
+            action="<context_update>",
+            event_type="context_update",
+            metadata={"args": clean},
+        )
+
     # -----------------------------------------------------------------
     # Trace & state management
     # -----------------------------------------------------------------

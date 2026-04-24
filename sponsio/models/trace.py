@@ -19,6 +19,15 @@ _VALID_EVENT_TYPES: frozenset[str] = frozenset(
         "delegation",
         "llm_response",
         "llm_request",
+        # ``context_update`` carries user-pushed external facts (caller
+        # identity, retrieved-content source, signed-message metadata)
+        # via ``guard.observe_context({...})``. The grounding layer
+        # merges ``event.args`` into a persistent ``current_ctx`` on
+        # the GroundingState and emits ``ctx(k, v)`` atoms at every
+        # subsequent event. Used to upgrade ASI-03 / ASI-06 / ASI-07
+        # coverage by letting integrations bridge their IAM / RAG /
+        # A2A stacks into the contract layer.
+        "context_update",
     }
 )
 
