@@ -147,7 +147,7 @@ const guard = new Sponsio({
 const toolNode = new ToolNode(wrapTools(tools, guard));
 ```
 
-YAML config (`config="sponsio.yaml"`) is Python-only today; TS honours the same `SPONSIO_MODE` env var and writes to the same session log.
+This snippet inlines `contracts: [...]` for brevity. `new Sponsio({ config: "sponsio.yaml", agentId: "..." })` also works in TS — same YAML you get from `sponsio onboard`.
 
 </details>
 
@@ -300,13 +300,7 @@ Pick your framework — each block expands to a drop-in snippet. Python and Type
 ```python
 from sponsio import Sponsio
 
-guard = Sponsio(
-    agent_id="bank_bot",
-    contracts=[
-        "tool `verify_identity` must precede `transfer_funds`",
-        "tool `transfer_funds` at most 3 times",
-    ],
-)
+guard = Sponsio(config="sponsio.yaml", agent_id="bank_bot")
 
 for name, args in agent_calls:
     result = guard.guard_before(name, args)
@@ -319,13 +313,7 @@ for name, args in agent_calls:
 ```typescript
 import { Sponsio } from "@sponsio/sdk";
 
-const guard = new Sponsio({
-  agentId: "bank_bot",
-  contracts: [
-    "tool `verify_identity` must precede `transfer_funds`",
-    "tool `transfer_funds` at most 3 times",
-  ],
-});
+const guard = new Sponsio({ config: "sponsio.yaml", agentId: "bank_bot" });
 
 const result = guard.guardBefore(name, args);
 if (!result.blocked) {
@@ -345,10 +333,7 @@ Runnable: [python](examples/integrations/python/vanilla_guard.py) · [typescript
 from sponsio.langgraph import Sponsio
 from langgraph.prebuilt import create_react_agent
 
-guard = Sponsio(
-    agent_id="hr_bot",
-    contracts=["must call `run_background_check` before `approve_candidate`"],
-)
+guard = Sponsio(config="sponsio.yaml", agent_id="hr_bot")
 agent = create_react_agent(llm, guard.wrap(tools))
 ```
 
@@ -357,10 +342,7 @@ import { Sponsio } from "@sponsio/sdk";
 import { wrapTools } from "@sponsio/sdk/langchain";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 
-const guard = new Sponsio({
-  agentId: "hr_bot",
-  contracts: ["must call `run_background_check` before `approve_candidate`"],
-});
+const guard = new Sponsio({ config: "sponsio.yaml", agentId: "hr_bot" });
 const toolNode = new ToolNode(wrapTools(tools, guard));
 ```
 
@@ -375,10 +357,7 @@ Runnable: [python](examples/integrations/python/langgraph_guard.py) · [typescri
 from sponsio.claude_agent import Sponsio
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
 
-guard = Sponsio(
-    agent_id="support_bot",
-    contracts=["must call `check_policy` before `issue_refund`"],
-)
+guard = Sponsio(config="sponsio.yaml", agent_id="support_bot")
 options = ClaudeAgentOptions(hooks=guard.hooks())
 
 async with ClaudeSDKClient(options=options) as client:
@@ -389,10 +368,7 @@ async with ClaudeSDKClient(options=options) as client:
 import { Sponsio } from "@sponsio/sdk";
 import { sponsioHooks } from "@sponsio/sdk/claude-agent";
 
-const guard = new Sponsio({
-  agentId: "support_bot",
-  contracts: ["must call `check_policy` before `issue_refund`"],
-});
+const guard = new Sponsio({ config: "sponsio.yaml", agentId: "support_bot" });
 const hooks = sponsioHooks(guard);
 // Pass `hooks` to ClaudeSDKClient options.
 ```
@@ -404,25 +380,10 @@ Runnable: [python](examples/integrations/python/claude_agent_guard.py) · [types
 <details>
 <summary><b>OpenAI SDK</b> — monkey-patch or explicit wrap</summary>
 
-Easiest — patch the global client:
-
-```python
-from sponsio.openai import patch_openai, unpatch_openai
-
-guard = patch_openai(
-    agent_id="db_admin",
-    contracts=["must call `preview_query` before `execute_query`"],
-)
-# All openai.chat.completions.create(...) calls now go through Sponsio.
-# unpatch_openai() restores the original behavior.
-```
-
-Or explicit — check each response yourself:
-
 ```python
 from sponsio.openai import Sponsio
 
-guard = Sponsio(agent_id="db_admin", contracts=[...])
+guard = Sponsio(config="sponsio.yaml", agent_id="db_admin")
 resp = client.chat.completions.create(...)
 guard.check_response(resp)
 ```
@@ -432,9 +393,11 @@ import OpenAI from "openai";
 import { Sponsio } from "@sponsio/sdk";
 import { wrapOpenAI } from "@sponsio/sdk/openai";
 
-const guard = new Sponsio({ agentId: "db_admin", contracts: [...] });
+const guard = new Sponsio({ config: "sponsio.yaml", agentId: "db_admin" });
 const client = wrapOpenAI(new OpenAI(), guard);
 ```
+
+For a quick no-YAML wire-up (handy in scripts / notebooks): `from sponsio.openai import patch_openai` — see [runnable example](examples/integrations/python/openai_guard.py).
 
 Runnable: [python](examples/integrations/python/openai_guard.py) · [typescript](examples/integrations/typescript/openai_guard.mjs)
 
@@ -447,10 +410,7 @@ Runnable: [python](examples/integrations/python/openai_guard.py) · [typescript]
 from sponsio.agents import Sponsio
 from agents import Agent, Runner
 
-guard = Sponsio(
-    agent_id="deploy_bot",
-    contracts=["must call `run_tests` before `deploy_production`"],
-)
+guard = Sponsio(config="sponsio.yaml", agent_id="deploy_bot")
 
 agent = Agent(
     name="deploy_bot",
@@ -473,10 +433,7 @@ Runnable: [python](examples/integrations/python/agents_sdk_guard.py)
 ```python
 from sponsio.vercel_ai import Sponsio
 
-guard = Sponsio(
-    agent_id="publish_bot",
-    contracts=["must call `review_content` before `publish_post`"],
-)
+guard = Sponsio(config="sponsio.yaml", agent_id="publish_bot")
 
 async for msg in agent.run(model, messages, middleware=[guard.wrap()]):
     ...
@@ -486,10 +443,7 @@ async for msg in agent.run(model, messages, middleware=[guard.wrap()]):
 import { Sponsio } from "@sponsio/sdk";
 import { sponsioMiddleware } from "@sponsio/sdk/vercel-ai";
 
-const guard = new Sponsio({
-  agentId: "publish_bot",
-  contracts: ["must call `review_content` before `publish_post`"],
-});
+const guard = new Sponsio({ config: "sponsio.yaml", agentId: "publish_bot" });
 const middleware = sponsioMiddleware(guard);
 ```
 
@@ -504,10 +458,7 @@ Runnable: [python](examples/integrations/python/vercel_ai_guard.py) · [typescri
 from sponsio.crewai import Sponsio
 from crewai import Agent, Crew, Task
 
-guard = Sponsio(
-    agent_id="moderator",
-    contracts=["permission `admin_permission` granted before `delete_content`"],
-)
+guard = Sponsio(config="sponsio.yaml", agent_id="moderator")
 
 crew = Crew(
     agents=[agent],
@@ -542,6 +493,10 @@ TypeScript: not yet supported.
 Runnable: [python](examples/integrations/python/mcp_guard.py)
 
 </details>
+
+---
+
+> **Note on the snippets above.** All examples assume you've run `sponsio onboard .` first, which generates a `sponsio.yaml` with a starter contract set inferred from your tool inventory. To populate the YAML differently — pattern-library bundle, hand-written rules, natural-language one-liners, or parsed from a policy doc (`sponsio scan --policy security.md`) — see [State-of-the-art → Four ways to write them](#four-ways-to-write-them) and [docs/contracts.md](docs/contracts.md) for full syntax.
 
 ---
 
