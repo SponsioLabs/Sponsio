@@ -1,23 +1,27 @@
 ![Sponsio](assets/readme-banner.png)
 
+<p align="center">
+  <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-orange.svg" alt="License"></a>
+  <a href="https://pypi.org/project/sponsio/"><img src="https://img.shields.io/pypi/dm/sponsio?color=blue&label=downloads" alt="PyPI Downloads"></a>
+  <a href="#quick-start"><img src="https://img.shields.io/badge/Set%20Up%20with-Prompt-181818?labelColor=555555" alt="Set Up With Prompt"></a>
+  <a href="https://sponsio.dev"><img src="https://img.shields.io/badge/Visit-sponsio.dev-181818?labelColor=555555" alt="Visit sponsio.dev"></a>
+</p>
+
+<p align="center">
+  <a href="https://x.com/sponsio_dev"><img src="https://img.shields.io/badge/Follow%20on%20X-000000?logo=x&logoColor=white" alt="Follow on X"></a>
+  <a href="https://www.linkedin.com/company/sponsio"><img src="https://img.shields.io/badge/Follow%20on%20LinkedIn-0A66C2?logo=linkedin&logoColor=white" alt="Follow on LinkedIn"></a>
+  <a href="https://discord.gg/sponsio"><img src="https://img.shields.io/badge/Join%20our%20Discord-5865F2?logo=discord&logoColor=white" alt="Join our Discord"></a>
+</p>
+
+<p align="center">⭐ <em>Help us reach more developers and grow the community. Star the repo!</em></p>
+
 # Sponsio
 
-<a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-orange.svg" alt="License"></a>
-<a href="https://pypi.org/project/sponsio/"><img src="https://img.shields.io/pypi/dm/sponsio?color=blue&label=downloads" alt="PyPI Downloads"></a>
-<a href="#quick-start"><img src="https://img.shields.io/badge/Set%20Up%20with-Prompt-181818?labelColor=555555" alt="Set Up With Prompt"></a>
-<a href="https://sponsio.dev"><img src="https://img.shields.io/badge/Visit-sponsio.dev-181818?labelColor=555555" alt="Visit sponsio.dev"></a>
+**Runtime contract enforcement for AI agents.** Natural-language policies compile into temporal contracts, enforced before any tool call, file write, API request, or database mutation. Sub-10μs latency, zero LLM calls on the hot path, SOTA on action-safety benchmarks.
 
-<a href="https://x.com/sponsio_dev"><img src="https://img.shields.io/badge/Follow%20on%20X-000000?logo=x&logoColor=white" alt="Follow on X"></a>
-<a href="https://www.linkedin.com/company/sponsio"><img src="https://img.shields.io/badge/Follow%20on%20LinkedIn-0A66C2?logo=linkedin&logoColor=white" alt="Follow on LinkedIn"></a>
-<a href="https://discord.gg/sponsio"><img src="https://img.shields.io/badge/Join%20our%20Discord-5865F2?logo=discord&logoColor=white" alt="Join our Discord"></a>
+A **contract** is a rule — e.g. *"call `check_policy` before `issue_refund`"*, *"no writes after reading `.env`"* — compiled to a deterministic temporal formula and checked on every tool call.
 
-⭐ *Help us reach more developers and grow the community. Star the repo!*
-
-> **Runtime contract enforcement for your AI agent.** Write policies in plain English; Sponsio compiles them into agent contracts and enforces them at the action boundary — unsafe tool calls are blocked before they execute. <0.01ms latency, zero LLM calls on the hot path, SOTA on safety benchmarks.
-
-A **contract** is a rule for what your agent can and can't do — e.g. *"must call `check_policy` before `issue_refund`"* — checked before every tool call. Sponsio sits at the action boundary: before an LLM calls a tool, edits a file, hits an API, approves a loan, issues a refund, or writes to a database, it checks the growing execution trace against temporal contracts.
-
-**Compatible with any stack** — LangGraph, OpenAI Agents SDK, Claude Agent SDK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop. Python and TypeScript. You don't need an agent framework at all — if your LLM app calls tools, APIs, databases, or files, Sponsio can guard it.
+**Any stack.** LangGraph, OpenAI Agents SDK, Claude Agent SDK, CrewAI, Vercel AI, MCP, or a custom tool-calling loop. Python and TypeScript. No framework required.
 
 <p align="center">
   <!-- TODO: replace with product demo video/GIF -->
@@ -61,7 +65,7 @@ LLM ─▶ Sponsio Boundary ─▶ Tool / API / DB / File
 
 ## Quick start
 
-Example: LangGraph + Python. No Docker, no API key needed. For more frameworks, see [Integrations](#integrations).
+Example: LangGraph + Python. No Docker, no API key needed. For other frameworks, see [Integrations](#integrations).
 
 ```bash
 # 1. Install
@@ -83,14 +87,7 @@ agent = create_react_agent(model, guard.wrap(tools))
 
 *LangGraph / LangChain shortcut: `sponsio onboard . --apply` inserts the snippet for you.*
 
-Four ways to populate `sponsio.yaml`:
-
-- Auto-infer from code — what `onboard` does (add an LLM key for smarter inference)
-- Hand-write — YAML or Python
-- From a policy doc — `sponsio scan --policy policy.md`
-- From runtime logs — `sponsio refresh`
-
-See [docs/contracts.md](docs/contracts.md) for syntax.
+> `sponsio.yaml` can also be hand-written, scanned from a policy doc (`sponsio scan --policy policy.md`), or mined from traces (`sponsio refresh`). Syntax: [docs/contracts.md](docs/contracts.md).
 
 Run your agent in observe mode — contracts evaluate, nothing blocks. Would-have-blocked decisions land in `~/.sponsio/sessions/<agent_id>/*.jsonl`.
 
@@ -103,7 +100,7 @@ export SPONSIO_MODE=enforce
 ```
 
 <details>
-<summary><b>TypeScript</b> — LangChain.js / LangGraph equivalent</summary>
+<summary><b>TypeScript example</b> — LangChain.js / LangGraph</summary>
 
 ```bash
 npm install @sponsio/sdk
