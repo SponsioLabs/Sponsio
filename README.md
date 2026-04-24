@@ -42,19 +42,17 @@ A **contract** is a rule for what your agent can and can't do — e.g. *"must ca
 
 ## Quick start
 
-**Example: LangGraph + Python.** No Docker, no API key needed.
-
-Also below: **TypeScript** · **AI-agent prompt** · **Agent Skill** · [other frameworks →](#integrations)
+Example: LangGraph + Python. No Docker, no API key needed.
 
 ```bash
 # 1. Install
 pip install sponsio
 
-# 2. Onboard — scan project, write sponsio.yaml with starter contracts, print the snippet below
+# 2. Onboard — scan project, write sponsio.yaml, print a snippet to paste
 sponsio onboard .
 ```
 
-Paste the printed snippet into your agent entry file:
+Paste the snippet into your agent entry file:
 
 ```python
 from sponsio.langgraph import Sponsio
@@ -64,7 +62,16 @@ guard = Sponsio(config="sponsio.yaml", agent_id="coding_agent")
 agent = create_react_agent(model, guard.wrap(tools))
 ```
 
-*LangGraph / LangChain shortcut: `sponsio onboard . --apply` inserts the snippet for you — no paste step needed.*
+*LangGraph / LangChain shortcut: `sponsio onboard . --apply` inserts the snippet for you.*
+
+Four ways to populate `sponsio.yaml`:
+
+- Auto-infer from code — what `onboard` does (add an LLM key for smarter inference)
+- Hand-write — YAML or Python
+- From a policy doc — `sponsio scan --policy policy.md`
+- From runtime logs — `sponsio refresh`
+
+See [docs/contracts.md](docs/contracts.md) for syntax.
 
 <details>
 <summary><b>TypeScript</b> — LangChain.js / LangGraph equivalent</summary>
@@ -90,16 +97,7 @@ YAML config (`config="sponsio.yaml"`) is Python-only today; TS honours the same 
 
 </details>
 
-**Four ways to populate `sponsio.yaml`:**
-
-- **Auto-infer from code** — what `onboard` does (no LLM key required; add one for smarter inference)
-- **Hand-write** — YAML or Python
-- **From an existing policy doc** — `sponsio scan --policy policy.md`
-- **From runtime logs** — `sponsio refresh`
-
-See [docs/contracts.md](docs/contracts.md) for syntax.
-
-Run your agent. You start in **observe mode** where contracts are evaluated but **nothing is blocked**. Every would-have-blocked decision lands in `~/.sponsio/sessions/<agent_id>/*.jsonl`.
+Run your agent in observe mode — contracts evaluate, nothing blocks. Would-have-blocked decisions land in `~/.sponsio/sessions/<agent_id>/*.jsonl`.
 
 ```bash
 # 3. After some traffic, review what would have been blocked
@@ -108,10 +106,6 @@ sponsio report --since 1h
 # 4. Flip to enforce when confident — no code change
 export SPONSIO_MODE=enforce
 ```
-
-> **Full walkthrough:** [QUICKSTART.md](QUICKSTART.md) — config reference, `sponsio refresh`, CI wiring, troubleshooting. Runnable per-framework examples: `[examples/integrations/](examples/integrations/)`.
-
-**Prefer your AI coding agent to do the setup?**
 
 <details>
 <summary><b>One-shot prompt</b> (Cursor / Claude Code / Codex)</summary>
@@ -148,6 +142,8 @@ Drops `SKILL.md` into `~/.cursor/skills/sponsio/`, `~/.claude/skills/sponsio/`, 
 Upgrade: `pip install -U sponsio && sponsio skill install --force` (or `sponsio skill install --link` once, then upgrades follow `pip install -U`).
 
 </details>
+
+> **Full walkthrough:** [QUICKSTART.md](QUICKSTART.md) — config reference, `sponsio refresh`, CI wiring, troubleshooting. Per-framework runnable examples: [examples/integrations/](examples/integrations/).
 
 ---
 
