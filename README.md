@@ -94,7 +94,6 @@ See [docs/contracts.md](docs/contracts.md) for syntax.
 
 ```bash
 npm install @sponsio/sdk
-npm install -D @sponsio/scan-ts    # optional: onboard / validate / report CLI
 ```
 
 ```typescript
@@ -104,13 +103,13 @@ import { ToolNode } from "@langchain/langgraph/prebuilt";
 
 const guard = new Sponsio({
   agentId: "coding_agent",
-  config: "sponsio.yaml",     // reads the yaml `onboard` wrote
+  contracts: ["must call `confirm_with_user` before `delete_file`"],
 });
 
 const toolNode = new ToolNode(wrapTools(tools, guard));
 ```
 
-TS reads the same `sponsio.yaml` as Python (det + sto contracts, `judge:` block, A/E + raw LTL), honours the same `SPONSIO_MODE` env var, and writes to the same session log — so `sponsio report` / `sponsio-scan-ts report` work identically on a TS agent.
+YAML config (`config="sponsio.yaml"`) is Python-only today; TS honours the same `SPONSIO_MODE` env var and writes to the same session log.
 
 </details>
 
@@ -118,8 +117,7 @@ Run your agent in observe mode — contracts evaluate, nothing blocks. Would-hav
 
 ```bash
 # 3. After some traffic, review what would have been blocked
-sponsio report --since 1h                  # Python
-npx sponsio-scan-ts report --since 1h      # TypeScript (no Python needed)
+sponsio report --since 1h
 
 # 4. Flip to enforce when confident — no code change
 export SPONSIO_MODE=enforce
@@ -411,15 +409,12 @@ Prune false positives, then flip enforce.
 
 | Use case                       | What to use                                                                                                            |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| Local dev & contract iteration | `sponsio serve --dev` — API on `:8000`, dashboard on `:3000` (live span tree, per-contract pass rates, violation feed) |
+| Local dev & contract iteration | `sponsio serve --dev` — API on `:8000`, dashboard on `:5173` (live span tree, per-contract pass rates, violation feed) |
 | Production observability       | OTEL export — point any collector (Datadog, Honeycomb, Grafana, …) at `POST /api/otel/v1/traces`                       |
-| Ad-hoc review (Python)         | `guard.print_summary()` or `sponsio report --agent <id>`                                                               |
-| Ad-hoc review (TypeScript)     | `guard.printSummary()` or `npx sponsio-scan-ts report --agent <id>`                                                    |
+| Ad-hoc review                  | `guard.print_summary()` or `sponsio report --agent <id>`                                                               |
 
 
 The bundled dashboard is for local iteration; ship via OTEL into your existing observability stack.
-
-> **TypeScript projects**: the SDK reads the canonical `sponsio.yaml` end-to-end — NL-string contracts, structured det patterns (`E: { pattern: must_precede, args: [...] }`), raw LTL (`E: { ltl: "G(!called(x))" }`), A/E pairs (`A: { pattern: called, args: [...] }`), and all 8 sto atoms via a `judge:` block. The TS CLI covers the day-to-day loop — `sponsio-scan-ts onboard` / `report` / `validate` / `patterns` / `doctor` / `packs` / `skill install` — without Python on `PATH`. Tooling that still requires the Python runtime (`sponsio refresh`, `sponsio scan --llm`, `sponsio demo`, `sponsio serve` dashboard, pack includes) keeps working on a TS codebase: `pip install sponsio` and point it at the shared `~/.sponsio/sessions/<agent_id>/*.jsonl` log.
 
 ### 6. Depth — stochastic contracts
 
@@ -598,22 +593,9 @@ agent = Agent(
 result = Runner.run_sync(agent, "Deploy v2.1 now.")
 ```
 
-```typescript
-import { Agent, tool } from "@openai/agents";
-import { Sponsio } from "@sponsio/sdk";
-import { wrapAgentsTools } from "@sponsio/sdk/openai-agents";
+TypeScript: not yet supported.
 
-const guard = new Sponsio({
-  agentId: "deploy_bot",
-  contracts: ["must call `run_tests` before `deploy_production`"],
-});
-const agent = new Agent({
-  name: "deploy_bot",
-  tools: wrapAgentsTools([runTests, deployStaging, deployProduction], guard),
-});
-```
-
-Runnable: [python](examples/integrations/python/agents_sdk_guard.py) · [typescript](examples/integrations/typescript/openai_agents_guard.mjs)
+Runnable: [python](examples/integrations/python/agents_sdk_guard.py)
 
 </details>
 
