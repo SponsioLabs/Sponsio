@@ -933,7 +933,9 @@ class CodeAnalyzer:
                                         func_node.end_lineno or start + 30,
                                         start + 30,
                                     )
-                                    tool_info.source = "\n".join(source_lines[start:end])
+                                    tool_info.source = "\n".join(
+                                        source_lines[start:end]
+                                    )
                             tools.append(tool_info)
         return tools
 
