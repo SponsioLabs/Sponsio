@@ -13,53 +13,41 @@
   <a href="https://discord.gg/sponsio"><img src="https://img.shields.io/badge/Join%20our%20Discord-5865F2?logo=discord&logoColor=white" alt="Join our Discord"></a>
 </p>
 
-<p align="center">⭐ <em>Help us reach more developers and grow the community. Star the repo!</em></p>
+<p align="center">⭐ <em>Help us grow the Sponsio community for better Contract Library and enforcement scenarios. Star the repo!</em></p>
 
 # Sponsio
 
-**Runtime contract enforcement for AI agents.** Natural-language policies compile into temporal contracts, enforced before any tool call, file write, API request, or database mutation. Sub-10μs latency, zero LLM calls on the hot path, SOTA on action-safety benchmarks.
+**Runtime contract enforcement for AI agents.** Write rules in plain English. Sponsio enforces them at the action boundary — blocked before the side effect, regardless of what the model was instructed. Sub-10μs p99, zero LLM runtime cost, covers all 10 OWASP Agentic risks.
 
-A **contract** is a rule — e.g. *"call `check_policy` before `issue_refund`"*, *"no writes after reading `.env`"* — compiled to a deterministic temporal formula and checked on every tool call.
+> An **agent contract** is a runtime check at the tool boundary — not a system-prompt instruction the model can ignore under pressure. Examples: *"after `run_aml_check`, no edits to loan files"* (19 of 24 SOTA models break this one), *"after reading `.env`, no `git commit` or `git push`"*, *"`issue_refund` at most 3 times per session"*. Violations are blocked before the call executes.
 
-**Any stack.** LangGraph, OpenAI Agents SDK, Claude Agent SDK, CrewAI, Vercel AI, MCP, or a custom tool-calling loop. Python and TypeScript. No framework required.
+**Works with any stack.** LangGraph, Claude Agent SDK, OpenAI Agents SDK, Google ADK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop. Python and TypeScript.
 
-<p align="center">
-  <!-- TODO: replace with product demo video/GIF -->
-  <br />
-  <em>Demo video coming soon</em>
-  <br />
-  <br />
-</p>
+<p align="center"><em>Demo video coming soon</em></p>
 
 ---
 
-## What Sponsio is (and isn't)
+## State-of-the-art agent safety
 
-Sponsio sits at the boundary between your agent and the tools it can call:
+<!-- TODO: replace with product architecture diagram -->
 
 ```
 LLM ─▶ Sponsio Boundary ─▶ Tool / API / DB / File
 ```
 
-**It is:**
+On [ODCV-Bench](#benchmarks) — 12 LLMs × 80 KPI-pressure scenarios where SOTA models silently falsify data to hit metrics — Sponsio catches **~84% of high-risk trajectories**. On `Financial-Audit-Fraud-Finding`, 19 of 24 models commit the fraud unguarded; with Sponsio, none do.
 
-- Pre-execution enforcement for tool / action behavior
-- Temporal trace contracts — ordering, history, rate limits, irreversible-action gates
-- A deterministic hot path (zero LLM calls), plus an optional stochastic pipeline for fuzzy checks
+**Three contract types,** all deterministic, all checked before the side effect:
 
-**It isn't:**
+- **Per-action** — prohibit or require a specific tool. *"No `rm -rf`"*, *"`confirm_with_user` before `delete_file`"*.
+- **Sequential** — enforce order. *"`run_tests` before `deploy_production`"*, *"after `run_aml_check`, loan files are immutable"*.
+- **Bounded** — rate limits, loop caps, delegation depth. *"`check_balance` at most 5 times"*. Stops the retry loop that silently drains your bill.
 
-- A prompt-injection or jailbreak shield
-- A text-only output-assertion library
-- A drift / reliability scoring framework
+**Four ways to write them:** auto-inferred from your tool signatures (`sponsio onboard`), picked from the **pattern library** (29 patterns + starter bundles for Claude Code, OpenAI Agents SDK, CrewAI, MCP), written in natural language (`sponsio validate "..."` compiles to LTL), or extracted from a policy doc (`sponsio scan --policy security.md`).
 
-### Why us
+**Rollout path.** Start in observe mode — every would-have-blocked decision logged, nothing blocked. Flip `SPONSIO_MODE=enforce` with no code change once the report is clean. OTEL export ships violations to your existing observability stack.
 
-- Action-boundary enforcement — unsafe tool calls are blocked *before* side effects, not flagged after
-- Temporal contracts — express "A before B", "never B after A", "after X, Y is immutable", "at most N calls"
-- Deterministic and fast — sub-10μs p99, zero LLM calls on the hot path ([details →](#performance))
-- Framework-optional — LangGraph, Claude Agent SDK, OpenAI, CrewAI, Vercel AI, MCP, or any custom loop
-- SOTA safety results — ~84% protection on ODCV-Bench high-risk trajectories ([details →](#benchmarks))
+**What it isn't.** Not a prompt-injection shield (the model can still be fooled — Sponsio stops the *action*, not the thought). Not an output-assertion wrapper (those flag post-hoc; Sponsio blocks before the side effect). Not a probabilistic drift score (contracts are deterministic pass/fail).
 
 ---
 
@@ -99,8 +87,7 @@ sponsio report --since 1h
 export SPONSIO_MODE=enforce
 ```
 
-<details>
-<summary><b>TypeScript example</b> — LangChain.js / LangGraph</summary>
+**TypeScript example** — LangChain.js / LangGraph
 
 ```bash
 npm install @sponsio/sdk
@@ -121,10 +108,9 @@ const toolNode = new ToolNode(wrapTools(tools, guard));
 
 YAML config (`config="sponsio.yaml"`) is Python-only today; TS honours the same `SPONSIO_MODE` env var and writes to the same session log.
 
-</details>
 
-<details>
-<summary><b>One-shot prompt</b> (Cursor / Claude Code / Codex)</summary>
+
+**One-shot prompt** (Cursor / Claude Code / Codex)
 
 ```text
 Set up Sponsio (https://pypi.org/project/sponsio/) in my project.
@@ -143,10 +129,9 @@ After running, show me sponsio.yaml, the patch you applied, and any
 `sponsio doctor` warnings.
 ```
 
-</details>
 
-<details>
-<summary><b>Install as a reusable Agent Skill</b> (works across every project)</summary>
+
+**Install as a reusable Agent Skill** (works across every project)
 
 ```bash
 pip install sponsio
@@ -157,7 +142,7 @@ Drops `SKILL.md` into `~/.cursor/skills/sponsio/`, `~/.claude/skills/sponsio/`, 
 
 Upgrade: `pip install -U sponsio && sponsio skill install --force` (or `sponsio skill install --link` once, then upgrades follow `pip install -U`).
 
-</details>
+
 
 > **Full walkthrough:** [QUICKSTART.md](QUICKSTART.md) — config reference, `sponsio refresh`, CI wiring, troubleshooting. Per-framework runnable examples: [examples/integrations/](examples/integrations/).
 
@@ -426,8 +411,7 @@ Once your det layer is stable, layer in fuzzy output-quality rules — tone, sco
 
 Pick your framework — each block expands to a drop-in snippet. Python and TypeScript share the same engine and DSL.
 
-<details>
-<summary><b>No framework</b> — custom tool-calling loop</summary>
+**No framework** — custom tool-calling loop
 
 ```python
 from sponsio import Sponsio
@@ -468,10 +452,9 @@ if (!result.blocked) {
 
 Runnable: [python](examples/integrations/python/vanilla_guard.py) · [typescript](examples/integrations/typescript/vanilla_guard.mjs)
 
-</details>
 
-<details>
-<summary><b>LangGraph / LangChain.js</b> — wrap tools</summary>
+
+**LangGraph / LangChain.js** — wrap tools
 
 ```python
 from sponsio.langgraph import Sponsio
@@ -498,10 +481,9 @@ const toolNode = new ToolNode(wrapTools(tools, guard));
 
 Runnable: [python](examples/integrations/python/langgraph_guard.py) · [typescript](examples/integrations/typescript/langgraph_guard.mjs)
 
-</details>
 
-<details>
-<summary><b>Claude Agent SDK</b> — native hooks, zero tool wrapping</summary>
+
+**Claude Agent SDK** — native hooks, zero tool wrapping
 
 ```python
 from sponsio.claude_agent import Sponsio
@@ -531,10 +513,9 @@ const hooks = sponsioHooks(guard);
 
 Runnable: [python](examples/integrations/python/claude_agent_guard.py) · [typescript](examples/integrations/typescript/claude_agent_guard.mjs)
 
-</details>
 
-<details>
-<summary><b>OpenAI SDK</b> — monkey-patch or explicit wrap</summary>
+
+**OpenAI SDK** — monkey-patch or explicit wrap
 
 Easiest — patch the global client:
 
@@ -570,10 +551,9 @@ const client = wrapOpenAI(new OpenAI(), guard);
 
 Runnable: [python](examples/integrations/python/openai_guard.py) · [typescript](examples/integrations/typescript/openai_guard.mjs)
 
-</details>
 
-<details>
-<summary><b>OpenAI Agents SDK</b> — wrap Agent tools</summary>
+
+**OpenAI Agents SDK** — wrap Agent tools
 
 ```python
 from sponsio.agents import Sponsio
@@ -597,10 +577,9 @@ TypeScript: not yet supported.
 
 Runnable: [python](examples/integrations/python/agents_sdk_guard.py)
 
-</details>
 
-<details>
-<summary><b>Vercel AI SDK</b> — middleware</summary>
+
+**Vercel AI SDK** — middleware
 
 ```python
 from sponsio.vercel_ai import Sponsio
@@ -627,10 +606,9 @@ const middleware = sponsioMiddleware(guard);
 
 Runnable: [python](examples/integrations/python/vercel_ai_guard.py) · [typescript](examples/integrations/typescript/vercel_ai_guard.mjs)
 
-</details>
 
-<details>
-<summary><b>CrewAI</b> — Crew-level hooks</summary>
+
+**CrewAI** — Crew-level hooks
 
 ```python
 from sponsio.crewai import Sponsio
@@ -654,10 +632,9 @@ TypeScript: not yet supported.
 
 Runnable: [python](examples/integrations/python/crewai_guard.py)
 
-</details>
 
-<details>
-<summary><b>MCP</b> — proxy the MCP client</summary>
+
+**MCP** — proxy the MCP client
 
 ```python
 from sponsio.mcp import MCPContractProxy
@@ -673,7 +650,7 @@ TypeScript: not yet supported.
 
 Runnable: [python](examples/integrations/python/mcp_guard.py)
 
-</details>
+
 
 ---
 
