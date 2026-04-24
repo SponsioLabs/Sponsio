@@ -145,10 +145,11 @@ def test_mcp_proxy_reset():
 
     asyncio.run(proxy.call_tool("some_tool", {}))
     # Events per call with default tag_outputs=True:
-    #   1. pre-check tool_call
-    #   2. post-check tool_call (content)
-    #   3. auto-tag data_write (contains=[tool_name])
-    assert len(proxy.monitor.trace.events) == 3
+    #   1. pre-check tool_call (the sole tool_call event — post-execution
+    #      content is attached to this one, not emitted as a second call,
+    #      to avoid double-counting rate_limit / idempotent contracts)
+    #   2. auto-tag data_write (contains=[tool_name])
+    assert len(proxy.monitor.trace.events) == 2
 
     proxy.reset()
     assert len(proxy.monitor.trace.events) == 0

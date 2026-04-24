@@ -36,7 +36,7 @@ import {
   PatternFactoryError,
 } from "./pattern-factory.js";
 import { parseRepr, ParseError } from "./parser.js";
-import { And, Implies, type Formula } from "./formula.js";
+import { And, G, Implies, type Formula } from "./formula.js";
 
 // Use createRequire so we can lazily load the optional `yaml` package
 // without breaking non-yaml users (ESM dynamic import would force the
@@ -359,9 +359,16 @@ function projectContract(entry: unknown): Projection {
         },
       };
     }
-    // Both sides structured: compose as ``A -> E``.
+    // Both sides structured: compose as ``G(A -> E)``. ``G`` is
+    // required because ``evaluate`` runs from ``pos=0``; a bare
+    // ``Implies(A, E)`` short-circuits to ``true`` whenever ``A`` is
+    // false at step 0, regardless of later events. Lifting the
+    // implication under ``G`` makes it fire at every state where the
+    // assumption holds.
     const composed: DetFormula = {
-      formula: new Implies(aBuilt.formula.formula, eBuilt.formula.formula),
+      formula: new G(
+        new Implies(aBuilt.formula.formula, eBuilt.formula.formula),
+      ),
       desc: desc || `${aBuilt.formula.desc} => ${eBuilt.formula.desc}`,
       patternName: `${aBuilt.formula.patternName}__implies__${eBuilt.formula.patternName}`,
       liveness: eBuilt.formula.liveness,

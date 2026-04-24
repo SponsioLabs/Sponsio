@@ -79,14 +79,21 @@ const HELP =
 
 function parseArgs(argv: string[]): ReportArgs {
   const a: ReportArgs = { since: "7d", format: "markdown", help: false };
+  const needValue = (flag: string, i: number): string => {
+    const v = argv[i];
+    if (v === undefined || v.startsWith("-")) {
+      throw new Error(`${flag} expects a value`);
+    }
+    return v;
+  };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (flag === "-h" || flag === "--help") a.help = true;
-    else if (flag === "--since") a.since = argv[++i];
-    else if (flag === "--agent") a.agent = argv[++i];
-    else if (flag === "--base-dir") a.baseDir = argv[++i];
+    else if (flag === "--since") a.since = needValue(flag, ++i);
+    else if (flag === "--agent") a.agent = needValue(flag, ++i);
+    else if (flag === "--base-dir") a.baseDir = needValue(flag, ++i);
     else if (flag === "--format") {
-      const v = argv[++i];
+      const v = needValue(flag, ++i);
       if (v !== "markdown" && v !== "json") {
         throw new Error(`--format must be 'markdown' or 'json', got ${v}`);
       }
@@ -114,14 +121,21 @@ function parseSince(spec: string, now: number = Date.now() / 1000): number {
 
 function normalizeAction(raw: unknown): ReportEvent["action"] {
   if (typeof raw !== "string") return "other";
-  // Accept both Python canonical values and the TS shorthand so the
-  // same JSONL works against either CLI.
+  // Accept the full set of Python ``ResultAction`` values alongside
+  // the TS shorthand, so a single JSONL emitted by either runtime
+  // (or a mix) reduces consistently. Sto-pipeline actions
+  // (``escalated``, ``retrying``, ``redirected``) all count as
+  // violations — they mean the original action didn't pass through
+  // as requested — so group them with ``blocked`` / ``observed``.
   switch (raw) {
     case "blocked":
     case "block":
+    case "escalated":
+    case "redirected":
       return "blocked";
     case "observed":
     case "observe_log":
+    case "retrying":
       return "observed";
     case "allowed":
     case "allow":

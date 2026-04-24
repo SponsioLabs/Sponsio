@@ -104,10 +104,21 @@ export function createJudge(config: JudgeConfig): JudgeClient {
   }
   const apiKey = config.apiKey ?? process.env.OPENAI_API_KEY ?? "";
   const model = config.model ?? "gpt-4o-mini";
-  const baseUrl = (config.baseUrl ?? "https://api.openai.com").replace(
-    /\/+$/,
-    "",
-  );
+  const defaultBase = "https://api.openai.com";
+  const baseUrl = (config.baseUrl ?? defaultBase).replace(/\/+$/, "");
+  // Refuse to build a judge pointed at OpenAI with no credentials —
+  // otherwise every sto check returns a 401, the ``fallback_mode=allow``
+  // default silently passes them all, and users ship an enforcement-off
+  // pipeline with only a warning log line to tell them. A user targeting
+  // a local endpoint (Ollama / vLLM / LiteLLM) legitimately has an empty
+  // key; those always ship an explicit ``baseUrl``.
+  if (!apiKey && baseUrl === defaultBase) {
+    throw new Error(
+      "[sponsio] judge: no API key (set OPENAI_API_KEY or pass " +
+        "`judge.apiKey`). For self-hosted / proxy endpoints, set " +
+        "`judge.baseUrl` (Ollama / vLLM / OpenRouter / Azure / LiteLLM).",
+    );
+  }
 
   return {
     async complete(prompt: string): Promise<string> {

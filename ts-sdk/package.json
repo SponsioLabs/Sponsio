@@ -13,6 +13,11 @@
     "./openai-agents": "./dist/integrations/openai-agents.js",
     "./langchain": "./dist/integrations/langchain.js"
   },
+  "files": [
+    "dist/",
+    "!dist/__tests__/**",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "node --test dist/__tests__/*.test.js",

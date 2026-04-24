@@ -79,7 +79,14 @@ export function wrapAgentsTools<T extends AgentsToolLike>(
       const output = await original(...args);
       const asStr =
         typeof output === "string" ? output : safeStringify(output);
-      await guard.guardAfter(tool.name, asStr);
+      // In enforce mode, sto violations surface here (tone, llm_judge,
+      // etc.). Propagate via a thrown Error so the Agents SDK routes it
+      // as a tool failure the model can see and react to — matches the
+      // pre-check block path above.
+      const afterCheck = await guard.guardAfter(tool.name, asStr);
+      if (afterCheck.blocked) {
+        throw new Error(afterCheck.message);
+      }
       return output;
     };
     // Clone so we don't mutate the user's original tool object.

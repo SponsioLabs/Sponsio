@@ -1368,7 +1368,12 @@ class BaseGuard:
 
     @property
     def mode(self) -> str:
-        """Enforcement mode: ``"enforce"`` (default) or ``"observe"`` (shadow)."""
+        """Enforcement mode: ``"observe"`` (default, shadow-mode) or ``"enforce"``.
+
+        Precedence when the guard is constructed is ``SPONSIO_MODE`` env
+        var > ctor arg > yaml ``runtime.mode`` > ``"observe"``. See
+        ``sponsio.core.Sponsio`` for the factory that resolves this.
+        """
         return self._mode
 
     @property

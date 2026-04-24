@@ -47,9 +47,31 @@ export function wrapOpenAI(client: unknown, guard: Sponsio): unknown {
 
       for (const tc of msg.tool_calls) {
         let tcArgs: Record<string, unknown> = {};
+        let parseFailed = false;
         try {
           tcArgs = JSON.parse(tc.function.arguments || "{}");
-        } catch { /* empty */ }
+        } catch {
+          parseFailed = true;
+        }
+
+        // Malformed arguments bypass any arg-based contract
+        // (``arg_blacklist``, ``arg_length_limit``, ``scope_limit``,
+        // ``dangerous_sql_verbs``, ``arg_value_range``) if we treat
+        // them as empty. Feed a sentinel so the guard still sees
+        // *something* distinctive, and block-by-default so a
+        // malformed payload doesn't silently slip through.
+        if (parseFailed) {
+          guard.guardBefore(tc.function.name, {
+            _sponsio_malformed_args: tc.function.arguments ?? "",
+          });
+          blocked.push(
+            `[BLOCKED] ${tc.function.name}: malformed JSON arguments — ` +
+              `refusing to forward to tool loop (set ` +
+              `SPONSIO_OPENAI_STRICT_TOOL_ARGS=0 to downgrade once the ` +
+              `parity flag ships in TS)`,
+          );
+          continue;
+        }
 
         const result = guard.guardBefore(tc.function.name, tcArgs);
         if (result.blocked) {

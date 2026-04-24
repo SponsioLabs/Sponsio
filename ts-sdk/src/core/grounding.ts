@@ -101,6 +101,11 @@ export function groundEvent(
   // called(tool)
   v[predKey("called", tool)] = true;
 
+  // called_any — fires whenever any tool is invoked. Used by
+  // ``tool_allowlist`` to encode "whenever any tool runs, it must
+  // be one of the allowed ones".
+  v[predKey("called_any")] = true;
+
   // count(tool)
   state.callCounts[tool] = (state.callCounts[tool] || 0) + 1;
   v[predKey("count", tool)] = state.callCounts[tool];

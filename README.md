@@ -57,11 +57,13 @@ agent = create_react_agent(model, guard.wrap(tools))
 
 ```python
 from openai import OpenAI
-from sponsio.openai import Sponsio, patch_openai
+from sponsio.openai import patch_openai
 
-guard = Sponsio(config="sponsio.yaml", agent_id="support_bot")
+guard = patch_openai(           # every client.chat.completions.create(...)
+    agent_id="support_bot",     # is now guarded — no wrapping of `client` needed
+    contracts=["tool `preview_query` must precede `execute_query`"],
+)
 client = OpenAI()
-patch_openai(client, guard)   # every client.chat.completions.create(...) is now guarded
 ```
 
 </details>

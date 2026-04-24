@@ -28,7 +28,7 @@
  */
 
 import { parseNl } from "./core/nl-parser.js";
-import { And, Implies, type Formula } from "./core/formula.js";
+import { And, G, Implies, type Formula } from "./core/formula.js";
 import type { DetFormula } from "./core/patterns.js";
 
 export class ContractBuilder implements DetFormula {
@@ -64,8 +64,13 @@ export class ContractBuilder implements DetFormula {
   /**
    * The compiled LTL formula. Accessed at `Sponsio` construction time.
    *
-   * - If both A and E are set: ``A -> E``.
-   * - If only E: ``E`` (unconditional).
+   * - If both A and E are set: ``G(A -> E)``. We wrap in ``G`` because
+   *   the evaluator runs from ``pos=0``; a bare ``Implies(A, E)`` would
+   *   short-circuit whenever ``A`` was false at step 0 regardless of
+   *   later events. ``G`` lifts the implication to every step so the
+   *   enforcement fires whenever the assumption holds.
+   * - If only E: ``E`` (unconditional; the pattern factories already
+   *   emit safety properties wrapped in ``G`` where needed).
    * - If neither: throws — every contract needs an enforcement.
    */
   get formula(): Formula {
@@ -75,7 +80,7 @@ export class ContractBuilder implements DetFormula {
       );
     }
     return this._assumption
-      ? new Implies(this._assumption, this._enforcement)
+      ? new G(new Implies(this._assumption, this._enforcement))
       : this._enforcement;
   }
 

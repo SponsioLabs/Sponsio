@@ -148,13 +148,34 @@ class MCPContractProxy:
         # Execute the actual MCP tool call
         result = await self._client.call_tool(tool_name, arguments)
 
-        # Post-execution: check constraints on output content
-        self._monitor.check_action(
-            agent_id=self._agent_id,
-            action=tool_name,
-            event_type="tool_call",
-            metadata={"args": arguments, "content": result},
-        )
+        # Post-execution: enrich the trace with the tool's output so
+        # content atoms (``output_has``, ``arg_field_has``) bind — but
+        # do NOT emit a second ``tool_call`` event. Doing so would
+        # double-count every invocation and break every ``rate_limit``,
+        # ``idempotent``, ``bounded_retry``, and ``loop_detection``
+        # contract (3 real calls → trace of 6 tool_call events). This
+        # mirrors ``BaseGuard.observe_tool_output`` — attach content
+        # to the most recent matching ``tool_call`` and re-ground for
+        # the next check — without introducing a BaseGuard dependency
+        # (MCPContractProxy only carries a RuntimeMonitor).
+        try:
+            trace_events = self._monitor.trace.events
+            for ev in reversed(trace_events):
+                if (
+                    ev.event_type == "tool_call"
+                    and ev.tool == tool_name
+                    and ev.agent == self._agent_id
+                ):
+                    text = str(result)
+                    ev.content = text if ev.content is None else (ev.content + text)
+                    # Force re-ground so ``output_has`` atoms see the
+                    # new content on the next check. See BaseGuard.
+                    self._monitor._verifier.reset()
+                    break
+        except Exception:
+            # Output enrichment is best-effort; never fail the tool
+            # call because we couldn't attach content to the trace.
+            pass
 
         # Auto-tag the tool output so ``contains()`` / ``no_data_leak``
         # contracts bind without manual instrumentation.

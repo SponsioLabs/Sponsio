@@ -145,17 +145,29 @@ export function rotateSessions(
 }
 
 /**
- * Canonical action strings — byte-for-byte match with Python's
- * ``ResultAction`` enum so ``sponsio report`` reads Python-produced
- * and TS-produced logs through the same reducer.
+ * Action strings emitted / consumed by the session log.
+ *
+ * The TS writer uses the three canonical values — ``allowed`` /
+ * ``blocked`` / ``observed`` — that map 1:1 to the common
+ * det-pipeline outcomes. The type also lists the extended values
+ * Python's sto pipeline can emit (``escalated`` / ``warned`` /
+ * ``retrying`` / ``redirected``) so TS readers can consume a JSONL
+ * produced by the Python runtime without a schema mismatch. TS
+ * never writes those extended values itself today.
  *
  * Historical: earlier TS builds wrote ``"allow" / "block" /
- * "observe_log"`` (the observe_log suffix was a leftover from the
- * grounding layer). The TS ``sponsio-scan-ts report`` CLI still
- * accepts those legacy values so JSONL on disk before this change
- * keeps rendering — but new writes use the canonical names below.
+ * "observe_log"``. The ``sponsio-scan-ts report`` reducer still
+ * accepts those legacy values so old logs on disk keep rendering —
+ * but new writes always use the canonical names.
  */
-export type SessionAction = "allowed" | "blocked" | "observed";
+export type SessionAction =
+  | "allowed"
+  | "blocked"
+  | "observed"
+  | "escalated"
+  | "warned"
+  | "retrying"
+  | "redirected";
 
 export interface SessionRecord {
   /** Unix seconds, to match the Python writer (float). */

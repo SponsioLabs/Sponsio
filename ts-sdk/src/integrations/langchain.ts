@@ -31,7 +31,14 @@ export function wrapTools<T extends LangChainTool>(tools: T[], guard: Sponsio): 
       }
 
       const output = await originalInvoke(input, config);
-      await guard.guardAfter(toolName, String(output));
+      // In enforce mode, sto violations surface here (tone, llm_judge,
+      // etc.). Propagate the block to the agent via the same BLOCKED
+      // string shape used by the pre-check path, so the model sees a
+      // consistent failure mode it can react to.
+      const afterCheck = await guard.guardAfter(toolName, String(output));
+      if (afterCheck.blocked) {
+        return `BLOCKED by Sponsio: ${afterCheck.message}`;
+      }
       return output;
     } as typeof tool.invoke;
 

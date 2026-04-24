@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "description": "Static scanner for TypeScript/JavaScript agent tool definitions. Emits OpenAI function-calling JSON consumable by `sponsio scan`.",
   "license": "Apache-2.0",
+  "peerDependencies": {
+    "@sponsio/sdk": ">=0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@sponsio/sdk": {
+      "optional": true
+    }
+  },
   "type": "commonjs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

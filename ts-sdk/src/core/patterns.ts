@@ -438,20 +438,22 @@ export function requiredStepsCompletion(trigger: string, steps: string[]): DetFo
 }
 
 export function toolAllowlist(allowedTools: string[]): DetFormula {
-  // G(called(X) → X ∈ allowed)
-  // Equivalent to: for every tool, if called, must be in allowlist.
-  // We encode as: count of anything NOT in allowed must be 0.
-  // Simplest: build a disjunction of called(t) for each allowed, and require
-  // G(Or(called(allowed1), called(allowed2), ..., ¬any_tool_called))
-  // But that's messy. Use a soft equivalent: require every call to be in allowlist.
-  // Most practical: G(Implies(called_any, Or(called(a1), called(a2), ...)))
-  // Since we don't have "called_any", skip this — user can use tool_blacklist.
-  // For now: just return a formula that's always true (stub).
-  // TODO: implement with grounding support.
-  const tools_desc = allowedTools.join(", ");
+  // ``called_any`` is emitted by the grounding layer for every
+  // tool_call event (regardless of which tool). Requiring
+  // ``G(called_any -> Or(called(a1), ..., called(aN)))`` encodes
+  // "whenever any tool runs, it must be one of these".
+  if (!Array.isArray(allowedTools) || allowedTools.length === 0) {
+    throw new Error(
+      "toolAllowlist requires a non-empty list of allowed tool names",
+    );
+  }
+  const disjunction = allowedTools
+    .map((t) => called(t))
+    .reduce<Formula | null>((acc, atom) => (acc ? new Or(acc, atom) : atom), null)!;
+  const formula = new G(new Implies(new Atom("called_any"), disjunction));
   return {
-    formula: new G(new Not(new Atom("__never__"))),
-    desc: `only allowed tools: ${tools_desc}`,
+    formula,
+    desc: `only allowed tools: ${allowedTools.join(", ")}`,
     patternName: "tool_allowlist",
     liveness: false,
   };
@@ -477,12 +479,41 @@ export function dangerousBashCommands(forbidden?: string[]): DetFormula {
   };
 }
 
+/**
+ * Build a JS-regex-compatible case-insensitive pattern from a plain
+ * word. JS regex doesn't support inline ``(?i)`` flags, so we expand
+ * each letter into a character class (``DROP`` → ``[dD][rR][oO][pP]``).
+ * Non-letter characters pass through. This keeps grounding.ts's
+ * ``new RegExp(pattern)`` call case-sensitive for ``arg_blacklist``
+ * (where the user authors literal regex) while letting safety-net
+ * factories like ``dangerous_sql_verbs`` match lowercase too.
+ */
+function caseInsensitiveLiteral(word: string): string {
+  let out = "";
+  for (const ch of word) {
+    if (ch >= "a" && ch <= "z") out += `[${ch}${ch.toUpperCase()}]`;
+    else if (ch >= "A" && ch <= "Z") out += `[${ch.toLowerCase()}${ch}]`;
+    else if ("\\^$.|?*+()[]{}".includes(ch)) out += `\\${ch}`;
+    else out += ch;
+  }
+  return out;
+}
+
 export function dangerousSqlVerbs(tool: string = "execute_sql", forbidden?: string[]): DetFormula {
   const defaults = ["DROP", "TRUNCATE", "DELETE", "ALTER"];
   const verbs = forbidden ?? defaults;
-  let body: Formula = new Not(new Atom("arg_field_has", [tool, "query", verbs[0]]));
-  for (let i = 1; i < verbs.length; i++) {
-    body = new And(body, new Not(new Atom("arg_field_has", [tool, "query", verbs[i]])));
+  // Wrap each verb in a case-insensitive word pattern so ``drop table``
+  // and ``DROP TABLE`` both match — the safety net would be useless
+  // case-sensitive since LLMs emit either form.
+  const verbPatterns = verbs.map((v) => `\\b${caseInsensitiveLiteral(v)}\\b`);
+  let body: Formula = new Not(
+    new Atom("arg_field_has", [tool, "query", verbPatterns[0]]),
+  );
+  for (let i = 1; i < verbPatterns.length; i++) {
+    body = new And(
+      body,
+      new Not(new Atom("arg_field_has", [tool, "query", verbPatterns[i]])),
+    );
   }
   const f = new G(new Implies(called(tool), body));
   return {
