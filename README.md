@@ -6,9 +6,12 @@
 <a href="https://pypi.org/project/sponsio/"><img src="https://img.shields.io/pypi/dm/sponsio?color=blue&label=downloads" alt="PyPI Downloads"></a>
 <a href="#quick-start"><img src="https://img.shields.io/badge/Set%20Up%20with-Prompt-181818?labelColor=555555" alt="Set Up With Prompt"></a>
 <a href="https://sponsio.dev"><img src="https://img.shields.io/badge/Visit-sponsio.dev-181818?labelColor=555555" alt="Visit sponsio.dev"></a>
-<a href="https://x.com/sponsio_dev"><img src="https://img.shields.io/badge/Follow-@sponsio-000000?logo=x&logoColor=white" alt="Follow on X"></a>
-<a href="https://www.linkedin.com/company/sponsio"><img src="https://img.shields.io/badge/Follow-LinkedIn-0A66C2?logo=linkedin&logoColor=white" alt="Follow on LinkedIn"></a>
-<a href="https://discord.gg/sponsio"><img src="https://img.shields.io/badge/Join-Discord-5865F2?logo=discord&logoColor=white" alt="Join Discord"></a>
+
+<a href="https://x.com/sponsio_dev"><img src="https://img.shields.io/badge/Follow%20on%20X-000000?logo=x&logoColor=white" alt="Follow on X"></a>
+<a href="https://www.linkedin.com/company/sponsio"><img src="https://img.shields.io/badge/Follow%20on%20LinkedIn-0A66C2?logo=linkedin&logoColor=white" alt="Follow on LinkedIn"></a>
+<a href="https://discord.gg/sponsio"><img src="https://img.shields.io/badge/Join%20our%20Discord-5865F2?logo=discord&logoColor=white" alt="Join our Discord"></a>
+
+⭐ *Help us reach more developers and grow the community. Star the repo!*
 
 > **Runtime contract enforcement for your AI agent.** Write policies in plain English; Sponsio compiles them into agent contracts and enforces them at the action boundary — unsafe tool calls are blocked before they execute. <0.01ms latency, zero LLM calls on the hot path, SOTA on safety benchmarks.
 
