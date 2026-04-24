@@ -2,17 +2,27 @@
 
 # Sponsio
 
-[Python](https://pypi.org/project/sponsio/)
-[License](LICENSE)
-[Tests](tests/)
+<a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-orange.svg" alt="License"></a>
+<a href="https://pypi.org/project/sponsio/"><img src="https://img.shields.io/pypi/dm/sponsio?color=blue&label=downloads" alt="PyPI Downloads"></a>
+<a href="#quick-start"><img src="https://img.shields.io/badge/Set%20Up%20with-Prompt-181818?labelColor=555555" alt="Set Up With Prompt"></a>
+<a href="https://sponsio.dev"><img src="https://img.shields.io/badge/Visit-sponsio.dev-181818?labelColor=555555" alt="Visit sponsio.dev"></a>
+<a href="https://x.com/sponsio_dev"><img src="https://img.shields.io/badge/Follow-@sponsio-000000?logo=x&logoColor=white" alt="Follow on X"></a>
+<a href="https://www.linkedin.com/company/sponsio"><img src="https://img.shields.io/badge/Follow-LinkedIn-0A66C2?logo=linkedin&logoColor=white" alt="Follow on LinkedIn"></a>
+<a href="https://discord.gg/sponsio"><img src="https://img.shields.io/badge/Join-Discord-5865F2?logo=discord&logoColor=white" alt="Join Discord"></a>
 
-> **Runtime contracts for LLM apps and agents.** Prompting tells the model what to try; Sponsio enforces what actions it is allowed to take — before they happen.
+> **Runtime contract enforcement for your AI agent.** Write policies in plain English; Sponsio compiles them into agent contracts and enforces them at the action boundary — unsafe tool calls are blocked before they execute. <0.01ms latency, zero LLM calls on the hot path, SOTA on safety benchmarks.
 
-A **contract** is a rule for what your agent can and can't do — e.g. *"must call `check_policy` before `issue_refund`"* — checked before every tool call.
+A **contract** is a rule for what your agent can and can't do — e.g. *"must call `check_policy` before `issue_refund`"* — checked before every tool call. Sponsio sits at the action boundary: before an LLM calls a tool, edits a file, hits an API, approves a loan, issues a refund, or writes to a database, it checks the growing execution trace against temporal contracts.
 
-Sponsio sits at the action boundary: before an LLM calls a tool, edits a file, hits an API, approves a loan, issues a refund, or writes to a database, it checks the growing execution trace against deterministic temporal contracts. Fuzzy output-quality rules ride the same DSL as stochastic constraints with LLM-as-judge feedback.
+**Compatible with any stack** — LangGraph, OpenAI Agents SDK, Claude Agent SDK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop. Python and TypeScript. You don't need an agent framework at all — if your LLM app calls tools, APIs, databases, or files, Sponsio can guard it.
 
-**Works with any stack** — LangGraph, OpenAI Agents SDK, Claude Agent SDK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop. Python and TypeScript. You don't need an agent framework at all — if your LLM app calls tools, APIs, databases, or files, Sponsio can guard it.
+<p align="center">
+  <!-- TODO: replace with product demo video/GIF -->
+  <br />
+  <em>Demo video coming soon</em>
+  <br />
+  <br />
+</p>
 
 ---
 
@@ -56,7 +66,8 @@ agent = create_react_agent(model, guard.wrap(tools))
 
 *LangGraph / LangChain shortcut: `sponsio onboard . --apply` inserts the snippet for you — no paste step needed.*
 
-**TypeScript** — LangChain.js / LangGraph equivalent
+<details>
+<summary><b>TypeScript</b> — LangChain.js / LangGraph equivalent</summary>
 
 ```bash
 npm install @sponsio/sdk
@@ -76,6 +87,8 @@ const toolNode = new ToolNode(wrapTools(tools, guard));
 ```
 
 YAML config (`config="sponsio.yaml"`) is Python-only today; TS honours the same `SPONSIO_MODE` env var and writes to the same session log.
+
+</details>
 
 **Four ways to populate `sponsio.yaml`:**
 
@@ -100,7 +113,8 @@ export SPONSIO_MODE=enforce
 
 **Prefer your AI coding agent to do the setup?**
 
-**One-shot prompt** (Cursor / Claude Code / Codex)
+<details>
+<summary><b>One-shot prompt</b> (Cursor / Claude Code / Codex)</summary>
 
 ```text
 Set up Sponsio (https://pypi.org/project/sponsio/) in my project.
@@ -119,7 +133,10 @@ After running, show me sponsio.yaml, the patch you applied, and any
 `sponsio doctor` warnings.
 ```
 
-**Install as a reusable Agent Skill** (works across every project)
+</details>
+
+<details>
+<summary><b>Install as a reusable Agent Skill</b> (works across every project)</summary>
 
 ```bash
 pip install sponsio
@@ -129,6 +146,8 @@ sponsio skill install        # auto-detects Cursor / Claude Code / Codex
 Drops `SKILL.md` into `~/.cursor/skills/sponsio/`, `~/.claude/skills/sponsio/`, or `~/.codex/skills/sponsio/`. Auto-triggers on *"add sponsio"*, *"add guardrails"*, *"explain my sponsio.yaml"*, *"why is this rule firing"*. Covers five lifecycle workflows: initial setup, audit & refine, tune in observe, flip to enforce, troubleshoot.
 
 Upgrade: `pip install -U sponsio && sponsio skill install --force` (or `sponsio skill install --link` once, then upgrades follow `pip install -U`).
+
+</details>
 
 ---
 
