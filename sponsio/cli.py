@@ -3636,6 +3636,21 @@ _BENCH_STOPWORDS = {
     is_flag=True,
     help="Emit the structured OnboardReport as JSON instead of text.",
 )
+@click.option(
+    "--push/--no-push",
+    default=False,
+    help=(
+        "After writing sponsio.yaml, push it to the local dashboard at "
+        "--push-url so it lands on the Scan page + Contract Library "
+        "(default: off; on is one round-trip per run, silently skipped "
+        "when the dashboard isn't up)."
+    ),
+)
+@click.option(
+    "--push-url",
+    default="http://127.0.0.1:8000",
+    help="Dashboard URL to push to (default: http://127.0.0.1:8000).",
+)
 def onboard(
     target: Path,
     agent_id: str,
@@ -3645,6 +3660,8 @@ def onboard(
     apply: bool,
     no_doctor: bool,
     as_json: bool,
+    push: bool,
+    push_url: str,
 ):
     """One-shot project wire-up — detect framework, write sponsio.yaml, print patch.
 
@@ -3756,6 +3773,27 @@ def onboard(
         click.echo()
         for ln in report.wrap_snippet.splitlines():
             click.echo(f"  {click.style(ln, fg='cyan')}")
+
+    # --push: surface the generated yaml in the local dashboard (one
+    # command == everything the dashboard needs). Silently skipped if
+    # the dashboard isn't running, so a CI invocation without `serve`
+    # up doesn't fail.
+    if push:
+        try:
+            yaml_content = report.out_path.read_text()
+        except Exception as e:
+            click.echo(
+                click.style("\n  push skipped: ", fg="yellow")
+                + f"could not read {report.out_path} ({e})"
+            )
+        else:
+            click.echo()
+            _push_scan_to_dashboard(
+                yaml_content=yaml_content,
+                filename=report.out_path.name,
+                dashboard_url=push_url,
+                source_paths=[str(target)],
+            )
 
     click.echo()
     click.echo("Next:")

@@ -54,6 +54,15 @@ export interface OnboardOptions {
    * (for CI, or to guarantee zero Python in the build graph).
    */
   pyNever: boolean;
+  /**
+   * After writing ``sponsio.yaml``, push it to the local dashboard at
+   * ``--push-url`` so it surfaces on the Scan page + Contract Library.
+   * Passed through to ``sponsio scan --push`` when Python is
+   * available; silently skipped by the fallback path (no dashboard
+   * client in the TS scanner).
+   */
+  push?: boolean;
+  pushUrl?: string;
 }
 
 export interface OnboardResult {
@@ -300,6 +309,10 @@ export async function runOnboard(opts: OnboardOptions): Promise<OnboardResult> {
       opts.agent,
     ];
     if (opts.llm) args.push("--llm");
+    if (opts.push) {
+      args.push("--push");
+      if (opts.pushUrl) args.push("--push-url", opts.pushUrl);
+    }
     // Run from the project root so default ``-o sponsio.yaml``-relative
     // paths line up. We pass an *absolute* -o, so CWD is only for any
     // relative path inside the scan engine; inventory is a temp file
@@ -400,6 +413,12 @@ function parseOnboardArgs(argv: string[]): OnboardOptions & { help: boolean } {
       out.pyNever = true;
     } else if (a === "--agent" || a === "-a") {
       out.agent = argv[++i] ?? "agent";
+    } else if (a === "--push") {
+      out.push = true;
+    } else if (a === "--no-push") {
+      out.push = false;
+    } else if (a === "--push-url") {
+      out.pushUrl = argv[++i];
     } else if (a.startsWith("-")) {
       process.stderr.write(`unknown flag: ${a}\n`);
       process.exit(2);
@@ -427,6 +446,8 @@ const ONBOARD_HELP = [
   "OPTIONS:",
   "  -a, --agent <id>   Agent id in yaml (default: agent, matches `sponsio scan`)",
   "  --llm              Pass --llm to `sponsio scan` (needs API keys; see docs/cli.md#provider-matrix)",
+  "  --push             Push the generated yaml to the local dashboard (needs `sponsio serve --dev` and Python)",
+  "  --push-url <url>   Dashboard URL (default: http://127.0.0.1:8000)",
   "  --force            Overwrite an existing sponsio.yaml",
   "  --py-never         Never call Python; always write the det-only fallback",
   "  -h, --help         Show this help",
@@ -450,6 +471,8 @@ export async function runOnboardCli(argv: string[]): Promise<void> {
     agent: p.agent,
     mode: p.mode,
     force: p.force,
+    push: p.push,
+    pushUrl: p.pushUrl,
     llm: p.llm,
     pyNever: p.pyNever,
   });
@@ -470,4 +493,3 @@ export async function runOnboardCli(argv: string[]): Promise<void> {
       "  export SPONSIO_MODE=enforce\n",
   );
 }
-
