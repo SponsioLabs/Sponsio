@@ -9,23 +9,23 @@
 </p>
 
 <p align="center">
-  <a href="https://x.com/sponsio_dev"><img src="https://img.shields.io/badge/Follow%20on%20X-000000?logo=x&logoColor=white" alt="Follow on X"></a>
+  <a href="https://x.com/sponsiolabs"><img src="https://img.shields.io/badge/Follow%20on%20X-000000?logo=x&logoColor=white" alt="Follow on X"></a>
   <a href="https://www.linkedin.com/company/sponsio"><img src="https://img.shields.io/badge/Follow%20on%20LinkedIn-0A66C2?logo=linkedin&logoColor=white" alt="Follow on LinkedIn"></a>
-  <a href="https://discord.gg/sponsio"><img src="https://img.shields.io/badge/Join%20our%20Discord-5865F2?logo=discord&logoColor=white" alt="Join our Discord"></a>
+  <a href="https://discord.gg/s8TfPnZWUm"><img src="https://img.shields.io/badge/Join%20our%20Discord-5865F2?logo=discord&logoColor=white" alt="Join our Discord"></a>
 </p>
 
 <p align="center">⭐ <em>Help us grow the Sponsio community for better Contract Library and enforcement scenarios. Star the repo!</em></p>
 
 # Sponsio
 
-**Runtime contract enforcement for AI agents.** Write rules in plain English. Sponsio enforces them at the action boundary — blocked before the side effect, regardless of what the model was instructed. Sub-10μs p99, zero LLM runtime cost, [covers all 10 OWASP Agentic risks](docs/owasp-agentic-top-10.md).
+**Runtime enforcement for AI agents.** Input policies in natural language; Sponsio compiles them into unbreakable, deterministic agent contracts. Enforced under 0.01ms p99, zero LLM runtime cost, [covers all 10 OWASP Agentic risks](docs/owasp-agentic-top-10.md).
 
-> An **agent contract** is a runtime check at the tool boundary — not a system-prompt instruction the model can ignore under pressure. Examples: *"after `run_aml_check`, no edits to loan files"* (19 of 24 SOTA models break this one), *"after reading `.env`, no `git commit` or `git push`"*, *"`issue_refund` at most 3 times per session"*. Violations are blocked before the call executes.
+> An **agent contract** is a runtime check at the tool boundary — not a system-prompt instruction the model can ignore or jailbreak. Take the rule *"after `run_aml_check`, no edits to loan files"*: **19 of 24 frontier models break it when given as a prompt; with Sponsio, none do.** Other contracts of the same shape: *"after reading `.env`, no `git commit` or `git push`"*, *"`issue_refund` at most 3 times per session"*. Every violation is blocked before the call executes.
 
-**Works with any stack.** LangGraph, Claude Agent SDK, OpenAI Agents SDK, Google ADK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop. Python and TypeScript.
+**Works with any stack.** LangGraph, Claude Agent SDK, OpenAI Agents SDK, Google ADK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop. Python and TypeScript. Prefer prompts? One-click [Cursor deeplink](#) above, or `sponsio skill install` drops a reusable agent skill into Cursor / Claude Code / Codex.
 
 > [!TIP]
-> **v0.1.x shipping.** `sponsio onboard` auto-detects framework + writes starter contracts; `sponsio serve --dev` bundles a live dashboard; ODCV-Bench baseline published. [Changelog →](CHANGELOG.md)
+> **Recent updates — v0.1.x.** `sponsio onboard` auto-detects framework + writes starter contracts; `sponsio serve --dev` bundles a live dashboard; ODCV-Bench baseline published. [Changelog →](CHANGELOG.md)
 
 <p align="center"><em>Demo video coming soon</em></p>
 
@@ -43,10 +43,10 @@ On [ODCV-Bench](#benchmarks--performance) — 12 LLMs × 80 KPI-pressure scenari
 
 ### Three contract types
 
-All deterministic, all checked before the side effect.
+All deterministic, all checked before the side effect. Phrases below are how you write rules in `sponsio.yaml` — Sponsio compiles each into a Linear Temporal Logic formula for [machine-checkable enforcement](docs/formal-methods.md).
 
-| Type | What it catches | Example |
-|------|------|---------|
+| Type | What it catches | Natural-language rule (compiles to LTL) |
+|------|-----------------|----------------------------------------|
 | **Per-action** | Prohibited or required tool calls | *"no `rm -rf`"* · *"`confirm_with_user` before `delete_file`"* |
 | **Sequential** | Out-of-order calls, post-gate tampering | *"`run_tests` before `deploy_production`"* · *"after `run_aml_check`, loan files immutable"* |
 | **Bounded** | Retry loops, delegation fan-out, token runaway | *"`check_balance` at most 5 times"* · *"delegation depth ≤ 3"* |
@@ -62,22 +62,19 @@ All deterministic, all checked before the side effect.
 
 `observe → report → enforce`. Start with every contract evaluated but nothing blocked; prune false positives from the report; flip `SPONSIO_MODE=enforce` with no code change. Live via `sponsio serve --dev` dashboard, or OTEL-export to your existing observability stack.
 
-### Compared to other approaches
+### Compared to existing solutions
 
-Sponsio is complementary, not competing:
-
-| Layer | Runs | Catches |
-|-------|------|---------|
-| System prompt | Before generation | — (advisory only; model may ignore) |
-| Output monitor | After generation | Bad text — not bad actions |
-| **Sponsio (det)** | **Before tool execution** | **Unsafe tool calls, file writes, API hits, DB mutations** |
-| Sponsio (sto) | After generation | Semantic violations — tone, scope, PII, metric integrity |
+| Existing solution | When it runs | Where it fails | How Sponsio fixes |
+|-------------------|--------------|----------------|-------------------|
+| System prompts | Before generation | Model can ignore or jailbreak under pressure; advisory only | Rules become runtime checks **outside the model**, at the tool boundary |
+| Output assertions / response filters | After generation | The unsafe action has already executed by the time bad text is flagged | Det contracts block the call **before** the side effect lands |
+| LLM-judge guardrails | In / around generation | Probabilistic, non-deterministic, costly on the hot path | Det path is formal & deterministic (sub-10μs, zero LLM calls); sto path is opt-in for fuzzy semantic checks |
 
 ### What it isn't
 
 - Not a prompt-injection shield — the model can still be fooled; Sponsio stops the *action*, not the thought
 - Not an output-assertion wrapper — those flag post-hoc; Sponsio blocks before the side effect
-- Not a probabilistic drift score — contracts are deterministic pass/fail
+- Not a probabilistic drift score — contracts are deterministic pass/fail, [backed by formal methods](docs/formal-methods.md)
 
 ---
 
@@ -507,6 +504,7 @@ Runnable: [python](examples/integrations/python/mcp_guard.py)
 - [Integrations](docs/integrations.md)
 - [Architecture](docs/architecture.md)
 - [OWASP Agentic Top 10 coverage](docs/owasp-agentic-top-10.md)
+- [Formal methods primer](docs/formal-methods.md)
 - [Changelog](CHANGELOG.md)
 
 *AI agents reading this repo: [`llms.txt`](llms.txt) lists canonical doc paths; [`llms-full.txt`](llms-full.txt) is the concatenated full context dump.*
@@ -522,6 +520,14 @@ Sponsio enforces runtime contracts, so its own correctness matters. Found someth
 ## Contributing
 
 Patches, issue reports, and new pattern proposals are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+## Important notes
+
+Sponsio enforces runtime contracts that *you* define — it does not certify your application's compliance with any regulatory framework. If you operate in regulated domains (HIPAA, GDPR, SOX, EU AI Act, financial services, healthcare), Sponsio's controls and our [OWASP Agentic Top 10 mapping](docs/owasp-agentic-top-10.md) are inputs to your compliance program. They are **not** substitutes for qualified security audit, legal review, or domain-specific regulatory analysis. Author your contracts with appropriate review and revisit them when your agent's tool surface changes.
+
+Det contracts give you machine-checkable enforcement at the action boundary. They do not protect against vulnerabilities upstream of Sponsio (compromised LLM provider, malicious tools you've allowlisted, infrastructure-layer risks like transport encryption / SBOM provenance). See [`SECURITY.md`](SECURITY.md) for the full scope.
 
 ---
 
