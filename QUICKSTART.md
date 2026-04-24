@@ -204,4 +204,4 @@ sponsio validate --config sponsio.yaml # parse + structural checks (CI-friendly)
 sponsio check --trace trace.json --config sponsio.yaml --agent agent
 ```
 
-More: [`docs/README.md`](docs/README.md) (full doc index) · [`docs/integrations.md`](docs/integrations.md) · [`docs/cli.md`](docs/cli.md) · [`docs/architecture.md`](docs/architecture.md).
+More: [`docs/integrations.md`](docs/integrations.md) · [`docs/cli.md`](docs/cli.md) · [`docs/contracts.md`](docs/contracts.md) · [`docs/architecture.md`](docs/architecture.md).

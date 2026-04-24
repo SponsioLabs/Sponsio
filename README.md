@@ -704,7 +704,6 @@ Full design: [docs/architecture.md](docs/architecture.md).
 
 ## Docs
 
-- [Documentation index](docs/README.md)
 - [Quick start](QUICKSTART.md)
 - [Contract DSL](docs/contracts.md) · [Stochastic atoms](docs/sto-atoms.md)
 - [CLI Reference](docs/cli.md)

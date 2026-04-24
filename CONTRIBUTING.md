@@ -222,4 +222,22 @@ path. We'll acknowledge within 72 hours and coordinate disclosure.
 - **`docs/`** for anything that's already been written up — please
   check before filing.
 
+---
+
+## What belongs in this repo (and what doesn't)
+
+**Ship with open source:** user-facing guides, contract and architecture reference, design notes (e.g. [`docs/cost-based-thresholds.md`](docs/cost-based-thresholds.md)), and sto calibration concepts.
+
+**Keep out of the public tree** (or redact before publishing):
+
+- Roadmaps, launch checklists, and status dashboards (`STATUS.md`, `PLAN.md`, `LAUNCH_*.md`) — they go stale and can imply commitments.
+- Narration scripts for a specific demo or video (`demo-video-script.md` is gitignored for that reason) — not end-user documentation.
+- Benchmark result tables and eval lab notebooks — headline figures may be published in the root [`README.md`](README.md#benchmarks); raw tables and model-by-model numbers stay private. Paths under `docs/` that match those names are in `.gitignore`; never `git add -f`.
+- Internal agent/project notes under `agent_docs/` or similar.
+- Anything with real customer names, private URLs, API keys, or unreleased product detail.
+
+**Runtime data** — the whole `data/` tree is local-only except the stub README; see [`data/README.md`](data/README.md).
+
+---
+
 Thanks for contributing.
