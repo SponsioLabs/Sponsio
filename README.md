@@ -58,13 +58,13 @@ LLM ─▶ Sponsio Boundary ─▶ Tool / API / DB / File
 
 ## Quick start
 
-Example: LangGraph + Python. No Docker, no API key needed.
+Example: LangGraph + Python. No Docker, no API key needed. For more frameworks, see [Integrations](#integrations).
 
 ```bash
 # 1. Install
 pip install sponsio
 
-# 2. Onboard — scan project, write sponsio.yaml, print a snippet to paste
+# 2. Onboard — scan project, write sponsio.yaml with starter contracts, print a snippet to paste
 sponsio onboard .
 ```
 
@@ -89,6 +89,16 @@ Four ways to populate `sponsio.yaml`:
 
 See [docs/contracts.md](docs/contracts.md) for syntax.
 
+Run your agent in observe mode — contracts evaluate, nothing blocks. Would-have-blocked decisions land in `~/.sponsio/sessions/<agent_id>/*.jsonl`.
+
+```bash
+# 3. After some traffic, review what would have been blocked
+sponsio report --since 1h
+
+# 4. Flip to enforce when confident — no code change
+export SPONSIO_MODE=enforce
+```
+
 <details>
 <summary><b>TypeScript</b> — LangChain.js / LangGraph equivalent</summary>
 
@@ -112,16 +122,6 @@ const toolNode = new ToolNode(wrapTools(tools, guard));
 YAML config (`config="sponsio.yaml"`) is Python-only today; TS honours the same `SPONSIO_MODE` env var and writes to the same session log.
 
 </details>
-
-Run your agent in observe mode — contracts evaluate, nothing blocks. Would-have-blocked decisions land in `~/.sponsio/sessions/<agent_id>/*.jsonl`.
-
-```bash
-# 3. After some traffic, review what would have been blocked
-sponsio report --since 1h
-
-# 4. Flip to enforce when confident — no code change
-export SPONSIO_MODE=enforce
-```
 
 <details>
 <summary><b>One-shot prompt</b> (Cursor / Claude Code / Codex)</summary>
