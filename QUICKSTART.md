@@ -119,7 +119,7 @@ Or the live dashboard:
 ```bash
 sponsio serve --dev
 # API → http://localhost:8000
-# UI  → http://localhost:5173
+# UI  → http://localhost:3000
 ```
 
 ## 5. Flip to enforce

@@ -30,7 +30,27 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { pid } from "node:process";
+
+/**
+ * Lazily resolve a process id, defaulting to ``0`` on runtimes
+ * without a ``process`` global. Cloudflare Workers / Vercel Edge
+ * expose a ``process`` shim but no ``pid`` — the previous
+ * top-level ``import { pid } from "node:process"`` blew up module
+ * load time on those runtimes, contradicting the package.json's
+ * "Edge/Serverless compatible" claim. Callers that actually need
+ * a distinct stamp per session (local dev + server processes) still
+ * get one; Edge users trivially collide with ``0`` but they also
+ * typically pass ``sessionLog: false`` because ``~/.sponsio`` isn't
+ * writable there. Either way the module loads.
+ */
+function resolvePid(): number {
+  try {
+    const p = (globalThis as { process?: { pid?: unknown } }).process;
+    return typeof p?.pid === "number" ? p.pid : 0;
+  } catch {
+    return 0;
+  }
+}
 
 const DEFAULT_KEEP_DAYS = 7;
 const DEFAULT_MAX_MB = 100;
@@ -240,7 +260,7 @@ export class SessionLogger {
     }
 
     const stamp = options.timestamp ?? timestampStamp();
-    this.path = join(agentDir, `${stamp}_${pid}.jsonl`);
+    this.path = join(agentDir, `${stamp}_${resolvePid()}.jsonl`);
   }
 
   log(record: SessionRecord): void {

@@ -6,12 +6,30 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./claude-agent": "./dist/integrations/claude-agent.js",
-    "./vercel-ai": "./dist/integrations/vercel-ai.js",
-    "./openai": "./dist/integrations/openai.js",
-    "./openai-agents": "./dist/integrations/openai-agents.js",
-    "./langchain": "./dist/integrations/langchain.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./claude-agent": {
+      "types": "./dist/integrations/claude-agent.d.ts",
+      "default": "./dist/integrations/claude-agent.js"
+    },
+    "./vercel-ai": {
+      "types": "./dist/integrations/vercel-ai.d.ts",
+      "default": "./dist/integrations/vercel-ai.js"
+    },
+    "./openai": {
+      "types": "./dist/integrations/openai.d.ts",
+      "default": "./dist/integrations/openai.js"
+    },
+    "./openai-agents": {
+      "types": "./dist/integrations/openai-agents.d.ts",
+      "default": "./dist/integrations/openai-agents.js"
+    },
+    "./langchain": {
+      "types": "./dist/integrations/langchain.d.ts",
+      "default": "./dist/integrations/langchain.js"
+    }
   },
   "files": [
     "dist/",

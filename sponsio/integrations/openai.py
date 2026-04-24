@@ -207,18 +207,32 @@ class OpenAIGuard(BaseGuard):
         """
         results: list[CheckResult] = []
 
-        for choice in response.choices:
+        # Both ``usage.prompt_tokens`` and ``usage.completion_tokens``
+        # are response-level totals — the prompt is billed once
+        # regardless of ``n``, and completion tokens are the *sum*
+        # across all choices. Forwarding them per-choice inflated
+        # ``token_count`` / ``context_length`` atoms by ``n×``, so
+        # ``token_budget`` contracts fired early on any ``n>1``
+        # completion. Attribute both to the first choice only — every
+        # subsequent choice records text content for ``llm_said`` /
+        # ``output_has`` atoms but leaves token accounting alone.
+        usage = getattr(response, "usage", None)
+        prompt_tokens_total = (
+            getattr(usage, "prompt_tokens", None) if usage else None
+        )
+        completion_tokens_total = (
+            getattr(usage, "completion_tokens", None) if usage else None
+        )
+
+        for idx, choice in enumerate(response.choices):
             message = choice.message
 
             # Observe LLM response content (enables llm_said, token_count)
             content = getattr(message, "content", None)
-            usage = getattr(response, "usage", None)
             self.observe_llm_call(
                 response=content or "",
-                input_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
-                output_tokens=getattr(usage, "completion_tokens", None)
-                if usage
-                else None,
+                input_tokens=prompt_tokens_total if idx == 0 else None,
+                output_tokens=completion_tokens_total if idx == 0 else None,
             )
 
             if not hasattr(message, "tool_calls") or not message.tool_calls:
@@ -447,6 +461,24 @@ def patch_openai(
         sto_judge=sto_judge,
         on_violation=on_violation,
     )
+    # Warn when replacing an in-flight guard — notebooks that re-run a
+    # cell, test suites that don't tear down, or apps that swap
+    # contract sets at runtime otherwise leave the previous guard
+    # orphaned (still referenced by user code, but no longer wired to
+    # the SDK). A warning is cheap; silently swapping leaks violations.
+    if _active_guard is not None and _active_guard is not guard:
+        import warnings
+
+        warnings.warn(
+            f"patch_openai() replacing an active guard (agent_id="
+            f"{_active_guard.agent_id!r}) with a new one (agent_id="
+            f"{guard.agent_id!r}). The previous guard is now orphaned "
+            "— any code still holding a reference will keep seeing its "
+            "old state, but new `client.chat.completions.create(...)` "
+            "calls are routed to the new guard. Call `unpatch_openai()` "
+            "before re-patching if you want a clean swap.",
+            stacklevel=2,
+        )
     _active_guard = guard
 
     # Save originals (only on first patch)

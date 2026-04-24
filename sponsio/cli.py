@@ -1640,22 +1640,42 @@ def serve(host: str, port: int, dev: bool):
     click.echo(f"  {click.style('API docs', fg='cyan')}: {url}/docs")
 
     if dev:
-        # Start frontend dev server in background
+        # Start frontend dev server in background. Pre-flight the
+        # two things that silently cause "Frontend URL prints but UI
+        # never comes up" bug reports: (a) ``npm`` not on PATH, (b)
+        # ``web/node_modules`` hasn't been installed yet. Both used
+        # to just throw subprocess errors into /dev/null.
+        import shutil
+
         web_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
-        if os.path.isdir(web_dir):
+        npm_path = shutil.which("npm")
+        node_modules = os.path.join(web_dir, "node_modules")
+        if not os.path.isdir(web_dir):
+            click.echo(
+                click.style("  Warning: ", fg="yellow")
+                + f"web/ directory not found at {web_dir}, skipping frontend.\n"
+            )
+        elif npm_path is None:
+            click.echo(
+                click.style("  Warning: ", fg="yellow")
+                + "`npm` not on PATH — frontend skipped. Install Node.js "
+                + "(https://nodejs.org) and re-run with --dev.\n"
+            )
+        elif not os.path.isdir(node_modules):
+            click.echo(
+                click.style("  Warning: ", fg="yellow")
+                + f"{node_modules} not found — run `cd web && npm install` "
+                + "first, then retry `sponsio serve --dev`.\n"
+            )
+        else:
             click.echo(
                 f"  {click.style('Frontend', fg='cyan')}: http://localhost:3000\n"
             )
             subprocess.Popen(
-                ["npm", "run", "dev"],
+                [npm_path, "run", "dev"],
                 cwd=web_dir,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-            )
-        else:
-            click.echo(
-                click.style("  Warning: ", fg="yellow")
-                + f"web/ directory not found at {web_dir}, skipping frontend.\n"
             )
     else:
         click.echo()
