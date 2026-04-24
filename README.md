@@ -3,8 +3,9 @@
 <p align="center">
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-orange.svg" alt="License"></a>
   <a href="https://pypi.org/project/sponsio/"><img src="https://img.shields.io/pypi/dm/sponsio?color=blue&label=downloads" alt="PyPI Downloads"></a>
-  <a href="#quick-start"><img src="https://img.shields.io/badge/Set%20Up%20with-Prompt-181818?labelColor=555555" alt="Set Up With Prompt"></a>
-  <a href="https://sponsio.dev"><img src="https://img.shields.io/badge/Visit-sponsio.dev-181818?labelColor=555555" alt="Visit sponsio.dev"></a>
+  <a href="https://cursor.com/link/prompt?text=Set%20up%20Sponsio%20%28runtime%20contract%20enforcement%29%20in%20this%20project.%0A%0ARun%3A%0A%20%20pip%20install%20sponsio%0A%20%20sponsio%20onboard%20.%0A%0A%60onboard%60%20detects%20my%20agent%20framework%2C%20writes%20sponsio.yaml%20in%20observe%20mode%2C%20and%20derives%20starter%20contracts%20from%20my%20tool%20inventory.%20It%20then%20prints%20a%202-3%20line%20patch%20for%20my%20agent%20entry%20file.%0A%0AApply%20the%20patch.%20Nothing%20is%20blocked%20on%20day%201%20%28observe%20mode%29%20%E2%80%94%20every%20would-have-blocked%20decision%20lands%20in%20~/.sponsio/sessions/%3Cagent_id%3E/%2A.jsonl.%0A%0AAfter%20running%2C%20show%20me%3A%20the%20generated%20sponsio.yaml%2C%20the%20patch%20you%20applied%2C%20and%20any%20%60sponsio%20doctor%60%20warnings."><img src="https://img.shields.io/badge/Set%20Up%20with-Cursor-181818?logo=cursor&logoColor=white&labelColor=555555" alt="Set Up With Cursor"></a>
+  <a href="https://sponsio.dev"><img src="https://img.shields.io/badge/Visit-sponsio.dev-181818?logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxODAgMTgwIj48ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgtNDAyLC03NzApIHRyYW5zbGF0ZSgwLDIwNDgpIHNjYWxlKDAuMSwtMC4xKSIgZmlsbD0iI0I0RUE0QyI%2bPHBhdGggZD0iTTUwMTAgMTI1MDEgYy01OCAtOSAtMTg3IC00MSAtMjY3IC02NiAtMjYgLTkgLTk5IC00MSAtMTYwIC03MSAtMzU0IC0xNzQgLTYxMyAtNDc2IC03MzYgLTg1OSAtNDMgLTEzMyAtNjQgLTI1MSAtNzMgLTQwNyBsLTcgLTExOCAtNDYyIDAgLTQ2MyAwIC02IC0yMiBjLTMgLTEzIC0zIC02NiAwIC0xMTggMTYgLTI4NCAxMDYgLTU1NiAyNjAgLTc4OCAxMTMgLTE2OCAzMjQgLTM1NiA1MTYgLTQ2MCAyNzIgLTE0NyA2MzcgLTE5MCA5NjggLTExNSAyMzYgNTMgNDU2IDE3OCA2NDAgMzYzIDI3MiAyNzMgNDEzIDYxMSA0MjMgMTAyMCBsMyAxMTUgNDU1IDUgNDU0IDUgMyA0NSBjNCA0NyAtMTIgMjA3IC0yOSAzMDAgLTEwNyA1OTIgLTUyMyAxMDMxIC0xMDk0IDExNTcgLTc5IDE3IC0zNDEgMjYgLTQyNSAxNHogbTMyMCAtOTYwIGM3MyAtMjcgMTYyIC05OSAyMDUgLTE2NCA1OCAtODcgMTA0IC0yMzkgMTA1IC0zNDUgbDAgLTUyIC00NTcgMiAtNDU4IDMgLTMgNDggYy01IDczIDI0IDIwNCA2MCAyNzcgNjEgMTE5IDE5MSAyMjUgMzEwIDI1MCA2NCAxMyAxNzYgNSAyMzggLTE5eiBtLTYxMiAtNjQxIGMxMyAtMjk1IC0xOTEgLTUyMCAtNDcwIC01MjAgLTIxNyAwIC0zOTMgMTQ0IC00NTMgMzcxIC0xNSA1NSAtMjAgMjEwIC04IDIyMiAzIDQgMjE0IDYgNDY3IDUgbDQ2MSAtMyAzIC03NXoiLz48L2c%2bPC9zdmc%2b&logoColor=white&labelColor=555555" alt="Visit sponsio.dev"></a>
+  <a href="docs/owasp-agentic-top-10.md"><img src="https://img.shields.io/badge/OWASP%20Agentic%20Top%2010-10%2F10%20Covered-2E7D32?labelColor=555555" alt="OWASP Agentic Top 10 Covered"></a>
 </p>
 
 <p align="center">
@@ -17,7 +18,7 @@
 
 # Sponsio
 
-**Runtime contract enforcement for AI agents.** Write rules in plain English. Sponsio enforces them at the action boundary — blocked before the side effect, regardless of what the model was instructed. Sub-10μs p99, zero LLM runtime cost, covers all 10 OWASP Agentic risks.
+**Runtime contract enforcement for AI agents.** Write rules in plain English. Sponsio enforces them at the action boundary — blocked before the side effect, regardless of what the model was instructed. Sub-10μs p99, zero LLM runtime cost, [covers all 10 OWASP Agentic risks](docs/owasp-agentic-top-10.md).
 
 > An **agent contract** is a runtime check at the tool boundary — not a system-prompt instruction the model can ignore under pressure. Examples: *"after `run_aml_check`, no edits to loan files"* (19 of 24 SOTA models break this one), *"after reading `.env`, no `git commit` or `git push`"*, *"`issue_refund` at most 3 times per session"*. Violations are blocked before the call executes.
 
@@ -45,7 +46,7 @@ On [ODCV-Bench](#benchmarks) — 12 LLMs × 80 KPI-pressure scenarios where SOTA
 
 **Four ways to write them:** auto-inferred from your tool signatures (`sponsio onboard`), picked from the **pattern library** (29 patterns + starter bundles for Claude Code, OpenAI Agents SDK, CrewAI, MCP), written in natural language (`sponsio validate "..."` compiles to LTL), or extracted from a policy doc (`sponsio scan --policy security.md`).
 
-**Rollout path.** Start in observe mode — every would-have-blocked decision logged, nothing blocked. Flip `SPONSIO_MODE=enforce` with no code change once the report is clean. OTEL export ships violations to your existing observability stack.
+**Rollout path.** Start in observe mode — every would-have-blocked decision logged, nothing blocked. Flip `SPONSIO_MODE=enforce` with no code change once the report is clean. Run `sponsio serve --dev` for the bundled dashboard (live span tree, per-contract pass rates, violation feed), or OTEL-export violations to your existing observability stack.
 
 **What it isn't.** Not a prompt-injection shield (the model can still be fooled — Sponsio stops the *action*, not the thought). Not an output-assertion wrapper (those flag post-hoc; Sponsio blocks before the side effect). Not a probabilistic drift score (contracts are deterministic pass/fail).
 
@@ -197,11 +198,7 @@ Run the packaged versions locally with `sponsio demo --scenario cleanup|trial|lo
 
 ---
 
-## Why Sponsio
-
-Most LLM safety acts on text. Sponsio acts on actions:
-`LLM ─▶ Sponsio Boundary ─▶ Tool / API / DB / File`.
-
+## Compared to other approaches
 
 | Approach                              | Where it acts                    | Best at                                                                    |
 | ------------------------------------- | -------------------------------- | -------------------------------------------------------------------------- |
@@ -209,9 +206,6 @@ Most LLM safety acts on text. Sponsio acts on actions:
 | Output assertions / response monitors | After generation                 | PII, tone, format, rubric checks                                           |
 | **Sponsio det contracts**             | **Before tool/action execution** | **Ordering, rate limits, irreversible-action gates, argument/path safety** |
 | **Sponsio sto contracts**             | After output / trace observation | Semantic PII, scope respect, hallucination, metric integrity               |
-
-
-Action-boundary enforcement is the differentiator: Sponsio is built to stop unsafe tool calls *before* side effects happen, while still covering output-quality rules when you need them.
 
 ---
 
@@ -527,6 +521,13 @@ Runnable: [python](examples/integrations/python/mcp_guard.py)
 - [CLI Reference](docs/cli.md)
 - [Integrations](docs/integrations.md)
 - [Architecture](docs/architecture.md)
+- [OWASP Agentic Top 10 coverage](docs/owasp-agentic-top-10.md)
+
+---
+
+## Security
+
+Sponsio enforces runtime contracts, so its own correctness matters. Found something? Report privately via GitHub's [security advisory form](https://github.com/SponsioLabs/Sponsio/security/advisories/new) rather than a public issue. See [SECURITY.md](SECURITY.md) for scope, timelines, and what counts as in-scope (enforce-mode bypasses, LTL-evaluator crashes, session-log leakage, judge-prompt injection, etc.).
 
 ---
 
