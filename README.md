@@ -1,4 +1,4 @@
-Sponsio
+![Sponsio](assets/readme-banner.png)
 
 # Sponsio
 
