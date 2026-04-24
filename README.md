@@ -26,17 +26,33 @@ A **contract** is a rule for what your agent can and can't do — e.g. *"must ca
 
 ---
 
-## Contents
+## What Sponsio is (and isn't)
 
-- [Quick start](#quick-start) — install, onboard, paste the patch, observe → enforce
-- [See it in action](#see-it-in-action) — three real LLM-gone-wrong trajectories, blocked
-- [Why Sponsio](#why-sponsio) — what it is and isn't
-- [Benchmarks](#benchmarks) — headline numbers
-- [Performance](#performance) — μs-level det evaluator, no LLM on hot path
-- [Pattern Library](#pattern-library) — 29 det patterns + sto catalog
-- [From demo to production](#from-demo-to-production) — staged rollout
-- [Integrations](#integrations) — every supported framework
-- [Architecture](#architecture)
+Sponsio sits at the boundary between your agent and the tools it can call:
+
+```
+LLM ─▶ Sponsio Boundary ─▶ Tool / API / DB / File
+```
+
+**It is:**
+
+- Pre-execution enforcement for tool / action behavior
+- Temporal trace contracts — ordering, history, rate limits, irreversible-action gates
+- A deterministic hot path (zero LLM calls), plus an optional stochastic pipeline for fuzzy checks
+
+**It isn't:**
+
+- A prompt-injection or jailbreak shield
+- A text-only output-assertion library
+- A drift / reliability scoring framework
+
+### Why us
+
+- Action-boundary enforcement — unsafe tool calls are blocked *before* side effects, not flagged after
+- Temporal contracts — express "A before B", "never B after A", "after X, Y is immutable", "at most N calls"
+- Deterministic and fast — sub-10μs p99, zero LLM calls on the hot path ([details →](#performance))
+- Framework-optional — LangGraph, Claude Agent SDK, OpenAI, CrewAI, Vercel AI, MCP, or any custom loop
+- SOTA safety results — ~84% protection on ODCV-Bench high-risk trajectories ([details →](#benchmarks))
 
 ---
 
@@ -408,22 +424,256 @@ Once your det layer is stable, layer in fuzzy output-quality rules — tone, sco
 
 ## Integrations
 
-2-3 lines to integrate. Python and TypeScript share the same engine and DSL.
+Pick your framework — each block expands to a drop-in snippet. Python and TypeScript share the same engine and DSL.
 
+<details>
+<summary><b>No framework</b> — custom tool-calling loop</summary>
 
-| Framework                    | Python                                                   | TypeScript                                 |
-| ---------------------------- | -------------------------------------------------------- | ------------------------------------------ |
-| **No framework**             | `sponsio.Sponsio(...)` + `guard.guard_before()`          | `new Sponsio(...)` + `guard.guardBefore()` |
-| **LangGraph / LangChain.js** | `from sponsio.langgraph import Sponsio`                  | `wrapTools(tools, guard)`                  |
-| **Claude Agent SDK**         | `from sponsio.claude_agent import Sponsio`               | `sponsioHooks(guard)`                      |
-| **OpenAI SDK**               | `from sponsio.openai import Sponsio` (or `patch_openai`) | `wrapOpenAI(client, guard)`                |
-| **Vercel AI SDK**            | `from sponsio.vercel_ai import Sponsio`                  | `sponsioMiddleware(guard)`                 |
-| **OpenAI Agents SDK**        | `from sponsio.agents import Sponsio`                     | —                                          |
-| **CrewAI**                   | `from sponsio.crewai import Sponsio`                     | —                                          |
-| **MCP**                      | `from sponsio.mcp import MCPContractProxy`               | —                                          |
+```python
+from sponsio import Sponsio
 
+guard = Sponsio(
+    agent_id="bank_bot",
+    contracts=[
+        "tool `verify_identity` must precede `transfer_funds`",
+        "tool `transfer_funds` at most 3 times",
+    ],
+)
 
-Runnable examples for every framework: `[examples/integrations/](examples/integrations/)`.
+for name, args in agent_calls:
+    result = guard.guard_before(name, args)
+    if result.blocked:
+        continue
+    output = tools[name](**args)
+    guard.guard_after(name, output)
+```
+
+```typescript
+import { Sponsio } from "@sponsio/sdk";
+
+const guard = new Sponsio({
+  agentId: "bank_bot",
+  contracts: [
+    "tool `verify_identity` must precede `transfer_funds`",
+    "tool `transfer_funds` at most 3 times",
+  ],
+});
+
+const result = guard.guardBefore(name, args);
+if (!result.blocked) {
+  const output = tools[name](args);
+  guard.guardAfter(name, output);
+}
+```
+
+Runnable: [python](examples/integrations/python/vanilla_guard.py) · [typescript](examples/integrations/typescript/vanilla_guard.mjs)
+
+</details>
+
+<details>
+<summary><b>LangGraph / LangChain.js</b> — wrap tools</summary>
+
+```python
+from sponsio.langgraph import Sponsio
+from langgraph.prebuilt import create_react_agent
+
+guard = Sponsio(
+    agent_id="hr_bot",
+    contracts=["must call `run_background_check` before `approve_candidate`"],
+)
+agent = create_react_agent(llm, guard.wrap(tools))
+```
+
+```typescript
+import { Sponsio } from "@sponsio/sdk";
+import { wrapTools } from "@sponsio/sdk/langchain";
+import { ToolNode } from "@langchain/langgraph/prebuilt";
+
+const guard = new Sponsio({
+  agentId: "hr_bot",
+  contracts: ["must call `run_background_check` before `approve_candidate`"],
+});
+const toolNode = new ToolNode(wrapTools(tools, guard));
+```
+
+Runnable: [python](examples/integrations/python/langgraph_guard.py) · [typescript](examples/integrations/typescript/langgraph_guard.mjs)
+
+</details>
+
+<details>
+<summary><b>Claude Agent SDK</b> — native hooks, zero tool wrapping</summary>
+
+```python
+from sponsio.claude_agent import Sponsio
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+
+guard = Sponsio(
+    agent_id="support_bot",
+    contracts=["must call `check_policy` before `issue_refund`"],
+)
+options = ClaudeAgentOptions(hooks=guard.hooks())
+
+async with ClaudeSDKClient(options=options) as client:
+    await client.query("Refund order #W456.")
+```
+
+```typescript
+import { Sponsio } from "@sponsio/sdk";
+import { sponsioHooks } from "@sponsio/sdk/claude-agent";
+
+const guard = new Sponsio({
+  agentId: "support_bot",
+  contracts: ["must call `check_policy` before `issue_refund`"],
+});
+const hooks = sponsioHooks(guard);
+// Pass `hooks` to ClaudeSDKClient options.
+```
+
+Runnable: [python](examples/integrations/python/claude_agent_guard.py) · [typescript](examples/integrations/typescript/claude_agent_guard.mjs)
+
+</details>
+
+<details>
+<summary><b>OpenAI SDK</b> — monkey-patch or explicit wrap</summary>
+
+Easiest — patch the global client:
+
+```python
+from sponsio.openai import patch_openai, unpatch_openai
+
+guard = patch_openai(
+    agent_id="db_admin",
+    contracts=["must call `preview_query` before `execute_query`"],
+)
+# All openai.chat.completions.create(...) calls now go through Sponsio.
+# unpatch_openai() restores the original behavior.
+```
+
+Or explicit — check each response yourself:
+
+```python
+from sponsio.openai import Sponsio
+
+guard = Sponsio(agent_id="db_admin", contracts=[...])
+resp = client.chat.completions.create(...)
+guard.check_response(resp)
+```
+
+```typescript
+import OpenAI from "openai";
+import { Sponsio } from "@sponsio/sdk";
+import { wrapOpenAI } from "@sponsio/sdk/openai";
+
+const guard = new Sponsio({ agentId: "db_admin", contracts: [...] });
+const client = wrapOpenAI(new OpenAI(), guard);
+```
+
+Runnable: [python](examples/integrations/python/openai_guard.py) · [typescript](examples/integrations/typescript/openai_guard.mjs)
+
+</details>
+
+<details>
+<summary><b>OpenAI Agents SDK</b> — wrap Agent tools</summary>
+
+```python
+from sponsio.agents import Sponsio
+from agents import Agent, Runner
+
+guard = Sponsio(
+    agent_id="deploy_bot",
+    contracts=["must call `run_tests` before `deploy_production`"],
+)
+
+agent = Agent(
+    name="deploy_bot",
+    instructions="Ship v2.1 to production.",
+    tools=guard.wrap([run_tests, deploy_staging, deploy_production]),
+)
+
+result = Runner.run_sync(agent, "Deploy v2.1 now.")
+```
+
+TypeScript: not yet supported.
+
+Runnable: [python](examples/integrations/python/agents_sdk_guard.py)
+
+</details>
+
+<details>
+<summary><b>Vercel AI SDK</b> — middleware</summary>
+
+```python
+from sponsio.vercel_ai import Sponsio
+
+guard = Sponsio(
+    agent_id="publish_bot",
+    contracts=["must call `review_content` before `publish_post`"],
+)
+
+async for msg in agent.run(model, messages, middleware=[guard.wrap()]):
+    ...
+```
+
+```typescript
+import { Sponsio } from "@sponsio/sdk";
+import { sponsioMiddleware } from "@sponsio/sdk/vercel-ai";
+
+const guard = new Sponsio({
+  agentId: "publish_bot",
+  contracts: ["must call `review_content` before `publish_post`"],
+});
+const middleware = sponsioMiddleware(guard);
+```
+
+Runnable: [python](examples/integrations/python/vercel_ai_guard.py) · [typescript](examples/integrations/typescript/vercel_ai_guard.mjs)
+
+</details>
+
+<details>
+<summary><b>CrewAI</b> — Crew-level hooks</summary>
+
+```python
+from sponsio.crewai import Sponsio
+from crewai import Agent, Crew, Task
+
+guard = Sponsio(
+    agent_id="moderator",
+    contracts=["permission `admin_permission` granted before `delete_content`"],
+)
+
+crew = Crew(
+    agents=[agent],
+    tasks=[task],
+    before_tool_call=guard.on_tool_start,
+    after_tool_call=guard.on_tool_end,
+)
+result = crew.kickoff()
+```
+
+TypeScript: not yet supported.
+
+Runnable: [python](examples/integrations/python/crewai_guard.py)
+
+</details>
+
+<details>
+<summary><b>MCP</b> — proxy the MCP client</summary>
+
+```python
+from sponsio.mcp import MCPContractProxy
+
+# Build a sponsio System from your contracts — see runnable example for full wire-up.
+proxy = MCPContractProxy(mcp_client=your_mcp_client, system=system)
+
+# Use `proxy` wherever you called the raw MCP client; contracts apply transparently.
+result = await proxy.call_tool("write_external_api", {"data": "batch_1"})
+```
+
+TypeScript: not yet supported.
+
+Runnable: [python](examples/integrations/python/mcp_guard.py)
+
+</details>
 
 ---
 
