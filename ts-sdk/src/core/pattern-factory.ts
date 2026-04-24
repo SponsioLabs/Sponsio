@@ -32,6 +32,12 @@ import {
   segregationOfDuty,
   boundedRetry,
   loopDetection,
+  dryRunBeforeCommit,
+  backupBeforeDestructive,
+  auditAfter,
+  approvalFreshness,
+  sanitizedBeforeSink,
+  duplicateCallLimit,
   argBlacklist,
   scopeLimit,
   argLengthLimit,
@@ -224,6 +230,39 @@ export function buildPatternByName(
         asStr(needArg(args, 0, "action"), "action"),
         asNum(needArg(args, 1, "max_consecutive"), "max_consecutive"),
       );
+    case "dry_run_before_commit":
+      return dryRunBeforeCommit(
+        asStr(needArg(args, 0, "dry_run"), "dry_run"),
+        asStr(needArg(args, 1, "commit"), "commit"),
+      );
+    case "backup_before_destructive":
+      return backupBeforeDestructive(
+        asStr(needArg(args, 0, "backup"), "backup"),
+        asStr(needArg(args, 1, "action"), "action"),
+      );
+    case "audit_after":
+      return auditAfter(
+        asStr(needArg(args, 0, "action"), "action"),
+        asStr(needArg(args, 1, "audit"), "audit"),
+      );
+    case "approval_freshness":
+      return approvalFreshness(
+        asStr(needArg(args, 0, "approval"), "approval"),
+        asStr(needArg(args, 1, "action"), "action"),
+        asNum(needArg(args, 2, "steps"), "steps"),
+      );
+    case "sanitized_before_sink":
+      return sanitizedBeforeSink(
+        asStr(needArg(args, 0, "source"), "source"),
+        asStr(needArg(args, 1, "sanitizer"), "sanitizer"),
+        asStr(needArg(args, 2, "sink"), "sink"),
+      );
+    case "duplicate_call_limit":
+      return duplicateCallLimit(
+        asStr(needArg(args, 0, "tool"), "tool"),
+        asStr(needArg(args, 1, "args_pattern"), "args_pattern"),
+        asNum(needArg(args, 2, "max_count"), "max_count"),
+      );
 
     // Exclusion
     case "mutual_exclusion":
@@ -332,6 +371,12 @@ export const KNOWN_DET_PATTERNS: readonly string[] = Object.freeze([
   "deadline",
   "bounded_retry",
   "loop_detection",
+  "dry_run_before_commit",
+  "backup_before_destructive",
+  "audit_after",
+  "approval_freshness",
+  "sanitized_before_sink",
+  "duplicate_call_limit",
   "mutual_exclusion",
   "tool_allowlist",
   "arg_blacklist",

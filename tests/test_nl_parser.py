@@ -183,6 +183,21 @@ class TestKeywordRuleMatching:
         assert result is not None
         assert result[0] == "idempotent"
 
+    def test_dry_run_before_commit_keyword(self):
+        result = _match_keyword_rule("dry run must happen before apply")
+        assert result is not None
+        assert result[0] == "dry_run_before_commit"
+
+    def test_approval_freshness_keyword(self):
+        result = _match_keyword_rule("deploy requires fresh approval within 3 steps")
+        assert result is not None
+        assert result[0] == "approval_freshness"
+
+    def test_duplicate_call_limit_keyword(self):
+        result = _match_keyword_rule("same request at most 2 times")
+        assert result is not None
+        assert result[0] == "duplicate_call_limit"
+
 
 # ---------------------------------------------------------------------------
 # parse_nl_rule_based: end-to-end NL → ParsedConstraint
@@ -208,6 +223,41 @@ class TestParseNLRuleBased:
         r = parse_nl_rule_based("tools `approve` and `reject` are mutually exclusive")
         assert r.ok
         assert r.pattern_name == "mutual_exclusion"
+
+    def test_dry_run_before_commit(self):
+        r = parse_nl_rule_based("`plan_migration` dry run before `apply_migration`")
+        assert r.ok
+        assert r.pattern_name == "dry_run_before_commit"
+
+    def test_backup_before_destructive(self):
+        r = parse_nl_rule_based("`snapshot_db` backup before `drop_table`")
+        assert r.ok
+        assert r.pattern_name == "backup_before_destructive"
+
+    def test_audit_after_default_audit_action(self):
+        r = parse_nl_rule_based("`transfer_funds` must be audited")
+        assert r.ok
+        assert r.pattern_name == "audit_after"
+        assert r.args == ("transfer_funds", "audit_transfer_funds")
+
+    def test_approval_freshness(self):
+        r = parse_nl_rule_based("`approve_deploy` approval for `deploy` within 3 steps")
+        assert r.ok
+        assert r.pattern_name == "approval_freshness"
+        assert r.args == ("approve_deploy", "deploy", 3)
+
+    def test_sanitized_before_sink(self):
+        r = parse_nl_rule_based(
+            "`web_fetch` input must be sanitized by `sanitize_input` before `send_email`"
+        )
+        assert r.ok
+        assert r.pattern_name == "sanitized_before_sink"
+
+    def test_duplicate_call_limit(self):
+        r = parse_nl_rule_based("same `search` request `invoice-42` at most 2 times")
+        assert r.ok
+        assert r.pattern_name == "duplicate_call_limit"
+        assert r.args == ("search", "invoice-42", 2)
 
     # --- Bare snake_case names ---
 

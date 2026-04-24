@@ -9,7 +9,7 @@ Users never need to write raw LTL.  The NL parser
 (``generation/nl_to_contract.py``) maps natural language strings to
 calls into this library.
 
-Available patterns (29 det + 1 deprecated):
+Available patterns (35 det + 1 deprecated):
 
   Core temporal (14):
     must_precede(A, B)              -- A must happen before B
@@ -48,6 +48,14 @@ Available patterns (29 det + 1 deprecated):
     token_budget(max_tokens, scope)           -- limit token consumption
     arg_value_range(tool, field, min, max)    -- constrain numeric args
     delegation_depth_limit(max_depth)         -- limit delegation chain
+
+  Workflow hygiene (6):
+    dry_run_before_commit(dry_run, commit)          -- dry-run before commit
+    backup_before_destructive(backup, action)       -- backup before destructive action
+    audit_after(action, audit)                      -- audit/log must follow action
+    approval_freshness(approval, action, N)         -- approval expires after N steps
+    sanitized_before_sink(source, sanitizer, sink)  -- sanitizer after source before sink
+    duplicate_call_limit(tool, pattern, N)          -- cap repeated matching calls
 """
 
 from __future__ import annotations
@@ -440,6 +448,19 @@ def _bounded_never(phi: Formula, n: int) -> Formula:
     for _ in range(n - 1):
         result = And(Not(phi), X(result))
     return result
+
+
+def _next_n(phi: Formula, n: int) -> Formula:
+    """Shift ``phi`` forward by ``n`` weak-next steps."""
+    result = phi
+    for _ in range(n):
+        result = X(result)
+    return result
+
+
+def _forbidden_until(until: Formula, forbidden: Formula) -> Formula:
+    """``forbidden`` may not occur until ``until`` occurs, or never occurs."""
+    return Or(U(Not(forbidden), until), G(Not(forbidden)))
 
 
 # ---------------------------------------------------------------------------
@@ -1006,6 +1027,150 @@ def loop_detection(action: str, max_consecutive: int, desc: str = "") -> DetForm
         or f"{action} must not be called more than {max_consecutive} times consecutively",
         pattern_name="loop_detection",
         args=(action, max_consecutive),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Workflow hygiene patterns — no new atoms required
+# ---------------------------------------------------------------------------
+
+
+def dry_run_before_commit(
+    dry_run: str,
+    commit: str,
+    desc: str = "",
+) -> DetFormula:
+    """Require a dry-run / plan step before a committing action."""
+    base = must_precede(dry_run, commit, desc)
+    return DetFormula(
+        formula=base.formula,
+        desc=desc or f"{dry_run} dry-run must precede {commit}",
+        pattern_name="dry_run_before_commit",
+        args=(dry_run, commit),
+    )
+
+
+def backup_before_destructive(
+    backup: str,
+    action: str,
+    desc: str = "",
+) -> DetFormula:
+    """Require a backup/snapshot before a destructive action."""
+    base = must_precede(backup, action, desc)
+    return DetFormula(
+        formula=base.formula,
+        desc=desc or f"{backup} backup must precede destructive action {action}",
+        pattern_name="backup_before_destructive",
+        args=(backup, action),
+    )
+
+
+def audit_after(action: str, audit: str, desc: str = "") -> DetFormula:
+    """Require an audit/log step after a sensitive action."""
+    base = always_followed_by(action, audit, desc)
+    return DetFormula(
+        formula=base.formula,
+        desc=desc or f"{action} must be followed by audit step {audit}",
+        pattern_name="audit_after",
+        liveness=True,
+        args=(action, audit),
+    )
+
+
+def approval_freshness(
+    approval: str,
+    action: str,
+    steps: int,
+    desc: str = "",
+) -> DetFormula:
+    """Require ``action`` to happen within ``steps`` of a fresh approval.
+
+    Encodes a past-looking business rule with future LTL: ``action`` is
+    forbidden until approval; after approval, ``action`` is allowed for
+    ``steps`` future positions; once the window closes, it is forbidden
+    until the next approval.
+    """
+    _ensure_distinct(
+        approval, action, pattern="approval_freshness", arg_a="approval", arg_b="action"
+    )
+    if not isinstance(steps, int) or steps < 1:
+        raise ValueError(
+            f"approval_freshness: 'steps' must be a positive integer "
+            f"(got {steps!r})."
+        )
+    approval_atom = _called(approval)
+    action_atom = _called(action)
+    closed_window = _forbidden_until(approval_atom, action_atom)
+    formula = And(
+        closed_window,
+        G(Implies(approval_atom, _next_n(closed_window, steps + 1))),
+    )
+    return DetFormula(
+        formula=formula,
+        desc=desc or f"{action} requires approval {approval} within {steps} steps",
+        pattern_name="approval_freshness",
+        args=(approval, action, steps),
+    )
+
+
+def sanitized_before_sink(
+    source: str,
+    sanitizer: str,
+    sink: str,
+    desc: str = "",
+) -> DetFormula:
+    """After an untrusted source is read, require sanitization before sink use."""
+    _ensure_distinct(
+        source,
+        sanitizer,
+        pattern="sanitized_before_sink",
+        arg_a="source",
+        arg_b="sanitizer",
+    )
+    _ensure_distinct(
+        sanitizer,
+        sink,
+        pattern="sanitized_before_sink",
+        arg_a="sanitizer",
+        arg_b="sink",
+    )
+    _ensure_distinct(
+        source, sink, pattern="sanitized_before_sink", arg_a="source", arg_b="sink"
+    )
+    formula = G(
+        Implies(
+            _called(source),
+            X(_forbidden_until(_called(sanitizer), _called(sink))),
+        )
+    )
+    return DetFormula(
+        formula=formula,
+        desc=desc or f"after {source}, {sanitizer} must precede {sink}",
+        pattern_name="sanitized_before_sink",
+        args=(source, sanitizer, sink),
+    )
+
+
+def duplicate_call_limit(
+    tool: str,
+    args_pattern: str,
+    max_count: int,
+    desc: str = "",
+) -> DetFormula:
+    """Limit repeated calls to one physical tool with matching arguments."""
+    _ensure_non_empty(tool, pattern="duplicate_call_limit", arg="tool")
+    _ensure_non_empty(args_pattern, pattern="duplicate_call_limit", arg="args_pattern")
+    if not isinstance(max_count, int) or max_count < 0:
+        raise ValueError(
+            f"duplicate_call_limit: 'max_count' must be a non-negative integer "
+            f"(got {max_count!r})."
+        )
+    formula = G(Le(Var("count_with", tool, args_pattern), Const(max_count)))
+    return DetFormula(
+        formula=formula,
+        desc=desc or f"{tool} calls matching {args_pattern!r} at most {max_count} times",
+        pattern_name="duplicate_call_limit",
+        args=(tool, args_pattern, max_count),
     )
 
 

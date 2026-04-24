@@ -21,10 +21,13 @@ from sponsio.models.contract import Contract
 from sponsio.patterns.library import (
     DetFormula,
     always_followed_by,
+    approval_freshness,
     arg_blacklist,
     arg_length_limit,
     bounded_retry,
     arg_value_range,
+    audit_after,
+    backup_before_destructive,
     confirm_after_source,
     cooldown,
     dangerous_bash_commands,
@@ -33,6 +36,8 @@ from sponsio.patterns.library import (
     data_intact,
     deadline,
     destructive_action_gate,
+    dry_run_before_commit,
+    duplicate_call_limit,
     idempotent,
     irreversible_once,
     loop_detection,
@@ -45,6 +50,7 @@ from sponsio.patterns.library import (
     rate_limit,
     required_steps_completion,
     requires_permission,
+    sanitized_before_sink,
     scope_limit,
     segregation_of_duty,
     token_budget,
@@ -151,6 +157,13 @@ _PATTERN_REGISTRY: dict[str, Callable[..., DetFormula]] = {
     "token_budget": token_budget,
     "delegation_depth_limit": delegation_depth_limit,
     "arg_value_range": arg_value_range,
+    # Workflow hygiene
+    "dry_run_before_commit": dry_run_before_commit,
+    "backup_before_destructive": backup_before_destructive,
+    "audit_after": audit_after,
+    "approval_freshness": approval_freshness,
+    "sanitized_before_sink": sanitized_before_sink,
+    "duplicate_call_limit": duplicate_call_limit,
 }
 
 
@@ -511,6 +524,67 @@ _KEYWORD_RULES: list[tuple[list[str], str, int]] = [
         "data_intact",
         2,
     ),
+    # --- Workflow hygiene: dry-run / backup / audit / fresh approval ---
+    (
+        [
+            r"dry[- ]?run.*before",
+            r"plan.*before.*(?:apply|commit|deploy|execute)",
+            r"(?:apply|commit|deploy|execute).*requires?.*dry[- ]?run",
+        ],
+        "dry_run_before_commit",
+        2,
+    ),
+    (
+        [
+            r"backup.*before",
+            r"snapshot.*before",
+            r"(?:delete|drop|destroy|destructive).*requires?.*(?:backup|snapshot)",
+        ],
+        "backup_before_destructive",
+        2,
+    ),
+    (
+        [
+            r"audit.*after",
+            r"log.*after",
+            r"(?:must|should).*be\s+(?:audited|logged)",
+            r"(?:audit|log)\s+(?:required|needed)",
+        ],
+        "audit_after",
+        2,
+    ),
+    (
+        [
+            r"fresh\s+approval",
+            r"approval.*(?:within|expires?|expire)",
+            r"(?:approval|authorization).*fresh",
+            r"(?:approve|approval).*(?:\d+)\s+steps?",
+        ],
+        "approval_freshness",
+        3,
+    ),
+    (
+        [
+            r"sanitize.*before",
+            r"saniti[sz]ed.*before",
+            r"(?:untrusted|external|web|email).*sanitize.*(?:before|then)",
+            r"(?:source|input).*sanitizer.*sink",
+        ],
+        "sanitized_before_sink",
+        3,
+    ),
+    (
+        [
+            r"duplicate\s+call",
+            r"same.*request.*at most",
+            r"same\s+(?:tool|api|request|args?).*at most",
+            r"repeat(?:ed)?\s+(?:same\s+)?(?:call|request)",
+            r"no duplicate",
+            r"never repeat",
+        ],
+        "duplicate_call_limit",
+        3,
+    ),
     # --- Bounded retry (must come before rate_limit — "at most N retries") ---
     (
         [
@@ -532,8 +606,6 @@ _KEYWORD_RULES: list[tuple[list[str], str, int]] = [
             r"at most.*times",
             r"maximum.*invocations",
             r"limit.*(?:calls|invocations|uses)\b",
-            r"no duplicate",
-            r"never repeat",
             r"must not be called more than",
             r"(?:at most|no more than|up to|maximum|max)\s+(\d+)\s+(?:per|times|calls)",
             r"limit.*to\s+(\d+)\s+(?:per|times|calls)",
@@ -1244,6 +1316,123 @@ def parse_dsl(expr: str) -> ParsedConstraint:
     actions = _extract_actions(text)
 
     # --- Special handlers for patterns with numeric args or 1-arg ---
+
+    if pattern_name == "dry_run_before_commit":
+        if len(actions) < 2:
+            return _build_error(
+                nl_line,
+                "dry_run_before_commit",
+                "dry_run_before_commit needs dry-run and commit actions",
+            )
+        try:
+            formula = dry_run_before_commit(actions[0], actions[1], desc=text)
+        except Exception as e:
+            return _build_error(
+                nl_line, "dry_run_before_commit", str(e), tuple(actions[:2])
+            )
+        return _build_constraint(
+            nl_line, "dry_run_before_commit", tuple(actions[:2]), formula
+        )
+
+    if pattern_name == "backup_before_destructive":
+        if len(actions) < 2:
+            return _build_error(
+                nl_line,
+                "backup_before_destructive",
+                "backup_before_destructive needs backup and destructive actions",
+            )
+        try:
+            formula = backup_before_destructive(actions[0], actions[1], desc=text)
+        except Exception as e:
+            return _build_error(
+                nl_line, "backup_before_destructive", str(e), tuple(actions[:2])
+            )
+        return _build_constraint(
+            nl_line, "backup_before_destructive", tuple(actions[:2]), formula
+        )
+
+    if pattern_name == "audit_after":
+        if len(actions) < 1:
+            return _build_error(nl_line, "audit_after", "audit_after needs an action")
+        action = actions[0]
+        audit = actions[1] if len(actions) >= 2 else f"audit_{action}"
+        try:
+            formula = audit_after(action, audit, desc=text)
+        except Exception as e:
+            return _build_error(nl_line, "audit_after", str(e), (action, audit))
+        return _build_constraint(nl_line, "audit_after", (action, audit), formula)
+
+    if pattern_name == "approval_freshness":
+        steps = _parse_step_count(text)
+        if steps is None:
+            steps = _parse_number(text)
+        if len(actions) < 1:
+            return _build_error(
+                nl_line, "approval_freshness", "approval_freshness needs an action"
+            )
+        if steps is None:
+            return _build_error(
+                nl_line,
+                "approval_freshness",
+                "approval_freshness needs a step count",
+            )
+        if len(actions) >= 2:
+            approval, action = actions[0], actions[1]
+        else:
+            action = actions[0]
+            approval = f"approve_{action}"
+        try:
+            formula = approval_freshness(approval, action, steps, desc=text)
+        except Exception as e:
+            return _build_error(
+                nl_line, "approval_freshness", str(e), (approval, action, steps)
+            )
+        return _build_constraint(
+            nl_line, "approval_freshness", (approval, action, steps), formula
+        )
+
+    if pattern_name == "sanitized_before_sink":
+        if len(actions) < 3:
+            return _build_error(
+                nl_line,
+                "sanitized_before_sink",
+                "sanitized_before_sink needs source, sanitizer, and sink actions",
+            )
+        try:
+            formula = sanitized_before_sink(
+                actions[0], actions[1], actions[2], desc=text
+            )
+        except Exception as e:
+            return _build_error(
+                nl_line, "sanitized_before_sink", str(e), tuple(actions[:3])
+            )
+        return _build_constraint(
+            nl_line, "sanitized_before_sink", tuple(actions[:3]), formula
+        )
+
+    if pattern_name == "duplicate_call_limit":
+        count = _parse_rate_limit_count(text) or _parse_number(text)
+        if len(actions) < 2:
+            return _build_error(
+                nl_line,
+                "duplicate_call_limit",
+                "duplicate_call_limit needs a tool and argument pattern",
+            )
+        if count is None:
+            return _build_error(
+                nl_line,
+                "duplicate_call_limit",
+                "duplicate_call_limit needs a numeric count",
+            )
+        try:
+            formula = duplicate_call_limit(actions[0], actions[1], count, desc=text)
+        except Exception as e:
+            return _build_error(
+                nl_line, "duplicate_call_limit", str(e), (actions[0], actions[1], count)
+            )
+        return _build_constraint(
+            nl_line, "duplicate_call_limit", (actions[0], actions[1], count), formula
+        )
 
     if pattern_name == "rate_limit":
         count = _parse_rate_limit_count(text)

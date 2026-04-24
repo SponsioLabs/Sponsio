@@ -15,9 +15,9 @@ def test_demo_default_mock_runs_without_optional_sdks():
 
 def test_demo_no_guard_replays_breach():
     result = CliRunner().invoke(
-        cli, ["demo", "--scenario", "loan", "--no-guard", "--fast"]
+        cli, ["demo", "--scenario", "wire", "--no-guard", "--fast"]
     )
 
     assert result.exit_code == 0
     assert "no Sponsio" in result.output
-    assert "AML audit trail corrupted" in result.output
+    assert "unverified vendor" in result.output

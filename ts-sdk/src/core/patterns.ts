@@ -4,7 +4,7 @@
  * Port of sponsio/patterns/library.py (det patterns).
  * Each function returns a formula AST + description.
  *
- * 29 patterns across 6 categories:
+ * 35 patterns across 7 categories:
  *   Core temporal (14): mustPrecede, alwaysFollowedBy, noReversal,
  *     requiresPermission, noDataLeak, mutualExclusion, rateLimit,
  *     idempotent, deadline, mustConfirm, cooldown, segregationOfDuty,
@@ -14,6 +14,8 @@
  *     requiredStepsCompletion, toolAllowlist, dangerousBashCommands,
  *     dangerousSqlVerbs, irreversibleOnce, confirmAfterSource
  *   Resource (3): tokenBudget, argValueRange, delegationDepthLimit
+ *   Workflow hygiene (6): dryRunBeforeCommit, backupBeforeDestructive,
+ *     auditAfter, approvalFreshness, sanitizedBeforeSink, duplicateCallLimit
  */
 
 import {
@@ -125,6 +127,18 @@ function boundedNever(phi: Formula, n: number): Formula {
     result = new And(new Not(phi), new X(result));
   }
   return result;
+}
+
+function nextN(phi: Formula, n: number): Formula {
+  let result: Formula = phi;
+  for (let i = 0; i < n; i++) {
+    result = new X(result);
+  }
+  return result;
+}
+
+function forbiddenUntil(until: Formula, forbidden: Formula): Formula {
+  return new Or(new U(new Not(forbidden), until), new G(new Not(forbidden)));
 }
 
 // --- Core temporal patterns ---
@@ -293,6 +307,99 @@ export function loopDetection(action: string, maxConsecutive: number): DetFormul
     formula: f,
     desc: `\`${action}\` max ${maxConsecutive} consecutive calls`,
     patternName: "loop_detection",
+    liveness: false,
+  };
+}
+
+// --- Workflow hygiene patterns ---
+
+export function dryRunBeforeCommit(dryRun: string, commit: string): DetFormula {
+  const base = mustPrecede(dryRun, commit);
+  return {
+    ...base,
+    desc: `\`${dryRun}\` dry-run must precede \`${commit}\``,
+    patternName: "dry_run_before_commit",
+  };
+}
+
+export function backupBeforeDestructive(backup: string, action: string): DetFormula {
+  const base = mustPrecede(backup, action);
+  return {
+    ...base,
+    desc: `\`${backup}\` backup must precede destructive action \`${action}\``,
+    patternName: "backup_before_destructive",
+  };
+}
+
+export function auditAfter(action: string, audit: string): DetFormula {
+  const base = alwaysFollowedBy(action, audit);
+  return {
+    ...base,
+    desc: `\`${action}\` must be followed by audit step \`${audit}\``,
+    patternName: "audit_after",
+    liveness: true,
+  };
+}
+
+export function approvalFreshness(approval: string, action: string, steps: number): DetFormula {
+  ensureDistinct(approval, action, "approvalFreshness", "approval", "action");
+  if (!Number.isInteger(steps) || steps < 1) {
+    throw new Error(
+      `approval_freshness: 'steps' must be a positive integer (got ${steps}).`,
+    );
+  }
+  const approvalAtom = called(approval);
+  const actionAtom = called(action);
+  const closedWindow = forbiddenUntil(approvalAtom, actionAtom);
+  const f = new And(
+    closedWindow,
+    new G(new Implies(approvalAtom, nextN(closedWindow, steps + 1))),
+  );
+  return {
+    formula: f,
+    desc: `\`${action}\` requires approval \`${approval}\` within ${steps} steps`,
+    patternName: "approval_freshness",
+    liveness: false,
+  };
+}
+
+export function sanitizedBeforeSink(
+  source: string,
+  sanitizer: string,
+  sink: string,
+): DetFormula {
+  ensureDistinct(source, sanitizer, "sanitizedBeforeSink", "source", "sanitizer");
+  ensureDistinct(sanitizer, sink, "sanitizedBeforeSink", "sanitizer", "sink");
+  ensureDistinct(source, sink, "sanitizedBeforeSink", "source", "sink");
+  const f = new G(new Implies(
+    called(source),
+    new X(forbiddenUntil(called(sanitizer), called(sink))),
+  ));
+  return {
+    formula: f,
+    desc: `after \`${source}\`, \`${sanitizer}\` must precede \`${sink}\``,
+    patternName: "sanitized_before_sink",
+    liveness: false,
+  };
+}
+
+export function duplicateCallLimit(
+  tool: string,
+  argsPattern: string,
+  maxCount: number,
+): DetFormula {
+  ensureNonEmpty(tool, "duplicateCallLimit", "tool");
+  ensureNonEmpty(argsPattern, "duplicateCallLimit", "argsPattern");
+  if (!Number.isInteger(maxCount) || maxCount < 0) {
+    throw new Error(
+      `duplicate_call_limit: 'maxCount' must be a non-negative integer (got ${maxCount}).`,
+    );
+  }
+  const f = new G(new Le(new Var("count_with", tool, argsPattern), new Const(maxCount)));
+  return {
+    formula: f,
+    desc: `\`${tool}\` calls matching ${JSON.stringify(argsPattern)} at most ${maxCount} times`,
+    patternName: "duplicate_call_limit",
     liveness: false,
   };
 }

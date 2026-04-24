@@ -6,10 +6,15 @@ from sponsio.formulas.evaluator import evaluate
 from sponsio.patterns.library import (
     DetFormula,
     always_followed_by,
+    approval_freshness,
+    audit_after,
+    backup_before_destructive,
     bounded_retry,
     confirm_after_source,
     cooldown,
     deadline,
+    dry_run_before_commit,
+    duplicate_call_limit,
     idempotent,
     must_confirm,
     must_precede,
@@ -20,6 +25,7 @@ from sponsio.patterns.library import (
     rate_limit,
     required_steps_completion,
     requires_permission,
+    sanitized_before_sink,
     segregation_of_duty,
     untrusted_source_gate,
 )
@@ -435,6 +441,61 @@ def test_bounded_retry_zero():
 
 
 # ---------------------------------------------------------------------------
+# workflow hygiene patterns
+# ---------------------------------------------------------------------------
+
+
+def test_dry_run_before_commit_blocks_commit_without_dry_run():
+    af = dry_run_before_commit("plan_migration", "apply_migration")
+    assert af.pattern_name == "dry_run_before_commit"
+    assert evaluate(af.formula, [_called("apply_migration")]) is False
+    assert evaluate(af.formula, [_called("plan_migration"), _called("apply_migration")])
+
+
+def test_backup_before_destructive_blocks_without_backup():
+    af = backup_before_destructive("snapshot_db", "drop_table")
+    assert af.pattern_name == "backup_before_destructive"
+    assert evaluate(af.formula, [_called("drop_table")]) is False
+    assert evaluate(af.formula, [_called("snapshot_db"), _called("drop_table")])
+
+
+def test_audit_after_requires_later_audit():
+    af = audit_after("transfer_funds", "audit_transfer")
+    assert af.pattern_name == "audit_after"
+    assert af.liveness is True
+    assert evaluate(af.formula, [_called("transfer_funds")]) is False
+    assert evaluate(af.formula, [_called("transfer_funds"), _called("audit_transfer")])
+
+
+def test_approval_freshness_blocks_before_and_after_window():
+    af = approval_freshness("approve_deploy", "deploy", 2)
+    assert af.pattern_name == "approval_freshness"
+    assert evaluate(af.formula, [_called("deploy")]) is False
+    assert evaluate(af.formula, [_called("approve_deploy"), {}, _called("deploy")])
+    assert (
+        evaluate(af.formula, [_called("approve_deploy"), {}, {}, _called("deploy")])
+        is False
+    )
+
+
+def test_sanitized_before_sink_requires_sanitizer_after_source():
+    af = sanitized_before_sink("web_fetch", "sanitize_input", "send_email")
+    assert af.pattern_name == "sanitized_before_sink"
+    assert evaluate(af.formula, [_called("web_fetch"), _called("send_email")]) is False
+    assert evaluate(
+        af.formula,
+        [_called("web_fetch"), _called("sanitize_input"), _called("send_email")],
+    )
+
+
+def test_duplicate_call_limit_uses_count_with():
+    af = duplicate_call_limit("search", "invoice-42", 2)
+    assert af.pattern_name == "duplicate_call_limit"
+    assert evaluate(af.formula, [{"count_with(search, invoice-42)": 2}])
+    assert evaluate(af.formula, [{"count_with(search, invoice-42)": 3}]) is False
+
+
+# ---------------------------------------------------------------------------
 # Degenerate-pattern rejection (Issue #14)
 #
 # Same-tool two-arg patterns and duplicated / empty tool names used to
@@ -454,6 +515,10 @@ class TestDegeneratePatternsRejected:
             (mutual_exclusion, {"a": "A", "b": "A"}),
             (segregation_of_duty, {"a": "A", "b": "A"}),
             (no_data_leak, {"source": "A", "external": "A"}),
+            (dry_run_before_commit, {"dry_run": "A", "commit": "A"}),
+            (backup_before_destructive, {"backup": "A", "action": "A"}),
+            (audit_after, {"action": "A", "audit": "A"}),
+            (approval_freshness, {"approval": "A", "action": "A", "steps": 2}),
         ],
     )
     def test_same_tool_rejected(self, factory, kwargs):
@@ -470,6 +535,22 @@ class TestDegeneratePatternsRejected:
             deadline("trigger", "action", 0)
         with pytest.raises(ValueError, match="positive integer"):
             deadline("trigger", "action", -1)
+
+    def test_approval_freshness_nonpositive_steps_rejected(self):
+        with pytest.raises(ValueError, match="positive integer"):
+            approval_freshness("approve", "deploy", 0)
+
+    def test_sanitized_before_sink_same_tool_rejected(self):
+        with pytest.raises(ValueError, match="must refer to different"):
+            sanitized_before_sink("web_fetch", "web_fetch", "send_email")
+
+    def test_duplicate_call_limit_invalid_inputs_rejected(self):
+        with pytest.raises(ValueError, match="non-empty string"):
+            duplicate_call_limit("", "invoice", 1)
+        with pytest.raises(ValueError, match="non-empty string"):
+            duplicate_call_limit("search", "", 1)
+        with pytest.raises(ValueError, match="non-negative integer"):
+            duplicate_call_limit("search", "invoice", -1)
 
     @pytest.mark.parametrize(
         "factory, kwargs",

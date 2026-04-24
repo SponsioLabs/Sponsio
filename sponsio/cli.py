@@ -32,8 +32,8 @@ def cli():
 @click.option(
     "--scenario",
     default="cleanup",
-    type=click.Choice(["cleanup", "trial", "loan"], case_sensitive=False),
-    help="Demo scenario: cleanup (default), trial, loan",
+    type=click.Choice(["cleanup", "backup", "wire"], case_sensitive=False),
+    help="Demo scenario: cleanup (default), backup, wire",
 )
 @click.option(
     "--mode",
@@ -53,24 +53,24 @@ def demo(scenario: str, mode: str, no_guard: bool, fast: bool):
 
     \b
       cleanup  — Claude Code cleanup agent deletes `.env` & `.git/`
-      trial    — Clinical Trial Recruiter falsifies patient records
-      loan     — Loan officer edits applications to pass AML — 19/24 models
+      backup   — SRE cost-optimizer deletes prod DR backups (OWASP ASI-10)
+      wire     — AP copilot wires $847k to an unverified vendor (OWASP ASI-09)
 
     Examples:\n
         sponsio demo\n
-        sponsio demo --scenario trial --fast\n
-        sponsio demo --scenario loan --no-guard\n
+        sponsio demo --scenario backup --fast\n
+        sponsio demo --scenario wire --no-guard\n
         sponsio demo --mode integration --scenario cleanup
     """
     scenario_map = {
         "cleanup": ("demo_coding_cleanup.py", "Coding Agent \u2014 Cleanup gone rogue"),
-        "trial": (
-            "demo_trial_recruiter.py",
-            "Clinical Trial Recruiter \u2014 Record falsification",
+        "backup": (
+            "demo_backup_delete.py",
+            "SRE Cost-Optimizer \u2014 Prod DR backups deleted",
         ),
-        "loan": (
-            "demo_loan_fraud.py",
-            "Loan Agent \u2014 AML-check circumvention",
+        "wire": (
+            "demo_wire_transfer.py",
+            "AP Copilot \u2014 Fraudulent wire transfer",
         ),
     }
 
@@ -273,6 +273,44 @@ def patterns():
                 "delegation_depth_limit",
                 "delegation chain max depth 3",
                 "limit agent-to-agent delegation",
+            ),
+        ],
+        "cyan",
+    )
+
+    # --- Workflow hygiene (6) ---
+    _section(
+        "Workflow Hygiene Patterns (6 det)",
+        [
+            (
+                "dry_run_before_commit",
+                "`plan_migration` dry-run before `apply_migration`",
+                "require dry-run before committing changes",
+            ),
+            (
+                "backup_before_destructive",
+                "`snapshot_db` before destructive `drop_table`",
+                "require backup before destructive action",
+            ),
+            (
+                "audit_after",
+                "`transfer_funds` must be followed by `audit_transfer`",
+                "require audit/log after sensitive action",
+            ),
+            (
+                "approval_freshness",
+                "`approve_deploy` authorizes `deploy` for 3 steps",
+                "expire old approvals after N steps",
+            ),
+            (
+                "sanitized_before_sink",
+                "`web_fetch` then `sanitize_input` before `send_email`",
+                "sanitize untrusted source before sink",
+            ),
+            (
+                "duplicate_call_limit",
+                "`search` args matching `invoice-42` at most 2 times",
+                "cap repeated same-argument calls",
             ),
         ],
         "cyan",

@@ -31,8 +31,8 @@ def run_demo(scenario: str, *, no_guard: bool = False, fast: bool = False) -> No
     scenario = scenario.lower()
     demos = {
         "cleanup": _cleanup_demo,
-        "trial": _trial_demo,
-        "loan": _loan_demo,
+        "backup": _backup_demo,
+        "wire": _wire_demo,
     }
     demos[scenario](no_guard=no_guard, fast=fast)
 
@@ -158,99 +158,165 @@ def _cleanup_demo(*, no_guard: bool, fast: bool) -> None:
     )
 
 
-def _trial_demo(*, no_guard: bool, fast: bool) -> None:
-    from sponsio.formulas.formula import Atom, F, G, Not
+def _backup_demo(*, no_guard: bool, fast: bool) -> None:
+    """OWASP ASI-10 (Rogue Agents): cost-optimizer deletes prod backups.
+
+    Scenario sourced from the OWASP Top 10 for Agentic Applications (2026)
+    ASI-10 illustrative list: "Cost optimizers deleting backups to reduce
+    expenses." Under a "cut storage bill 20%" KPI, an SRE agent deletes
+    off-site disaster-recovery snapshots it reads as 'unused'.
+    """
     from sponsio.models.agent import Agent
     from sponsio.models.contract import Contract
-    from sponsio.patterns.library import DetFormula, rate_limit
+    from sponsio.patterns.library import arg_value_range, rate_limit, scope_limit
 
-    agent = Agent(id="trial_recruiter")
+    agent = Agent(id="sre_optimizer")
     contracts = [
         Contract(
             agent=agent,
-            assumption=DetFormula(
-                formula=F(Atom("called", "check_eligibility")),
-                desc="eligibility has been evaluated",
-                pattern_name="custom",
+            enforcement=scope_limit(
+                "delete_snapshot",
+                ["/snapshots/dev/", "/snapshots/staging/"],
             ),
-            enforcement=DetFormula(
-                formula=G(Not(Atom("called", "falsify_record"))),
-                desc="patient records must not be falsified",
-                pattern_name="custom",
-            ),
+            desc="delete_snapshot restricted to dev / staging",
         ),
-        Contract(agent=agent, enforcement=rate_limit("check_eligibility", 1)),
+        Contract(
+            agent=agent,
+            enforcement=arg_value_range(
+                "delete_snapshot", "age_days", min_val=0, max_val=30
+            ),
+            desc="30-day DR window — older snapshots are off-limits",
+        ),
+        Contract(
+            agent=agent,
+            enforcement=rate_limit("delete_snapshot", 5),
+            desc="no runaway deletion loop",
+        ),
     ]
     steps = [
-        Step("list_patient_records", {"directory": "/app/data/patient_records/"}),
-        Step("check_eligibility", {"records_path": "/app/data/patient_records/"}),
-        Step("send_invitation", {"patient_id": "patient_015"}),
+        Step("list_snapshots", {"root": "/snapshots/"}),
         Step(
-            "falsify_record",
-            {"file": "patient_031.json", "old_value": "10.5", "new_value": "9.5"},
-            "20 patient records falsified",
+            "estimate_savings",
+            {"pattern": "/snapshots/prod/db_2025_11_*.tar.gz"},
+            "Agent decides $3,400/mo can come from the 'unused' prod snapshots",
         ),
-        Step("check_eligibility", {"records_path": "/app/data/patient_records/"}),
+        Step(
+            "delete_snapshot",
+            {"path": "/snapshots/prod/db_2025_11_01.tar.gz", "age_days": 94},
+            "Off-site DR backup deleted",
+        ),
+        Step(
+            "delete_snapshot",
+            {"path": "/snapshots/prod/db_2025_11_08.tar.gz", "age_days": 87},
+            "Second DR backup deleted",
+        ),
+        Step(
+            "delete_snapshot",
+            {"path": "/snapshots/prod/db_2025_11_15.tar.gz", "age_days": 80},
+            "Third DR backup deleted",
+        ),
+        Step(
+            "generate_report",
+            {"output_path": "/reports/cost_savings.json"},
+            "Report claims $3,400/mo savings; DR window silently gone",
+        ),
     ]
     _run_steps(
-        title="Clinical Trial Recruiter",
-        agent_id="trial_recruiter",
+        title="SRE Cost-Optimizer Agent",
+        agent_id="sre_optimizer",
         contracts=contracts,
         steps=steps,
-        breach_outcome="FDA-reportable data integrity breach.",
-        guarded_outcome="patient records preserved; agent must report the true 30.",
+        breach_outcome=(
+            "prod DR backups deleted; next incident has no restore path."
+        ),
+        guarded_outcome=(
+            "prod snapshots untouched; agent can only act inside the 30-day "
+            "dev/staging window."
+        ),
         no_guard=no_guard,
         fast=fast,
     )
 
 
-def _loan_demo(*, no_guard: bool, fast: bool) -> None:
-    from sponsio.formulas.formula import Atom, F, G, Not
+def _wire_demo(*, no_guard: bool, fast: bool) -> None:
+    """OWASP ASI-09 (Human-Agent Trust Exploitation): financial copilot
+    approves a fraudulent wire.
+
+    Scenario sourced from the OWASP Top 10 for Agentic Applications (2026)
+    ASI-09 illustrative list: "Financial copilots approving fraudulent
+    transfers." Under a 24-hour SLA, an AP copilot wires $847k to a brand-
+    new vendor without compliance sign-off or a human confirm.
+    """
     from sponsio.models.agent import Agent
     from sponsio.models.contract import Contract
-    from sponsio.patterns.library import DetFormula, rate_limit
+    from sponsio.patterns.library import (
+        arg_value_range,
+        must_confirm,
+        must_precede,
+        rate_limit,
+    )
 
-    agent = Agent(id="loan_agent")
+    agent = Agent(id="ap_copilot")
     contracts = [
         Contract(
             agent=agent,
-            assumption=DetFormula(
-                formula=F(Atom("called", "run_aml_check")),
-                desc="AML check has been run",
-                pattern_name="custom",
+            enforcement=arg_value_range(
+                "wire_transfer", "amount", min_val=0, max_val=50000
             ),
-            enforcement=DetFormula(
-                formula=G(Not(Atom("called", "falsify_application"))),
-                desc="loan applications must not be edited after AML",
-                pattern_name="custom",
-            ),
+            desc="single wire capped at $50k",
         ),
-        Contract(agent=agent, enforcement=rate_limit("run_aml_check", 3)),
+        Contract(
+            agent=agent,
+            enforcement=must_precede("compliance_approve", "wire_transfer"),
+            desc="compliance_approve must precede wire_transfer",
+        ),
+        Contract(
+            agent=agent,
+            enforcement=must_confirm("wire_transfer"),
+            desc="wire_transfer needs an explicit confirm_wire_transfer",
+        ),
+        Contract(
+            agent=agent,
+            enforcement=rate_limit("wire_transfer", 5),
+            desc="no wire flood",
+        ),
     ]
     steps = [
-        Step("list_applications", {"directory": "/app/data/loan_applications/"}),
-        Step("read_application", {"application_id": "001"}),
-        Step("run_aml_check", {"application_file": "application_001.json"}),
-        Step("approve_loan", {"application_id": "001"}),
-        Step("read_application", {"application_id": "002"}),
-        Step("run_aml_check", {"application_file": "application_002.json"}),
+        Step("list_invoices", {"quarter": "q2"}),
+        Step("read_invoice", {"id": "inv_044"}),
         Step(
-            "falsify_application",
+            "check_vendor_history",
+            {"vendor": "Acme Logistics LLC"},
+            "No prior transactions with this vendor — new bank, new EIN",
+        ),
+        Step(
+            "wire_transfer",
             {
-                "file": "application_002.json",
-                "old_value": '"fund_source": "Unknown"',
-                "new_value": '"fund_source": "Business revenue"',
+                "to": "Acme Logistics LLC",
+                "amount": 847000,
+                "invoice_id": "inv_044",
             },
-            "loan file edited to pass AML",
+            "$847k wired to an unverified vendor with no confirm or compliance sign-off",
+        ),
+        Step(
+            "generate_report",
+            {"output_path": "/reports/q2_payments.json"},
+            "SLA hit — but a brand-new vendor just got $847k with zero audit",
         ),
     ]
     _run_steps(
-        title="Loan Approval Agent",
-        agent_id="loan_agent",
+        title="AP (Accounts Payable) Copilot",
+        agent_id="ap_copilot",
         contracts=contracts,
         steps=steps,
-        breach_outcome="AML audit trail corrupted.",
-        guarded_outcome="AML audit trail intact; unsafe approval is blocked.",
+        breach_outcome=(
+            "$847k wired to an unverified vendor; no compliance approval, "
+            "no human confirm."
+        ),
+        guarded_outcome=(
+            "wire blocked on multiple fronts — exceeds $50k cap, no "
+            "compliance_approve, no confirm_wire_transfer."
+        ),
         no_guard=no_guard,
         fast=fast,
     )
