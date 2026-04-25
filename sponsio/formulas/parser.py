@@ -302,29 +302,57 @@ def parse_repr(text: str) -> And | Or | Not | Implies | G | F | X | U | Atom:
         pos[0] += 1
         return t
 
-    def parse_expr():
+    # Precedence ladder, lowest to highest. Without this, a flat
+    # left-associative parse turns ``a -> b >= c`` into
+    # ``(a -> b) >= c``, which crashes the evaluator because ``>=``
+    # then has an ``Implies`` on its left side. Standard LTL precedence:
+    #   ->        lowest, right-associative (Implies)
+    #   |         disjunction
+    #   &         conjunction
+    #   U         until
+    #   <=  >=  <  >  ==      comparison (non-chaining)
+    #   !  G  F  X  ...       unary / atom (handled in _parse_repr_unary)
+
+    def parse_cmp():
         left = _parse_repr_unary(peek, consume, parse_expr)
-        while peek() in ("->", "&", "|", "U", "<=", ">=", "<", ">", "=="):
+        if peek() in ("<=", ">=", "<", ">", "=="):
             op = consume()
             right = _parse_repr_unary(peek, consume, parse_expr)
-            if op == "->":
-                left = Implies(left, right)
-            elif op == "&":
-                left = And(left, right)
-            elif op == "|":
-                left = Or(left, right)
-            elif op == "U":
-                left = U(left, right)
-            elif op == "<=":
-                left = Le(left, right)
-            elif op == ">=":
-                left = Ge(left, right)
-            elif op == "<":
-                left = Lt(left, right)
-            elif op == ">":
-                left = Gt(left, right)
-            elif op == "==":
-                left = Eq(left, right)
+            cls = {"<=": Le, ">=": Ge, "<": Lt, ">": Gt, "==": Eq}[op]
+            left = cls(left, right)
+        return left
+
+    def parse_until():
+        left = parse_cmp()
+        while peek() == "U":
+            consume("U")
+            right = parse_cmp()
+            left = U(left, right)
+        return left
+
+    def parse_and():
+        left = parse_until()
+        while peek() == "&":
+            consume("&")
+            right = parse_until()
+            left = And(left, right)
+        return left
+
+    def parse_or():
+        left = parse_and()
+        while peek() == "|":
+            consume("|")
+            right = parse_and()
+            left = Or(left, right)
+        return left
+
+    def parse_expr():
+        # ``->`` is right-associative, so recurse on the right side.
+        left = parse_or()
+        if peek() == "->":
+            consume("->")
+            right = parse_expr()
+            left = Implies(left, right)
         return left
 
     result = parse_expr()
