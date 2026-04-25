@@ -41,7 +41,7 @@ Then pick a track below.
 - **"Add a stochastic atom for tone, PII, or scope"** → [Stochastic atoms](reference/sto-atoms.md)
 - **"Understand why Sponsio uses LTL"** → [Architecture](concepts/architecture.md)
 - **"Look up a CLI flag"** → [CLI reference](reference/cli.md)
-- **"Reproduce the ODCV-Bench numbers"** → [Benchmarks](benchmarks/index.md)
+- **"Reproduce the ODCV-Bench numbers"** → [Benchmarks](BENCHMARKS.md)
 
 ---
 

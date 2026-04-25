@@ -243,4 +243,4 @@ See `docs/sto-atoms.md` for the sto atom catalog and `docs/architecture.md` for 
 | 2026-04-25 | Hot-path bench: 5.2 µs p50 / 12.2 µs p99 / 178 k QPS on Apple Silicon |
 | 2026-04-25 | Consolidated per-suite READMEs into this single file (MSFT-style) |
 
-**Related:** [README §Benchmarks](README.md#benchmarks--performance) · [QUICKSTART](QUICKSTART.md) · [Contract DSL](docs/contracts.md) · [Stochastic atoms](docs/sto-atoms.md) · [Architecture](docs/architecture.md) · [Full ledger](docs/benchmarks/index.md)
+**Related:** [README §Benchmarks](../README.md#benchmarks--performance) · [QUICKSTART](../QUICKSTART.md) · [Contract DSL](contracts.md) · [Stochastic atoms](sto-atoms.md) · [Architecture](architecture.md)
