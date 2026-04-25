@@ -37,6 +37,7 @@ Then pick a track below.
 - **"Generate contracts from my code / policy docs / traces"** → [Contract sources](guides/contract-sources.md)
 - **"Ship from shadow mode into production"** → [Observe vs. enforce](guides/observe-vs-enforce.md)
 - **"Pick the right pattern for a rule I have in mind"** → [Pattern catalog](reference/patterns.md)
+- **"Drop in a ready-made contract pack (shell, filesystem, runaway defense)"** → [Contract library](reference/contract-lib.md)
 - **"Add a stochastic atom for tone, PII, or scope"** → [Stochastic atoms](reference/sto-atoms.md)
 - **"Understand why Sponsio uses LTL"** → [Architecture](concepts/architecture.md)
 - **"Look up a CLI flag"** → [CLI reference](reference/cli.md)
