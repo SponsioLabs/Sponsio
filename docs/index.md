@@ -11,7 +11,7 @@ If you are just getting started, the fastest path is:
 
 ```bash
 pip install sponsio
-sponsio demo --scenario loan --fast
+sponsio demo --scenario freeze --fast
 sponsio onboard .
 ```
 
@@ -40,6 +40,7 @@ Then pick a track below.
 - **"Drop in a ready-made contract pack (shell, filesystem, runaway defense)"** → [Contract library](reference/contract-lib.md)
 - **"Add a stochastic atom for tone, PII, or scope"** → [Stochastic atoms](reference/sto-atoms.md)
 - **"Understand why Sponsio uses LTL"** → [Architecture](concepts/architecture.md)
+- **"Map a control to OWASP Agentic Top 10 (2026)"** → [OWASP coverage](owasp-agentic-top-10.md)
 - **"Look up a CLI flag"** → [CLI reference](reference/cli.md)
 - **"Reproduce the ODCV-Bench numbers"** → [Benchmarks](BENCHMARKS.md)
 

@@ -949,7 +949,7 @@ If you are just getting started, the fastest path is:
 
 ```bash
 pip install sponsio
-sponsio demo --scenario loan --fast
+sponsio demo --scenario freeze --fast
 sponsio onboard .
 ```
 
@@ -978,8 +978,9 @@ Then pick a track below.
 - **"Drop in a ready-made contract pack (shell, filesystem, runaway defense)"** → [Contract library](reference/contract-lib.md)
 - **"Add a stochastic atom for tone, PII, or scope"** → [Stochastic atoms](reference/sto-atoms.md)
 - **"Understand why Sponsio uses LTL"** → [Architecture](concepts/architecture.md)
+- **"Map a control to OWASP Agentic Top 10 (2026)"** → [OWASP coverage](owasp-agentic-top-10.md)
 - **"Look up a CLI flag"** → [CLI reference](reference/cli.md)
-- **"Reproduce the ODCV-Bench numbers"** → [Benchmarks](benchmarks/index.md)
+- **"Reproduce the ODCV-Bench numbers"** → [Benchmarks](BENCHMARKS.md)
 
 ---
 
@@ -1406,6 +1407,8 @@ Deterministic formulas are evaluated in microseconds. Stochastic atoms are judge
 > Audience: core team, contributors, and anyone extending the pattern library or observation layer.
 >
 > Last updated: 2026-04-09.
+
+> **Casual reader?** Skip this page on a first pass — start with [concepts/overview.md](overview.md) (5-min read) and [concepts/contracts.md](contracts.md) for the user-facing model. Come back here when you need to add a new pattern, atom, or observation layer.
 
 ---
 
@@ -4513,7 +4516,7 @@ Sto cost is dominated by judge-call latency, which is 100ms–1s per atom. Keep 
 
 ### Where are the numbers from?
 
-`sponsio scan` + offline replay against [ODCV-Bench](https://github.com/your-org/odcv-bench). ~84% average protection on high-risk trajectories across 12 mainstream LLMs. Full methodology and per-model results: [Benchmarks](benchmarks/index.md).
+`sponsio scan` + offline replay against [ODCV-Bench](https://github.com/your-org/odcv-bench). ~84% average protection on high-risk trajectories across 12 mainstream LLMs. Full methodology and per-model results: [Benchmarks](BENCHMARKS.md).
 
 ### Can I reproduce them?
 

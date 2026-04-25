@@ -5,6 +5,8 @@
 >
 > Last updated: 2026-04-09.
 
+> **Casual reader?** Skip this page on a first pass — start with [concepts/overview.md](overview.md) (5-min read) and [concepts/contracts.md](contracts.md) for the user-facing model. Come back here when you need to add a new pattern, atom, or observation layer.
+
 ---
 
 ## 1. The Concept Stack
