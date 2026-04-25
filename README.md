@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://x.com/sponsiolabs"><img src="https://img.shields.io/badge/Follow%20on%20X-000000?logo=x&logoColor=white" alt="Follow on X"></a>
-  <a href="https://www.linkedin.com/company/sponsio"><img src="https://img.shields.io/badge/Follow%20on%20LinkedIn-0A66C2?logo=linkedin&logoColor=white" alt="Follow on LinkedIn"></a>
+  <a href="https://www.linkedin.com/company/sponsio-labs/"><img src="https://img.shields.io/badge/Follow%20on%20LinkedIn-0A66C2?logo=linkedin&logoColor=white" alt="Follow on LinkedIn"></a>
   <a href="https://discord.gg/s8TfPnZWUm"><img src="https://img.shields.io/badge/Join%20our%20Discord-5865F2?logo=discord&logoColor=white" alt="Join our Discord"></a>
 </p>
 
@@ -24,8 +24,7 @@
 
 **Works with any stack.** LangGraph, Claude Agent SDK, OpenAI Agents SDK, Google ADK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop. Python and TypeScript. Prefer prompts? One-click [Cursor deeplink](#) above, or `sponsio skill install` drops a reusable agent skill into Cursor / Claude Code / Codex.
 
-> [!TIP]
-> **Recent updates — v0.1.x.** `sponsio onboard` auto-detects framework + writes starter contracts; `sponsio serve --dev` bundles a live dashboard; ODCV-Bench baseline published. [Changelog →](CHANGELOG.md)
+> 💡 **Updates** — **v0.1.x shipping.** `sponsio onboard` auto-detects framework + writes starter contracts; `sponsio serve --dev` bundles a live dashboard; ODCV-Bench baseline published. [Changelog →](CHANGELOG.md)
 
 <p align="center"><em>Demo video coming soon</em></p>
 
