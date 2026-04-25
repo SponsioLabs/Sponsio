@@ -226,9 +226,7 @@ def _backup_demo(*, no_guard: bool, fast: bool) -> None:
         agent_id="sre_optimizer",
         contracts=contracts,
         steps=steps,
-        breach_outcome=(
-            "prod DR backups deleted; next incident has no restore path."
-        ),
+        breach_outcome=("prod DR backups deleted; next incident has no restore path."),
         guarded_outcome=(
             "prod snapshots untouched; agent can only act inside the 30-day "
             "dev/staging window."

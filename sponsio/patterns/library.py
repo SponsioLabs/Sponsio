@@ -1095,8 +1095,7 @@ def approval_freshness(
     )
     if not isinstance(steps, int) or steps < 1:
         raise ValueError(
-            f"approval_freshness: 'steps' must be a positive integer "
-            f"(got {steps!r})."
+            f"approval_freshness: 'steps' must be a positive integer (got {steps!r})."
         )
     approval_atom = _called(approval)
     action_atom = _called(action)
@@ -1168,7 +1167,8 @@ def duplicate_call_limit(
     formula = G(Le(Var("count_with", tool, args_pattern), Const(max_count)))
     return DetFormula(
         formula=formula,
-        desc=desc or f"{tool} calls matching {args_pattern!r} at most {max_count} times",
+        desc=desc
+        or f"{tool} calls matching {args_pattern!r} at most {max_count} times",
         pattern_name="duplicate_call_limit",
         args=(tool, args_pattern, max_count),
     )

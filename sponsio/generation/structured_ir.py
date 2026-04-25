@@ -637,6 +637,79 @@ def _synth_value_range(ir: ConstraintIR) -> tuple[Formula, str, str]:
     return f, f"{tool}.{field} must be in range {range_str}", "arg_value_range"
 
 
+# --- Workflow hygiene patterns ---
+
+
+def _synth_dry_run_before(ir: ConstraintIR) -> tuple[Formula, str, str]:
+    """!called(commit) U called(dry_run) — same shape as precedes."""
+    dry_run, commit = ir.subject, ir.object
+    f = Or(U(Not(_called(commit)), _called(dry_run)), G(Not(_called(commit))))
+    return f, f"{dry_run} dry-run must precede {commit}", "dry_run_before_commit"
+
+
+def _synth_backup_before(ir: ConstraintIR) -> tuple[Formula, str, str]:
+    """!called(action) U called(backup) — same shape as precedes."""
+    backup, action = ir.subject, ir.object
+    f = Or(U(Not(_called(action)), _called(backup)), G(Not(_called(action))))
+    return (
+        f,
+        f"{backup} backup must precede destructive action {action}",
+        "backup_before_destructive",
+    )
+
+
+def _synth_audit_after(ir: ConstraintIR) -> tuple[Formula, str, str]:
+    """G(called(action) → F(called(audit))) — same shape as follows."""
+    action, audit = ir.subject, ir.object
+    f = G(Implies(_called(action), F(_called(audit))))
+    return f, f"{action} must be followed by audit step {audit}", "audit_after"
+
+
+def _synth_approval_window(ir: ConstraintIR) -> tuple[Formula, str, str]:
+    """Approval window: action forbidden until approval, expires after N steps."""
+    approval, action, n = ir.subject, ir.object, ir.quantifier
+    closed = Or(U(Not(_called(action)), _called(approval)), G(Not(_called(action))))
+    shifted: Formula = closed
+    for _ in range(n + 1):
+        shifted = X(shifted)
+    f = And(closed, G(Implies(_called(approval), shifted)))
+    return (
+        f,
+        f"{action} requires approval {approval} within {n} steps",
+        "approval_freshness",
+    )
+
+
+def _synth_sanitize_between(ir: ConstraintIR) -> tuple[Formula, str, str]:
+    """G(called(source) → X((!called(sink) U called(sanitizer)) ∨ G(!called(sink))))"""
+    source = ir.subject
+    sanitizer = ir.params.get("sanitizer", "__sanitizer__")
+    sink = ir.params.get("sink", "__sink__")
+    inner = Or(
+        U(Not(_called(sink)), _called(sanitizer)),
+        G(Not(_called(sink))),
+    )
+    f = G(Implies(_called(source), X(inner)))
+    return (
+        f,
+        f"after {source}, {sanitizer} must precede {sink}",
+        "sanitized_before_sink",
+    )
+
+
+def _synth_dedupe_limit(ir: ConstraintIR) -> tuple[Formula, str, str]:
+    """G(count_with(tool, pattern) ≤ N) — cap repeated same-argument calls."""
+    tool = ir.subject
+    args_pattern = ir.params.get("args_pattern", "__pattern__")
+    n = ir.quantifier
+    f = G(Le(Var("count_with", tool, args_pattern), Const(n)))
+    return (
+        f,
+        f"{tool} calls matching {args_pattern!r} at most {n} times",
+        "duplicate_call_limit",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Synthesis dispatch table
 # ---------------------------------------------------------------------------
@@ -693,6 +766,22 @@ _SYNTH_TABLE: dict[str, dict[str, Any]] = {
     "value_range": {
         "fn": _synth_value_range,
         "needs": ["params.field"],
+    },
+    # --- Workflow hygiene ---
+    "dry_run_before": {"fn": _synth_dry_run_before, "needs": ["object"]},
+    "backup_before": {"fn": _synth_backup_before, "needs": ["object"]},
+    "audit_after": {"fn": _synth_audit_after, "needs": ["object"]},
+    "approval_window": {
+        "fn": _synth_approval_window,
+        "needs": ["object", "quantifier"],
+    },
+    "sanitize_between": {
+        "fn": _synth_sanitize_between,
+        "needs": ["params.sanitizer", "params.sink"],
+    },
+    "dedupe_limit": {
+        "fn": _synth_dedupe_limit,
+        "needs": ["params.args_pattern", "quantifier"],
     },
 }
 
