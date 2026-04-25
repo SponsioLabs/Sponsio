@@ -3,7 +3,7 @@ Output assets/demos/wire_transfer_cli.gif
 
 Set FontSize 14
 Set Width 1200
-Set Height 900
+Set Height 1000
 Set Padding 20
 Set Theme "Dracula"
 Set TypingSpeed 20ms
@@ -13,5 +13,4 @@ Env PYTHONPATH "."
 
 Type "sponsio demo --scenario wire"
 Enter
-Sleep 8s
-Sleep 3s
+Sleep 9s

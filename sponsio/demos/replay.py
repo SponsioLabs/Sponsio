@@ -39,7 +39,10 @@ def run_demo(scenario: str, *, no_guard: bool = False, fast: bool = False) -> No
 
 
 def _printer(fast: bool):
-    def emit(line: str = "", delay: float = 0.2) -> None:
+    # 0.35s default mirrors the framework demos under examples/demo/*.py;
+    # also paces the gif recordings (assets/demos/*.tape) so the contract
+    # banner and trajectory are readable instead of scroll-blurred.
+    def emit(line: str = "", delay: float = 0.35) -> None:
         print(line, flush=True)
         if not fast:
             time.sleep(delay)
@@ -78,12 +81,17 @@ def _run_steps(
         # of the user's ``SPONSIO_MODE`` env — the observe-mode default
         # hides the VIOLATED line and makes the demo look like a no-op.
         guard = sponsio.Sponsio(agent_id=agent_id, contracts=contracts, mode="enforce")
+        # The contract banner is printed in one chunk by ``print_banner``
+        # and would scroll past in the gif before a viewer can read it.
+        # Hold for ~1.5s so the contract list is legible before the
+        # trajectory starts firing. Skipped under ``--fast`` (CI smoke).
+        emit("", 1.5)
 
     for step in steps:
         emit(f"  {DIM}-> {step.tool}({_fmt_args(step.args)}){RESET}")
         if no_guard:
             if step.note:
-                emit(f"    {RED}-> {step.note}{RESET}", 0.05)
+                emit(f"    {RED}-> {step.note}{RESET}", 0.25)
             continue
 
         assert guard is not None
@@ -91,6 +99,9 @@ def _run_steps(
         if result.blocked:
             break
 
+    # Brief pause before the outcome line so the violation banner has
+    # time to settle and the verdict reads as a separate beat.
+    emit("", 0.8)
     if no_guard:
         emit(f"\n{RED}{BOLD}x Outcome: {breach_outcome}{RESET}")
     else:
