@@ -181,7 +181,7 @@ pip install -e ".[all]"
 pytest -v
 ruff check sponsio/ api/ tests/
 ruff format sponsio/ api/ tests/
-sponsio demo --scenario wire --fast
+sponsio demo --scenario freeze --fast
 sponsio validate "tool `check_policy` must precede `issue_refund`"
 ```
 

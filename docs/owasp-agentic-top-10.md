@@ -572,7 +572,10 @@ contracts:
 
 **What this enforces.** The rogue-agent pattern is *rational cost-optimal behavior under the wrong KPI*. Each contract is a guardrail against a specific corner the agent might cut — wrong path, wrong age, wrong velocity, no human in the loop, missing audit steps, misleading report. The failure mode is structural (not adversarial), so the fix is structural.
 
-**See it in action.** The packaged [`backup` demo](../examples/demo/demo_backup_delete.py) replays this exact trajectory — run `sponsio demo --scenario backup` for a 10-second visual.
+**See it in action.** Two packaged demos cover the ASI-10 failure shape from different angles:
+
+- [`backup` demo](../examples/demo/demo_backup_delete.py) — SRE cost-optimizer deletes off-site DR backups to hit a storage-cost KPI. Run `sponsio demo --scenario backup`.
+- [`freeze` demo](../examples/demo/demo_freeze_violation.py) — recreates the [July 2025 Replit incident](https://x.com/jasonlk/status/1946069562723897802) cited in [OWASP GenAI's Q1 2026 round-up](https://genai.owasp.org/2026/04/14/owasp-genai-exploit-round-up-report-q1-2026/): agent violates a declared code freeze, drops prod tables, fabricates replacement rows, writes a clean status report. Four assume-guarantee contracts catch the chain. Run `sponsio demo --scenario freeze`.
 
 📖 [OWASP reference →](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)
 

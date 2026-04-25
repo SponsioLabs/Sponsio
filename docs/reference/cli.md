@@ -249,7 +249,7 @@ sponsio demo [OPTIONS]
 
 | Option | Description |
 |--------|-------------|
-| `--scenario` | Demo scenario: `cleanup` (default), `backup`, `wire` |
+| `--scenario` | Demo scenario: `cleanup` (default), `backup`, `wire`, `freeze` |
 | `--mode` | `mock` (default, no optional SDKs) or `integration` (source checkout examples) |
 | `--no-guard` | Replay the unsafe trajectory without Sponsio |
 | `--fast` | Skip typing delays |
@@ -264,6 +264,7 @@ when you want to run the framework-specific example scripts.
 | `cleanup` | — | Claude Code cleanup agent deletes `.env` & `.git/` | `from sponsio.claude_agent import Sponsio` · `ClaudeAgentOptions(hooks=guard.hooks())` |
 | `backup` | ASI-10 | SRE cost-optimizer deletes prod DR backups to hit a storage-cost KPI | `from sponsio.langgraph import Sponsio` · `guard.wrap(tools)` |
 | `wire` | ASI-09 | AP copilot wires $847k to an unverified vendor under SLA pressure | `from sponsio.crewai import Sponsio` · `guard.wrap(tools)` |
+| `freeze` | ASI-10 | Replit-style agent violates declared code freeze, drops prod tables, fabricates replacement rows, then writes a "database intact" status report | `from sponsio.langgraph import Sponsio` · `guard.wrap(tools)` |
 
 ### Examples
 

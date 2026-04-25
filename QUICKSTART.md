@@ -78,6 +78,7 @@ Other scenarios:
 ```bash
 sponsio demo --scenario cleanup    # Claude Code agent deletes .env + .git/
 sponsio demo --scenario backup     # SRE cost-optimizer deletes prod DR backups (OWASP ASI-10)
+sponsio demo --scenario freeze     # Replit-style code-freeze violation + coverup (OWASP ASI-10)
 sponsio demo --scenario wire --no-guard   # same trajectory without contracts
 ```
 

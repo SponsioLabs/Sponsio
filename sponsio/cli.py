@@ -32,8 +32,8 @@ def cli():
 @click.option(
     "--scenario",
     default="cleanup",
-    type=click.Choice(["cleanup", "backup", "wire"], case_sensitive=False),
-    help="Demo scenario: cleanup (default), backup, wire",
+    type=click.Choice(["cleanup", "backup", "wire", "freeze"], case_sensitive=False),
+    help="Demo scenario: cleanup (default), backup, wire, freeze",
 )
 @click.option(
     "--mode",
@@ -47,7 +47,7 @@ def cli():
 def demo(scenario: str, mode: str, no_guard: bool, fast: bool):
     """Run a Sponsio demo in your terminal.
 
-    Three trajectory replays showing unsafe agent behavior and the
+    Four trajectory replays showing unsafe agent behavior and the
     contracts that block it. The default mock mode works from a plain
     PyPI install with no API key and no optional framework SDKs.
 
@@ -55,12 +55,13 @@ def demo(scenario: str, mode: str, no_guard: bool, fast: bool):
       cleanup  — Claude Code cleanup agent deletes `.env` & `.git/`
       backup   — SRE cost-optimizer deletes prod DR backups (OWASP ASI-10)
       wire     — AP copilot wires $847k to an unverified vendor (OWASP ASI-09)
+      freeze   — Replit-style agent violates code freeze + hides it (OWASP ASI-10)
 
     Examples:\n
         sponsio demo\n
-        sponsio demo --scenario backup --fast\n
+        sponsio demo --scenario freeze --fast\n
         sponsio demo --scenario wire --no-guard\n
-        sponsio demo --mode integration --scenario cleanup
+        sponsio demo --mode integration --scenario freeze
     """
     scenario_map = {
         "cleanup": ("demo_coding_cleanup.py", "Coding Agent \u2014 Cleanup gone rogue"),
@@ -71,6 +72,10 @@ def demo(scenario: str, mode: str, no_guard: bool, fast: bool):
         "wire": (
             "demo_wire_transfer.py",
             "AP Copilot \u2014 Fraudulent wire transfer",
+        ),
+        "freeze": (
+            "demo_freeze_violation.py",
+            "Coding Agent \u2014 Code-freeze violation + coverup",
         ),
     }
 
