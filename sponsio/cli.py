@@ -3848,6 +3848,65 @@ def onboard(
 
 
 # ---------------------------------------------------------------------------
+# `sponsio shield ...` — plugin-system enforcement adapter
+# ---------------------------------------------------------------------------
+#
+# The ``shield`` subgroup hosts everything related to running Sponsio as a
+# host-installed shield over a plugin runtime (Claude Code today, OpenClaw
+# planned).  Today only ``shield guard`` is wired up; ``shield init``,
+# ``shield scan``, ``shield report``, and ``shield status`` are planned
+# Stage-2/3 commands and live behind the same group so users only have
+# to learn one prefix.
+
+
+@cli.group()
+def shield():
+    """Host-installed runtime shield for plugin systems (Claude Code, …)."""
+
+
+@shield.command(name="guard")
+@click.option(
+    "--stdin",
+    "use_stdin",
+    is_flag=True,
+    default=True,
+    help=(
+        "Read a single hook event as JSON from stdin (Claude Code "
+        "PreToolUse / PostToolUse protocol)."
+    ),
+)
+def shield_guard(use_stdin: bool):
+    """Plugin-system hook entry point — evaluates one tool call.
+
+    Wired into a Claude Code plugin via ``hooks/hooks.json``::
+
+        {
+          "hooks": {
+            "PreToolUse": [
+              {"matcher": "*",
+               "hooks": [{"type": "command",
+                          "command": "sponsio shield guard --stdin"}]}
+            ]
+          }
+        }
+
+    Reads the event JSON from stdin, derives the plugin id from the
+    tool name (``Bash`` → ``_host``; ``acme:fetch`` → ``acme``;
+    ``mcp__acme__fetch`` → ``acme``), loads the matching library at
+    ``~/.sponsio/plugins/<plugin>/sponsio.yaml`` (override with
+    ``$SPONSIO_PLUGIN_ROOT``), and writes the deny / allow reply that
+    Claude Code expects.
+
+    Exits 0 in every code path: a Sponsio bug must never wedge an
+    agent's tool call. Diagnostics go to stderr; deny verdicts go to
+    stdout in the documented hook reply schema.
+    """
+    from sponsio.guard_stdin import run_stdin
+
+    sys.exit(run_stdin())
+
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 
