@@ -207,6 +207,27 @@ judge:                                 # only when any include uses sto (LLM-jud
 
 Run `sponsio packs` to list shipped packs with rule counts and include syntax.
 
+## Contract types and authoring
+
+Three contract categories Sponsio enforces, all deterministic, all checked before the side effect:
+
+| Type | What it catches | Natural-language rule (compiles to LTL) |
+|------|-----------------|----------------------------------------|
+| **Per-action** | Prohibited or required tool calls | *"no `rm -rf`"* · *"`confirm_with_user` before `delete_file`"* |
+| **Sequential** | Out-of-order calls, post-gate tampering | *"`run_tests` before `deploy_production`"* · *"after `run_aml_check`, loan files immutable"* |
+| **Bounded** | Retry loops, delegation fan-out, token runaway | *"`check_balance` at most 5 times"* · *"delegation depth ≤ 3"* |
+
+Phrases above are how you write rules in `sponsio.yaml` — Sponsio compiles each into a Linear Temporal Logic formula for [machine-checkable enforcement](docs/formal-methods.md).
+
+Four ways to author them, all feeding the same `sponsio.yaml`:
+
+- **Auto-inferred** — `sponsio onboard` reads your tool signatures
+- **Pattern library** — 29 patterns + starter bundles for Claude Code, OpenAI Agents SDK, CrewAI, MCP
+- **Natural language** — `sponsio validate "..."` compiles plain English to LTL
+- **Policy doc** — `sponsio scan --policy security.md` parses existing compliance docs
+
+See [`docs/contracts.md`](docs/contracts.md) for the full DSL and atom vocabulary.
+
 ## From demo to production
 
 Sponsio is designed as a staged rollout. Each step adds trust without rewriting what came before; you can stop at any stage and still get value.

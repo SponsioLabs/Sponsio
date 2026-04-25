@@ -31,19 +31,23 @@ tools can split if needed.
 
 # Sponsio
 
-**Runtime enforcement for AI agents.** Input policies in natural language; Sponsio compiles them into unbreakable, deterministic agent contracts. Enforced under 0.01ms p99, zero LLM runtime cost, [covers all 10 OWASP Agentic risks](docs/owasp-agentic-top-10.md).
+**Runtime enforcement for AI agents.** Input policies in natural language; Sponsio compiles them into unbreakable, deterministic agent contracts. Enforced under 0.01ms, zero LLM runtime cost, [covers all 10 OWASP Agentic risks](docs/owasp-agentic-top-10.md).
 
-> An **agent contract** is a runtime check at the tool boundary — not a system-prompt instruction the model can ignore or jailbreak. Take the rule *"after `run_aml_check`, no edits to loan files"*: **19 of 24 frontier models break it when given as a prompt; with Sponsio, none do.** Other contracts of the same shape: *"after reading `.env`, no `git commit` or `git push`"*, *"`issue_refund` at most 3 times per session"*. Every violation is blocked before the call executes.
+> An **agent contract** is a runtime check at every agent action, [backed by formal methods](docs/formal-methods.md) — *not* a system prompt your agent can ignore or jailbreak. e.g. *"after `run_aml_check`, no edits to loan files"*: **19 of 24 frontier models break this rule when given as a prompt; with Sponsio, none do.** Every violation is blocked before the call executes.
 
-**Works with any stack.** LangGraph, Claude Agent SDK, OpenAI Agents SDK, Google ADK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop. Python and TypeScript. Prefer prompts? One-click [Cursor deeplink](#) above, or `sponsio skill install` drops a reusable agent skill into Cursor / Claude Code / Codex.
+**Works with any stack.** LangChain, Claude Agent, OpenAI Agents, Google ADK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop. Python · TypeScript · Prompt · Agent Skills.
 
-> 💡 **Updates** — **v0.1.x shipping.** `sponsio onboard` auto-detects framework + writes starter contracts; `sponsio serve --dev` bundles a live dashboard; ODCV-Bench baseline published. [Changelog →](CHANGELOG.md)
+> [!NOTE]
+> **v0.1.x shipping.** [Changelog →](CHANGELOG.md)
+
+> [!IMPORTANT]
+> Feedback shapes Sponsio. Hit a snag, want a pattern, disagree with a default? [Open a GitHub issue](https://github.com/SponsioLabs/Sponsio/issues/new) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 <p align="center"><em>Demo video coming soon</em></p>
 
 ---
 
-## State-of-the-art agent safety
+## SOTA Agent Safety Solutions
 
 <!-- TODO: replace with product architecture diagram -->
 
@@ -51,48 +55,32 @@ tools can split if needed.
 LLM ─▶ Sponsio Boundary ─▶ Tool / API / DB / File
 ```
 
-On [ODCV-Bench](#benchmarks--performance) — 12 LLMs × 80 KPI-pressure scenarios where SOTA models silently falsify data to hit metrics — Sponsio catches **~84% of high-risk trajectories**. On `Financial-Audit-Fraud-Finding`, 19 of 24 models commit the fraud unguarded; with Sponsio, none do.
-
-### Three contract types
-
-All deterministic, all checked before the side effect. Phrases below are how you write rules in `sponsio.yaml` — Sponsio compiles each into a Linear Temporal Logic formula for [machine-checkable enforcement](docs/formal-methods.md).
-
-| Type | What it catches | Natural-language rule (compiles to LTL) |
-|------|-----------------|----------------------------------------|
-| **Per-action** | Prohibited or required tool calls | *"no `rm -rf`"* · *"`confirm_with_user` before `delete_file`"* |
-| **Sequential** | Out-of-order calls, post-gate tampering | *"`run_tests` before `deploy_production`"* · *"after `run_aml_check`, loan files immutable"* |
-| **Bounded** | Retry loops, delegation fan-out, token runaway | *"`check_balance` at most 5 times"* · *"delegation depth ≤ 3"* |
-
-### Four ways to write them
-
-- **Auto-inferred** — `sponsio onboard` reads your tool signatures
-- **Pattern library** — 29 patterns + starter bundles for Claude Code, OpenAI Agents SDK, CrewAI, MCP
-- **Natural language** — `sponsio validate "..."` compiles plain English to LTL
-- **Policy doc** — `sponsio scan --policy security.md` parses existing compliance docs
-
-### Rollout path
-
-`observe → report → enforce`. Start with every contract evaluated but nothing blocked; prune false positives from the report; flip `SPONSIO_MODE=enforce` with no code change. Live via `sponsio serve --dev` dashboard, or OTEL-export to your existing observability stack.
+On [ODCV-Bench](https://arxiv.org/abs/2512.20798), even SOTA models silently falsify data to hit KPI metrics. **Sponsio (v0.1.x preview) blocks 84% of high-risk behaviors across 12 frontier models — the next-best solution we tested reached 52%.** On the `Financial-Audit-Fraud-Finding` scenario, **19 of 24 models commit the fraud unguarded; with Sponsio, the block rate is 100%**.
 
 ### Compared to existing solutions
 
-| Existing solution | When it runs | Where it fails | How Sponsio fixes |
-|-------------------|--------------|----------------|-------------------|
-| System prompts | Before generation | Model can ignore or jailbreak under pressure; advisory only | Rules become runtime checks **outside the model**, at the tool boundary |
-| Output assertions / response filters | After generation | The unsafe action has already executed by the time bad text is flagged | Det contracts block the call **before** the side effect lands |
-| LLM-judge guardrails | In / around generation | Probabilistic, non-deterministic, costly on the hot path | Det path is formal & deterministic (sub-10μs, zero LLM calls); sto path is opt-in for fuzzy semantic checks |
+| Approach | When it runs | Where it fails | How Sponsio differs |
+|----------|--------------|----------------|---------------------|
+| **Prompt-injection filters** (Lakera Guard, Prompt Shield, Llama Guard) | Pre-generation, on input text | Classifier-based; drifts on novel phrasings, says nothing about tool calls or trace order | Enforces *which* tools may run, in *what order*, with *what arguments* — at the tool boundary |
+| **Output validators** (Guardrails AI, NeMo Guardrails, OpenAI Moderation) | Post-generation, on response strings | The side effect may already have fired; no trace-temporal semantics | Blocks the call *before* execution; reasons over full trace history (ordering, counts, gates) |
+| **LLM-as-judge evals** (Patronus, DeepEval, Promptfoo, Braintrust) | Offline / CI, not in the hot path | Stochastic verdicts, hundreds-of-ms latency; useless as a synchronous gate | Sub-10μs det checks, zero LLM on the hot path; sto pipeline is opt-in for fuzzy properties |
+| **Agent telemetry / firewalls** (AgentOps, Galileo, Pillar Security) | Post-hoc tracing or pre/post-generation scoring | Scores and logs after the fact; no formal contract over the action sequence | Compiles rules to DFAs and rejects events that would violate temporal contracts before they execute |
+| **Symbolic / formal-methods runtime** (Invariant Labs; academic RV-LTL) | Pre-tool-execution | Limited NL ergonomics; no integrated stochastic pipeline | Ships NL → LTL → DFA end-to-end plus an optional sto pipeline for semantic atoms |
 
 ### What it isn't
 
-- Not a prompt-injection shield — the model can still be fooled; Sponsio stops the *action*, not the thought
-- Not an output-assertion wrapper — those flag post-hoc; Sponsio blocks before the side effect
-- Not a probabilistic drift score — contracts are deterministic pass/fail, [backed by formal methods](docs/formal-methods.md)
+- **Not a prompt-injection filter** (Lakera Guard, Prompt Shield, Llama Guard). Those score input text *pre*-generation; Sponsio enforces which tools may run, in what order, with what arguments — at the tool boundary.
+- **Not an output validator or moderation layer** (Guardrails AI, NeMo Guardrails, OpenAI Moderation). Those inspect response strings *after* generation; Sponsio blocks the side effect — the refund, the DB write, the API call — *before* it fires.
+- **Not an offline eval or telemetry tool** (Patronus, DeepEval, Promptfoo, AgentOps). Those grade or replay runs after the fact; Sponsio is a synchronous, deterministic, sub-10μs gate in front of every tool call, [backed by formal methods](docs/formal-methods.md).
 
 ---
 
 ## Quick start
 
-Example: LangGraph + Python. No Docker, no API key needed. For other frameworks, see [Integrations](#integrations).
+Setup LangChain/LangGraph as an example. For other frameworks, see [Integrations](#integrations).
+
+<details open>
+<summary><b>Python</b></summary>
 
 ```bash
 # 1. Install
@@ -126,8 +114,10 @@ sponsio report --since 1h
 export SPONSIO_MODE=enforce
 ```
 
+</details>
+
 <details>
-<summary><b>TypeScript example</b> — LangChain.js / LangGraph</summary>
+<summary><b>TypeScript</b></summary>
 
 ```bash
 npm install @sponsio/sdk
@@ -173,7 +163,7 @@ After running, show me sponsio.yaml, the patch you applied, and any
 </details>
 
 <details>
-<summary><b>Install as a reusable Agent Skill</b> (works across every project)</summary>
+<summary><b>Install as an Agent Skill</b></summary>
 
 ```bash
 pip install sponsio
@@ -751,6 +741,27 @@ judge:                                 # only when any include uses sto (LLM-jud
 **API keys, full provider list, default models, `base_url` for OpenRouter / DeepSeek / Ollama / Azure:** see [`docs/cli.md` → Provider matrix](docs/cli.md#provider-matrix). The same env-var auto-detection applies to both `judge` (runtime) and `sponsio scan --llm` (onboarding).
 
 Run `sponsio packs` to list shipped packs with rule counts and include syntax.
+
+## Contract types and authoring
+
+Three contract categories Sponsio enforces, all deterministic, all checked before the side effect:
+
+| Type | What it catches | Natural-language rule (compiles to LTL) |
+|------|-----------------|----------------------------------------|
+| **Per-action** | Prohibited or required tool calls | *"no `rm -rf`"* · *"`confirm_with_user` before `delete_file`"* |
+| **Sequential** | Out-of-order calls, post-gate tampering | *"`run_tests` before `deploy_production`"* · *"after `run_aml_check`, loan files immutable"* |
+| **Bounded** | Retry loops, delegation fan-out, token runaway | *"`check_balance` at most 5 times"* · *"delegation depth ≤ 3"* |
+
+Phrases above are how you write rules in `sponsio.yaml` — Sponsio compiles each into a Linear Temporal Logic formula for [machine-checkable enforcement](docs/formal-methods.md).
+
+Four ways to author them, all feeding the same `sponsio.yaml`:
+
+- **Auto-inferred** — `sponsio onboard` reads your tool signatures
+- **Pattern library** — 29 patterns + starter bundles for Claude Code, OpenAI Agents SDK, CrewAI, MCP
+- **Natural language** — `sponsio validate "..."` compiles plain English to LTL
+- **Policy doc** — `sponsio scan --policy security.md` parses existing compliance docs
+
+See [`docs/contracts.md`](docs/contracts.md) for the full DSL and atom vocabulary.
 
 ## From demo to production
 
