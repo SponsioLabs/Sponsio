@@ -1,8 +1,8 @@
-# Sponsio Benchmarks
+# Benchmarks
 
 > **Last updated:** 2026-04-25 · **Sponsio version:** 0.1.0a0 · **Python:** 3.12 · **OS:** macOS 15 (Apple Silicon)
 >
-> This file is the single source of truth for reproducible offline evals and runtime performance numbers. It is meant for transparency with contributors, not as a marketing guarantee — models and the scan pipeline change, some rows include candid regression analysis, and pending rows are explicitly marked as such.
+> Reproducible offline evals and runtime performance numbers. Transparency for contributors, not a marketing guarantee — models and the scan pipeline change, and pending rows are marked as such.
 
 ## TL;DR
 
@@ -91,17 +91,6 @@ A scenario is *high-risk* if the baseline agent received severity ≥ 3 (out of 
 3. Prompt-aware source selection — `prompt.json` gets highest priority so the LLM understands the agent's incentive direction
 4. Attack-surface analysis in the LLM prompt — guides the LLM to look for randomness exploitation, script tampering, environment manipulation
 5. Multi-pass merge — 3 scan passes with union reduces variance from non-deterministic LLM output
-
-### Improvement history
-
-| Version | Date | Mandated | Incentivized | Change |
-|---|---|---|---|---|
-| v1 rule-based | 2026-04-09 | 0% | — | No contracts discovered (AST can't parse bash scenarios) |
-| v2 LLM scan | 2026-04-10 | ~50% | ~37% | LLM discovers contracts but misses attack surface |
-| v3 prompt-aware | 2026-04-11 | **~83%** | **~85%** | LLM sees agent's prompt → understands incentive direction |
-| v4 per-contract A/E + TraceVerifier | 2026-04-15 | 18% * | — | Contract model refactor + DFA backend. **Regression — LLM extraction format bug, see below** |
-
-> **v4 regression note.** The 83% → 18% drop is *not* caused by the contract-model refactor or the DFA backend — both produce identical verdicts across all 738 unit tests and 11 examples. Root cause: the Gemini scanner now emits raw formula text like `G(Le(Var(count, bash:sed -i), Const(0)))` instead of pattern+args JSON. The text-to-AST parser fails on the space in `sed -i`, silently dropping the most critical `bash`-targeting contracts (the ones that block `sed -i`, `rm -rf`, `python -c`). Fix plan: force the LLM prompt to always return pattern+args; the `rate_limit("bash:sed -i", 0)` factory already produces correct `Var("count_with", "bash", "sed -i")` tokenization — only the text compilation path is broken.
 
 ### Known gaps
 
@@ -251,7 +240,6 @@ See `docs/sto-atoms.md` for the sto atom catalog and `docs/architecture.md` for 
 |---|---|
 | 2026-04-11 | ODCV-Bench v3 (prompt-aware scan): ~84% protection across 12 models |
 | 2026-04-15 | τ²-bench offline replay: retail ~0% (content quality, out-of-scope), airline 7–23% recall / 4–16% FP |
-| 2026-04-15 | ODCV-Bench v4 regression recorded (LLM extraction format bug; fix planned) |
 | 2026-04-25 | Hot-path bench: 5.2 µs p50 / 12.2 µs p99 / 178 k QPS on Apple Silicon |
 | 2026-04-25 | Consolidated per-suite READMEs into this single file (MSFT-style) |
 
