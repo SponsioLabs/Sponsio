@@ -102,3 +102,38 @@ jobs:
             done
           done
           exit $exit_code
+
+      - name: Check README collapsibles intact
+        run: |
+          # WYSIWYG markdown editors (Typora / Obsidian Live Preview / VS Code
+          # Markdown Editor / Cursor rich preview) silently strip <details>
+          # tags when they round-trip the file. Catch this before push.
+          # Expectation: 8 <details> blocks for the Integrations section
+          # (one per supported framework). Quick start uses flat headings
+          # by design, not collapsibles.
+          expected=8
+          opens=$(grep -c '^<details>' README.md || echo 0)
+          closes=$(grep -c '^</details>' README.md || echo 0)
+          if [ "$opens" -ne "$expected" ] || [ "$closes" -ne "$expected" ]; then
+            echo "::error file=README.md::Expected ${expected} <details>/</details> pairs in Integrations, found ${opens} open / ${closes} close. WYSIWYG markdown editor likely stripped them — re-add, or edit only in plain-text source mode."
+            exit 1
+          fi
+          # Sanity: required summary labels for the 8 framework blocks
+          required_summaries=(
+            "<summary><b>No framework</b>"
+            "<summary><b>LangGraph / LangChain.js</b>"
+            "<summary><b>Claude Agent SDK</b>"
+            "<summary><b>OpenAI SDK</b>"
+            "<summary><b>OpenAI Agents SDK</b>"
+            "<summary><b>Vercel AI SDK</b>"
+            "<summary><b>CrewAI</b>"
+            "<summary><b>MCP</b>"
+          )
+          missing=0
+          for s in "${required_summaries[@]}"; do
+            if ! grep -qF "$s" README.md; then
+              echo "::error file=README.md::Required Integrations summary missing: $s"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ]
