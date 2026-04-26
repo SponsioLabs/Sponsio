@@ -1,0 +1,24 @@
+# =============================================================================
+# Sample contract library for Claude Code's built-in (host) tools.
+#
+# Sponsio-shield routes any tool call whose name is one of Claude Code's
+# first-party tools (Bash, Edit, Write, Read, …) into this library.
+# Plugin-provided tools (`my-plugin:hello`, `mcp__server__tool`) get
+# their own per-plugin libraries under ../<plugin-id>/sponsio.yaml.
+#
+# After installing the sponsio-shield plugin, copy this file (and any
+# sibling per-plugin libraries) into ``~/.sponsio/plugins/_host/`` to
+# activate.  Override individual rules with ``overrides:``.
+# =============================================================================
+
+version: "1"
+
+agents:
+  _host:
+    # Reuse the shell-capability pack but rename its canonical "exec"
+    # tool to Claude Code's actual built-in name "Bash".
+    tool_rename:
+      exec: Bash
+
+    include:
+      - sponsio:capability/shell

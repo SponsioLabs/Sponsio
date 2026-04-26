@@ -36,14 +36,17 @@ Each plugin gets its own contract library so:
 # 1. Install Sponsio so `sponsio shield guard --stdin` is on PATH.
 pip install -e .
 
-# 2. Bootstrap the per-plugin library tree.
-mkdir -p ~/.sponsio/plugins/_host
-cp plugins/sponsio-shield/libraries/_host/sponsio.yaml \
-   ~/.sponsio/plugins/_host/sponsio.yaml
+# 2. Bootstrap the per-plugin library tree (creates ~/.sponsio/plugins/_host/
+#    and runs an allow + block smoke test).
+sponsio shield init
 
 # 3. Load the plugin into Claude Code.
 claude --plugin-dir ./plugins/sponsio-shield
 ```
+
+`shield init` ships the same default `_host` library as the
+`libraries/_host/sponsio.yaml` in this directory — pick whichever
+install path is more convenient.
 
 The sample `_host` library blocks `rm -rf /`, fork bombs, `curl | bash`,
 reverse-shell primitives, line-continuation evasion, and other

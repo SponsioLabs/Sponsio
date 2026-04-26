@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import json
 import os
 import re
@@ -3862,6 +3864,161 @@ def onboard(
 @cli.group()
 def shield():
     """Host-installed runtime shield for plugin systems (Claude Code, …)."""
+
+
+@shield.command(name="init")
+@click.option(
+    "--root",
+    "root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Override the per-plugin library root "
+        "(default: $SPONSIO_PLUGIN_ROOT or ~/.sponsio/plugins)."
+    ),
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Overwrite an existing _host/sponsio.yaml without prompting.",
+)
+@click.option(
+    "--no-smoke-test",
+    is_flag=True,
+    default=False,
+    help="Skip the post-install JSON-on-stdin verification.",
+)
+def shield_init(root: Path | None, force: bool, no_smoke_test: bool):
+    """Bootstrap ``~/.sponsio/plugins/`` with the default ``_host`` library.
+
+    What this writes:
+
+    \b
+      <root>/_host/sponsio.yaml         from sponsio/shield/defaults/_host.yaml
+
+    The default ``_host`` library reuses ``sponsio:capability/shell`` to
+    block ``rm -rf /``, fork bombs, ``curl|bash``, reverse-shell
+    primitives, line-continuation evasion, and CVE-2026-28460-class
+    escapes against Claude Code's first-party Bash tool.
+
+    After running this, install or update the sponsio-shield Claude Code
+    plugin and load it with::
+
+        claude --plugin-dir <path-to-sponsio-shield>
+
+    Per-plugin libraries for individual MCP servers / plugins live as
+    siblings of ``_host/`` and can be created by hand or — once Stage-2
+    lands — via ``sponsio shield scan``.
+    """
+    from importlib import resources
+
+    if root is None:
+        env = os.environ.get("SPONSIO_PLUGIN_ROOT")
+        root = Path(env).expanduser() if env else Path.home() / ".sponsio" / "plugins"
+
+    target_dir = root / "_host"
+    target = target_dir / "sponsio.yaml"
+
+    # Resolve the bundled source. Works both in source checkouts (where
+    # ``sponsio.shield`` resolves to the repo path) and in pip installs
+    # (where it resolves into site-packages).
+    try:
+        src_traversable = resources.files("sponsio.shield").joinpath(
+            "defaults/_host.yaml"
+        )
+        src_text = src_traversable.read_text(encoding="utf-8")
+    except (FileNotFoundError, ModuleNotFoundError) as e:
+        click.secho(
+            f"Error: bundled default library not found ({e}). Reinstall sponsio.",
+            fg="red",
+        )
+        sys.exit(1)
+
+    wrote_file = False
+    if target.exists() and not force:
+        click.echo(f"{target} already exists. Re-run with --force to overwrite.")
+    else:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target.write_text(src_text, encoding="utf-8")
+        click.secho(f"✓ wrote {target}", fg="green")
+        wrote_file = True
+
+    # Smoke test: feed a JSON event through the actual hook entry point
+    # and verify it (a) allows a benign command and (b) blocks rm -rf.
+    # Skip when we kept an existing user file — their library may diverge
+    # from the default in legitimate ways and we shouldn't fail-closed
+    # on its content.
+    if no_smoke_test or not wrote_file:
+        if not wrote_file:
+            click.echo("Skipped smoke test (existing file kept).")
+        else:
+            click.echo("Skipped smoke test (--no-smoke-test).")
+        _print_shield_next_steps()
+        return
+
+    from sponsio.guard_stdin import run_stdin
+
+    saved_root = os.environ.get("SPONSIO_PLUGIN_ROOT")
+    os.environ["SPONSIO_PLUGIN_ROOT"] = str(root)
+    try:
+        # (a) allow a benign Bash command
+        captured_out = io.StringIO()
+        with contextlib.redirect_stdout(captured_out):
+            allow_code = run_stdin(
+                json.dumps(
+                    {
+                        "hook_event_name": "PreToolUse",
+                        "tool_name": "Bash",
+                        "tool_input": {"command": "echo hello"},
+                    }
+                )
+            )
+        allow_ok = allow_code == 0 and captured_out.getvalue().strip() == ""
+
+        # (b) block rm -rf /
+        captured_out = io.StringIO()
+        with contextlib.redirect_stdout(captured_out):
+            block_code = run_stdin(
+                json.dumps(
+                    {
+                        "hook_event_name": "PreToolUse",
+                        "tool_name": "Bash",
+                        "tool_input": {"command": "rm -rf /"},
+                    }
+                )
+            )
+        block_payload = captured_out.getvalue().strip()
+        block_ok = block_code == 0 and block_payload and '"deny"' in block_payload
+    finally:
+        if saved_root is None:
+            os.environ.pop("SPONSIO_PLUGIN_ROOT", None)
+        else:
+            os.environ["SPONSIO_PLUGIN_ROOT"] = saved_root
+
+    if allow_ok and block_ok:
+        click.secho("✓ smoke test: allow + block both work", fg="green")
+    else:
+        click.secho(
+            f"✗ smoke test failed (allow_ok={allow_ok}, block_ok={block_ok}). "
+            f"Library may be malformed or sponsio CLI is mis-installed.",
+            fg="red",
+        )
+        sys.exit(1)
+
+    _print_shield_next_steps()
+
+
+def _print_shield_next_steps() -> None:
+    """User-facing pointer to the next manual step."""
+    click.echo("")
+    click.echo("Next:")
+    click.echo("  1. Clone or download the sponsio-shield plugin.")
+    click.echo("  2. Load it in Claude Code:")
+    click.echo("       claude --plugin-dir /path/to/sponsio-shield")
+    click.echo("  3. Issue any Bash tool call — the shield wraps it.")
+    click.echo("")
+    click.echo("Add per-plugin rules under <root>/<plugin-id>/sponsio.yaml.")
 
 
 @shield.command(name="guard")
