@@ -146,3 +146,42 @@ jobs:
             fi
           done
           [ "$missing" -eq 0 ]
+
+      - name: Check README header assets intact
+        run: |
+          # Same WYSIWYG-strip pattern that hits <details> also nukes:
+          #   - banner image markdown at top
+          #   - architecture diagram reference in SOTA section
+          #   - <p align="center"> wrappers around badges + Star CTA
+          # Catch any of these going missing before push hits main.
+          fail=0
+
+          # Banner image markdown reference at top of README
+          if ! grep -qE '!\[Sponsio\]\(assets/readme-banner\.png\)' README.md; then
+            echo "::error file=README.md::Banner image markdown missing — '![Sponsio](assets/readme-banner.png)' was stripped (likely by WYSIWYG editor). Re-add at the top of the file."
+            fail=1
+          fi
+
+          # Architecture diagram reference (anywhere in README)
+          if ! grep -qE 'assets/sponsio-architecture\.png' README.md; then
+            echo "::error file=README.md::Architecture diagram reference missing — 'assets/sponsio-architecture.png' was stripped. Re-add inside the SOTA section."
+            fail=1
+          fi
+
+          # Centered HTML wrappers (utility badges + social badges + Star CTA → 3 minimum)
+          centered=$(grep -c '^<p align="center">' README.md || echo 0)
+          min_centered=3
+          if [ "$centered" -lt "$min_centered" ]; then
+            echo "::error file=README.md::Expected ≥${min_centered} <p align=\"center\"> blocks (utility badges + social badges + Star CTA), found ${centered}. WYSIWYG editor likely stripped them."
+            fail=1
+          fi
+
+          # Asset files actually exist in the repo
+          for f in assets/readme-banner.png assets/sponsio-architecture.png; do
+            if [ ! -f "$f" ]; then
+              echo "::error file=${f}::Image asset missing from repo."
+              fail=1
+            fi
+          done
+
+          [ "$fail" -eq 0 ]

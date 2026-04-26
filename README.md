@@ -259,7 +259,7 @@ Sponsio is benchmarked on four public agent-safety suites covering four distinct
 | **τ²-bench airline** (3 models)             | Conversational SOP ordering               | **23% recall** at 4–16% FP (best: o4-mini, 18% / 4%)                   |
 
 
-**These are first-release numbers** — deterministic-path only, with v0 contract bundles. Each benchmark has headroom: more patterns and tighter scan heuristics on the det side; the upcoming stochastic pipeline (currently in beta) on the semantic-property side. We expect ODCV-Bench, AgentDojo, and τ²-bench scores to climb meaningfully in subsequent releases — particularly on intent-driven failures, content-quality SOPs, and semantic-shaped injection that v0's deterministic-only path doesn't cover. See [docs/sto-atoms.md](docs/sto-atoms.md) for the stochastic pipeline.
+++**These are first-release numbers**++, deterministic path only (v0 bundles). Every benchmark has headroom: more patterns and tighter heuristics on the deterministic side, and the stochastic pipeline (beta) on the semantic side. Expect meaningful gains on intent-driven failures, content-quality SOPs, and semantic-shaped injection in later releases. See [docs/sto-atoms.md](docs/sto-atoms.md) for the stochastic pipeline.
 
 ### Hot-Path Performance
 
@@ -273,24 +273,24 @@ Sponsio is benchmarked on four public agent-safety suites covering four distinct
 
 ++**400×–13,000× faster than any LLM-as-judge guardrail**++ (gpt-4o-mini, Lakera Guard, OpenAI Moderation — all 50–800 ms per check) on the same per-tool-call workload, at zero LLM cost on the hot path. Per-call latency scales linearly with contract count; p99 stays under 1.04 ms across every workload measured. A typical 8–20-tool-call agent turn adds **less enforcement overhead than a single model output token**.
 
-Full per-model breakdown, real-workload contract counts, methodology, harness scripts: `[docs/BENCHMARKS.md](docs/BENCHMARKS.md)`.
+Full per-model breakdown, methodology, harness scripts: `[docs/BENCHMARKS.md](docs/BENCHMARKS.md)`.
 
 ---
 
 ## Contract Library
 
-Five **contract bundles** ship out of the box, organized by tier (always-on / per-tool / per-incident). Each bundle is a YAML pack of contracts composed from Sponsio's 29 det patterns + 12 sto atoms — drop one into `sponsio.yaml` and your agent is guarded against a known failure class in one line, no per-contract authoring.
+Five **contract bundles** ship out of the box, organized by tier (always-on / per-tool / per-incident). Each bundle is a YAML pack composed from Sponsio's 29 det patterns and 12 sto atoms. Drop one into `sponsio.yaml` and your agent is guarded against a known failure class in one line, with no per-contract authoring.
 
 ### Starter bundles
 
 
-| Bundle                          | Tier      | Rules    | Who it's for                                                                                                                                                                                                                                        |
-| ------------------------------- | --------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sponsio:core/universal`        | Always-on | 5 sto    | Any LLM agent — response-scoped checks: prompt injection, jailbreak, harm, toxic, semantic PII                                                                                                                                                      |
-| `sponsio:core/runaway`          | Always-on | 5 det    | Any agent with token use, delegation, or tool loops — "while(true) with a credit card" defense (token budgets, delegation depth, loop caps)                                                                                                         |
-| `sponsio:capability/shell`      | Per-tool  | 11 det   | Agents exposing `exec` / `bash` — `rm -rf /`, fork bomb, `curl | bash`, reverse shells, line-continuation evasion. Backed by Claude Code Issue #10077, Replit prod-DB wipe (Jul 2025), Ansible `rm -rf {foo}/{bar}` on 1,535 servers                |
-| `sponsio:capability/filesystem` | Per-tool  | 13 det   | Agents exposing `read` / `write` / `edit` / `apply_patch` — sensitive-path denies, workspace scoping, bootstrap-file gates (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`). Backed by OpenClaw weather-skill `.env` exfil, Cursor `.cursorignore` bypass |
-| `sponsio:incident/openclaw`     | Incident  | 45 mixed | OpenClaw / ClawCode users — covers CVE-2026-25253 (WebSocket RCE), ClawHavoc (1,184 malicious skills), `--yolo` flag, weather-skill. A worked example to fork rules from                                                                            |
+| Bundle | Tier | Rules | Who it's for |
+| --- | --- | --- | --- |
+| `sponsio:core/universal` | Always-on | 5 sto | Any LLM agent. Response-scoped checks: prompt injection, jailbreak, harm, toxic, semantic PII. |
+| `sponsio:core/runaway` | Always-on | 5 det | Any agent with token use, delegation, or tool loops. The "while(true) with a credit card" defense: token budgets, delegation depth, loop caps. |
+| `sponsio:capability/shell` | Per-tool | 11 det | Agents exposing `exec` / `bash`. Catches `rm -rf /`, fork bombs, `curl \| bash`, reverse shells, line-continuation evasion. Inspired by Claude Code #10077, the Replit prod-DB wipe (Jul 2025), and the Ansible `rm -rf {foo}/{bar}` incident on 1,535 servers. |
+| `sponsio:capability/filesystem` | Per-tool | 13 det | Agents exposing `read` / `write` / `edit` / `apply_patch`. Sensitive-path denies, workspace scoping, bootstrap-file gates (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`). Inspired by the OpenClaw weather-skill `.env` exfil and the Cursor `.cursorignore` bypass. |
+| `sponsio:incident/openclaw` | Incident | 45 mixed | OpenClaw / ClawCode users. Covers CVE-2026-25253 (WebSocket RCE), ClawHavoc (1,184 malicious skills), the `--yolo` flag, and the weather-skill exfil. A worked example to fork rules from. |
 
 
 ```yaml
@@ -305,11 +305,11 @@ agents:
       - sponsio:capability/filesystem # if your agent touches files
 ```
 
-`sponsio onboard` auto-selects tier-0 bundles based on your detected tool inventory. Disable or retune individual rules without forking the pack: `overrides:` matches by `desc`, `pack_source`, or `pattern`. Rename canonical tool names (`exec`, `read`, `edit`) to your agent's via `tool_rename:`.
+`sponsio onboard` auto-selects tier-0 bundles based on your detected tool inventory. You can disable or retune individual rules without forking the pack: `overrides:` lets you target rules by their `desc`, `pack_source`, or `pattern` field. Rename canonical tool names (`exec`, `read`, `edit`) to your agent's via `tool_rename:`.
 
-Full bundle reference: `[docs/reference/contract-lib.md](docs/reference/contract-lib.md)` (the contract library). Underlying primitives — the patterns each bundle composes — are catalogued at `[docs/contracts.md](docs/contracts.md)` (29 det) and `[docs/sto-atoms.md](docs/sto-atoms.md)` (12+ sto atoms).
+Full bundle reference is at [`docs/reference/contract-lib.md`](docs/reference/contract-lib.md). The underlying primitives that bundles compose are catalogued separately: 29 det patterns in [`docs/contracts.md`](docs/contracts.md), and 12+ sto atoms in [`docs/sto-atoms.md`](docs/sto-atoms.md).
 
-> **Want a bundle for your agent type?** Currently the highest-leverage way to contribute. [Open an issue](https://github.com/SponsioLabs/Sponsio/issues/new) with your incident, CVE, or pattern.
+> **Want a bundle for your agent type?** This is currently the highest-leverage way to contribute. [Open an issue](https://github.com/SponsioLabs/Sponsio/issues/new) with your incident, CVE, or pattern.
 
 ---
 
