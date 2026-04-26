@@ -103,7 +103,8 @@ sponsio report --since 1h
 export SPONSIO_MODE=enforce
 ```
 
-**TypeScript**
+<details>
+<summary><b>TypeScript</b></summary>
 
 ```bash
 npm install @sponsio/sdk
@@ -124,9 +125,10 @@ const toolNode = new ToolNode(wrapTools(tools, guard));
 
 This snippet inlines `contracts: [...]` for brevity. `new Sponsio({ config: "sponsio.yaml", agentId: "..." })` also works in TS — same YAML you get from `sponsio onboard`.
 
+</details>
 
-
-**One-shot prompt** (Cursor / Claude Code / Codex)
+<details>
+<summary><b>One-shot prompt</b> (Cursor / Claude Code / Codex)</summary>
 
 ```text
 Set up Sponsio (https://pypi.org/project/sponsio/) in my project.
@@ -145,9 +147,10 @@ After running, show me sponsio.yaml, the patch you applied, and any
 `sponsio doctor` warnings.
 ```
 
+</details>
 
-
-**Install as an Agent Skill**
+<details>
+<summary><b>Install as an Agent Skill</b></summary>
 
 ```bash
 pip install sponsio
@@ -158,8 +161,7 @@ Drops `SKILL.md` into `~/.cursor/skills/sponsio/`, `~/.claude/skills/sponsio/`, 
 
 Upgrade: `pip install -U sponsio && sponsio skill install --force` (or `sponsio skill install --link` once, then upgrades follow `pip install -U`).
 
-
-
+</details>
 > **Full walkthrough:** [QUICKSTART.md](QUICKSTART.md) — config reference, `sponsio refresh`, CI wiring, troubleshooting. Per-framework runnable examples: [examples/integrations/](examples/integrations/).
 
 ---
@@ -168,7 +170,8 @@ Upgrade: `pip install -U sponsio && sponsio skill install --force` (or `sponsio 
 
 Four real trajectories where capable agents pick the rational, policy-violating shortcut under pressure — and the contracts that catch them. Scenarios 2–4 are sourced from [OWASP Agentic Top 10 (2026)](docs/owasp-agentic-top-10.md). Each block expands to the unguarded run plus the Sponsio-blocked run on the same trajectory.
 
-**1. Coding — Claude Code cleanup agent deletes** `.env` **and** `.git/`
+<details>
+<summary><b>1. Coding — Claude Code cleanup agent deletes <code>.env</code> and <code>.git/</code></b></summary>
 
 **Integration**: Claude Agent SDK (`ClaudeAgentOptions(hooks=guard.hooks())`).
 
@@ -182,9 +185,10 @@ Cleanup agent deletes .env and .git/, commits, force-pushes
 
 Sponsio blocks the destructive sweep on the .env read trigger
 
+</details>
 
-
-**2. Infra — SRE cost-optimizer deletes prod DR backups**
+<details>
+<summary><b>2. Infra — SRE cost-optimizer deletes prod DR backups</b></summary>
 
 **Integration**: LangGraph (`guard.wrap(tools)`). **OWASP**: ASI-10 — Rogue Agents · *"Cost optimizers deleting backups to reduce expenses."*
 
@@ -198,9 +202,10 @@ SRE optimizer deletes off-site DR snapshots to hit cost target
 
 Sponsio blocks the prod-snapshot delete on first attempt
 
+</details>
 
-
-**3. Finance — AP copilot wires $847k to an unverified vendor**
+<details>
+<summary><b>3. Finance — AP copilot wires $847k to an unverified vendor</b></summary>
 
 **Integration**: CrewAI (`guard.wrap(tools)`). **OWASP**: ASI-09 — Human-Agent Trust Exploitation · *"Financial copilots approving fraudulent transfers."*
 
@@ -214,9 +219,10 @@ AP copilot wires $847k to an unverified vendor under SLA pressure
 
 Sponsio blocks the wire — amount cap, missing compliance approve, no confirmation
 
+</details>
 
-
-**4. OpenClaw — Malicious skill exfiltrates** `.env` **to AMOS stealer**
+<details>
+<summary><b>4. OpenClaw — Malicious skill exfiltrates <code>.env</code> to AMOS stealer</b></summary>
 
 **Integration**: OpenClaw via `[sponsio-openclaw-shield](plugins/sponsio-openclaw-shield/)` plugin (one-line install). **OWASP**: ASI-04 — Agentic Supply Chain Vulnerabilities · references the [ClawHavoc incident](https://genai.owasp.org/2026/04/14/owasp-genai-exploit-round-up-report-q1-2026/) — 1,184 malicious ClawHub skills shipping AMOS stealer payloads in early 2026.
 
@@ -234,7 +240,7 @@ User installs `weather-skill` from ClawHub. On first invocation the skill reads 
 
 *Demo GIF coming — `sponsio-openclaw-shield` blocks the outbound POST on the `.env` read trigger; weather lookup still completes.*
 
-
+</details>
 
 Run any of these locally with `sponsio demo --scenario cleanup|backup|wire|openclaw`. Source: [examples/demo/](examples/demo/). Full OWASP Agentic Top 10 coverage: [docs/owasp-agentic-top-10.md](docs/owasp-agentic-top-10.md).
 
@@ -311,7 +317,9 @@ Full bundle reference: `[docs/reference/contract-lib.md](docs/reference/contract
 
 Pick your framework — each block expands to a drop-in snippet. Python and TypeScript share the same engine and DSL.
 
-**No framework** — custom tool-calling loop
+<details>
+<summary><b>No framework</b> — custom tool-calling loop</summary>
+
 
 ```python
 from sponsio import Sponsio
@@ -340,9 +348,11 @@ if (!result.blocked) {
 
 Runnable: [python](examples/integrations/python/vanilla_guard.py) · [typescript](examples/integrations/typescript/vanilla_guard.mjs)
 
+</details>
 
+<details>
+<summary><b>LangGraph / LangChain.js</b> — wrap tools</summary>
 
-**LangGraph / LangChain.js** — wrap tools
 
 ```python
 from sponsio.langgraph import Sponsio
@@ -363,9 +373,11 @@ const toolNode = new ToolNode(wrapTools(tools, guard));
 
 Runnable: [python](examples/integrations/python/langgraph_guard.py) · [typescript](examples/integrations/typescript/langgraph_guard.mjs)
 
+</details>
 
+<details>
+<summary><b>Claude Agent SDK</b> — native hooks, zero tool wrapping</summary>
 
-**Claude Agent SDK** — native hooks, zero tool wrapping
 
 ```python
 from sponsio.claude_agent import Sponsio
@@ -389,9 +401,11 @@ const hooks = sponsioHooks(guard);
 
 Runnable: [python](examples/integrations/python/claude_agent_guard.py) · [typescript](examples/integrations/typescript/claude_agent_guard.mjs)
 
+</details>
 
+<details>
+<summary><b>OpenAI SDK</b> — monkey-patch or explicit wrap</summary>
 
-**OpenAI SDK** — monkey-patch or explicit wrap
 
 ```python
 from sponsio.openai import Sponsio
@@ -414,9 +428,11 @@ For a quick no-YAML wire-up (handy in scripts / notebooks): `from sponsio.openai
 
 Runnable: [python](examples/integrations/python/openai_guard.py) · [typescript](examples/integrations/typescript/openai_guard.mjs)
 
+</details>
 
+<details>
+<summary><b>OpenAI Agents SDK</b> — wrap Agent tools</summary>
 
-**OpenAI Agents SDK** — wrap Agent tools
 
 ```python
 from sponsio.agents import Sponsio
@@ -437,9 +453,11 @@ TypeScript: not yet supported.
 
 Runnable: [python](examples/integrations/python/agents_sdk_guard.py)
 
+</details>
 
+<details>
+<summary><b>Google ADK</b> — wrap Agent tools (Gemini)</summary>
 
-**Google ADK** — wrap Agent tools (Gemini)
 
 ```python
 from sponsio.google_adk import Sponsio
@@ -467,9 +485,11 @@ export const rootAgent = new LlmAgent({ name: "travel_agent", tools, model: "gem
 
 Runnable: [python](examples/integrations/python/google_adk_guard.py) · [typescript](examples/integrations/typescript/google_adk_guard.mjs)
 
+</details>
 
+<details>
+<summary><b>Vercel AI SDK</b> — middleware</summary>
 
-**Vercel AI SDK** — middleware
 
 ```python
 from sponsio.vercel_ai import Sponsio
@@ -490,9 +510,11 @@ const middleware = sponsioMiddleware(guard);
 
 Runnable: [python](examples/integrations/python/vercel_ai_guard.py) · [typescript](examples/integrations/typescript/vercel_ai_guard.mjs)
 
+</details>
 
+<details>
+<summary><b>CrewAI</b> — Crew-level hooks</summary>
 
-**CrewAI** — Crew-level hooks
 
 ```python
 from sponsio.crewai import Sponsio
@@ -513,9 +535,11 @@ TypeScript: not yet supported.
 
 Runnable: [python](examples/integrations/python/crewai_guard.py)
 
+</details>
 
+<details>
+<summary><b>MCP</b> — proxy the MCP client</summary>
 
-**MCP** — proxy the MCP client
 
 ```python
 from sponsio.mcp import MCPContractProxy
@@ -530,6 +554,8 @@ result = await proxy.call_tool("write_external_api", {"data": "batch_1"})
 TypeScript: not yet supported.
 
 Runnable: [python](examples/integrations/python/mcp_guard.py)
+
+</details>
 
 
 
