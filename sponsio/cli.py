@@ -4021,6 +4021,129 @@ def _print_shield_next_steps() -> None:
     click.echo("Add per-plugin rules under <root>/<plugin-id>/sponsio.yaml.")
 
 
+@shield.command(name="scan")
+@click.argument(
+    "plugin_dir",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+)
+@click.option(
+    "--tools",
+    "-t",
+    "tools_csv",
+    default="",
+    help=(
+        "Comma-separated tool names the plugin exposes (e.g. "
+        "`mcp__github__create_issue,mcp__github__list_repos`). The "
+        "scanner can't infer these from the manifest yet — pass them "
+        "in or accept a baseline-only library."
+    ),
+)
+@click.option(
+    "--root",
+    "root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Override the per-plugin library root "
+        "(default: $SPONSIO_PLUGIN_ROOT or ~/.sponsio/plugins)."
+    ),
+)
+@click.option(
+    "--apply/--no-apply",
+    default=False,
+    help="Write the library to <root>/<plugin-id>/sponsio.yaml.",
+)
+@click.option(
+    "--no-runaway",
+    is_flag=True,
+    default=False,
+    help="Skip the default `sponsio:core/runaway` include.",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="With --apply, overwrite an existing library file.",
+)
+def shield_scan(
+    plugin_dir: Path,
+    tools_csv: str,
+    root: Path | None,
+    apply: bool,
+    no_runaway: bool,
+    force: bool,
+):
+    """Generate a starter contract library from a Claude Code plugin.
+
+    Reads ``<plugin-dir>/.claude-plugin/plugin.json`` for the plugin id,
+    optionally ``.mcp.json`` and ``skills/`` for context, then runs
+    name-heuristic rule generation on every tool listed via
+    ``--tools``.
+
+    Defaults to dry-run (prints the YAML); use ``--apply`` to write it.
+    """
+    from sponsio.shield.scan import ManifestError, scan_plugin
+
+    declared_tools = [t.strip() for t in tools_csv.split(",") if t.strip()]
+    try:
+        result = scan_plugin(
+            plugin_dir,
+            declared_tools=declared_tools,
+            include_runaway=not no_runaway,
+        )
+    except ManifestError as e:
+        click.secho(f"scan failed: {e}", fg="red")
+        sys.exit(1)
+
+    click.echo(f"# plugin id:       {result.manifest.plugin_id}")
+    click.echo(f"# tools applied:   {len(result.declared_tools)}")
+    click.echo(
+        f"# library groups:  "
+        f"{', '.join(g.plugin_id for g in result.groups) or '(none)'}"
+    )
+    if result.manifest.mcp_servers:
+        click.echo(f"# MCP servers:     {', '.join(result.manifest.mcp_servers)}")
+    if result.manifest.skill_names:
+        click.echo(f"# skills:          {', '.join(result.manifest.skill_names)}")
+
+    if not apply:
+        for g in result.groups:
+            click.echo("")
+            click.echo(
+                f"# === library group: {g.plugin_id} "
+                f"({len(g.tools)} tools, {len(g.proposed)} rules) ==="
+            )
+            click.echo(g.library_yaml)
+        click.echo(
+            "(dry-run — re-run with --apply to write each group to "
+            "<root>/<group>/sponsio.yaml)"
+        )
+        return
+
+    if root is None:
+        env = os.environ.get("SPONSIO_PLUGIN_ROOT")
+        root = Path(env).expanduser() if env else Path.home() / ".sponsio" / "plugins"
+
+    written: list[Path] = []
+    for g in result.groups:
+        target_dir = root / g.plugin_id
+        target = target_dir / "sponsio.yaml"
+        if target.exists() and not force:
+            click.secho(
+                f"  skipped {target}: already exists "
+                f"(re-run with --force to overwrite)",
+                fg="yellow",
+            )
+            continue
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target.write_text(g.library_yaml, encoding="utf-8")
+        written.append(target)
+        click.secho(f"  ✓ wrote {target}", fg="green")
+
+    if not written and not force:
+        sys.exit(1)
+
+
 @shield.command(name="guard")
 @click.option(
     "--stdin",
