@@ -242,7 +242,7 @@ Run any of these locally with `sponsio demo --scenario cleanup|backup|wire|openc
 
 ## Benchmarks & Performance
 
-Four public benchmarks, four orthogonal failure classes. **These are first-release numbers, deterministic-path only.** Recall on semantic-property classes (τ²-bench retail, AgentDojo's semantic-shaped attacks, content-quality SOPs) is expected to climb meaningfully once our stochastic pipeline ships.
+Sponsio is benchmarked on four public agent-safety suites covering four distinct failure modes. All offline-replay against published trajectories, not Sponsio-authored test sets.
 
 
 | Benchmark                                   | What it measures                          | Sponsio result                                                         |
@@ -253,7 +253,7 @@ Four public benchmarks, four orthogonal failure classes. **These are first-relea
 | **τ²-bench airline** (3 models)             | Conversational SOP ordering               | **23% recall** at 4–16% FP (best: o4-mini, 18% / 4%)                   |
 
 
-The remaining gaps cluster in semantic-property classes — intent, tone, scope respect, content quality — explicitly delegated to Sponsio's stochastic pipeline rather than the deterministic blocking path. See `[docs/sto-atoms.md](docs/sto-atoms.md)`.
+**These are first-release numbers** — deterministic-path only, with v0 contract bundles. Each benchmark has headroom: more patterns and tighter scan heuristics on the det side; the upcoming stochastic pipeline (currently in beta) on the semantic-property side. We expect ODCV-Bench, AgentDojo, and τ²-bench scores to climb meaningfully in subsequent releases — particularly on intent-driven failures, content-quality SOPs, and semantic-shaped injection that v0's deterministic-only path doesn't cover. See [docs/sto-atoms.md](docs/sto-atoms.md) for the stochastic pipeline.
 
 ### Hot-Path Performance
 
