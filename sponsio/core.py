@@ -220,10 +220,26 @@ def _start_dashboard() -> str:
                 "Install with: pip install 'sponsio[web]'"
             ) from e
 
+        # Add the repo root to ``sys.path`` only for the duration of the
+        # ``api.main`` import. Once that import completes, the FastAPI app
+        # plus every router/submodule are cached in ``sys.modules`` and
+        # neither uvicorn nor any later guard import needs the path on the
+        # search list. Leaving it permanently inserted lets a process that
+        # later instantiates a guard from a different repo accumulate
+        # path entries — and worst-case shadow stdlib modules if the repo
+        # happens to contain a same-named directory.
         root_str = str(repo_root)
-        if root_str not in sys.path:
+        path_added = root_str not in sys.path
+        if path_added:
             sys.path.insert(0, root_str)
-        from api.main import app  # type: ignore[import-not-found,import-untyped]
+        try:
+            from api.main import app  # type: ignore[import-not-found,import-untyped]
+        finally:
+            if path_added:
+                try:
+                    sys.path.remove(root_str)
+                except ValueError:
+                    pass  # Someone else already removed it; fine.
 
         def _run() -> None:
             uvicorn.run(app, host=host, port=port, log_level="warning")

@@ -103,6 +103,42 @@ app.add_middleware(
 )
 
 
+# Per-path Content-Length cap. Without this the OTEL ingest endpoint
+# happily accepts hundreds of MB of OTLP JSON, parses it into Python dicts
+# in memory, and trips the OOM killer — there is no per-route body size
+# limit in FastAPI/Starlette by default. The check is on the header so
+# we reject before reading the body.
+_MAX_OTEL_BYTES = int(os.environ.get("SPONSIO_MAX_OTEL_BYTES", str(10 * 1024 * 1024)))
+_BODY_SIZE_CAPS: tuple[tuple[str, int], ...] = (
+    ("/api/otel/", _MAX_OTEL_BYTES),
+)
+
+
+@app.middleware("http")
+async def _body_size_middleware(request: Request, call_next):
+    cap = next((n for prefix, n in _BODY_SIZE_CAPS if request.url.path.startswith(prefix)), None)
+    if cap is not None and request.method in ("POST", "PUT", "PATCH"):
+        cl = request.headers.get("content-length")
+        if cl is None:
+            return JSONResponse(
+                status_code=status.HTTP_411_LENGTH_REQUIRED,
+                content={"detail": "Content-Length header required"},
+            )
+        try:
+            size = int(cl)
+        except ValueError:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"detail": "Invalid Content-Length"},
+            )
+        if size > cap:
+            return JSONResponse(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                content={"detail": f"Body exceeds {cap} byte cap for this endpoint"},
+            )
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def _token_auth_middleware(request: Request, call_next):
     """Enforce ``X-Sponsio-Token`` on /api/* when a token is configured.

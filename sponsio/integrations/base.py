@@ -81,6 +81,15 @@ def _shorten_violation_msg(msg: str) -> str:
 # write ``no_data_leak(pii, external)`` without enumerating every class.
 # ---------------------------------------------------------------------------
 
+# Cap how much text we scan for PII per call. The credit-card and phone
+# regexes contain bounded but nested optional separators (``\d[ -]?``,
+# ``[\s-]?``) which on truly pathological input can backtrack badly. A
+# fixed cap puts a hard ceiling on scan time regardless of input shape.
+# 100 KB is far above any realistic single tool output worth tagging;
+# anything bigger is almost certainly a binary/file dump that wasn't
+# meant to flow through PII detection.
+_MAX_PII_SCAN_CHARS = 100 * 1024
+
 _PII_DETECTORS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # US Social Security Number — strict 3-2-4 digit shape with
     # separators so ordinary 9-digit numbers (order IDs, timestamps)
@@ -131,6 +140,8 @@ def _detect_pii_classes(output: Any) -> list[str]:
         return []
     if not text:
         return []
+    if len(text) > _MAX_PII_SCAN_CHARS:
+        text = text[:_MAX_PII_SCAN_CHARS]
     hits: list[str] = []
     for tag, pattern in _PII_DETECTORS:
         if pattern.search(text):

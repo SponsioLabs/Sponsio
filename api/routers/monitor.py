@@ -34,7 +34,7 @@ def _external_log_entries() -> list[MonitorEventResponse]:
     push span trees via /push-span (e.g. the walkthrough demo) rather than
     running inside the server's own monitor.
     """
-    external: list[dict] = getattr(state, "_external_spans", []) or []
+    external = state.external_spans()
     entries: list[MonitorEventResponse] = []
     for span in external:
         agent_id = span.get("agent_id", "unknown")
@@ -107,7 +107,7 @@ def _external_log_entries() -> list[MonitorEventResponse]:
 
 def _external_trace_events() -> list[TraceEventResponse]:
     """Derive TraceEventResponse entries from externally pushed span trees."""
-    external: list[dict] = getattr(state, "_external_spans", []) or []
+    external = state.external_spans()
     events: list[TraceEventResponse] = []
     for idx, span in enumerate(external):
         agent = span.get("agent_id", "unknown")
@@ -260,7 +260,7 @@ async def stream_monitor():
                 log = state.monitor.log
                 trace_events = state.monitor.trace.events
                 own_spans = len(state.monitor.turn_spans)
-                ext_spans = getattr(state, "_external_spans", []) or []
+                ext_spans = state.external_spans()
                 span_count = own_spans + len(ext_spans)
 
                 # Include external span-derived entries in counts
@@ -360,7 +360,7 @@ def get_spans():
     """Return structured span trees from the current session."""
     # Combine monitor's own spans + externally pushed spans
     own = [span.to_dict() for span in state.monitor.turn_spans]
-    external = getattr(state, "_external_spans", [])
+    external = state.external_spans()
     return own + external
 
 
@@ -368,13 +368,9 @@ def get_spans():
 def push_span(span: dict):
     """Receive a span tree from an external agent (via monitor_graph with contracts)."""
     if not span or not isinstance(span, dict):
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=422, detail="Expected a non-empty span dict")
 
-    if not hasattr(state, "_external_spans"):
-        state._external_spans = []
-    state._external_spans.append(span)
+    span_count = state.append_external_span(span)
 
     # Bridge: also store in the OTEL trace store for unified trace view.
     # Failures here must not break /push-span (the dashboard's primary
@@ -387,7 +383,7 @@ def push_span(span: dict):
     except Exception:
         logger.exception("trace_store.ingest_sponsio_span failed for /push-span")
 
-    return {"status": "received", "span_count": len(state._external_spans)}
+    return {"status": "received", "span_count": span_count}
 
 
 @router.get("/report")
@@ -395,7 +391,7 @@ def get_report():
     """Structured JSON report: tools, contracts, violations, fixes, risk score."""
     trace = state.monitor.trace
     own_spans = [span.to_dict() for span in state.monitor.turn_spans]
-    external_spans = getattr(state, "_external_spans", [])
+    external_spans = state.external_spans()
     all_spans = own_spans + external_spans
 
     # 1. Tool list — unique tools seen in trace
