@@ -38,6 +38,7 @@ Then pick a track below.
 - **"Ship from shadow mode into production"** → [Observe vs. enforce](guides/observe-vs-enforce.md)
 - **"Pick the right pattern for a rule I have in mind"** → [Pattern catalog](reference/patterns.md)
 - **"Drop in a ready-made contract pack (shell, filesystem, runaway defense)"** → [Contract library](reference/contract-lib.md)
+- **"Wrap my Claude Code session with Sponsio guardrails"** → [sponsio-shield quickstart](../plugins/sponsio-shield/QUICKSTART.md)
 - **"Add a stochastic atom for tone, PII, or scope"** → [Stochastic atoms](reference/sto-atoms.md)
 - **"Understand why Sponsio uses LTL"** → [Architecture](concepts/architecture.md)
 - **"Map a control to OWASP Agentic Top 10 (2026)"** → [OWASP coverage](owasp-agentic-top-10.md)

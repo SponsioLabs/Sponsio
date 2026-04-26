@@ -3,6 +3,9 @@
 A Claude Code plugin that guards every `PreToolUse` event in your
 session against per-plugin Sponsio contract libraries.
 
+> **Just want to install + use it?** See [QUICKSTART.md](QUICKSTART.md).
+> The README below is the architecture / internals reference.
+
 > **Status:** prototype. Argument-level contracts (`scope_limit`,
 > `arg_blacklist`, `arg_value_range`, `dangerous_bash_commands`, …)
 > work today. Trace-aware contracts (`must_precede`, `rate_limit`,
