@@ -275,7 +275,34 @@ Existing agent trajectories are replayed through `guard.guard_before()` without 
 
 - **Behavioural change from blocked calls.** Offline replay can't tell us whether the agent would self-correct after seeing an error. Live numbers are typically better than offline replay shows.
 - **End-to-end task completion under enforcement.** That needs the agent running live with Sponsio in the loop.
-- **Stochastic pipeline precision/recall.** Tracked separately once benchmark harnesses land.
+
+---
+
+## Stochastic Pipeline Pilot (2026-04-26)
+
+We piloted the sto pipeline as an additive layer on top of the det numbers above, with a strict "do not raise utility FP" goal. The pilot used `gemini-2.0-flash` as the BooleanJudge and a triage gate that only invokes sto on cases the det layer already passed (so det numbers remain unchanged). Per-benchmark sto contracts are versioned in `sto_contracts.yaml` next to each eval script.
+
+### Findings
+
+**AgentDojo (workspace + travel sampled, n=100 attack + 50 utility per suite):** **0 sto rescues, 1–2% sto-only utility FP.** Sto adds little here because the 81.8% (workspace) and 94.8% (travel) of attacks det "missed" are mostly traces where the **agent did not fall for the injection at all**; the trace contains only `get_*` recon calls, with no malicious side-effect for sto to block. Det's specific patterns (attacker IBANs, gmail recipients, phishing URLs, specific file/email IDs) already capture the high-leverage attacker fingerprints. Sto would help if attackers diversified those fingerprints in production, but on the published AgentDojo trace set the sto layer's recall ceiling is bounded by attack reach, not contract breadth.
+
+**τ²-bench retail (n=50 sims, 3 model trials):** **High recall (75–100%) but high FP (73–100%) at every beta tested.** The structural reason: tau2's pass/fail label is computed from tool-call-sequence task completion, **not** from message content faithfulness. A faithfulness-on-text judge is therefore answering a different question than the benchmark scores. Sims fail tau2 because the agent didn't reach the right end state, not because the assistant's text was unfaithful to policy. To meaningfully lift retail recall, the sto contract would need to score the trace's task-completion shape (a `goal_coverage` style atom), not message-level faithfulness.
+
+**ODCV-Bench, RedCode logic-flaw categories:** sto contracts authored in the manifests but not yet piloted; these are the two surfaces with the clearest theoretical sto headroom (subtler attacks det missed; behavioural-defect categories with no syscall fingerprint).
+
+### What we kept
+
+The pilot delivered three reusable artefacts that ship with the benchmarks even when sto is off:
+
+1. **Manifest-driven sto contracts** (`Benchmarks/<bench>/sto_contracts.yaml`). Contract id, atom, beta, prompt template, and triage rules in one declarative file per benchmark. The eval scripts read from these at runtime; no prompt strings live in Python.
+2. **Disk-cached judge** (`~/.sponsio/sto_bench_cache.json`). Verdicts are persisted by SHA-256 of the prompt, so re-runs of the same contracts cost zero LLM calls. This is what makes Phase 3 (full sto re-runs) economically viable.
+3. **Triage gate**. Sto only fires on calls the det layer allowed, with per-contract tool-name skip rules for read-only / preparatory tools (`get_*`, `list_*`, `search_*`, etc.). On AgentDojo travel this skipped 120 of 134 candidate calls, so the judge cost stayed under $0.05 for the pilot.
+
+### Position
+
+The pilot's honest takeaway is that **sto value is concentrated in property classes that have no det fingerprint at all**: semantic prompt injection where the action shape is innocuous, content faithfulness where the failure is a quoted-but-wrong number, behavioural defects where the dangerous effect is achieved through legitimate-shaped tool calls. AgentDojo and τ²-bench in their published forms reward different things than what sto naturally measures, so sto's lift on those specific benchmark numbers is limited. Where sto does land directly on the failure mode (LLM apps in production with novel attacker fingerprints, unbounded scope drift, hallucinated facts), it is the right tool.
+
+The det layer reported above is therefore the load-bearing claim. Sto is additive, integrated, and ready to enable per contract; see `sto_contracts.yaml` for the exact prompts, betas, and triage rules each benchmark would use.
 
 ---
 
