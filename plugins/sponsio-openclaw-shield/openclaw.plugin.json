@@ -1,10 +1,27 @@
 {
-  "name": "sponsio-openclaw-shield",
-  "version": "0.1.0-alpha.0",
+  "id": "sponsio-openclaw-shield",
+  "name": "Sponsio OpenClaw Shield",
+  "version": "0.1.0-alpha.1",
   "description": "Runtime contract guardrails for every tool call in your OpenClaw session — backed by per-plugin contract libraries under ~/.sponsio/plugins/, evaluated by the same Sponsio engine the Claude Code shield uses.",
-  "main": "dist/index.js",
-  "homepage": "https://github.com/SponsioLabs/Sponsio",
-  "license": "Apache-2.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "guardBin": {
+        "type": "string",
+        "description": "Path to the `sponsio` Python binary. Falls back to looking up `sponsio` on $PATH. Equivalent to the SPONSIO_GUARD_BIN env var; the env var wins if both are set."
+      },
+      "pluginRoot": {
+        "type": "string",
+        "description": "Override the per-plugin library root. Default: ~/.sponsio/plugins. Equivalent to SPONSIO_PLUGIN_ROOT."
+      },
+      "guardMode": {
+        "type": "string",
+        "enum": ["enforce", "observe"],
+        "description": "`enforce` (default) blocks on rule match; `observe` logs only. Equivalent to SPONSIO_GUARD_MODE."
+      }
+    }
+  },
   "contracts": {
     "tools": []
   }

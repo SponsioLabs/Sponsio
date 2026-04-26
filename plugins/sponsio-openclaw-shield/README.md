@@ -4,10 +4,14 @@ The OpenClaw counterpart to [`plugins/sponsio-shield`](../sponsio-shield/),
 which targets Claude Code. Same architecture, different transport.
 
 > **Just want to install + use it?** See [QUICKSTART.md](QUICKSTART.md).
-> **Status:** prototype. Has not been verified end-to-end against a
-> live OpenClaw runtime — only against the same `sponsio shield
-> guard --stdin` backend used by the Claude Code shield (see the
-> integration tests under [`test/`](test/)).
+> **Status:** prototype. Type definitions track the public OpenClaw
+> docs ([manifest.md](https://docs.openclaw.ai/plugins/manifest.md),
+> [hooks.md](https://docs.openclaw.ai/plugins/hooks.md),
+> [sdk-entrypoints.md](https://docs.openclaw.ai/plugins/sdk-entrypoints.md))
+> verbatim as of 2026-04-26. Verified end-to-end against the same
+> `sponsio shield guard --stdin` backend used by the Claude Code
+> shield (10 Node integration tests under [`test/`](test/)). **Has
+> not** been exercised inside a live OpenClaw runtime yet.
 
 ## Architecture
 

@@ -5,11 +5,13 @@ shield](../sponsio-shield/QUICKSTART.md). Same engine, same
 library files, different runtime hook protocol.
 
 > **Status**: working prototype. Verified against the
-> `sponsio shield guard --stdin` backend (5 Node integration
-> tests). Has **not** been exercised inside a live OpenClaw
-> session yet — the manifest field set and plugin lifecycle
-> match the public OpenClaw docs but haven't been confirmed end
-> to end.
+> `sponsio shield guard --stdin` backend (10 Node integration
+> tests, including edge cases and subprocess crash recovery).
+> Type definitions track the public OpenClaw docs (manifest /
+> hooks / sdk-entrypoints) verbatim as of 2026-04-26. **Has
+> not** been exercised inside a live OpenClaw runtime yet — see
+> "Known limitations" below for what that confirmation would
+> validate.
 
 ---
 
@@ -61,26 +63,39 @@ npm run build                    # tsc → dist/index.js
 
 ### 4. Register the plugin with OpenClaw
 
-OpenClaw's plugin loading mechanism varies by version. The two
-common forms:
+The plugin entry point is a `definePluginEntry`-compatible object.
+OpenClaw's recommended pattern (per
+[docs.openclaw.ai/plugins/sdk-entrypoints](https://docs.openclaw.ai/plugins/sdk-entrypoints.md))
+wraps it through the SDK helper:
 
-**A. Local plugin directory** (development):
+```typescript
+// my-openclaw-config/plugin-entry.ts
+import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
+import sponsioShield from "@sponsio/openclaw-shield";
 
-```bash
-# Pseudo — replace with your OpenClaw runtime's actual flag.
-openclaw --plugin-dir /path/to/Sponsio/plugins/sponsio-openclaw-shield
+export default definePluginEntry(sponsioShield);
 ```
 
-**B. Installed npm package** (once published):
+Then point the OpenClaw runtime's plugin loader at this file, or
+add the plugin to `plugins.entries` in your OpenClaw config:
 
-```bash
-npm install -g @sponsio/openclaw-shield
-# Then add to your OpenClaw plugin config (~/.openclaw/config.json
-# or equivalent — exact path depends on the OpenClaw release).
+```json
+{
+  "plugins": {
+    "entries": {
+      "sponsio-openclaw-shield": {
+        "module": "@sponsio/openclaw-shield",
+        "config": {}
+      }
+    }
+  }
+}
 ```
 
-Refer to your OpenClaw version's plugin docs for the precise
-registration command.
+Refer to your OpenClaw version's plugin loading docs for the
+exact path to the config file (varies between OpenClaw releases).
+The plugin's `id` is `sponsio-openclaw-shield` — the entries key
+must match.
 
 ---
 
