@@ -319,6 +319,15 @@ def parse_repr(text: str) -> And | Or | Not | Implies | G | F | X | U | Atom:
             op = consume()
             right = _parse_repr_unary(peek, consume, parse_expr)
             cls = {"<=": Le, ">=": Ge, "<": Lt, ">": Gt, "==": Eq}[op]
+            # Predicate-shaped tokens like ``consecutive_count(t)`` /
+            # ``count(t)`` / ``token_count("input_tokens")`` parse as
+            # ``Atom`` because the syntax is ambiguous, but in an
+            # arithmetic position they're numeric variables read from
+            # the per-step valuation. Coerce so the evaluator's
+            # ``_resolve_arith`` (which expects ``Var.name`` / ``Const``)
+            # accepts them.
+            left = _atom_to_var(left)
+            right = _atom_to_var(right)
             left = cls(left, right)
         return left
 
@@ -361,6 +370,24 @@ def parse_repr(text: str) -> And | Or | Not | Implies | G | F | X | U | Atom:
             f"Unexpected tokens after position {pos[0]}: {tokens[pos[0] :]}"
         )
     return result
+
+
+def _atom_to_var(node):
+    """Coerce an ``Atom('foo', *args)`` to ``Var('foo', *args)``.
+
+    Used by :func:`parse_repr`'s comparison rule (``parse_cmp``) so
+    raw LTL strings like ``G(consecutive_count(__any_tool__) <= 10)``
+    or ``G(count(send_email) <= 5)`` produce a ``Var`` on each side
+    of the comparator. The evaluator's ``_resolve_arith`` reads
+    arithmetic operands via ``Var.name`` / ``Var.key()`` and crashes
+    on raw Atoms.
+
+    Anything that's already a ``Var`` / ``Const`` / arithmetic node
+    passes through unchanged.
+    """
+    if isinstance(node, Atom):
+        return Var(node.predicate, *node.args)
+    return node
 
 
 def _tokenize_repr(text: str) -> list[str]:
