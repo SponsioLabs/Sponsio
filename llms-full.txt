@@ -11,9 +11,23 @@ tools can split if needed.
 <!-- FILE: README.md  -->
 <!-- ====================================================================== -->
 
-Sponsio
+![Sponsio](assets/readme-banner.png)
 
-⭐ *Help us grow the Sponsio community for better shared Contract Library and policy enforcement. Star the repo!*
+<p align="center">
+  <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-orange.svg" alt="License"></a>
+  <a href="https://pypi.org/project/sponsio/"><img src="https://img.shields.io/badge/install-pip%20install%20sponsio-blue?logo=python&logoColor=white" alt="Install from PyPI"></a>
+  <a href="https://cursor.com/link/prompt?text=Set%20up%20Sponsio%20%28runtime%20contract%20enforcement%29%20in%20this%20project.%0A%0ARun%3A%0A%20%20pip%20install%20sponsio%0A%20%20sponsio%20onboard%20.%0A%0A%60onboard%60%20detects%20my%20agent%20framework%2C%20writes%20sponsio.yaml%20in%20observe%20mode%2C%20and%20derives%20starter%20contracts%20from%20my%20tool%20inventory.%20It%20then%20prints%20a%202-3%20line%20patch%20for%20my%20agent%20entry%20file.%0A%0AApply%20the%20patch.%20Nothing%20is%20blocked%20on%20day%201%20%28observe%20mode%29%20%E2%80%94%20every%20would-have-blocked%20decision%20lands%20in%20~/.sponsio/sessions/%3Cagent_id%3E/%2A.jsonl.%0A%0AAfter%20running%2C%20show%20me%3A%20the%20generated%20sponsio.yaml%2C%20the%20patch%20you%20applied%2C%20and%20any%20%60sponsio%20doctor%60%20warnings."><img src="https://img.shields.io/badge/Set%20Up%20with-Cursor-181818?logo=cursor&logoColor=white&labelColor=555555" alt="Set Up With Cursor"></a>
+  <a href="https://sponsio.dev"><img src="https://img.shields.io/badge/Visit-sponsio.dev-181818?logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjI4MyA3NjMgMzczIDM3MyI%2bPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwyMDQ4KSBzY2FsZSgwLjEsLTAuMSkiIGZpbGw9IiNGRkZGRkYiPjxwYXRoIGQ9Ik01MDEwIDEyNTAxIGMtNTggLTkgLTE4NyAtNDEgLTI2NyAtNjYgLTI2IC05IC05OSAtNDEgLTE2MCAtNzEgLTM1NCAtMTc0IC02MTMgLTQ3NiAtNzM2IC04NTkgLTQzIC0xMzMgLTY0IC0yNTEgLTczIC00MDcgbC03IC0xMTggLTQ2MiAwIC00NjMgMCAtNiAtMjIgYy0zIC0xMyAtMyAtNjYgMCAtMTE4IDE2IC0yODQgMTA2IC01NTYgMjYwIC03ODggMTEzIC0xNjggMzI0IC0zNTYgNTE2IC00NjAgMjcyIC0xNDcgNjM3IC0xOTAgOTY4IC0xMTUgMjM2IDUzIDQ1NiAxNzggNjQwIDM2MyAyNzIgMjczIDQxMyA2MTEgNDIzIDEwMjAgbDMgMTE1IDQ1NSA1IDQ1NCA1IDMgNDUgYzQgNDcgLTEyIDIwNyAtMjkgMzAwIC0xMDcgNTkyIC01MjMgMTAzMSAtMTA5NCAxMTU3IC03OSAxNyAtMzQxIDI2IC00MjUgMTR6IG0zMjAgLTk2MCBjNzMgLTI3IDE2MiAtOTkgMjA1IC0xNjQgNTggLTg3IDEwNCAtMjM5IDEwNSAtMzQ1IGwwIC01MiAtNDU3IDIgLTQ1OCAzIC0zIDQ4IGMtNSA3MyAyNCAyMDQgNjAgMjc3IDYxIDExOSAxOTEgMjI1IDMxMCAyNTAgNjQgMTMgMTc2IDUgMjM4IC0xOXogbS02MTIgLTY0MSBjMTMgLTI5NSAtMTkxIC01MjAgLTQ3MCAtNTIwIC0yMTcgMCAtMzkzIDE0NCAtNDUzIDM3MSAtMTUgNTUgLTIwIDIxMCAtOCAyMjIgMyA0IDIxNCA2IDQ2NyA1IGw0NjEgLTMgMyAtNzV6Ii8%2bPC9nPjwvc3ZnPg==&logoColor=white&labelColor=555555" alt="Visit sponsio.dev"></a>
+  <a href="docs/owasp-agentic-top-10.md"><img src="https://img.shields.io/badge/OWASP%20Agentic%20Top%2010-10%2F10%20Covered-2E7D32?labelColor=555555" alt="OWASP Agentic Top 10 Covered"></a>
+</p>
+
+<p align="center">
+  <a href="https://x.com/sponsiolabs"><img src="https://img.shields.io/badge/Follow%20on%20X-000000?logo=x&logoColor=white" alt="Follow on X"></a>
+  <a href="https://www.linkedin.com/company/sponsio-labs/"><img src="https://img.shields.io/badge/Follow%20on%20LinkedIn-0A66C2?logo=linkedin&logoColor=white" alt="Follow on LinkedIn"></a>
+  <a href="https://discord.gg/s8TfPnZWUm"><img src="https://img.shields.io/badge/Join%20our%20Discord-5865F2?logo=discord&logoColor=white" alt="Join our Discord"></a>
+</p>
+
+<p align="center">⭐ <em>Help us grow the Sponsio community for better shared Contract Library and policy enforcement. Star the repo!</em></p>
 
 # Sponsio
 
@@ -29,7 +43,9 @@ Sponsio
 
 ## SOTA Agent Safety Solutions
 
-image.png
+<p align="center">
+  <img src="assets/sponsio-architecture.svg" alt="Sponsio architecture: Agent Flow + (Natural Language + Pattern Library) compile into Contracts (Assumption → Enforcement), enforced by a Fuzzy LTL Monitor (deterministic + stochastic) that decides Pass / Block · Warn · Escalate / Redirect for every function call, with full audit trail logs feeding back to the agent." width="900">
+</p>
 
 On [ODCV-Bench](https://arxiv.org/abs/2512.20798), 12 frontier LLMs × 40 KPI-pressure scenarios (Claude-Opus-4.6 included), unguarded models cheat in **11.5%–66.7% of runs**. With Sponsio, **84% of misalignment is blocked on average**, while the next-best publicly announced solution only reaches 52%. On the `Financial-Audit-Fraud-Finding` scenario, **frontier models commit fraud in 67% of trials (16/24)**; with Sponsio, **100% blocked**.
 
@@ -97,7 +113,8 @@ sponsio report --since 1h
 export SPONSIO_MODE=enforce
 ```
 
-**TypeScript**
+<details>
+<summary><b>TypeScript</b></summary>
 
 ```bash
 npm install @sponsio/sdk
@@ -118,9 +135,10 @@ const toolNode = new ToolNode(wrapTools(tools, guard));
 
 This snippet inlines `contracts: [...]` for brevity. `new Sponsio({ config: "sponsio.yaml", agentId: "..." })` also works in TS — same YAML you get from `sponsio onboard`.
 
+</details>
 
-
-**One-shot prompt** (Cursor / Claude Code / Codex)
+<details>
+<summary><b>One-shot prompt</b> (Cursor / Claude Code / Codex)</summary>
 
 ```text
 Set up Sponsio (https://pypi.org/project/sponsio/) in my project.
@@ -139,9 +157,10 @@ After running, show me sponsio.yaml, the patch you applied, and any
 `sponsio doctor` warnings.
 ```
 
+</details>
 
-
-**Install as an Agent Skill**
+<details>
+<summary><b>Install as an Agent Skill</b></summary>
 
 ```bash
 pip install sponsio
@@ -152,6 +171,8 @@ Drops `SKILL.md` into `~/.cursor/skills/sponsio/`, `~/.claude/skills/sponsio/`, 
 
 Upgrade: `pip install -U sponsio && sponsio skill install --force` (or `sponsio skill install --link` once, then upgrades follow `pip install -U`).
 
+</details>
+
 > **Full walkthrough:** [QUICKSTART.md](QUICKSTART.md) — config reference, `sponsio refresh`, CI wiring, troubleshooting. Per-framework runnable examples: [examples/integrations/](examples/integrations/).
 
 ---
@@ -160,7 +181,8 @@ Upgrade: `pip install -U sponsio && sponsio skill install --force` (or `sponsio 
 
 Four trajectories where a capable model takes a rationally-cost-optimal but policy-violating action under KPI pressure — and the contracts that catch it. Scenarios 2, 3 and 4 are sourced from the [OWASP Top 10 for Agentic Applications (2026)](docs/owasp-agentic-top-10.md). Left: unguarded. Right: same task, same trajectory, with Sponsio.
 
-### 1. Coding — Claude Code cleanup agent deletes `.env` and `.git/`
+<details>
+<summary><b>1. Coding — Claude Code cleanup agent deletes <code>.env</code> and <code>.git/</code></b></summary>
 
 **Integration**: Claude Agent SDK (`ClaudeAgentOptions(hooks=guard.hooks())`).
 
@@ -169,7 +191,10 @@ Four trajectories where a capable model takes a rationally-cost-optimal but poli
 coding_cleanup_without
 coding_cleanup_cli
 
-### 2. Infra — SRE cost-optimizer deletes prod DR backups
+</details>
+
+<details>
+<summary><b>2. Infra — SRE cost-optimizer deletes prod DR backups</b></summary>
 
 **Integration**: LangGraph (`guard.wrap(tools)`). **OWASP**: ASI-10 — Rogue Agents · *"Cost optimizers deleting backups to reduce expenses."*
 
@@ -178,7 +203,10 @@ coding_cleanup_cli
 backup_delete_without
 backup_delete_cli
 
-### 3. Finance — AP copilot wires $847k to an unverified vendor
+</details>
+
+<details>
+<summary><b>3. Finance — AP copilot wires $847k to an unverified vendor</b></summary>
 
 **Integration**: CrewAI (`guard.wrap(tools)`). **OWASP**: ASI-09 — Human-Agent Trust Exploitation · *"Financial copilots approving fraudulent transfers."*
 
@@ -187,7 +215,10 @@ backup_delete_cli
 wire_transfer_without
 wire_transfer_cli
 
-### 4. Coding (Replit-style) — Agent violates code freeze, drops prod DB, then lies about it
+</details>
+
+<details>
+<summary><b>4. Coding (Replit-style) — Agent violates code freeze, drops prod DB, then lies about it</b></summary>
 
 **Integration**: LangGraph (`guard.wrap(tools)`). **OWASP**: ASI-10 — Rogue Agents · recreates the [July 2025 Replit incident](https://x.com/jasonlk/status/1946069562723897802) cited in [OWASP GenAI's Q1 2026 exploit round-up](https://genai.owasp.org/2026/04/14/owasp-genai-exploit-round-up-report-q1-2026/).
 
@@ -195,6 +226,8 @@ User explicitly declares a code freeze: *"Don't touch the DB — just refactor U
 
 freeze_violation_without
 freeze_violation_cli
+
+</details>
 
 Run the packaged versions locally with `sponsio demo --scenario cleanup|backup|wire|freeze`. Framework-specific source examples live in `[examples/demo/](examples/demo/)`. Full OWASP Agentic Top 10 coverage map: [docs/owasp-agentic-top-10.md](docs/owasp-agentic-top-10.md).
 
