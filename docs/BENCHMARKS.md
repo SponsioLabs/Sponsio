@@ -43,7 +43,10 @@ The synthetic figure measures one minimal contract on a pre-warmed DFA. The numb
 
 | Workload | Contracts | Tool calls | p50 | p95 | p99 | QPS |
 |---|---|---|---|---|---|---|
-| AgentDojo overall | 3–6 per suite | 26,124 | 113 µs | 172 µs | 262 µs | 7,127 |
+| ODCV-Bench (glm-4.6, mandated, 40 scenarios) | 6–18 per scenario | 1,438 | 139 µs | 525 µs | 765 µs | 4,577 |
+| τ²-bench retail (3 models × 456 sims) | 17 | 10,227 | 234 µs | 277 µs | 460 µs | 3,522 |
+| τ²-bench airline (3 models × 200 sims) | 14 | 4,242 | 204 µs | 290 µs | 453 µs | 3,301 |
+| AgentDojo overall (gpt-4o, 4 suites) | 3–6 per suite | 26,124 | 113 µs | 172 µs | 262 µs | 7,127 |
 | AgentDojo banking | 3 | 3,825 | 59 µs | 87 µs | 118 µs | 14,429 |
 | AgentDojo workspace | 4 | 5,983 | 91 µs | 121 µs | 170 µs | 10,558 |
 | AgentDojo travel | 5 | 9,099 | 115 µs | 148 µs | 217 µs | 5,900 |
@@ -51,7 +54,7 @@ The synthetic figure measures one minimal contract on a pre-warmed DFA. The numb
 | RedCode bash (per command) | 7 | 3,848 | 434 µs | 477 µs | 558 µs | 2,270 |
 | RedCode python (whole script) | 9 | 810 | 811 µs | 912 µs | 1,035 µs | 1,216 |
 
-p99 stays under **263 µs** on AgentDojo and under **1.04 ms** even on the heaviest RedCode python configuration. Compared to the LLM-as-judge baselines further down (50–1500 ms per check), Sponsio's enforcement cost is **two to four orders of magnitude lower** on the same workloads, with zero LLM calls on the path.
+p99 stays under **265 µs** on AgentDojo, under **800 µs** on ODCV, under **460 µs** on τ²-bench, and under **1.04 ms** on the heaviest RedCode python configuration. Compared to the LLM-as-judge baselines further down (50–1500 ms per check), Sponsio's enforcement cost is **two to four orders of magnitude lower** on the same workloads, with zero LLM calls on the path.
 
 ### Reproduce
 
@@ -138,6 +141,17 @@ A scenario is *high-risk* if the baseline agent received severity ≥ 3 (out of 
 
 These are *detection* numbers (would Sponsio identify the dangerous command?), not *behavioral change* numbers (would the agent self-correct after being blocked?). In production, blocked calls return errors that typically push the agent toward a legitimate fallback, so live safety is generally better than offline replay shows.
 
+### Enforcement cost on this workload
+
+Measured on a fresh re-run of glm-4.6 mandated (40 scenarios, 1,438 commands replayed across per-scenario contract sets of 6 to 18 contracts each):
+
+| Path | Calls | Total | p50 | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|
+| `guard_before` | 1,438 | 314 ms | 139 µs | 525 µs | 765 µs | 4,577 |
+| `guard_after` | 1,226 | 158 ms | 115 µs | 215 µs | 316 µs | 7,764 |
+
+p95 and p99 are higher than on AgentDojo because ODCV scenarios load 10–18 contracts each (vs 3–6 in AgentDojo), and many scan-discovered contracts include broad regex patterns. Even so, p99 stays under **800 µs** per check.
+
 ### Reproduce
 
 ```bash
@@ -182,6 +196,17 @@ python eval_sponsio.py --model glm-4.6 --type mandated --no-llm
 Retail recall is ~0% because retail failures are content-quality issues: the agent calls the right tools but says the wrong thing (incorrect prices, wrong return-policy details). A det pipeline only checks tool-call sequences, so there is no ordering violation to catch. This is a property-class mismatch, not a Sponsio failure. Closing it needs `output_has` constraints or sto LLM-as-judge evaluators.
 
 Airline recall of 7–23% lands where the theory predicts. Some airline failures are ordering issues (booking without checking availability, cancelling without verifying the ticket), which `must_precede` patterns can catch. o4-mini gives the best precision/recall envelope: 18% recall at 4% FP.
+
+### Enforcement cost on this workload
+
+Measured on a fresh re-run across all 3 models per domain:
+
+| Domain | Contracts | Calls | Total | p50 | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|
+| retail (456 sims × 3 models) | 17 | 10,227 | 2,903 ms | 234 µs | 277 µs | 460 µs | 3,522 |
+| airline (200 sims × 3 models) | 14 | 4,242 | 1,285 ms | 204 µs | 290 µs | 453 µs | 3,301 |
+
+p99 stays under **460 µs** on both domains. The whole tau2 retail run (456 sims × 3 models) completes its enforcement work in under 3 seconds of wall clock, against contract sets that catch ordering violations across 17 retail tools and 14 airline tools.
 
 ### Reproduce
 
