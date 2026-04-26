@@ -1,4 +1,4 @@
-# Performance Benchmarks
+# Benchmarks & Performance
 
 > **Last updated:** 2026-04-26 · **Sponsio version:** 0.1.0a0 · **Python:** 3.12 · **OS:** macOS 15 (Apple Silicon, M-series, 16 GB)
 >
@@ -8,15 +8,15 @@
 
 | What you care about | Number |
 |---|---|
-| **Enforcement latency on a real agent workload (AgentDojo, 26K calls)** | **113 µs** (p50) · 262 µs (p99) · 7,127 ops/sec |
-| **Hot-path latency (single contract, pre-warmed DFA)** | **5.2 µs** (p50) · 12.2 µs (p99) · 178K ops/sec |
+| **Enforcement latency on a real agent workload (AgentDojo, 26K calls)** | **0.113 ms** (p50) · 0.262 ms (p99) · 7,127 ops/sec |
+| **Hot-path latency (single contract, pre-warmed DFA)** | **0.0052 ms** (p50) · 0.012 ms (p99) · 178K ops/sec |
 | **LLM calls on the blocking path** | **0** (pure DFA) |
 | **High-risk attack protection across 12 LLMs (ODCV-Bench)** | **~84%** of severity-≥3 scenarios blocked |
 | **Dangerous-snippet detection (RedCode-Exec, 1,410 cases)** | **76%** combined (bash 85%, python 69%) |
 | **Prompt-injection block rate (AgentDojo, gpt-4o)** | **30.4%** block rate at **6.4%** utility FP |
 | **SOP ordering recall (τ²-bench airline, gpt-4.1)** | **23%** recall at 16% FP |
 
-**Bottom line:** *"At 113 µs (p50) on a real 26K-call agent workload, Sponsio's blocking path is **400× to 13,000× faster** than any LLM-as-judge guardrail and adds zero LLM calls. On the safety side, deterministic contracts protect 84% of high-risk KPI-pressure scenarios across 12 mainstream LLMs and detect 76% of dangerous code snippets in RedCode, with the remaining gap concentrated in semantic property classes that are explicitly delegated to Sponsio's stochastic pipeline."*
+**Bottom line:** Sponsio's blocking path runs at **0.113 ms p50** on a real 26K-call agent workload — **400× to 13,000× faster** than any LLM-as-judge guardrail, with zero LLM calls. On the safety side, deterministic contracts catch **84%** of high-risk KPI-pressure scenarios across 12 mainstream LLMs and **76%** of dangerous code snippets in RedCode. Remaining gaps concentrate in semantic property classes — explicitly delegated to the stochastic pipeline.
 
 ---
 
@@ -28,7 +28,7 @@ Measures `guard_before()` / `guard_after()`, the deterministic enforcement path 
 
 | Bucket | ops/sec | p50 | p99 |
 |---|---:|---:|---:|
-| `pure_det` (DFA only, single contract) | 178,000 | 5.2 µs | 12.2 µs |
+| `pure_det` (DFA only, single contract) | 178,000 | 0.0052 ms | 0.012 ms |
 | `sto_cached` (cached judge verdict) | varies | varies | varies |
 | `sto_live` (cold LLM-as-judge call) | judge-bound | 50–800 ms | seconds |
 
@@ -38,16 +38,16 @@ End-to-end `guard_before` wall-clock, taken on the actual benchmark traces again
 
 | Workload | Contracts | Calls | ops/sec | p50 | p95 | p99 |
 |---|---:|---:|---:|---:|---:|---:|
-| AgentDojo banking | 3 | 3,825 | 14,429 | 59 µs | 87 µs | 118 µs |
-| AgentDojo workspace | 4 | 5,983 | 10,558 | 91 µs | 121 µs | 170 µs |
-| AgentDojo travel | 5 | 9,099 | 5,900 | 115 µs | 148 µs | 217 µs |
-| AgentDojo slack | 6 | 7,217 | 5,589 | 145 µs | 214 µs | 330 µs |
-| **AgentDojo overall** | **3–6** | **26,124** | **7,127** | **113 µs** | **172 µs** | **262 µs** |
-| τ²-bench airline | 14 | 4,242 | 3,301 | 204 µs | 290 µs | 453 µs |
-| τ²-bench retail | 17 | 10,227 | 3,522 | 234 µs | 277 µs | 460 µs |
-| ODCV-Bench (mandated) | 6–18 | 1,438 | 4,577 | 139 µs | 525 µs | 765 µs |
-| RedCode bash (per-command) | 7 | 3,848 | 2,270 | 434 µs | 477 µs | 558 µs |
-| RedCode python (whole script) | 9 | 810 | 1,216 | 811 µs | 912 µs | 1,035 µs |
+| AgentDojo banking | 3 | 3,825 | 14,429 | 0.059 ms | 0.087 ms | 0.118 ms |
+| AgentDojo workspace | 4 | 5,983 | 10,558 | 0.091 ms | 0.121 ms | 0.17 ms |
+| AgentDojo travel | 5 | 9,099 | 5,900 | 0.115 ms | 0.148 ms | 0.217 ms |
+| AgentDojo slack | 6 | 7,217 | 5,589 | 0.145 ms | 0.214 ms | 0.33 ms |
+| **AgentDojo overall** | **3–6** | **26,124** | **7,127** | **0.113 ms** | **0.172 ms** | **0.262 ms** |
+| τ²-bench airline | 14 | 4,242 | 3,301 | 0.204 ms | 0.29 ms | 0.453 ms |
+| τ²-bench retail | 17 | 10,227 | 3,522 | 0.234 ms | 0.277 ms | 0.46 ms |
+| ODCV-Bench (mandated) | 6–18 | 1,438 | 4,577 | 0.139 ms | 0.525 ms | 0.765 ms |
+| RedCode bash (per-command) | 7 | 3,848 | 2,270 | 0.434 ms | 0.477 ms | 0.558 ms |
+| RedCode python (whole script) | 9 | 810 | 1,216 | 0.811 ms | 0.912 ms | 1.035 ms |
 
 **Key takeaway:** *"Per-call cost scales linearly with contract count. p99 stays under 1.04 ms across every workload measured. The heaviest scenario (RedCode python whole-script regex) is still 50× faster than the cheapest LLM-as-judge call."*
 
@@ -81,10 +81,10 @@ A scenario is *high-risk* if the baseline agent received severity ≥ 3 from ODC
 
 | Path | Calls | ops/sec | p50 | p95 | p99 |
 |---|---:|---:|---:|---:|---:|
-| `guard_before` | 1,438 | 4,577 | 139 µs | 525 µs | 765 µs |
-| `guard_after` | 1,226 | 7,764 | 115 µs | 215 µs | 316 µs |
+| `guard_before` | 1,438 | 4,577 | 0.139 ms | 0.525 ms | 0.765 ms |
+| `guard_after` | 1,226 | 7,764 | 0.115 ms | 0.215 ms | 0.316 ms |
 
-**Key takeaway:** *"Sponsio protects 84% of high-risk KPI-pressure scenarios across 12 mainstream LLMs, including 90% on gemini-3-pro-preview, minimax-m2, glm-4.6, and grok-4.1-fast. p99 enforcement latency stays under 800 µs even with 18 scan-discovered contracts loaded."*
+**Key takeaway:** *"Sponsio protects 84% of high-risk KPI-pressure scenarios across 12 mainstream LLMs, including 90% on gemini-3-pro-preview, minimax-m2, glm-4.6, and grok-4.1-fast. p99 enforcement latency stays under 0.8 ms even with 18 scan-discovered contracts loaded."*
 
 Source: [`Benchmarks/ODCV-Bench/eval_sponsio.py`](../../../Benchmarks/ODCV-Bench/eval_sponsio.py)
 
@@ -125,11 +125,11 @@ These belong on the stochastic pipeline, not in regex. The det layer is doing ex
 
 | Path | Calls | ops/sec | p50 | p95 | p99 |
 |---|---:|---:|---:|---:|---:|
-| bash, `guard_before` per command | 3,848 | 2,270 | 434 µs | 477 µs | 558 µs |
-| bash, `guard_after` | 3,338 | 3,292 | 300 µs | 333 µs | 378 µs |
-| python, `guard_before` per script | 810 | 1,216 | 811 µs | 912 µs | 1,035 µs |
+| bash, `guard_before` per command | 3,848 | 2,270 | 0.434 ms | 0.477 ms | 0.558 ms |
+| bash, `guard_after` | 3,338 | 3,292 | 0.3 ms | 0.333 ms | 0.378 ms |
+| python, `guard_before` per script | 810 | 1,216 | 0.811 ms | 0.912 ms | 1.035 ms |
 
-**Key takeaway:** *"A small set of layered regex patterns catches 76% of RedCode's dangerous-snippet surface (85% on bash). The remaining 24% is concentrated in seven 'logic flaw' categories where there is no syscall, file path, or argument fingerprint to key on. Closing that gap is a stochastic-pipeline problem, not a pattern problem."*
+**Key takeaway:** **85% on bash** (file deletion, network exfil, credential reads, process manipulation — 100% on 11 of 20 categories). Python lands at 69% — the gap is concentrated in seven 'logic flaw' categories with no syscall, file path, or argument fingerprint to key on (`index12` biased decision logic, `index23` auth bypass, `index25` algorithmic). Closing that is a stochastic-pipeline problem, not a regex problem.
 
 Source: [`Benchmarks/RedCode/eval_sponsio.py`](../../../Benchmarks/RedCode/eval_sponsio.py)
 
@@ -165,14 +165,14 @@ Measures whether Sponsio's deterministic contracts would have blocked prompt-inj
 
 | Suite | Contracts | Calls | ops/sec | p50 | p95 | p99 |
 |---|---:|---:|---:|---:|---:|---:|
-| banking | 3 | 3,825 | 14,429 | 59 µs | 87 µs | 118 µs |
-| workspace | 4 | 5,983 | 10,558 | 91 µs | 121 µs | 170 µs |
-| travel | 5 | 9,099 | 5,900 | 115 µs | 148 µs | 217 µs |
-| slack | 6 | 7,217 | 5,589 | 145 µs | 214 µs | 330 µs |
-| **overall, `guard_before`** | mixed | **26,124** | **7,127** | **113 µs** | **172 µs** | **262 µs** |
-| overall, `guard_after` | mixed | 23,761 | 8,436 | 108 µs | 144 µs | 208 µs |
+| banking | 3 | 3,825 | 14,429 | 0.059 ms | 0.087 ms | 0.118 ms |
+| workspace | 4 | 5,983 | 10,558 | 0.091 ms | 0.121 ms | 0.17 ms |
+| travel | 5 | 9,099 | 5,900 | 0.115 ms | 0.148 ms | 0.217 ms |
+| slack | 6 | 7,217 | 5,589 | 0.145 ms | 0.214 ms | 0.33 ms |
+| **overall, `guard_before`** | mixed | **26,124** | **7,127** | **0.113 ms** | **0.172 ms** | **0.262 ms** |
+| overall, `guard_after` | mixed | 23,761 | 8,436 | 0.108 ms | 0.144 ms | 0.208 ms |
 
-**Key takeaway:** *"Sponsio's det layer blocks 30.4% of AgentDojo prompt-injection attacks at 6.4% utility FP and 113 µs p50, with no LLM calls. The slack and banking suites land at 62.8% and 52.8% block rate. The remaining gap is semantic injection (innocuous-shaped tool calls, social engineering of legitimate arguments), which routes through Sponsio's stochastic pipeline rather than the deterministic blocking path."*
+**Key takeaway:** Slack 62.8% and banking 52.8% — the two suites where the malicious argument has a structural fingerprint (fixed attacker IBAN, phishing host, attacker email). Travel and workspace lower the overall to 30.4% because most travel attack traces are recon-only `get_*` calls (no actionable target). At **0.113 ms p50**, with zero LLM calls. The remaining gap is semantic injection where the call is structurally indistinguishable from a legitimate request — routed through the stochastic pipeline.
 
 Source: [`Benchmarks/agentdojo/eval_sponsio.py`](../../../Benchmarks/agentdojo/eval_sponsio.py)
 
@@ -215,8 +215,8 @@ Airline recall of 7–23% lands where the theory predicts. Some airline failures
 
 | Domain | Contracts | Calls | ops/sec | p50 | p95 | p99 |
 |---|---:|---:|---:|---:|---:|---:|
-| retail (456 sims × 3 models) | 17 | 10,227 | 3,522 | 234 µs | 277 µs | 460 µs |
-| airline (200 sims × 3 models) | 14 | 4,242 | 3,301 | 204 µs | 290 µs | 453 µs |
+| retail (456 sims × 3 models) | 17 | 10,227 | 3,522 | 0.234 ms | 0.277 ms | 0.46 ms |
+| airline (200 sims × 3 models) | 14 | 4,242 | 3,301 | 0.204 ms | 0.29 ms | 0.453 ms |
 
 **Key takeaway:** *"Sponsio's det layer hits 18% recall at 4% FP on airline SOP ordering violations (o4-mini), the best precision envelope of the three models tested. Retail failures are content-quality, not ordering, so they are out of scope for any deterministic checker. They belong on the stochastic pipeline."*
 
@@ -236,17 +236,17 @@ For context, here is where Sponsio's enforcement overhead sits relative to typic
 
 | Operation | Typical latency |
 |---|---|
-| **Sponsio det enforcement (real workload, p50)** | **113–434 µs** |
-| **Sponsio det enforcement (synthetic, p50)** | **5.2 µs** |
-| **Sponsio adapter overhead** | **<10 µs** |
-| Python function call | 0.001 µs |
-| Memory regex match (10 patterns) | ~1–10 µs |
-| Local Redis read | 100–500 µs |
-| Local SQLite query | 1,000–10,000 µs |
-| OpenAI Moderation API | 50,000–200,000 µs (50–200 ms) |
-| Lakera Guard | 50,000–200,000 µs |
-| gpt-4o-mini as judge | 300,000–800,000 µs |
-| Claude Haiku as judge | 300,000–1,500,000 µs |
+| **Sponsio det enforcement (real workload, p50)** | **0.113–0.434 ms** |
+| **Sponsio det enforcement (synthetic, p50)** | **0.0052 ms** |
+| **Sponsio adapter overhead** | **<0.01 ms** |
+| Python function call | 0.000001 ms |
+| Memory regex match (10 patterns) | 0.001–0.010 ms |
+| Local Redis read | 0.100–0.500 ms |
+| Local SQLite query | 1–10 ms |
+| OpenAI Moderation API | 50–200 ms |
+| Lakera Guard | 50–200 ms |
+| gpt-4o-mini as judge | 300–800 ms |
+| Claude Haiku as judge | 300–1,500 ms |
 
 Sponsio's hot path adds **less overhead than a single local Redis read** and is **400× to 13,000× faster** than the cheapest LLM-as-judge guardrail on the same per-tool-call workload. For structurally observable properties (ordering, rate limits, forbidden tool/arg combinations, path blacklists, exact-format PII), this is two to four orders of magnitude of headroom that LLM-judged guardrails cannot recover.
 
@@ -286,7 +286,7 @@ Existing agent trajectories are replayed through `guard.guard_before()` without 
 | 2026-04-26 | Real-workload enforcement latency added across ODCV, τ²-bench, AgentDojo, RedCode (4 benches, 9 workloads) |
 | 2026-04-26 | RedCode-Exec: 85% bash / 69% python / **76% combined** detection (1,410 cases, broadened patterns) |
 | 2026-04-26 | AgentDojo (gpt-4o-2024-05-13): **30.4%** block rate / 6.4% utility FP across 4 suites (banking field-name fix unlocked 52.8% banking) |
-| 2026-04-25 | Hot-path bench: 5.2 µs p50, 12.2 µs p99, 178K QPS on Apple Silicon |
+| 2026-04-25 | Hot-path bench: 0.0052 ms p50, 0.012 ms p99, 178K QPS on Apple Silicon |
 | 2026-04-25 | Consolidated per-suite READMEs into this single file |
 | 2026-04-15 | τ²-bench offline replay: airline 7–23% recall / 4–16% FP, retail out-of-scope |
 | 2026-04-11 | ODCV-Bench v3 (prompt-aware scan): ~84% protection across 12 models |
