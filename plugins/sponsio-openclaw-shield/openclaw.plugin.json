@@ -1,0 +1,11 @@
+{
+  "name": "sponsio-openclaw-shield",
+  "version": "0.1.0-alpha.0",
+  "description": "Runtime contract guardrails for every tool call in your OpenClaw session — backed by per-plugin contract libraries under ~/.sponsio/plugins/, evaluated by the same Sponsio engine the Claude Code shield uses.",
+  "main": "dist/index.js",
+  "homepage": "https://github.com/SponsioLabs/Sponsio",
+  "license": "Apache-2.0",
+  "contracts": {
+    "tools": []
+  }
+}

@@ -39,6 +39,8 @@ ts-sdk/node_modules/
 ts-sdk/dist/
 ts-scanner/node_modules/
 ts-scanner/dist/
+plugins/sponsio-openclaw-shield/node_modules/
+plugins/sponsio-openclaw-shield/dist/
 web-reference/
 
 # Local scratch/workspace copies
