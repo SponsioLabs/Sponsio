@@ -80,19 +80,60 @@ from sponsio.formulas.formula import (
 )
 
 
+_NAMESPACED_TOOL_RE = _re.compile(r"^[A-Za-z_][\w-]*:[A-Za-z_][\w-]*$")
+
+
+def _is_namespaced_tool_name(tool: str) -> bool:
+    """Decide whether ``foo:bar`` is a literal namespaced tool name
+    (Claude Code plugin skill / MCP server convention) rather than the
+    ``tool:argpattern`` shortcut used by ``bans`` / ``called_with``.
+
+    Heuristic: both sides of ``:`` must be bare identifiers — no
+    whitespace, no regex metacharacters, no shell-like punctuation.
+    This lets us recognise ``acme:fetch_data`` / ``my-plugin:hello`` /
+    ``mcp__server:tool`` as literal tool names while preserving the
+    existing pattern usages (``bash:rm -rf``, ``bash:sed -i``,
+    ``bash:python -c``) which all contain whitespace.
+
+    The corner case ``bash:rm`` (a hypothetical bare-identifier
+    argpattern) tips toward "literal tool name" — no shipped pack
+    uses that form, so the change is safe.
+    """
+    return bool(_NAMESPACED_TOOL_RE.match(str(tool)))
+
+
+def _physical_tool(tool: str) -> str:
+    """Return the tool name to ground against.
+
+    Strips the ``:argpattern`` suffix when the form is a true
+    pattern-shortcut; passes namespaced literal names through.
+    """
+    if ":" in tool and not _is_namespaced_tool_name(tool):
+        return tool.split(":", 1)[0]
+    return tool
+
+
 def _called(tool: str) -> Atom:
-    """Create a called/called_with atom based on tool:pattern format."""
+    """Create a ``called`` / ``called_with`` atom for ``tool``.
+
+    ``tool:argpattern`` -> ``called_with(physical, argpattern)``.
+    Bare ``tool`` or namespaced-literal ``plugin:skill`` ->
+    ``called(tool)``.
+    """
     tool = str(tool)
-    if ":" in tool:
+    if ":" in tool and not _is_namespaced_tool_name(tool):
         physical, pattern = tool.split(":", 1)
         return Atom("called_with", physical, pattern)
     return Atom("called", tool)
 
 
 def _count_var(tool: str) -> Var:
-    """Create a count/count_with Var based on tool:pattern format."""
+    """Create a ``count`` / ``count_with`` Var for ``tool``.
+
+    Same disambiguation as :func:`_called`.
+    """
     tool = str(tool)
-    if ":" in tool:
+    if ":" in tool and not _is_namespaced_tool_name(tool):
         physical, pattern = tool.split(":", 1)
         return Var("count_with", physical, pattern)
     return Var("count", tool)
@@ -666,7 +707,7 @@ def arg_blacklist(
     Returns:
         A ``DetFormula`` encoding the constraint.
     """
-    physical_tool = tool.split(":", 1)[0] if ":" in tool else tool
+    physical_tool = _physical_tool(tool)
     body: Formula = Not(Atom("arg_field_has", physical_tool, param, patterns[0]))
     for pattern in patterns[1:]:
         body = And(body, Not(Atom("arg_field_has", physical_tool, param, pattern)))
@@ -696,7 +737,7 @@ def scope_limit(tool: str, allowed_paths: list[str], desc: str = "") -> DetFormu
         A ``DetFormula`` encoding the constraint.
     """
     # For tool:pattern format, use the physical tool name for arg_paths_within
-    physical_tool = tool.split(":", 1)[0] if ":" in tool else tool
+    physical_tool = _physical_tool(tool)
     formula = G(
         Implies(
             _called(tool),
@@ -732,7 +773,7 @@ def arg_length_limit(
     Returns:
         A ``DetFormula`` encoding the length constraint.
     """
-    physical_tool = tool.split(":", 1)[0] if ":" in tool else tool
+    physical_tool = _physical_tool(tool)
     formula = G(
         Implies(
             _called(tool),

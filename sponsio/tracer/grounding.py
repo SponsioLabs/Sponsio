@@ -119,13 +119,25 @@ class GroundingState:
         self.current_ctx.clear()
 
 
+_NAMESPACED_TOOL_RE = re.compile(r"^[A-Za-z_][\w-]*:[A-Za-z_][\w-]*$")
+
+
 def _tool_matches(target_tool: str, event_tool: str, args_str: str) -> bool:
     """Check if a target tool spec matches the current event.
 
-    Supports ``tool:pattern`` format: physical tool name must match AND
-    args must contain the pattern.  Plain tool names match directly.
+    Supports two ``tool:`` forms (kept in sync with the heuristic in
+    ``sponsio.patterns.library._is_namespaced_tool_name``):
+
+    * ``tool:argpattern`` (legacy) — physical tool name must match AND
+      args must regex-contain the pattern. Detected by the RHS having
+      whitespace / regex metacharacters.
+    * ``plugin:skill`` (Claude Code namespaced skill / MCP-style) —
+      the whole string is a literal tool name. Detected by both sides
+      being bare identifiers (``[A-Za-z_][\\w-]*``).
+
+    Plain tool names with no ``:`` match directly.
     """
-    if ":" in target_tool:
+    if ":" in target_tool and not _NAMESPACED_TOOL_RE.match(target_tool):
         physical, pattern = target_tool.split(":", 1)
         return physical == event_tool and bool(re.search(pattern, args_str))
     return target_tool == event_tool

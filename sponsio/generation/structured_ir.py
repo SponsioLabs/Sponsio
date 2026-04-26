@@ -96,7 +96,7 @@ from sponsio.formulas.formula import (
     Le,
     Ge,
 )
-from sponsio.patterns.library import DetFormula
+from sponsio.patterns.library import DetFormula, _physical_tool
 
 logger = logging.getLogger(__name__)
 
@@ -378,7 +378,7 @@ def _synth_retries(ir: ConstraintIR) -> tuple[Formula, str, str]:
 def _synth_arg_check(ir: ConstraintIR) -> tuple[Formula, str, str]:
     """G(called(tool) → ¬arg_field_has(tool, field, p1) ∧ ...)"""
     tool = ir.subject
-    physical = tool.split(":", 1)[0] if ":" in tool else tool
+    physical = _physical_tool(tool)
     fld = ir.params["field"]
     patterns = ir.params["patterns"]
     body: Formula = Not(Atom("arg_field_has", physical, fld, patterns[0]))
@@ -391,7 +391,7 @@ def _synth_arg_check(ir: ConstraintIR) -> tuple[Formula, str, str]:
 def _synth_scope_check(ir: ConstraintIR) -> tuple[Formula, str, str]:
     """G(called(tool) → arg_paths_within(tool, *prefixes))"""
     tool = ir.subject
-    physical = tool.split(":", 1)[0] if ":" in tool else tool
+    physical = _physical_tool(tool)
     prefixes = ir.params["prefixes"]
     f = G(Implies(_called(tool), Atom("arg_paths_within", physical, *prefixes)))
     return f, f"{tool} restricted to paths: {', '.join(prefixes)}", "scope_limit"
@@ -400,7 +400,7 @@ def _synth_scope_check(ir: ConstraintIR) -> tuple[Formula, str, str]:
 def _synth_length_check(ir: ConstraintIR) -> tuple[Formula, str, str]:
     """G(called(tool) → ¬arg_length_exceeds(tool, field, N))"""
     tool = ir.subject
-    physical = tool.split(":", 1)[0] if ":" in tool else tool
+    physical = _physical_tool(tool)
     fld = ir.params["field"]
     n = ir.quantifier
     f = G(
@@ -565,7 +565,7 @@ def _synth_value_range(ir: ConstraintIR) -> tuple[Formula, str, str]:
     """G(arg_numeric(tool, field) ∈ [min, max])"""
     tool = ir.subject
     # Use physical tool name for arg_numeric grounding
-    physical = tool.split(":", 1)[0] if ":" in tool else tool
+    physical = _physical_tool(tool)
     field = ir.params.get("field", "0")
     min_val = ir.params.get("min")
     max_val = ir.params.get("max")

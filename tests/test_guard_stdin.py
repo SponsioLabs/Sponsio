@@ -138,9 +138,8 @@ def test_evaluate_routes_to_per_plugin_library(tmp_path, monkeypatch):
     """Different plugins resolve to different library files.
 
     Uses the MCP tool-naming convention (``mcp__<server>__<tool>``)
-    because Claude Code's namespaced-skill form (``acme:fetch``) hits
-    a separate grounding limitation around colons in tool names —
-    tracked, not in scope for this prototype.
+    here; the colon-namespaced form (``plugin:skill``) is covered by
+    :func:`test_evaluate_blocks_colon_namespaced_tool` below.
     """
     monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
     # Plugin "acme" gets a rule that bans http: scheme on its fetch tool.
@@ -183,6 +182,53 @@ agents:
     )
     assert blocked.allowed is False
     assert blocked.plugin_id == "acme"
+
+
+def test_evaluate_blocks_colon_namespaced_tool(tmp_path, monkeypatch):
+    """Claude Code's namespaced-skill form (``plugin:skill``) routes to
+    the plugin library and grounds correctly against ``arg_blacklist``.
+
+    This is the case that motivated the
+    ``_is_namespaced_tool_name`` heuristic: previously the colon was
+    always parsed as a ``tool:argpattern`` shortcut, so the trace
+    event's literal tool name (``acme:fetch``) never matched the
+    formula's ``called_with('acme', 'fetch')`` shape — and
+    ``arg_field_has`` was never bound either.
+    """
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
+    _write_library(
+        tmp_path,
+        "acme",
+        """
+version: "1"
+agents:
+  acme:
+    contracts:
+      - desc: "acme:fetch must use https"
+        E:
+          pattern: arg_blacklist
+          args: ["acme:fetch", url, ["^http://"]]
+""",
+    )
+
+    blocked = evaluate_event(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "acme:fetch",
+            "tool_input": {"url": "http://example.com"},
+        }
+    )
+    assert blocked.allowed is False
+    assert blocked.plugin_id == "acme"
+
+    allowed = evaluate_event(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "acme:fetch",
+            "tool_input": {"url": "https://example.com"},
+        }
+    )
+    assert allowed.allowed is True
 
 
 # ---------------------------------------------------------------------------
