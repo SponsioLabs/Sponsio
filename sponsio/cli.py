@@ -3911,7 +3911,7 @@ def shield_init(root: Path | None, force: bool, no_smoke_test: bool):
     siblings of ``_host/`` and can be created by hand or — once Stage-2
     lands — via ``sponsio shield scan``.
     """
-    from importlib import resources
+    from sponsio.shield.registry import read_bundled
 
     if root is None:
         env = os.environ.get("SPONSIO_PLUGIN_ROOT")
@@ -3920,14 +3920,8 @@ def shield_init(root: Path | None, force: bool, no_smoke_test: bool):
     target_dir = root / "_host"
     target = target_dir / "sponsio.yaml"
 
-    # Resolve the bundled source. Works both in source checkouts (where
-    # ``sponsio.shield`` resolves to the repo path) and in pip installs
-    # (where it resolves into site-packages).
     try:
-        src_traversable = resources.files("sponsio.shield").joinpath(
-            "defaults/_host.yaml"
-        )
-        src_text = src_traversable.read_text(encoding="utf-8")
+        src_text = read_bundled("_host")
     except (FileNotFoundError, ModuleNotFoundError) as e:
         click.secho(
             f"Error: bundled default library not found ({e}). Reinstall sponsio.",
@@ -4018,7 +4012,121 @@ def _print_shield_next_steps() -> None:
     click.echo("       claude --plugin-dir /path/to/sponsio-shield")
     click.echo("  3. Issue any Bash tool call — the shield wraps it.")
     click.echo("")
-    click.echo("Add per-plugin rules under <root>/<plugin-id>/sponsio.yaml.")
+    click.echo("Add starter libraries for popular MCP servers:")
+    click.echo("  sponsio shield install --list   # see what's bundled")
+    click.echo("  sponsio shield install github   # copy github starter")
+
+
+@shield.command(name="install")
+@click.argument("names", nargs=-1)
+@click.option(
+    "--list",
+    "list_only",
+    is_flag=True,
+    default=False,
+    help="List bundled starter libraries and exit.",
+)
+@click.option(
+    "--all",
+    "install_all",
+    is_flag=True,
+    default=False,
+    help="Install every bundled library (skips ``_host`` — use ``init`` for that).",
+)
+@click.option(
+    "--root",
+    "root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Override the per-plugin library root "
+        "(default: $SPONSIO_PLUGIN_ROOT or ~/.sponsio/plugins)."
+    ),
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Overwrite existing libraries without prompting.",
+)
+def shield_install(
+    names: tuple[str, ...],
+    list_only: bool,
+    install_all: bool,
+    root: Path | None,
+    force: bool,
+):
+    """Copy bundled starter libraries into ``~/.sponsio/plugins/<name>/``.
+
+    Each starter is a hand-curated contract library for a popular
+    plugin / MCP server (github, filesystem, playwright, …). Run
+    ``--list`` to see what's bundled with the current sponsio install.
+
+    Examples:
+
+    \b
+        sponsio shield install --list
+        sponsio shield install github
+        sponsio shield install github filesystem playwright
+        sponsio shield install --all
+    """
+    from sponsio.shield.registry import list_bundled, read_bundled
+
+    bundled = list_bundled()
+
+    if list_only:
+        click.echo("Bundled starter libraries:")
+        for n in bundled:
+            marker = " (auto-installed by `shield init`)" if n == "_host" else ""
+            click.echo(f"  {n}{marker}")
+        return
+
+    if install_all:
+        # ``_host`` is owned by ``init`` and has its own smoke-test
+        # path; don't double-write it here.
+        names = tuple(n for n in bundled if n != "_host")
+
+    if not names:
+        click.secho(
+            "Error: pass at least one library name, or --all / --list.\n"
+            f"Bundled: {', '.join(bundled)}",
+            fg="red",
+        )
+        sys.exit(2)
+
+    unknown = [n for n in names if n not in bundled]
+    if unknown:
+        click.secho(
+            f"Error: unknown bundled libraries {unknown}. "
+            f"Available: {', '.join(bundled)}.",
+            fg="red",
+        )
+        sys.exit(2)
+
+    if root is None:
+        env = os.environ.get("SPONSIO_PLUGIN_ROOT")
+        root = Path(env).expanduser() if env else Path.home() / ".sponsio" / "plugins"
+
+    written: list[Path] = []
+    skipped: list[Path] = []
+    for name in names:
+        target_dir = root / name
+        target = target_dir / "sponsio.yaml"
+        if target.exists() and not force:
+            click.secho(
+                f"  skipped {target}: already exists "
+                f"(re-run with --force to overwrite)",
+                fg="yellow",
+            )
+            skipped.append(target)
+            continue
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target.write_text(read_bundled(name), encoding="utf-8")
+        click.secho(f"  ✓ wrote {target}", fg="green")
+        written.append(target)
+
+    if not written:
+        sys.exit(1)
 
 
 @shield.command(name="scan")

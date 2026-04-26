@@ -40,7 +40,11 @@ pip install -e .
 #    and runs an allow + block smoke test).
 sponsio shield init
 
-# 3. Load the plugin into Claude Code.
+# 3. (Optional) Drop in starter libraries for popular MCP servers.
+sponsio shield install --list                  # see what's bundled
+sponsio shield install github filesystem playwright
+
+# 4. Load the plugin into Claude Code.
 claude --plugin-dir ./plugins/sponsio-shield
 ```
 
@@ -48,9 +52,21 @@ claude --plugin-dir ./plugins/sponsio-shield
 `libraries/_host/sponsio.yaml` in this directory — pick whichever
 install path is more convenient.
 
-The sample `_host` library blocks `rm -rf /`, fork bombs, `curl | bash`,
-reverse-shell primitives, line-continuation evasion, and other
-shell-incident patterns sourced from `sponsio:capability/shell`.
+### Starter libraries shipped today
+
+| Routing key | Source MCP server | Highlights |
+|---|---|---|
+| `_host` | Claude Code built-ins (Bash, Edit, …) | `rm -rf /`, fork bombs, `curl \| bash`, line-continuation evasion, reverse shells |
+| `github` | `github/github-mcp-server` | hard-deny on `delete_repository`, protected-branch deletes blocked, dotenv / workflow-yaml writes blocked, issue / PR / merge rate caps |
+| `filesystem` | `@modelcontextprotocol/server-filesystem` | dotenv / SSH / AWS / `/etc` / launchd path blacklist on read + write + edit + move |
+| `playwright` | `microsoft/playwright-mcp` | navigation blacklist (localhost / RFC1918 / `file://` / `javascript:`), `browser_evaluate` cookie / fetch / sendBeacon exfil block, credit-card-shape typing block |
+
+To generate a starter library for an unbundled plugin from its
+manifest + tool list:
+
+```bash
+sponsio shield scan ./path/to/some-plugin --tools tool_a,tool_b --apply
+```
 
 ## Verifying it works without Claude Code
 
@@ -79,10 +95,17 @@ sponsio-shield/
 ├── hooks/
 │   └── hooks.json               # PreToolUse → `sponsio shield guard --stdin`
 ├── libraries/
-│   └── _host/
-│       └── sponsio.yaml         # default rules for built-in tools
+│   ├── _host/sponsio.yaml       # Claude Code built-in tools (Bash, Edit, …)
+│   ├── github/sponsio.yaml      # mcp__github__* — github-mcp-server
+│   ├── filesystem/sponsio.yaml  # mcp__filesystem__* — server-filesystem
+│   └── playwright/sponsio.yaml  # mcp__playwright__* — playwright-mcp
 └── README.md
 ```
+
+These are mirror copies of the bundled package data under
+`sponsio/shield/defaults/*.yaml` — one is for `--plugin-dir` users
+(cp from this directory), the other for pip-install users (via
+`sponsio shield install`). A test enforces byte-equality.
 
 ## Adding rules for a specific plugin
 
