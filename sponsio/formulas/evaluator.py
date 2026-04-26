@@ -56,6 +56,15 @@ _COUNTER_VAR_NAMES: frozenset[str] = frozenset(
         "response_chars",
         "context_length",
         "arg_numeric",
+        # Time atoms (event-clock). ``now`` defaulting to 0 is the
+        # correct "no events grounded yet" view. ``time_since`` is
+        # only emitted for keys requested via ``content_atoms`` and
+        # carries its own large sentinel for "never seen", so a
+        # missing lookup here means the contract author asked for a
+        # ``time_since`` predicate that no events ever populated —
+        # safe to default to 0 silently.
+        "now",
+        "time_since",
         # Test-only / generic numeric vars that ground to 0 by convention.
         "cost",
         "x",

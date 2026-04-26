@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sponsio.integrations.base import BaseGuard, CheckResult
+from sponsio.integrations.base import BaseGuard, CheckResult, select_agent_message
 from sponsio.models.system import System
 from sponsio.runtime.evaluators import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
@@ -113,16 +113,15 @@ class ClaudeAgentGuard(BaseGuard):
             guard.last_check = check
 
             if check.blocked:
-                msg = (
-                    check.det_violations[0].message
-                    if check.det_violations
-                    else "Contract violation"
+                # Prefer the structured ``agent_msg`` from OutcomeBuilder
+                # — it's already phrased to steer the model toward
+                # abandoning this action. Falls back to the legacy
+                # ``message`` for hand-constructed EnforcementResults.
+                msg = select_agent_message(
+                    check.det_violations, fallback="Contract violation"
                 )
                 return {
-                    "systemMessage": (
-                        f"[Sponsio] Tool call `{tool_name}` was blocked: {msg}. "
-                        f"Please adjust your approach to comply with the policy."
-                    ),
+                    "systemMessage": f"[Sponsio] Tool call `{tool_name}` was blocked: {msg}",
                     "hookSpecificOutput": {
                         "hookEventName": "PreToolUse",
                         "permissionDecision": "deny",

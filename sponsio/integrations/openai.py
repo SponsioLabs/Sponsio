@@ -61,7 +61,7 @@ import os
 import warnings
 from typing import Any
 
-from sponsio.integrations.base import BaseGuard, CheckResult
+from sponsio.integrations.base import BaseGuard, CheckResult, select_agent_message
 from sponsio.models.system import System
 from sponsio.runtime.evaluators import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
@@ -384,6 +384,12 @@ class OpenAIGuard(BaseGuard):
         `message.content`, both of which we rewrite to an explicit value
         rather than reach into.
         """
+        # Use the structured ``agent_msg`` from OutcomeBuilder when
+        # available — it's phrased to nudge the LLM toward abandoning
+        # the action ("Choose a different approach") rather than
+        # parroting the raw "BLOCKED: agent.tool — det constraint
+        # violated" log line. Falls back to ``message`` for callers
+        # that constructed EnforcementResult by hand.
         blocked_messages: list[str] = []
         tc_idx = 0
         for choice in response.choices:
@@ -393,10 +399,9 @@ class OpenAIGuard(BaseGuard):
             kept = []
             for tc in message.tool_calls:
                 if tc_idx < len(results) and results[tc_idx].blocked:
-                    msg = (
-                        results[tc_idx].det_violations[0].message
-                        if results[tc_idx].det_violations
-                        else "Contract violation"
+                    msg = select_agent_message(
+                        results[tc_idx].det_violations,
+                        fallback="Contract violation",
                     )
                     blocked_messages.append(f"[BLOCKED] {tc.function.name}: {msg}")
                 else:

@@ -1848,3 +1848,136 @@ def ctx_matches_required(
         pattern_name="ctx_matches_required",
         args=(tool, key, pattern),
     )
+
+
+# ---------------------------------------------------------------------------
+# Time-window patterns (event-clock — replay-deterministic)
+# ---------------------------------------------------------------------------
+#
+# These compose around the ``time_since(predicate_key)`` numeric atom
+# emitted by ``sponsio.tracer.grounding``. The grounding layer tracks
+# ``last_ts[predicate_key]`` for every freshly-emitted boolean
+# predicate; ``time_since(P) = state.now - state.last_ts[P]`` is
+# derived per event and lifted into the valuation dict for the keys
+# the contracts actually reference (extracted via
+# ``collect_content_atoms`` over ``"time_since"`` Var nodes).
+#
+# Sentinel: when ``P`` was never emitted, grounding returns ``1e18``
+# rather than ``0`` so ``Le(time_since(P), N)`` evaluates False —
+# "never happened" is "very long ago", not "just now". This is the
+# semantic trap the dedicated derived atom exists to avoid; do not
+# expose ``last_ts`` directly.
+
+
+def time_since(
+    predicate_key: str, max_seconds: int | float, desc: str = ""
+) -> DetFormula:
+    """Constrain how recently a predicate was last true.
+
+    Compiles to::
+
+        G(time_since(predicate_key) ≤ max_seconds)
+
+    Pair this with another temporal pattern via ``&`` to gate an
+    action on a recent occurrence — e.g. an approval that's still
+    fresh::
+
+        # "refund only allowed within 1h of an active senior_eng approval"
+        gate = G(Implies(
+            _called("refund"),
+            Le(Var("time_since", "ctx(approval.role, senior_eng)"), Const(3600))
+        ))
+
+    The ``predicate_key`` argument is the *grounded* key string
+    (``"called(refund)"``, ``"ctx(approval.role, alice)"``, ``"flow(rag,
+    answer)"``) — i.e. what ``Atom.key()`` would produce for the
+    predicate you want to time. We require the explicit string rather
+    than an Atom because ``time_since`` covers the union of every atom
+    family (called / ctx / flow / contains / segment / …) and we don't
+    want to re-derive each family's key shape here.
+
+    Args:
+        predicate_key: Grounded predicate key string. Use ``Atom(...).key()``
+            or ``pred_key(...)`` to build it if unsure.
+        max_seconds: Maximum allowed delta (event-clock seconds). Use
+            integer ts if the integration is ticking events with a
+            logical clock — the comparison is unitless.
+        desc: Optional human-readable description.
+
+    Returns:
+        A ``DetFormula`` enforcing the recency bound globally.
+    """
+    _ensure_non_empty(predicate_key, pattern="time_since", arg="predicate_key")
+    if not isinstance(max_seconds, (int, float)) or max_seconds < 0:
+        raise ValueError(
+            f"time_since: max_seconds must be a non-negative number "
+            f"(got {max_seconds!r})."
+        )
+
+    formula = G(Le(Var("time_since", predicate_key), Const(max_seconds)))
+    return DetFormula(
+        formula=formula,
+        desc=desc or f"{predicate_key} must have occurred within last {max_seconds}s",
+        pattern_name="time_since",
+        args=(predicate_key, max_seconds),
+    )
+
+
+def approval_active(
+    action: str,
+    role: str,
+    max_seconds: int | float,
+    desc: str = "",
+) -> DetFormula:
+    """Gate ``action`` on a recent allow-decision approval from ``role``.
+
+    Compiles to::
+
+        G(called(action) → (
+              ctx_matches("approval.role", role)
+            ∧ ctx_matches("approval.decision", "allow")
+            ∧ time_since(ctx(approval.role, role)) ≤ max_seconds
+        ))
+
+    Pairs with :meth:`BaseGuard.observe_approval` on the integration
+    side: the approver pushes ``approval.role`` / ``approval.decision``
+    via ``observe_context`` and the contract checks both the static
+    facts and the recency. ``max_seconds`` measures event-clock time
+    since the approval was last refreshed (the predicate key timed is
+    ``"ctx(approval.role, <role>)"`` — that key gets re-emitted each
+    event the role is current, so its ``last_ts`` advances naturally
+    while the approval stays in context).
+
+    Args:
+        action: Tool name to gate (e.g. ``"issue_refund"``).
+        role: Required approver role (must match
+            ``observe_approval(role=...)``).
+        max_seconds: Approval validity window in event-clock seconds.
+        desc: Optional human-readable description.
+
+    Returns:
+        A ``DetFormula`` enforcing the approval gate.
+    """
+    _ensure_non_empty(action, pattern="approval_active", arg="action")
+    _ensure_non_empty(role, pattern="approval_active", arg="role")
+    if not isinstance(max_seconds, (int, float)) or max_seconds < 0:
+        raise ValueError(
+            f"approval_active: max_seconds must be a non-negative number "
+            f"(got {max_seconds!r})."
+        )
+
+    role_key = f"ctx(approval.role, {role})"
+    body = And(
+        And(
+            Atom("ctx_matches", "approval.role", _re.escape(role)),
+            Atom("ctx_matches", "approval.decision", "allow"),
+        ),
+        Le(Var("time_since", role_key), Const(max_seconds)),
+    )
+    formula = G(Implies(_called(action), body))
+    return DetFormula(
+        formula=formula,
+        desc=desc or f"{action} requires active {role} approval (≤{max_seconds}s old)",
+        pattern_name="approval_active",
+        args=(action, role, max_seconds),
+    )

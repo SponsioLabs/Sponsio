@@ -34,9 +34,35 @@ Predicate catalogue (what this module can currently extract):
         system_prompt_present()   -- LLM request has a system message (structural)
         context_length()          -- total char count of LLM input (int)
 
+    Time layer (event clock — replay-deterministic, not wall-clock):
+        now                       -- ts of the current event (float)
+        time_since(predicate_key) -- seconds since ``predicate_key`` last
+                                     emitted true; sentinel ``1e18`` if
+                                     never. Sentinel chosen so any
+                                     ``Le(time_since(P), N)`` fails
+                                     correctly when P never happened —
+                                     "never" is semantically "very long
+                                     ago", not "just now". Requested via
+                                     ``content_atoms["time_since"]``.
+
+    Args conventions (no event-type schema change):
+        data_write.args["scope"]    "internal" | "external" (default
+                                     "external"). Internal writes don't
+                                     register in ``data_stores`` so a
+                                     later cross-agent read won't fire
+                                     ``flow()``. ``contains()`` still
+                                     emits regardless.
+        llm_response.args["segment"] "thinking" | "answer" | other label.
+                                     Emits ``segment(value)`` atom at
+                                     the timestep so contracts can scope
+                                     ``llm_said``-style checks (e.g.
+                                     ``Implies(segment("answer"),
+                                     ~llm_said(secret))``).
+
     Parameterized atoms (arg_has, arg_paths_within, output_has, llm_said,
-    prompt_contains) require the caller to pass ``content_atoms`` from
-    ``collect_content_atoms()`` so grounding knows which patterns to check.
+    prompt_contains, time_since) require the caller to pass
+    ``content_atoms`` from ``collect_content_atoms()`` so grounding knows
+    which patterns to check.
 """
 
 from __future__ import annotations
@@ -103,6 +129,22 @@ class GroundingState:
     delegation_depth: int = 0  # L2.4
     consecutive_counts: dict[str, int] = field(default_factory=dict)  # L1.4
     last_tool: str = ""  # previous tool name for consecutive detection
+    # Event-clock primitives. ``now`` is the ts of the most recently
+    # grounded event; ``last_ts[predicate_key]`` is the ts of the last
+    # event where ``predicate_key`` *transitioned* False→True. We
+    # track ``true_at_prev`` (the predicate keys true at the previous
+    # event, after forward-propagation) so sustained predicates —
+    # propagated ``flow``/``contains`` and re-emitted ``ctx(k, v)``
+    # facts — do NOT refresh ``last_ts`` while they remain held. This
+    # is the difference that makes ``time_since(ctx(approval.role,
+    # alice))`` measure "time since the approval was granted" rather
+    # than the trivial 0 it would be if every re-emission counted.
+    # Feeds the ``time_since(key)`` derived atom; ``last_ts`` is
+    # internal-only (not exposed as Var) so callers don't accidentally
+    # rely on its missing-key default.
+    now: float = 0.0
+    last_ts: dict[str, float] = field(default_factory=dict)
+    true_at_prev: set[str] = field(default_factory=set)
 
     def reset(self) -> None:
         """Clear all accumulators. Called on rollback / new session."""
@@ -117,6 +159,9 @@ class GroundingState:
         self.consecutive_counts.clear()
         self.last_tool = ""
         self.current_ctx.clear()
+        self.now = 0.0
+        self.last_ts.clear()
+        self.true_at_prev.clear()
 
 
 _NAMESPACED_TOOL_RE = re.compile(r"^[A-Za-z_][\w-]*:[A-Za-z_][\w-]*$")
@@ -164,6 +209,13 @@ _CONTENT_PREDICATES = frozenset(
         # extracts the ``(key, pattern)`` tuples that ``ground_event``
         # needs at runtime.
         "ctx_matches",
+        # ``time_since(predicate_key)`` is a derived numeric Var that
+        # ``ground_event`` computes from ``state.now`` and
+        # ``state.last_ts[predicate_key]``. We pre-collect the requested
+        # keys via ``content_atoms`` so grounding only emits the keys
+        # that contracts actually reference (rather than every tracked
+        # ``last_ts`` entry, which would bloat valuations).
+        "time_since",
     }
 )
 
@@ -255,6 +307,12 @@ def ground_event(
         The valuation dict for this timestep.
     """
     v: dict[str, bool | int] = {}
+
+    # Advance the event clock. Used by the ``now`` Var and as the
+    # numerator for ``time_since(key)``. Stored on state so that an
+    # incremental verifier holding a long-lived GroundingState sees
+    # the same view between events.
+    state.now = float(event.ts)
 
     # ── tool_call ──────────────────────────────────────────────
     if event.event_type == "tool_call" and not event.tool:
@@ -441,6 +499,17 @@ def ground_event(
             content_str = str(event.content)
             v["response_words"] = len(content_str.split())
             v["response_chars"] = len(content_str)
+        # ``args["segment"]`` convention: when an integration can
+        # distinguish CoT thinking from the final answer (Claude
+        # extended thinking, OpenAI o1 reasoning summaries) it tags
+        # the llm_response with ``segment="thinking"`` or
+        # ``segment="answer"``. We emit ``segment(value)`` so contracts
+        # can scope checks to one segment, e.g.
+        # ``G(segment("answer") → ~llm_said(<internal-token>))``.
+        if event.args:
+            seg = event.args.get("segment")
+            if isinstance(seg, str) and seg:
+                v[pred_key("segment", seg)] = True
 
     # ── P2: LLM request — prompt_contains(pattern) + structural ─
     elif event.event_type == "llm_request":
@@ -465,11 +534,24 @@ def ground_event(
             stacklevel=2,
         )
     elif event.event_type == "data_write" and event.key:
-        state.data_stores[event.key] = {
-            "agent": event.agent,
-            "contains": event.contains or [],
-            "ts": idx,
-        }
+        # ``args["scope"]`` convention: ``"internal"`` flags writes to
+        # an agent's own scratchpad / framework state — they should
+        # NOT register in ``data_stores``, because a later cross-agent
+        # ``data_read`` against an internal write doesn't model a real
+        # data exfiltration boundary. ``contains()`` still emits so
+        # PII / sensitive-field detection works on internal payloads
+        # (you may still want to forbid PII showing up in scratchpad).
+        scope = "external"
+        if event.args:
+            raw_scope = event.args.get("scope")
+            if isinstance(raw_scope, str) and raw_scope:
+                scope = raw_scope
+        if scope != "internal":
+            state.data_stores[event.key] = {
+                "agent": event.agent,
+                "contains": event.contains or [],
+                "ts": idx,
+            }
         if event.contains:
             for field_name in event.contains:
                 v[pred_key("contains", field_name)] = True
@@ -599,6 +681,46 @@ def ground_event(
         v[fk] = True
     for ck in state.active_contains:
         v[ck] = True
+
+    # ── last_ts bookkeeping (fresh-only False→True transitions) ─
+    # Compare against ``true_at_prev`` (snapshotted at the end of the
+    # previous event). A predicate that was True last event and still
+    # True now is "sustained" — we do NOT refresh its last_ts.
+    # Sustained covers: forward-propagated flows / contains, and
+    # ctx(k, v) atoms re-emitted from ``current_ctx`` while the fact
+    # remains in scope. This is what makes
+    # ``time_since(ctx(approval.role, alice))`` measure time since
+    # the approval was granted, not the trivial 0 from re-emission.
+    true_now: set[str] = set()
+    for key, val in v.items():
+        if isinstance(val, bool) and val:
+            true_now.add(key)
+            if key not in state.true_at_prev:
+                state.last_ts[key] = state.now
+    state.true_at_prev = true_now
+
+    # ── time atoms (emitted last so they see fresh state.now) ──
+    # ``now`` is unparameterized so ``Var("now").key()`` returns the
+    # bare name "now" (see Var.key); we match that here rather than
+    # using pred_key which would produce "now()". The two routes
+    # would silently diverge otherwise — exactly the pred_key drift
+    # this module's docstring warns about.
+    v["now"] = state.now
+    if content_atoms and "time_since" in content_atoms:
+        for args_tuple in content_atoms["time_since"]:
+            if not args_tuple:
+                continue
+            target_key = args_tuple[0]
+            if target_key in state.last_ts:
+                delta = state.now - state.last_ts[target_key]
+            else:
+                # Sentinel: predicate has never been true. "Very long
+                # ago" is the right semantics for ``Le(time_since(P), N)``
+                # — if P never happened, "P happened within last N
+                # seconds" must evaluate False. Defaulting to 0
+                # (counter-style) would invert the meaning.
+                delta = 1e18
+            v[pred_key("time_since", *args_tuple)] = delta
 
     return v
 

@@ -137,12 +137,19 @@ class MCPContractProxy:
             metadata={"args": arguments},
         )
 
-        # If hard block, return error without executing
+        # If hard block, return error without executing. Surface the
+        # structured ``agent_msg`` in a separate field so MCP clients
+        # that proxy this to an LLM (Claude Desktop, custom orchestrators)
+        # can show the agent-tuned phrasing while keeping the legacy
+        # ``violations`` array of log-formatted strings for back-compat.
         blocked = [r for r in results if r.action == "blocked"]
         if blocked:
             return {
                 "error": "Blocked by behavioral contract",
                 "violations": [r.message for r in blocked],
+                "agent_messages": [
+                    r.agent_msg for r in blocked if getattr(r, "agent_msg", "")
+                ],
             }
 
         # Execute the actual MCP tool call

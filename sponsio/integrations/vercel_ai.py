@@ -42,7 +42,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from sponsio.integrations.base import BaseGuard, CheckResult, format_sto_retry_message
+from sponsio.integrations.base import (
+    BaseGuard,
+    CheckResult,
+    format_sto_retry_message,
+    select_agent_message,
+)
 from sponsio.models.system import System
 from sponsio.runtime.evaluators import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
@@ -116,10 +121,8 @@ class VercelAIGuard(BaseGuard):
                 guard.last_check = check
 
                 if check.blocked:
-                    msg = (
-                        check.det_violations[0].message
-                        if check.det_violations
-                        else "Contract violation"
+                    msg = select_agent_message(
+                        check.det_violations, fallback="Contract violation"
                     )
                     return ai.Message(
                         role="tool",

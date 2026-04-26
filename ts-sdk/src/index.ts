@@ -100,12 +100,61 @@ export type {
  * One det violation, with enough structure to feed into downstream
  * agent feedback — mirrors Python's ``EnforcementResult`` fields that
  * examples reach for (``check.det_violations[0].message``).
+ *
+ * Phrasing contract (mirrors Python ``OutcomeBuilder``):
+ *
+ * - ``message`` is the **human-facing** log line —
+ *   ``"BLOCKED: agent.tool — det constraint violated: …"``. It keeps
+ *   the legacy prefix so log-parsing back-compat holds. Don't inject
+ *   it into the LLM's next prompt; it's noise to the model.
+ * - ``agentMsg`` is the **agent-facing** line, phrased to nudge the
+ *   model into the right reaction. For block this should read
+ *   "abandon this action" rather than parroting the log line.
+ *   Empty until the strategy populates it; integrations fall back to
+ *   ``message`` when empty.
+ * - ``ruleId`` is a stable identifier (``DetFormula.patternName`` or
+ *   sto atom name) integrations can group on without parsing
+ *   free text.
+ * - ``retryHint`` is populated only on retry-style outcomes — the
+ *   "to fix this, do X" guidance, kept distinct from ``agentMsg``
+ *   so adapters can format the two parts in framework-native ways.
+ * - ``alternatives`` is an optional list of suggested replacement
+ *   actions for blocked / redirected outcomes.
  */
 export interface DetViolation {
   /** Human-readable contract description (``DetFormula.desc``). */
   desc: string;
   /** Formatted ``"[WOULD-]BLOCKED: agent.tool — det constraint …"``. */
   message: string;
+  /** Stable rule identifier (pattern name / contract id). */
+  ruleId?: string;
+  /** Agent-facing line, tuned per action voice. Falls back to ``message``. */
+  agentMsg?: string;
+  /** "To fix this, do X" guidance. Only set on retry-style outcomes. */
+  retryHint?: string;
+  /** Suggested replacement actions for the agent. */
+  alternatives?: string[];
+}
+
+/**
+ * Best-effort accessor for the agent-facing line. Prefers the
+ * structured ``agentMsg`` field when populated; falls back to
+ * ``message`` for adapters that haven't migrated yet. Mirrors the
+ * Python ``select_agent_message`` helper.
+ */
+export function selectAgentMessage(
+  violations: DetViolation[],
+  fallback: string = "Contract violation",
+): string {
+  for (const v of violations) {
+    if (v.agentMsg && v.agentMsg.length > 0) {
+      return v.agentMsg;
+    }
+  }
+  if (violations.length > 0) {
+    return violations[0].message;
+  }
+  return fallback;
 }
 
 export interface CheckResult {
@@ -309,7 +358,19 @@ export class Sponsio {
         const msg = `${verb}: ${this.agentId}.${toolName} — det constraint violated: ${contract.desc}`;
         violations.push(msg);
         violatedDescs.push(contract.desc);
-        detViolations.push({ desc: contract.desc, message: msg });
+        // Populate the structured fields the Python OutcomeBuilder
+        // sets — ruleId from the pattern, agentMsg phrased to make
+        // the model abandon (not parrot) the rejection. The legacy
+        // ``message`` stays as the log line.
+        detViolations.push({
+          desc: contract.desc,
+          message: msg,
+          ruleId: contract.patternName || contract.desc,
+          agentMsg:
+            `The action \`${toolName}\` was rejected by policy ` +
+            `(${contract.patternName || contract.desc}): ${contract.desc}. ` +
+            `Choose a different approach.`,
+        });
       }
     }
 
@@ -438,7 +499,19 @@ export class Sponsio {
         const msg =
           `${verb}: ${this.agentId}.${toolName} — sto constraint ` +
           `violated: ${sto.desc} (score=${result.score.toFixed(2)})`;
-        stoViolations.push({ desc: sto.desc, message: msg });
+        // Sto outcomes default to retry-style phrasing — the model
+        // is being asked to regenerate addressing the failed
+        // property, not to abandon the action altogether. retryHint
+        // carries the evaluator's suggestion when available.
+        stoViolations.push({
+          desc: sto.desc,
+          message: msg,
+          ruleId: sto.desc,
+          agentMsg:
+            `Your output failed the \`${sto.desc}\` check ` +
+            `(score=${result.score.toFixed(2)}). Regenerate addressing the issue.`,
+          retryHint: result.evidence || undefined,
+        });
         flatMessages.push(msg);
         this._logSto(
           sto.desc,

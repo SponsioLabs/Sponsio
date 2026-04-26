@@ -40,7 +40,12 @@ import functools
 import inspect
 from typing import Any, Callable
 
-from sponsio.integrations.base import BaseGuard, CheckResult, format_sto_retry_message
+from sponsio.integrations.base import (
+    BaseGuard,
+    CheckResult,
+    format_sto_retry_message,
+    select_agent_message,
+)
 from sponsio.models.system import System
 from sponsio.runtime.evaluators import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
@@ -126,10 +131,8 @@ class AgentsSDKGuard(BaseGuard):
                 check = guard.guard_before(tool_name, kwargs)
                 guard.last_check = check
                 if check.blocked:
-                    msg = (
-                        check.det_violations[0].message
-                        if check.det_violations
-                        else "Contract violation"
+                    msg = select_agent_message(
+                        check.det_violations, fallback="Contract violation"
                     )
                     raise ToolCallBlocked(tool_name, msg, f"BLOCKED by contract: {msg}")
 
@@ -149,10 +152,8 @@ class AgentsSDKGuard(BaseGuard):
                 check = guard.guard_before(tool_name, kwargs)
                 guard.last_check = check
                 if check.blocked:
-                    msg = (
-                        check.det_violations[0].message
-                        if check.det_violations
-                        else "Contract violation"
+                    msg = select_agent_message(
+                        check.det_violations, fallback="Contract violation"
                     )
                     raise ToolCallBlocked(tool_name, msg, f"BLOCKED by contract: {msg}")
 

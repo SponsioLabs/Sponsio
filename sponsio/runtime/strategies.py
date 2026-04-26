@@ -35,17 +35,59 @@ class ActionContext:
 class EnforcementResult:
     """Result of applying an enforcement strategy.
 
+    Action discriminator semantics — what each value contracts about
+    the next step. Integration adapters MUST honour these when
+    rendering the result back into framework primitives:
+
+    =============  ============  =================  ===============================
+    action         tool runs?    agent informed?    expected agent reaction
+    =============  ============  =================  ===============================
+    ``blocked``    no            yes (refusal)      abandon this action
+    ``retrying``   no            yes (lesson)       regenerate with ``retry_hint``
+    ``escalated``  paused        depends            wait (may unblock via approval)
+    ``redirected`` substituted   no (transparent)   continue, sees ``fallback_action``
+    ``warned``     yes           no (log only)      no change
+    ``allowed``    yes           —                  no enforcement, normal pass
+    ``observed``   yes           —                  shadow-mode downgrade of any of
+                                                    the above
+    =============  ============  =================  ===============================
+
     Attributes:
-        action: What enforcement action was taken. The enforcing
-            actions are ``"blocked"``, ``"escalated"``, ``"retrying"``,
-            and ``"redirected"``. The non-enforcing actions
-            ``"allowed"``, ``"warned"`` (explicit non-blocking warning),
-            and ``"observed"`` (shadow-mode downgrade) are emitted by
-            the monitor itself to surface passes and would-be violations
-            to callbacks without actually blocking execution.
-        message: Human-readable explanation.
-        retry_prompt: Discriminative feedback for retry (sto path only).
-        fallback_action: Substitute action for redirect (sto path only).
+        action: What enforcement action was taken. See the table above
+            for the agent-side semantics each value commits to.
+        message: Human-facing explanation — for logs, dashboards,
+            session-log entries. NOT the right thing to inject into the
+            agent's next turn (use ``agent_msg`` for that).
+        retry_prompt: Legacy field — the discriminative feedback for
+            sto retry. New code should populate ``retry_hint`` instead;
+            we keep ``retry_prompt`` populated for backwards-compat
+            with integrations that already read it.
+        fallback_action: Substitute action for ``redirected`` — opaque
+            payload the integration injects in place of the original
+            tool result (string, dict, structured object — depends on
+            framework).
+        score: Sto-pipeline extra — confidence score that triggered
+            this result. ``None`` for det.
+        threshold: Sto-pipeline extra — the threshold the score missed.
+            ``None`` for det.
+        rule_id: Stable identifier for the contract / pattern that
+            fired (``DetFormula.pattern_name``, contract id, sto atom
+            name). Lets integrations group "violations of the same
+            rule" without parsing free-text messages.
+        agent_msg: What the agent should see on its next turn. Should
+            be phrased to nudge the LLM toward the right reaction:
+            blocked → "this action was rejected, choose another";
+            retrying → "your output failed X, try again with Y".
+            Defaults to empty; integrations fall back to ``message``
+            when not set.
+        retry_hint: Concrete "to fix this, do <X>" guidance attached
+            to ``retrying`` outcomes. Distinct from ``agent_msg`` so
+            integrations can format the two parts differently (e.g.
+            agent_msg as a tool-error body, retry_hint as a follow-up
+            instruction).
+        alternatives: Suggested replacement actions for ``blocked`` /
+            ``redirected``. Optional — integrations can render as a
+            list to the agent ("try one of: <a>, <b>, <c>").
     """
 
     action: Literal[
@@ -65,6 +107,192 @@ class EnforcementResult:
     # explain "violation flagged, confidence 0.42 vs β=0.9".
     score: float | None = None
     threshold: float | None = None
+    # Structured fields for integration-side rendering. All have
+    # safe defaults so existing call sites that constructed
+    # ``EnforcementResult(action=..., message=...)`` keep working;
+    # ``OutcomeBuilder`` populates them for new code paths.
+    rule_id: str = ""
+    agent_msg: str = ""
+    retry_hint: str | None = None
+    alternatives: list[str] = field(default_factory=list)
+
+
+def _rule_id_from_violation(violation: Violation) -> str:
+    """Best-effort stable rule identifier for an outcome.
+
+    Pulls ``pattern_name`` off ``DetFormula`` when present, otherwise
+    falls back to ``violation.kind``. Sto evaluators set ``desc`` to
+    the atom name (``injection_free``, ``tone_match``) — that becomes
+    the rule_id when no formula is attached.
+    """
+    formula = getattr(violation, "formula", None)
+    pattern_name = getattr(formula, "pattern_name", "") if formula else ""
+    if pattern_name:
+        return pattern_name
+    if violation.desc:
+        return violation.desc
+    return violation.kind
+
+
+class OutcomeBuilder:
+    """Builds structured ``EnforcementResult`` payloads.
+
+    Centralises the message / agent_msg / hint phrasing so each
+    strategy doesn't reinvent string formatting. Two reasons we keep
+    this separate from the strategies:
+
+    1. **Message phrasing decides agent behaviour.** The same
+       constraint can produce "this is forbidden" (agent abandons) or
+       "this didn't pass X, try Y" (agent retries). Putting the
+       phrasing here lets us tune block / retry voice consistently.
+    2. **Integrations need structured fields.** Free-text messages
+       force adapters to regex-parse to extract anything useful. The
+       builder fills ``rule_id`` / ``alternatives`` / ``retry_hint``
+       so adapters can render natively (Claude Agent
+       ``permissionDecision``, OpenAI synthetic tool result, CrewAI
+       error dict) without string archaeology.
+    """
+
+    @staticmethod
+    def for_det_block(
+        violation: Violation,
+        context: ActionContext,
+        alternatives: list[str] | None = None,
+    ) -> EnforcementResult:
+        rule = _rule_id_from_violation(violation)
+        desc = violation.desc or violation.kind
+        message = (
+            f"BLOCKED: {context.agent_id}.{context.action} — "
+            f"det constraint violated: {desc}"
+        )
+        agent_msg = (
+            f"The action `{context.action}` was rejected by policy "
+            f"({rule}): {desc}. Choose a different approach."
+        )
+        return EnforcementResult(
+            action="blocked",
+            message=message,
+            rule_id=rule,
+            agent_msg=agent_msg,
+            alternatives=list(alternatives or []),
+        )
+
+    @staticmethod
+    def for_det_escalate(
+        violation: Violation,
+        context: ActionContext,
+        reason: str = "",
+    ) -> EnforcementResult:
+        rule = _rule_id_from_violation(violation)
+        why = reason or violation.desc or "det constraint violation"
+        message = (
+            f"ESCALATED: {context.agent_id}.{context.action} — "
+            f"awaiting human approval: {why}"
+        )
+        agent_msg = (
+            f"The action `{context.action}` is paused awaiting human "
+            f"approval ({rule}). Wait for the approval signal."
+        )
+        return EnforcementResult(
+            action="escalated",
+            message=message,
+            rule_id=rule,
+            agent_msg=agent_msg,
+        )
+
+    @staticmethod
+    def for_det_warn(
+        violation: Violation,
+        context: ActionContext,
+    ) -> EnforcementResult:
+        rule = _rule_id_from_violation(violation)
+        desc = violation.desc or violation.kind
+        message = (
+            f"WARNING (non-blocking): {context.agent_id}.{context.action} — {desc}"
+        )
+        return EnforcementResult(
+            action="warned",
+            message=message,
+            rule_id=rule,
+        )
+
+    @staticmethod
+    def for_sto_retry(
+        violation: Violation,
+        context: ActionContext,
+        attempt: int,
+        max_attempts: int,
+        retry_hint: str | None = None,
+    ) -> EnforcementResult:
+        rule = _rule_id_from_violation(violation)
+        desc = violation.desc or violation.kind
+        message = (
+            f"RETRY ({attempt}/{max_attempts}): "
+            f"{context.agent_id}.{context.action} — {desc}"
+        )
+        agent_msg = (
+            f"Your output failed the `{rule}` check: {desc}. "
+            "Regenerate addressing the issue."
+        )
+        return EnforcementResult(
+            action="retrying",
+            message=message,
+            # Keep the legacy ``retry_prompt`` populated alongside
+            # the new ``retry_hint`` so integrations that read either
+            # field continue to surface the lesson.
+            retry_prompt=retry_hint,
+            rule_id=rule,
+            agent_msg=agent_msg,
+            retry_hint=retry_hint,
+        )
+
+    @staticmethod
+    def for_sto_block_after_max(
+        violation: Violation,
+        context: ActionContext,
+        max_attempts: int,
+    ) -> EnforcementResult:
+        rule = _rule_id_from_violation(violation)
+        desc = violation.desc or violation.kind
+        message = (
+            f"BLOCKED after {max_attempts} retries: "
+            f"{context.agent_id}.{context.action} — {desc}"
+        )
+        agent_msg = (
+            f"The action `{context.action}` was blocked after "
+            f"{max_attempts} attempts on the `{rule}` check ({desc}). "
+            "Stop retrying and choose a different approach."
+        )
+        return EnforcementResult(
+            action="blocked",
+            message=message,
+            rule_id=rule,
+            agent_msg=agent_msg,
+        )
+
+    @staticmethod
+    def for_sto_redirect(
+        violation: Violation,
+        context: ActionContext,
+        fallback: Any,
+        fallback_message: str = "",
+    ) -> EnforcementResult:
+        rule = _rule_id_from_violation(violation)
+        desc = violation.desc or violation.kind
+        message = (
+            f"REDIRECTED: {context.agent_id}.{context.action} — "
+            f"{fallback_message or desc}"
+        )
+        # Redirect is transparent to the agent — it sees the substitute
+        # output as if the tool returned it. We deliberately leave
+        # agent_msg empty so the integration knows not to inject any
+        # explanation alongside the fallback.
+        return EnforcementResult(
+            action="redirected",
+            message=message,
+            fallback_action=fallback,
+            rule_id=rule,
+        )
 
 
 @runtime_checkable
@@ -98,13 +326,7 @@ class DetBlock:
     def enforce(
         self, violation: Violation, context: ActionContext
     ) -> EnforcementResult:
-        return EnforcementResult(
-            action="blocked",
-            message=(
-                f"BLOCKED: {context.agent_id}.{context.action} — "
-                f"det constraint violated: {violation.desc or violation.kind}"
-            ),
-        )
+        return OutcomeBuilder.for_det_block(violation, context)
 
 
 class EscalateToHuman:
@@ -119,14 +341,7 @@ class EscalateToHuman:
     def enforce(
         self, violation: Violation, context: ActionContext
     ) -> EnforcementResult:
-        reason = self._reason or violation.desc or "det constraint violation"
-        return EnforcementResult(
-            action="escalated",
-            message=(
-                f"ESCALATED: {context.agent_id}.{context.action} — "
-                f"awaiting human approval: {reason}"
-            ),
-        )
+        return OutcomeBuilder.for_det_escalate(violation, context, reason=self._reason)
 
 
 class WarnOnly:
@@ -139,13 +354,7 @@ class WarnOnly:
     def enforce(
         self, violation: Violation, context: ActionContext
     ) -> EnforcementResult:
-        return EnforcementResult(
-            action="warned",
-            message=(
-                f"WARNING (non-blocking): {context.agent_id}.{context.action} — "
-                f"{violation.desc or violation.kind}"
-            ),
-        )
+        return OutcomeBuilder.for_det_warn(violation, context)
 
 
 # --- Sto constraint strategies (probabilistic, graded) ---
@@ -195,12 +404,8 @@ class RetryWithConstraint:
 
         if count >= self._max_retries:
             self._retry_counts.pop(key, None)
-            return EnforcementResult(
-                action="blocked",
-                message=(
-                    f"BLOCKED after {self._max_retries} retries: "
-                    f"{context.agent_id}.{context.action} — {violation.desc}"
-                ),
+            return OutcomeBuilder.for_sto_block_after_max(
+                violation, context, max_attempts=self._max_retries
             )
 
         self._retry_counts[key] = count + 1
@@ -213,13 +418,12 @@ class RetryWithConstraint:
                 template=feedback_template,
             )
 
-        return EnforcementResult(
-            action="retrying",
-            message=(
-                f"RETRY ({count + 1}/{self._max_retries}): "
-                f"{context.agent_id}.{context.action} — {violation.desc}"
-            ),
-            retry_prompt=prompt,
+        return OutcomeBuilder.for_sto_retry(
+            violation,
+            context,
+            attempt=count + 1,
+            max_attempts=self._max_retries,
+            retry_hint=prompt,
         )
 
     def reset(self, key: str | None = None) -> None:
@@ -243,11 +447,9 @@ class RedirectToSafe:
     def enforce(
         self, violation: Violation, context: ActionContext
     ) -> EnforcementResult:
-        return EnforcementResult(
-            action="redirected",
-            message=(
-                f"REDIRECTED: {context.agent_id}.{context.action} — "
-                f"{self._fallback_message or violation.desc or 'sto constraint violated'}"
-            ),
-            fallback_action=self._fallback,
+        return OutcomeBuilder.for_sto_redirect(
+            violation,
+            context,
+            fallback=self._fallback,
+            fallback_message=self._fallback_message,
         )

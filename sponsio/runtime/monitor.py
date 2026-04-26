@@ -277,6 +277,12 @@ class RuntimeMonitor:
             message=new_msg,
             retry_prompt=result.retry_prompt,
             fallback_action=result.fallback_action,
+            score=result.score,
+            threshold=result.threshold,
+            rule_id=result.rule_id,
+            agent_msg=result.agent_msg,
+            retry_hint=result.retry_hint,
+            alternatives=list(result.alternatives),
         )
 
     @property
@@ -1003,7 +1009,12 @@ class RuntimeMonitor:
 
         enf_result = strategy.enforce(violation, context)
         # Overwrite the strategy's bland retry_prompt with our confidence-
-        # aware version, and attach score/threshold for reporters.
+        # aware version, and attach score/threshold for reporters. We
+        # preserve the structured fields the strategy populated
+        # (rule_id, agent_msg, alternatives) and only overwrite
+        # retry_hint with the contract-aware lesson — the lesson is
+        # built from the actual contract description and verdict
+        # evidence, which the bare strategy doesn't have access to.
         enf_result = EnforcementResult(
             action=enf_result.action,
             message=enf_result.message,
@@ -1011,6 +1022,12 @@ class RuntimeMonitor:
             fallback_action=enf_result.fallback_action,
             score=e_verdict.score,
             threshold=e_verdict.threshold,
+            rule_id=enf_result.rule_id
+            or getattr(contract, "id", "")
+            or getattr(contract, "name", ""),
+            agent_msg=enf_result.agent_msg,
+            retry_hint=lesson,
+            alternatives=list(enf_result.alternatives),
         )
         enf_result = self._maybe_downgrade(enf_result)
 

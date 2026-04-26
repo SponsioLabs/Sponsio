@@ -37,7 +37,12 @@ from __future__ import annotations
 import functools
 from typing import Any
 
-from sponsio.integrations.base import BaseGuard, CheckResult, format_sto_retry_message
+from sponsio.integrations.base import (
+    BaseGuard,
+    CheckResult,
+    format_sto_retry_message,
+    select_agent_message,
+)
 from sponsio.models.system import System
 from sponsio.runtime.evaluators import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
@@ -98,13 +103,13 @@ class CrewAIGuard(BaseGuard):
         self.last_check = check
 
         if check.blocked:
-            msg = (
-                check.det_violations[0].message
-                if check.det_violations
-                else "Contract violation detected"
+            msg = select_agent_message(
+                check.det_violations, fallback="Contract violation detected"
             )
             # Returning a dict tells CrewAI to use this as the tool result
-            # instead of executing the tool
+            # instead of executing the tool. The "BLOCKED by contract:"
+            # prefix is preserved so CrewAI agents trained on this
+            # template still recognise the rejection pattern.
             return {"error": f"BLOCKED by contract: {msg}"}
 
         return None  # Allow execution
@@ -171,10 +176,8 @@ class CrewAIGuard(BaseGuard):
                     call_args = kwargs if kwargs else {"args": list(args)}
                     check = guard.guard_before(name, call_args)
                     if check.blocked:
-                        msg = (
-                            check.det_violations[0].message
-                            if check.det_violations
-                            else "contract violated"
+                        msg = select_agent_message(
+                            check.det_violations, fallback="contract violated"
                         )
                         return f"BLOCKED by contract: {msg}"
                     result = orig(*args, **kwargs)

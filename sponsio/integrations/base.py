@@ -193,6 +193,45 @@ def _resolve_mode(mode: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 
+def select_agent_message(
+    violations: list[EnforcementResult],
+    fallback: str = "Contract violation",
+) -> str:
+    """Pick the best agent-facing string from a violation list.
+
+    Prefers the structured ``EnforcementResult.agent_msg`` (populated
+    by :class:`OutcomeBuilder`) over the legacy ``message`` field,
+    because ``agent_msg`` is tuned per ``action`` to nudge the LLM
+    toward the right reaction (block → abandon, retry → regenerate,
+    escalate → wait). Falls back to ``message`` when ``agent_msg`` is
+    empty — covers strategies that haven't migrated to the builder
+    yet, plus ad-hoc EnforcementResult constructions in test code.
+
+    The legacy ``message`` field intentionally retains the
+    ``"BLOCKED: agent.tool — det constraint violated: …"`` prefix
+    for log-parsing back-compat. We don't want that prefix injected
+    into the LLM's next prompt — that's exactly the reason
+    ``agent_msg`` exists. Integrations call this helper to surface
+    the agent-facing line, and reach for ``message`` only when
+    writing to logs / dashboards.
+
+    Args:
+        violations: Det or sto violations from a ``CheckResult``.
+        fallback: String returned when the list is empty (no
+            violations).
+
+    Returns:
+        The first non-empty ``agent_msg``; else the first
+        ``message``; else ``fallback``.
+    """
+    for v in violations:
+        if getattr(v, "agent_msg", ""):
+            return v.agent_msg
+    if violations:
+        return violations[0].message
+    return fallback
+
+
 def format_sto_retry_message(feedback: str, original: Any) -> str:
     """Canonical sto-retry feedback string used by every adapter.
 
@@ -1371,6 +1410,50 @@ class BaseGuard:
             event_type="message",
             metadata={"to": to_agent},
         )
+
+    def observe_approval(
+        self,
+        role: str,
+        decision: str = "allow",
+        scope: str | None = None,
+    ) -> None:
+        """Record a HITL approval / denial response.
+
+        Convenience wrapper around :meth:`observe_context` that pushes
+        a structured ``approval.*`` block into the current context.
+        Subsequent contracts can query it via standard ``ctx_matches``::
+
+            # "refund must be preceded by an active senior_eng approval"
+            G(called(refund) → ctx_matches("approval.role", "senior_eng"))
+            G(called(refund) → ctx_matches("approval.decision", "allow"))
+
+            # Time-bounded variant — pair with ``time_since`` pattern:
+            #   approval valid for 1h after the approver responded
+            G(called(refund) →
+                Le(Var("time_since", "ctx(approval.role, senior_eng)"), 3600))
+
+        We intentionally don't add a new ``approval_response`` event
+        type — every queryable property reduces to ``ctx_matches`` +
+        ``time_since`` over the existing ``context_update`` channel.
+        Keeping the surface minimal avoids a parallel atom catalogue
+        that would have to be mirrored in the TS SDK and the NL parser.
+
+        Args:
+            role: The approver's role / identity (e.g. ``"senior_eng"``,
+                ``"compliance"``). Pushed as ``ctx(approval.role, role)``.
+            decision: ``"allow"`` or ``"deny"`` (free-form — checks use
+                regex). Pushed as ``ctx(approval.decision, decision)``.
+            scope: Optional action / resource scope this approval covers
+                (e.g. ``"refund:>5000"``). Pushed as
+                ``ctx(approval.scope, scope)`` when provided.
+        """
+        facts: dict[str, str] = {
+            "approval.role": role,
+            "approval.decision": decision,
+        }
+        if scope:
+            facts["approval.scope"] = scope
+        self.observe_context(facts)
 
     def observe_context(self, facts: dict[str, str]) -> None:
         """Push external facts from the host stack into the contract layer.

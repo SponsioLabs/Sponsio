@@ -34,7 +34,12 @@ import functools
 import inspect
 from typing import Any, Callable
 
-from sponsio.integrations.base import BaseGuard, CheckResult, format_sto_retry_message
+from sponsio.integrations.base import (
+    BaseGuard,
+    CheckResult,
+    format_sto_retry_message,
+    select_agent_message,
+)
 from sponsio.models.system import System
 from sponsio.runtime.evaluators import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
@@ -146,10 +151,8 @@ def _call_args(
 
 
 def _blocked_result(check: CheckResult) -> dict[str, str]:
-    msg = (
-        check.det_violations[0].message
-        if check.det_violations
-        else "Contract violation detected"
+    msg = select_agent_message(
+        check.det_violations, fallback="Contract violation detected"
     )
     return {"status": "error", "error_message": f"BLOCKED by contract: {msg}"}
 
