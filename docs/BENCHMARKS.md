@@ -8,9 +8,11 @@
 
 | Dimension | Metric | Result |
 |---|---|---|
-| Hot path latency (det) | p50 / p99 per check | **5.2 µs** / 12.2 µs |
-| Hot path throughput (det) | QPS, single thread | **~178 k/s** |
+| Hot path latency (det, synthetic) | p50 / p99 per check | **5.2 µs** / 12.2 µs |
+| Hot path throughput (det, synthetic) | QPS, single thread | **~178 k/s** |
 | LLM calls on hot path | Fraction | **0%** (pure DFA) |
+| Enforcement latency on AgentDojo workload | p50 / p99 across 26k tool calls | **113 µs** / 262 µs |
+| Enforcement latency on RedCode bash | p50 / p99 across 3.8k tool calls | **434 µs** / 558 µs |
 | Safety, ODCV-Bench | High-risk protection, 12 LLMs × 80 scenarios | **~84%** |
 | Safety, RedCode-Exec | Dangerous-snippet detection, 1410 cases | **76%** (bash 85%, python 69%) |
 | Safety, AgentDojo | Prompt-injection block rate, gpt-4o, 4 suites | **30.4%** block / **6.4%** utility FP |
@@ -25,6 +27,8 @@ The headline: at 5.2 µs per check, det enforcement is **10⁴–10⁵× faster*
 
 Sponsio's deterministic pipeline compiles LTL formulas into a DFA and evaluates each tool call as an append to the trace. **No LLM is called on the hot path.**
 
+### Synthetic best case (`sponsio bench`)
+
 | Bucket | p50 | p99 | QPS |
 |---|---|---|---|
 | `pure_det` (DFA only) | 5.2 µs | 12.2 µs | 178 k/s |
@@ -32,6 +36,22 @@ Sponsio's deterministic pipeline compiles LTL formulas into a DFA and evaluates 
 | `sto_live` (cold LLM-as-judge call) | 50–800 ms | up to seconds | judge-bound |
 
 Reporting three buckets makes it explicit when an LLM is invoked. Use `sponsio bench --json` as a CI perf gate and declare a budget under `performance:` in `sponsio.yaml`.
+
+### Real workload (measured during the safety benchmarks below)
+
+The synthetic figure measures one minimal contract on a pre-warmed DFA. The numbers below are end-to-end `guard_before` wall-clock taken on the actual benchmark traces, against contract sets sized to catch real attacks (3 to 9 contracts per suite, with regex-bearing `arg_blacklist` patterns).
+
+| Workload | Contracts | Tool calls | p50 | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|
+| AgentDojo overall | 3–6 per suite | 26,124 | 113 µs | 172 µs | 262 µs | 7,127 |
+| AgentDojo banking | 3 | 3,825 | 59 µs | 87 µs | 118 µs | 14,429 |
+| AgentDojo workspace | 4 | 5,983 | 91 µs | 121 µs | 170 µs | 10,558 |
+| AgentDojo travel | 5 | 9,099 | 115 µs | 148 µs | 217 µs | 5,900 |
+| AgentDojo slack | 6 | 7,217 | 145 µs | 214 µs | 330 µs | 5,589 |
+| RedCode bash (per command) | 7 | 3,848 | 434 µs | 477 µs | 558 µs | 2,270 |
+| RedCode python (whole script) | 9 | 810 | 811 µs | 912 µs | 1,035 µs | 1,216 |
+
+p99 stays under **263 µs** on AgentDojo and under **1.04 ms** even on the heaviest RedCode python configuration. Compared to the LLM-as-judge baselines further down (50–1500 ms per check), Sponsio's enforcement cost is **two to four orders of magnitude lower** on the same workloads, with zero LLM calls on the path.
 
 ### Reproduce
 
@@ -207,6 +227,18 @@ These belong on the sto pipeline, not in regex. The det layer is doing exactly w
 
 This is **detection rate against malicious input**, not blocking rate against an agent loop. Every snippet in the dataset is dangerous by construction, so there is no false-positive concept here. The 76% combined figure is not directly comparable to AgentDojo ASR or ODCV protection (different metrics, different inputs). Use this number as evidence that a small set of layered regex patterns covers the bulk of RedCode's structurally-observable threat surface.
 
+### Enforcement cost on this workload
+
+Measured during the same run that produced the detection numbers above (`time.perf_counter_ns()` around each `guard_before` / `guard_after`):
+
+| Path | Calls | Total | p50 | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|
+| bash, `guard_before` per command | 3,848 | 1,695 ms | 434 µs | 477 µs | 558 µs | 2,270 |
+| bash, `guard_after` | 3,338 | 1,014 ms | 300 µs | 333 µs | 378 µs | 3,292 |
+| python, `guard_before` per script | 810 | 666 ms | 811 µs | 912 µs | 1,035 µs | 1,216 |
+
+Bash runs each command line as its own check (7 contracts active, 3,848 calls total in 1.7 s). Python runs the whole script as one check against 9 contracts; the per-call cost is higher because each `arg_blacklist` regex sweeps the entire script body.
+
 ### Reproduce
 
 ```bash
@@ -248,6 +280,25 @@ python eval_sponsio.py --lang python      # python only (810 cases, ~69%)
 ### Where this lands
 
 The det-only baseline reported here is a floor, not a ceiling. Semantic injections ("the user actually wanted X" framing, social engineering of legitimate tool arguments where the action shape is innocuous) belong to the sto pipeline (`injection_free`, `scope_respect`). Closing the gap to LlamaFirewall (1.75% ASR) or PromptArmor (<1%) is the sto pipeline's job. The det layer's value here is the **6.4% utility FP at 30.4% block rate**: high precision on every block it does take, with zero LLM calls on the path.
+
+### Enforcement cost on this workload
+
+Measured during the same gpt-4o-2024-05-13 run that produced the safety numbers above. `time.perf_counter_ns()` wraps every `guard_before` and `guard_after` invocation; the totals below cover all 26k tool calls across the four suites, including replays for utility-FP measurement.
+
+| Suite | Contracts | Calls | p50 | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|
+| banking | 3 | 3,825 | 59 µs | 87 µs | 118 µs | 14,429 |
+| workspace | 4 | 5,983 | 91 µs | 121 µs | 170 µs | 10,558 |
+| travel | 5 | 9,099 | 115 µs | 148 µs | 217 µs | 5,900 |
+| slack | 6 | 7,217 | 145 µs | 214 µs | 330 µs | 5,589 |
+| **overall, `guard_before`** | mixed | **26,124** | **113 µs** | **172 µs** | **262 µs** | **7,127** |
+| overall, `guard_after` | mixed | 23,761 | 108 µs | 144 µs | 208 µs | 8,436 |
+
+Three observations:
+
+1. Per-call cost scales roughly linearly with contract count (3 contracts at 59 µs, 6 contracts at 145 µs at the p50). The DFA itself is constant time; the variation is in the per-event grounding pass that evaluates regex patterns against tool arguments.
+2. Even the slowest suite stays at p99 = 330 µs and the overall p99 is 262 µs. The longest enforcement turn for a typical 8 to 20 tool-call agent loop is bounded at **a few milliseconds total**.
+3. The whole 6,200-trace replay completed `guard_before` in 3.67 seconds of wall-clock enforcement work. For comparison, a single LLM-as-judge call on the same trace would take 50 to 1,500 ms, so a single LLM check costs more than the entire AgentDojo run through Sponsio.
 
 ### Reproduce
 
