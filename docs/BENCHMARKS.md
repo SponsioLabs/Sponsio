@@ -280,29 +280,49 @@ Existing agent trajectories are replayed through `guard.guard_before()` without 
 
 ## Stochastic Pipeline Pilot (2026-04-26)
 
-We piloted the sto pipeline as an additive layer on top of the det numbers above, with a strict "do not raise utility FP" goal. The pilot used `gemini-2.0-flash` as the BooleanJudge and a triage gate that only invokes sto on cases the det layer already passed (so det numbers remain unchanged). Per-benchmark sto contracts are versioned in `sto_contracts.yaml` next to each eval script.
+We piloted the sto pipeline as an additive layer on top of the det numbers above, with a strict "do not raise utility FP" goal. Two iterations were run.
 
-### Findings
+### v1: BooleanJudge over single events
 
-**AgentDojo (workspace + travel sampled, n=100 attack + 50 utility per suite):** **0 sto rescues, 1–2% sto-only utility FP.** Sto adds little here because the 81.8% (workspace) and 94.8% (travel) of attacks det "missed" are mostly traces where the **agent did not fall for the injection at all**; the trace contains only `get_*` recon calls, with no malicious side-effect for sto to block. Det's specific patterns (attacker IBANs, gmail recipients, phishing URLs, specific file/email IDs) already capture the high-leverage attacker fingerprints. Sto would help if attackers diversified those fingerprints in production, but on the published AgentDojo trace set the sto layer's recall ceiling is bounded by attack reach, not contract breadth.
+First pass used `gemini-2.0-flash` as a logprob-based BooleanJudge, scoring one event at a time (a tool call in AgentDojo, a single assistant turn in τ²-bench). Every benchmark got a `sto_contracts.yaml` manifest declaring the contract id, atom, beta, prompt, and triage rules.
 
-**τ²-bench retail (n=50 sims, 3 model trials):** **High recall (75–100%) but high FP (73–100%) at every beta tested.** The structural reason: tau2's pass/fail label is computed from tool-call-sequence task completion, **not** from message content faithfulness. A faithfulness-on-text judge is therefore answering a different question than the benchmark scores. Sims fail tau2 because the agent didn't reach the right end state, not because the assistant's text was unfaithful to policy. To meaningfully lift retail recall, the sto contract would need to score the trace's task-completion shape (a `goal_coverage` style atom), not message-level faithfulness.
+Result: on AgentDojo workspace/travel the per-call judge had no concrete signal because the injection-bearing context (the tool output the agent had just read, the prior turns establishing customer data) wasn't in the prompt. On τ²-bench retail the per-turn judge collapsed to all-block / all-allow because retail responses paraphrase rather than quote, and the judge couldn't tell paraphrase from fabrication without conversation context.
 
-**ODCV-Bench, RedCode logic-flaw categories:** sto contracts authored in the manifests but not yet piloted; these are the two surfaces with the clearest theoretical sto headroom (subtler attacks det missed; behavioural-defect categories with no syscall fingerprint).
+### v2: New events + new atoms for richer expressiveness
 
-### What we kept
+Pure prompt tuning hit a wall at v1. The right fix was to extend what the sto layer can see, not how the judge is asked. Two architectural extensions landed:
 
-The pilot delivered three reusable artefacts that ship with the benchmarks even when sto is off:
+**New event surface: `tool_output` as sto context.** Sto evaluators can now consume a window of recent tool results alongside the current event. AgentDojo's eval harness uses this to render the last six tool-result snippets the agent read before the call under judgement, because injection lives in tool outputs (calendar event descriptions, email bodies, search results) and is invisible without that context.
 
-1. **Manifest-driven sto contracts** (`Benchmarks/<bench>/sto_contracts.yaml`). Contract id, atom, beta, prompt template, and triage rules in one declarative file per benchmark. The eval scripts read from these at runtime; no prompt strings live in Python.
-2. **Disk-cached judge** (`~/.sponsio/sto_bench_cache.json`). Verdicts are persisted by SHA-256 of the prompt, so re-runs of the same contracts cost zero LLM calls. This is what makes Phase 3 (full sto re-runs) economically viable.
-3. **Triage gate**. Sto only fires on calls the det layer allowed, with per-contract tool-name skip rules for read-only / preparatory tools (`get_*`, `list_*`, `search_*`, etc.). On AgentDojo travel this skipped 120 of 134 candidate calls, so the judge cost stayed under $0.05 for the pilot.
+**New atoms (manifest-only for now, slated for `sto_catalog.py`):**
+
+| Atom | Inputs | Use case |
+|---|---|---|
+| `injection_free_in_context` | user task + recent tool outputs + tool call | catches injection-driven side-effects whose target appears in untrusted tool outputs |
+| `transcript_consistency` | grounding doc + tool outputs + full transcript | sim-level fabrication / scope-drift check using all conversation evidence |
+
+The eval scripts already use these via the YAML manifests; the corresponding registrations in `sponsio/patterns/sto_catalog.py` are pending and gated on the same judge-strength question below.
+
+### What v2 found
+
+| Bench | Sample | Sto-only blocked-failures | Sto-only utility FP | Limit |
+|---|---|---|---|---|
+| AgentDojo workspace | 50 attack / 30 utility | 0 / 50 | 4 / 30 | judge model saturation; few injection-followed calls in the sample anyway |
+| τ²-bench retail | 50 sims | 6 / 9 (67%) | 31 / 41 (76%) | judge model saturation: gemini-flash logprobs collapse to 0/1; 2.5-flash via BestOfN also returns "no" on every transcript regardless of content |
+
+The architecture works (judge sees the right context, blocks fire when the prompt says they should). The bottleneck is **judge-model strength on hard reasoning tasks**: `gemini-2.0-flash` logprobs are saturated (every output is exactly 0 or 1 yes-probability), and `gemini-2.5-flash` via BestOfN sampling at n=6 returns "no" 6/6 times on every retail transcript regardless of content. Compliance and faithfulness questions require multi-step reasoning the small judge cannot do reliably; the next step is to test the same prompts against `gpt-4o-mini` or `claude-haiku` as judges.
+
+### Where this leaves us
+
+Three concrete deliverables ship from the pilot:
+
+1. **`sto_contracts.yaml` manifests** in each benchmark directory. Reviewable spec of every prompt, beta, atom, and triage rule. Re-runnable end-to-end with one CLI flag.
+2. **Disk-cached judge** (`~/.sponsio/sto_bench_cache.json`). SHA-256-keyed; same prompt never re-pays.
+3. **Two new atoms (`injection_free_in_context`, `transcript_consistency`) and a `tool_output` event source** in the eval harness. These extend Sponsio's expressiveness in a direction the existing single-event atom catalog doesn't cover. Promotion to `sponsio/patterns/sto_catalog.py` is gated on validating the judge-strength assumption with a model that does multi-step reasoning.
 
 ### Position
 
-The pilot's honest takeaway is that **sto value is concentrated in property classes that have no det fingerprint at all**: semantic prompt injection where the action shape is innocuous, content faithfulness where the failure is a quoted-but-wrong number, behavioural defects where the dangerous effect is achieved through legitimate-shaped tool calls. AgentDojo and τ²-bench in their published forms reward different things than what sto naturally measures, so sto's lift on those specific benchmark numbers is limited. Where sto does land directly on the failure mode (LLM apps in production with novel attacker fingerprints, unbounded scope drift, hallucinated facts), it is the right tool.
-
-The det layer reported above is therefore the load-bearing claim. Sto is additive, integrated, and ready to enable per contract; see `sto_contracts.yaml` for the exact prompts, betas, and triage rules each benchmark would use.
+The det numbers above stay the load-bearing claim. The sto pilot established two things: (a) the architecture for context-rich sto checks (tool outputs, full transcripts, grounding docs) is sound and ready to extend the atom catalog when a stronger judge is wired in; (b) the published AgentDojo and τ²-bench numbers are bounded by attack-reach (workspace) and judge-strength (retail) more than by sto contract design. Where sto lands directly on the failure mode (production LLM apps with novel attacker fingerprints, unbounded scope drift, hallucinated facts), it is the right tool, and the manifest-driven harness can be lifted onto any of those workloads with no code changes.
 
 ---
 
