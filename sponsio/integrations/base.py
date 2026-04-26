@@ -927,16 +927,15 @@ class BaseGuard:
             # Rollback blocked events from trace (NOT for warned/observed).
             # Observe mode never rolls back — the whole point is to show
             # users the trace their agent would have produced.
-            if (
-                self._mode != "observe"
-                and result.blocked
-                and self._monitor.trace.events
-            ):
-                self._monitor.trace.events.pop()
-                # Tell the verifier its cache is stale. Next sync() will
-                # see trace length == grounded_upto - 1 and re-ground.
-                self._monitor.verifier.reset()
-                result.rollback_performed = True
+            if self._mode != "observe" and result.blocked:
+                # ``rollback_last_event`` clears the trace event AND every
+                # derived cache (verifier valuations, G-cache, DFA progress,
+                # per-contract sto atom cache). Doing that as one operation
+                # on the monitor avoids the bug where the verifier got
+                # reset but the atom cache kept stale per-position scores
+                # for the position the next event is about to reuse.
+                if self._monitor.rollback_last_event():
+                    result.rollback_performed = True
 
             # Collect feedback from sto retries
             retry_prompts = [r.retry_prompt for r in sto_list if r.retry_prompt]

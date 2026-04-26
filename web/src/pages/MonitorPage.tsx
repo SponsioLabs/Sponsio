@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   getMonitorLog, getMonitorStatus, getTrace, getSpans, resetMonitor,
   listTraces, importTrace, reVerifyContract, monitorStreamUrl, listContracts,
@@ -745,6 +746,21 @@ function TracesTab({ data, onReload, query, setQuery }: TracesTabProps) {
   }, [searched, selectedId]);
   const effectiveSelectedId = selected?.id ?? null;
 
+  // Flatten searched/grouped into a single list of items for the virtualizer.
+  // Headers and rows are interleaved so a single scroll list can render both
+  // without separate windowing per group.
+  const traceListItems = useMemo<TraceListItem[]>(() => {
+    if (!grouped) {
+      return searched.map(r => ({ kind: 'row' as const, row: r }));
+    }
+    const out: TraceListItem[] = [];
+    for (const g of grouped) {
+      out.push({ kind: 'header', sessionId: g.sessionId, count: g.rows.length });
+      for (const r of g.rows) out.push({ kind: 'row', row: r });
+    }
+    return out;
+  }, [grouped, searched]);
+
   return (
     <div className="space-y-3">
       {/* Toolbar */}
@@ -843,22 +859,11 @@ function TracesTab({ data, onReload, query, setQuery }: TracesTabProps) {
                 Traces <span className="text-muted ml-1 font-mono">({searched.length})</span>
               </span>
             </div>
-            <div className="overflow-y-auto max-h-[720px] flex-1">
-              {grouped
-                ? grouped.map(g => (
-                    <div key={g.sessionId}>
-                      <div className="px-4 py-1.5 bg-surface-50 dark:bg-surface-800/60 border-b border-surface-100 dark:border-surface-800">
-                        <span className="text-[10px] text-muted uppercase tracking-wider font-mono">
-                          Session · {g.sessionId}
-                        </span>
-                        <span className="text-[10px] text-muted font-mono ml-2">{g.rows.length} trace{g.rows.length !== 1 ? 's' : ''}</span>
-                      </div>
-                      {g.rows.map(r => <TraceListRow key={r.id} row={r} selected={effectiveSelectedId === r.id} onSelect={() => setSelectedId(r.id)} />)}
-                    </div>
-                  ))
-                : searched.map(r => <TraceListRow key={r.id} row={r} selected={effectiveSelectedId === r.id} onSelect={() => setSelectedId(r.id)} />)
-              }
-            </div>
+            <VirtualizedTraceList
+              items={traceListItems}
+              selectedId={effectiveSelectedId}
+              onSelect={setSelectedId}
+            />
           </div>
 
           {/* Right: detail */}
@@ -877,11 +882,84 @@ function TracesTab({ data, onReload, query, setQuery }: TracesTabProps) {
   );
 }
 
+type TraceListItem =
+  | { kind: 'header'; sessionId: string; count: number }
+  | { kind: 'row'; row: TraceRowData };
+
+// Windowed list: render only the rows in the viewport. Without this, hundreds
+// of TraceListRow buttons all render up front and scrolling jankifies on
+// long sessions. Header rows (session group dividers) are taller than data
+// rows; estimateSize returns the right height per kind so the scrollbar
+// position matches reality.
+function VirtualizedTraceList({
+  items,
+  selectedId,
+  onSelect,
+}: {
+  items: TraceListItem[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: (i) => (items[i].kind === 'header' ? 32 : 60),
+    overscan: 8,
+  });
+  const virtualItems = virtualizer.getVirtualItems();
+  return (
+    <div ref={parentRef} className="overflow-y-auto max-h-[720px] flex-1">
+      <div style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
+        {virtualItems.map(vi => {
+          const item = items[vi.index];
+          return (
+            <div
+              key={vi.key}
+              data-index={vi.index}
+              ref={virtualizer.measureElement}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${vi.start}px)`,
+              }}
+            >
+              {item.kind === 'header' ? (
+                <div className="px-4 py-1.5 bg-surface-50 dark:bg-surface-800/60 border-b border-surface-100 dark:border-surface-800">
+                  <span className="text-[10px] text-muted uppercase tracking-wider font-mono">
+                    Session · {item.sessionId}
+                  </span>
+                  <span className="text-[10px] text-muted font-mono ml-2">
+                    {item.count} trace{item.count !== 1 ? 's' : ''}
+                  </span>
+                </div>
+              ) : (
+                <TraceListRow
+                  row={item.row}
+                  selected={selectedId === item.row.id}
+                  onSelect={() => onSelect(item.row.id)}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function TraceListRow({ row, selected, onSelect }: { row: TraceRowData; selected: boolean; onSelect: () => void }) {
   const hasViol = row.hardViolations > 0 || row.softViolations > 0;
+  const ariaLabel = `Trace ${row.label} for agent ${row.agentId}` +
+    (hasViol ? `, ${row.hardViolations} hard and ${row.softViolations} soft violations` : '') +
+    (row.hasError ? ', has error' : '');
   return (
     <button
       onClick={onSelect}
+      aria-pressed={selected}
+      aria-label={ariaLabel}
       className={`w-full text-left px-4 py-2.5 border-b border-surface-100 dark:border-surface-800/60 transition-colors ${
         selected ? 'bg-brand/5 dark:bg-brand/10 border-l-2 border-l-brand' :
         hasViol ? 'hover:bg-red-500/5 border-l-2 border-l-red-500/30' :
@@ -1409,12 +1487,24 @@ function InlineImport({ onImported, onClose }: { onImported: () => void; onClose
     let parsed: unknown;
     try { parsed = JSON.parse(jsonText); }
     catch { setErr('Invalid JSON'); return; }
-    const asObj = parsed as Record<string, unknown>;
-    const events: Record<string, unknown>[] = Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>[])
-      : Array.isArray(asObj.events) ? (asObj.events as Record<string, unknown>[]) : [];
+    // Trace import accepts either a bare array of events or an envelope
+    // ``{ events: [...], metadata: {...} }``. Validate the shape before
+    // sending — pasting a random JSON file used to silently produce a
+    // 422 from the backend with a confusing pydantic error trail.
+    const isObject = (x: unknown): x is Record<string, unknown> =>
+      typeof x === 'object' && x !== null && !Array.isArray(x);
+    let events: Record<string, unknown>[];
+    let metadata: Record<string, unknown> | undefined;
+    if (Array.isArray(parsed)) {
+      events = parsed.filter(isObject);
+    } else if (isObject(parsed) && Array.isArray(parsed.events)) {
+      events = parsed.events.filter(isObject);
+      metadata = isObject(parsed.metadata) ? parsed.metadata : undefined;
+    } else {
+      setErr('Expected a JSON array of events or {events: [...]}.');
+      return;
+    }
     if (events.length === 0) { setErr('No events found.'); return; }
-    const metadata = !Array.isArray(parsed) && asObj.metadata ? (asObj.metadata as Record<string, unknown>) : undefined;
     setLoading(true);
     try {
       await importTrace({ events, ...(metadata ? { metadata } : {}) });

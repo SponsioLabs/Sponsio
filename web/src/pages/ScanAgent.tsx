@@ -14,6 +14,25 @@ interface HistoryEntry extends ScoreResponse {
   scanned_at: string;
 }
 
+// Defensive: localStorage values can be edited by the user, persist across
+// schema changes, or come from an older deploy. A bad shape used to either
+// crash render (`prev.slice` on a non-array) or silently inject malformed
+// rows. Validate enough to keep render safe; drop anything that doesn't fit.
+function isHistoryEntry(v: unknown): v is HistoryEntry {
+  if (!v || typeof v !== 'object') return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.id === 'number' &&
+    typeof o.agent_name === 'string' &&
+    typeof o.score === 'number' &&
+    typeof o.grade === 'string' &&
+    Array.isArray(o.deductions) &&
+    Array.isArray(o.suggested_contracts) &&
+    typeof o.badge_url === 'string' &&
+    typeof o.scanned_at === 'string'
+  );
+}
+
 function useScanHistory(): [
   HistoryEntry[],
   (scan: ScoreResponse) => void,
@@ -22,7 +41,10 @@ function useScanHistory(): [
   const [history, setHistory] = useState<HistoryEntry[]>(() => {
     try {
       const raw = localStorage.getItem('sponsio_scan_history');
-      return raw ? JSON.parse(raw) : [];
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(isHistoryEntry);
     } catch {
       return [];
     }

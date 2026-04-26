@@ -77,7 +77,13 @@ def _unwrap(item: Any) -> Any:
     return None
 
 
-@dataclass
+# ``eq=False`` keeps Contract hashable by identity. The runtime monitor
+# uses Contracts as keys in a ``WeakKeyDictionary`` for the per-contract
+# atom cache (``RuntimeMonitor._atom_caches``), and a default
+# ``@dataclass`` (eq=True, frozen=False) sets ``__hash__`` to None — that
+# would break the cache. We don't use Contract value-equality anywhere,
+# so falling back to ``object.__eq__`` is safe.
+@dataclass(eq=False)
 class Contract:
     """A single assume/enforcement pair bound to an agent.
 

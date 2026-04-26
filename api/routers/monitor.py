@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -17,6 +18,8 @@ from api.schemas import (
     TraceResponse,
 )
 from api.state import state
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -373,13 +376,16 @@ def push_span(span: dict):
         state._external_spans = []
     state._external_spans.append(span)
 
-    # Bridge: also store in the OTEL trace store for unified trace view
+    # Bridge: also store in the OTEL trace store for unified trace view.
+    # Failures here must not break /push-span (the dashboard's primary
+    # ingest path) — but they should be visible in logs so a misconfigured
+    # trace_store isn't a silent black hole for unified-view data.
     try:
         from api.routers.otel_ingest import trace_store
 
         trace_store.ingest_sponsio_span(span)
     except Exception:
-        pass  # Don't fail the push if trace store has issues
+        logger.exception("trace_store.ingest_sponsio_span failed for /push-span")
 
     return {"status": "received", "span_count": len(state._external_spans)}
 

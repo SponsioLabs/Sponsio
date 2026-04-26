@@ -110,24 +110,36 @@ export default function Playground() {
     if (mode === 'live') {
       try {
         const res = await runLiveDemo(activeDemo);
-        const resAny = res as Record<string, unknown>;
-        const without = (resAny.without as Array<Record<string, unknown>> ?? []).map(s => ({
-          event_type: (s.event_type ?? 'tool_call') as TraceStep['event_type'],
-          label: s.label as string,
-          source: s.source as string | undefined,
-          target: s.target as string | undefined,
-          isViolation: s.isViolation as boolean,
-        }));
-        const with_ = (resAny.with_ as Array<Record<string, unknown>> ?? []).map(s => ({
-          event_type: (s.event_type ?? 'tool_call') as TraceStep['event_type'],
-          label: s.label as string,
-          source: s.source as string | undefined,
-          target: s.target as string | undefined,
-          isViolation: s.isViolation as boolean,
-        }));
-        setLiveWithout(without);
-        setLiveWith(with_);
-        setLiveSpans((resAny.spans as SpanNode[]) ?? []);
+        // Live demo responses come from the backend and may evolve;
+        // narrow each step instead of trusting the shape blindly.
+        // Anything that doesn't look like a TraceStep is dropped rather
+        // than rendered as ``undefined``-laced rows.
+        const isObject = (x: unknown): x is Record<string, unknown> =>
+          typeof x === 'object' && x !== null && !Array.isArray(x);
+        const VALID_EVENT_TYPES = new Set<TraceStep['event_type']>([
+          'tool_call', 'data_read', 'data_write',
+        ]);
+        const toTraceStep = (s: unknown): TraceStep | null => {
+          if (!isObject(s)) return null;
+          if (typeof s.label !== 'string') return null;
+          const event_type = typeof s.event_type === 'string' && (VALID_EVENT_TYPES as Set<string>).has(s.event_type)
+            ? s.event_type as TraceStep['event_type']
+            : 'tool_call';
+          return {
+            event_type,
+            label: s.label,
+            source: typeof s.source === 'string' ? s.source : undefined,
+            target: typeof s.target === 'string' ? s.target : undefined,
+            isViolation: s.isViolation === true,
+          };
+        };
+        const toTraceSteps = (raw: unknown): TraceStep[] =>
+          Array.isArray(raw) ? raw.map(toTraceStep).filter((x): x is TraceStep => x !== null) : [];
+
+        const resAny: Record<string, unknown> = isObject(res) ? res : {};
+        setLiveWithout(toTraceSteps(resAny.without));
+        setLiveWith(toTraceSteps(resAny.with_));
+        setLiveSpans(Array.isArray(resAny.spans) ? (resAny.spans as SpanNode[]) : []);
       } catch (e) {
         setLiveError(e instanceof Error ? e.message : 'Live demo failed');
       }

@@ -26,6 +26,7 @@ the enforcement of another contract.
 from __future__ import annotations
 
 import logging
+import weakref
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -210,13 +211,22 @@ class RuntimeMonitor:
         # sponsio.patterns.sto_catalog._require_judge.
         self._sto_judge = sto_judge
         # Persistent per-contract memo of sto atom evaluations, keyed by
-        # (id(atom), position). Event content at a given position is
-        # immutable once appended, so a deterministic (T=0) judge call
-        # for the same atom at the same position always gives the same
-        # answer. Caching this drops the cost of re-evaluating G/F/U
-        # formulas on every new event from O(n) to O(1) LLM calls per
-        # new event — total linear instead of quadratic over a session.
-        self._atom_caches: dict[int, dict[tuple[int, int], float]] = {}
+        # ``(id(atom), position)`` inside each contract's sub-dict. Event
+        # content at a given position is immutable once appended, so a
+        # deterministic (T=0) judge call for the same atom at the same
+        # position always gives the same answer. Caching this drops the
+        # cost of re-evaluating G/F/U formulas on every new event from
+        # O(n) to O(1) LLM calls per new event — total linear instead of
+        # quadratic over a session.
+        #
+        # WeakKeyDictionary keyed by the Contract object itself: we used
+        # to key on ``id(contract)`` but Python GC can reuse an int id
+        # after the original Contract is collected, leading to two
+        # unrelated contracts sharing a cache. Contract is declared with
+        # ``eq=False`` precisely so it stays hashable by identity here.
+        self._atom_caches: weakref.WeakKeyDictionary[
+            Any, dict[tuple[int, int], float]
+        ] = weakref.WeakKeyDictionary()
         self._feedback_generator = FeedbackGenerator()
         import threading
 
@@ -309,6 +319,34 @@ class RuntimeMonitor:
             self._last_turn_span = None
             self._turn_spans.clear()
             self._atom_caches.clear()
+
+    def rollback_last_event(self) -> bool:
+        """Pop the last trace event and invalidate all derived caches.
+
+        Used by ``BaseGuard.guard_before`` when a det violation blocks
+        the action that was just appended — the trace must look as if
+        it never happened so subsequent checks aren't poisoned.
+
+        Clears three things together (this is the load-bearing part):
+
+        * ``trace.events.pop()`` — undo the append.
+        * ``verifier.reset()`` — drop grounded valuations + per-formula
+          DFA progress + G-cache; next ``sync`` re-grounds from scratch.
+        * ``_atom_caches.clear()`` — sto atom scores are keyed by
+          ``(id(atom), position)``; the popped position is about to be
+          reused by the next event, so a stale cache at that position
+          would surface yesterday's score on tomorrow's content.
+
+        Thread-safe under ``self._lock``. Returns True if an event was
+        popped, False if the trace was already empty.
+        """
+        with self._lock:
+            if not self._trace.events:
+                return False
+            self._trace.events.pop()
+            self._verifier.reset()
+            self._atom_caches.clear()
+            return True
 
     @property
     def performance_tracker(self) -> PerformanceTracker:
@@ -715,7 +753,7 @@ class RuntimeMonitor:
         # Reusing the cache across check_action calls drops the cost
         # of formulas like G(atom) from O(n) LLM calls per event to
         # O(1) — total linear instead of quadratic.
-        atom_cache = self._atom_caches.setdefault(id(contract), {})
+        atom_cache = self._atom_caches.setdefault(contract, {})
         cv = ContractVerdict()
 
         # --- Assumption side ---
@@ -741,6 +779,15 @@ class RuntimeMonitor:
             except Exception as e:
                 # Missing sto evaluator / bad formula — surface as a
                 # real assumption failure so it escalates to a human.
+                # Also log so the underlying error (judge timeout, missing
+                # atom registration, malformed formula) is diagnosable —
+                # the verdict desc only carries the str(e), not the
+                # traceback.
+                logger.exception(
+                    "sto-lifting failure on assumption %r in contract %r",
+                    stable_key,
+                    getattr(contract, "desc", contract),
+                )
                 cv.assumptions.append(
                     Verdict(
                         holds=False,
@@ -774,6 +821,11 @@ class RuntimeMonitor:
                     atom_cache=atom_cache,
                 )
             except Exception as e:
+                logger.exception(
+                    "sto-lifting failure on enforcement %r in contract %r",
+                    stable_key,
+                    getattr(contract, "desc", contract),
+                )
                 cv.enforcements.append(
                     Verdict(
                         holds=False,

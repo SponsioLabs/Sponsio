@@ -115,4 +115,5 @@ G(Implies(
 3. Add NL parsing in [`sponsio/generation/nl_to_contract.py`](../../sponsio/generation/nl_to_contract.py).
 4. Tests for pattern behavior and NL parsing.
 5. If the pattern belongs in the TS det core, mirror in [`ts-sdk/src/core/patterns.ts`](../../ts-sdk/src/core/patterns.ts).
+   If you don't mirror it, add a row to [`ts-sdk-parity.md`](./ts-sdk-parity.md) so users know.
 6. Document it here.

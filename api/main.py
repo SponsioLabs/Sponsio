@@ -89,12 +89,17 @@ async def _lifespan(app: FastAPI):
 
 app = FastAPI(title="Sponsio API", version="0.1.0", lifespan=_lifespan)
 
+# CORS: bearer-token auth means we don't need cookie credentials, so
+# ``allow_credentials`` is False — that also relaxes the browser rule
+# that forbids ``allow_origins=["*"]`` with credentials. Methods and
+# headers are explicitly listed instead of "*" so a misconfiguration
+# can't accidentally widen the surface.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Sponsio-Token"],
 )
 
 

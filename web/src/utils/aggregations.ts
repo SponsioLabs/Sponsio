@@ -292,13 +292,30 @@ export function bucketCounts(events: MonitorEvent[], buckets = 30, lookbackMs = 
 
 const SLO_STORAGE_KEY = 'sponsio.slos.v1';
 
+function isSlo(v: unknown): v is Slo {
+  if (!v || typeof v !== 'object') return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.id === 'string' &&
+    typeof o.name === 'string' &&
+    typeof o.constraintName === 'string' &&
+    (o.agentId === undefined || typeof o.agentId === 'string') &&
+    typeof o.targetPassRate === 'number' &&
+    typeof o.windowMinutes === 'number' &&
+    typeof o.createdAt === 'number'
+  );
+}
+
 export function loadSlos(): Slo[] {
   try {
     const raw = localStorage.getItem(SLO_STORAGE_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed as Slo[];
+    // Defensive filter: localStorage can be edited by hand or persist
+    // across schema changes. Drop entries that don't match the current
+    // shape rather than crash render in SLO panels downstream.
+    return parsed.filter(isSlo);
   } catch {
     return [];
   }
