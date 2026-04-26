@@ -108,11 +108,11 @@ jobs:
           # WYSIWYG markdown editors (Typora / Obsidian Live Preview / VS Code
           # Markdown Editor / Cursor rich preview) silently strip <details>
           # tags when they round-trip the file. Catch this before push.
-          # Expectation: 15 <details> blocks total —
+          # Expectation: 16 <details> blocks total —
           #   3 in Quick start (TypeScript / One-shot prompt / Agent Skill)
           #   4 in See it in action (one per scenario demo)
-          #   8 in Integrations (one per supported framework)
-          expected=15
+          #   9 in Integrations (one per supported framework)
+          expected=16
           opens=$(grep -c '^<details>' README.md || echo 0)
           closes=$(grep -c '^</details>' README.md || echo 0)
           if [ "$opens" -ne "$expected" ] || [ "$closes" -ne "$expected" ]; then
@@ -127,12 +127,13 @@ jobs:
             "<summary><b>1. Coding"
             "<summary><b>2. Infra"
             "<summary><b>3. Finance"
-            "<summary><b>4. Coding"
+            "<summary><b>4. OpenClaw"
             "<summary><b>No framework</b>"
             "<summary><b>LangGraph / LangChain.js</b>"
             "<summary><b>Claude Agent SDK</b>"
             "<summary><b>OpenAI SDK</b>"
             "<summary><b>OpenAI Agents SDK</b>"
+            "<summary><b>Google ADK</b>"
             "<summary><b>Vercel AI SDK</b>"
             "<summary><b>CrewAI</b>"
             "<summary><b>MCP</b>"

