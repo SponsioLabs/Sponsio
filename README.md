@@ -69,40 +69,6 @@ Compared to other deterministic enforcers, Sponsio's edge:
 
 Setup LangChain/LangGraph as an example. For other frameworks, see [Integrations](#integrations).
 
-**Python**
-
-```bash
-# 1. Install
-pip install sponsio
-
-# 2. Onboard — scan project, write sponsio.yaml with starter contracts, print a snippet to paste
-sponsio onboard .
-```
-
-Paste the snippet into your agent entry file:
-
-```python
-from sponsio.langgraph import Sponsio
-from langgraph.prebuilt import create_react_agent
-
-guard = Sponsio(config="sponsio.yaml", agent_id="coding_agent")
-agent = create_react_agent(model, guard.wrap(tools))
-```
-
-*LangGraph / LangChain shortcut: `sponsio onboard . --apply` inserts the snippet for you.*
-
-> `sponsio.yaml` can also be hand-written, scanned from a policy doc (`sponsio scan --policy policy.md`), or mined from traces (`sponsio refresh`). Syntax: [docs/contracts.md](docs/contracts.md).
-
-Run your agent in observe mode — contracts evaluate, nothing blocks. Would-have-blocked decisions land in `~/.sponsio/sessions/<agent_id>/*.jsonl`.
-
-```bash
-# 3. After some traffic, review what would have been blocked
-sponsio report --since 1h
-
-# 4. Flip to enforce when confident — no code change
-export SPONSIO_MODE=enforce
-```
-
 <details>
 <summary><b>One-shot prompt</b> (Claude Code / Codex / Cursor)</summary>
 
@@ -140,6 +106,40 @@ Drops `SKILL.md` into `~/.cursor/skills/sponsio/`, `~/.claude/skills/sponsio/`, 
 Upgrade: `pip install -U sponsio && sponsio skill install --force` (or `sponsio skill install --link` once, then upgrades follow `pip install -U`).
 
 </details>
+
+**Python**
+
+```bash
+# 1. Install
+pip install sponsio
+
+# 2. Onboard — scan project, write sponsio.yaml with starter contracts, print a snippet to paste
+sponsio onboard .
+```
+
+Paste the snippet into your agent entry file:
+
+```python
+from sponsio.langgraph import Sponsio
+from langgraph.prebuilt import create_react_agent
+
+guard = Sponsio(config="sponsio.yaml", agent_id="coding_agent")
+agent = create_react_agent(model, guard.wrap(tools))
+```
+
+*LangGraph / LangChain shortcut: `sponsio onboard . --apply` inserts the snippet for you.*
+
+> `sponsio.yaml` can also be hand-written, scanned from a policy doc (`sponsio scan --policy policy.md`), or mined from traces (`sponsio refresh`). Syntax: [docs/contracts.md](docs/contracts.md).
+
+Run your agent in observe mode — contracts evaluate, nothing blocks. Would-have-blocked decisions land in `~/.sponsio/sessions/<agent_id>/*.jsonl`.
+
+```bash
+# 3. After some traffic, review what would have been blocked
+sponsio report --since 1h
+
+# 4. Flip to enforce when confident — no code change
+export SPONSIO_MODE=enforce
+```
 
 <details>
 <summary><b>TypeScript</b></summary>
