@@ -237,7 +237,7 @@ Sponsio blocks the wire — amount cap, missing compliance approve, no confirmat
 <details>
 <summary><b>4. OpenClaw — Malicious skill exfiltrates <code>.env</code> to AMOS stealer</b></summary>
 
-**Integration**: OpenClaw via `[sponsio-openclaw-shield](plugins/sponsio-openclaw-shield/)` plugin (one-line install). **OWASP**: ASI-04 — Agentic Supply Chain Vulnerabilities · references the [ClawHavoc incident](https://genai.owasp.org/2026/04/14/owasp-genai-exploit-round-up-report-q1-2026/) — 1,184 malicious ClawHub skills shipping AMOS stealer payloads in early 2026.
+**Integration**: OpenClaw via the [`sponsio-openclaw-shield`](plugins/sponsio-openclaw-shield/) plugin (one-line install). **OWASP**: ASI-04 — Agentic Supply Chain Vulnerabilities · references the [ClawHavoc incident](https://genai.owasp.org/2026/04/14/owasp-genai-exploit-round-up-report-q1-2026/) — 1,184 malicious ClawHub skills shipping AMOS stealer payloads in early 2026.
 
 User installs `weather-skill` from ClawHub. On first invocation the skill reads `~/.clawdbot/.env` — paid AI API keys, OAuth refresh tokens, custom-model endpoints — and POSTs the contents to an attacker-controlled endpoint disguised as a weather API. *"After reading `~/.clawdbot/.env`, no outbound network calls"* + *"`http_request` arguments must not contain `$ENV_`*"* block the exfiltration on the read trigger; the legitimate weather API call (city → forecast JSON) still goes through.
 
@@ -272,7 +272,7 @@ Sponsio is benchmarked on four public agent-safety suites covering four distinct
 | **τ²-bench airline** (3 models)             | Conversational SOP ordering               | **23% recall** at 4–16% FP (best: o4-mini, 18% / 4%)                   |
 
 
-++**These are first-release numbers**++, deterministic path only (v0 bundles). Every benchmark has headroom: more patterns and tighter heuristics on the deterministic side, and the stochastic pipeline (beta) on the semantic side. Expect meaningful gains on intent-driven failures, content-quality SOPs, and semantic-shaped injection in later releases. See [docs/sto-atoms.md](docs/sto-atoms.md) for the stochastic pipeline.
+<u>**These are first-release numbers**</u>, deterministic path only (v0 bundles). Every benchmark has headroom: more patterns and tighter heuristics on the deterministic side, and the stochastic pipeline (beta) on the semantic side. Expect meaningful gains on intent-driven failures, content-quality SOPs, and semantic-shaped injection in later releases. See [docs/sto-atoms.md](docs/sto-atoms.md) for the stochastic pipeline.
 
 ### Hot-Path Performance
 
@@ -284,9 +284,9 @@ Sponsio is benchmarked on four public agent-safety suites covering four distinct
 | Heaviest measured (RedCode python whole-script)               | 0.811 ms      | 1.035 ms  |
 
 
-++**400×–13,000× faster than any LLM-as-judge guardrail**++ (gpt-4o-mini, Lakera Guard, OpenAI Moderation — all 50–800 ms per check) on the same per-tool-call workload, at zero LLM cost on the hot path. Per-call latency scales linearly with contract count; p99 stays under 1.04 ms across every workload measured. A typical 8–20-tool-call agent turn adds **less enforcement overhead than a single model output token**.
+<u>**400×–13,000× faster than any LLM-as-judge guardrail**</u> (gpt-4o-mini, Lakera Guard, OpenAI Moderation — all 50–800 ms per check) on the same per-tool-call workload, at zero LLM cost on the hot path. Per-call latency scales linearly with contract count; p99 stays under 1.04 ms across every workload measured. A typical 8–20-tool-call agent turn adds **less enforcement overhead than a single model output token**.
 
-Full per-model breakdown, methodology, harness scripts: `[docs/BENCHMARKS.md](docs/BENCHMARKS.md)`.
+Full per-model breakdown, methodology, harness scripts: [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
 
 ---
 
@@ -589,7 +589,7 @@ Runnable: [python](examples/integrations/python/mcp_guard.py)
 - [Formal methods primer](docs/formal-methods.md)
 - [Changelog](CHANGELOG.md)
 
-*AI agents reading this repo: `[llms.txt](llms.txt)` lists canonical doc paths; `[llms-full.txt](llms-full.txt)` is the concatenated full context dump.*
+*AI agents reading this repo: [`llms.txt`](llms.txt) lists canonical doc paths; [`llms-full.txt`](llms-full.txt) is the concatenated full context dump.*
 
 ---
 
@@ -609,7 +609,7 @@ Patches, issue reports, and new pattern proposals are welcome. Start with [CONTR
 
 Sponsio enforces runtime contracts that *you* define — it does not certify your application's compliance with any regulatory framework. If you operate in regulated domains (HIPAA, GDPR, SOX, EU AI Act, financial services, healthcare), Sponsio's controls and our [OWASP Agentic Top 10 mapping](docs/owasp-agentic-top-10.md) are inputs to your compliance program. They are **not** substitutes for qualified security audit, legal review, or domain-specific regulatory analysis. Author your contracts with appropriate review and revisit them when your agent's tool surface changes.
 
-Det contracts give you machine-checkable enforcement at the action boundary. They do not protect against vulnerabilities upstream of Sponsio (compromised LLM provider, malicious tools you've allowlisted, infrastructure-layer risks like transport encryption / SBOM provenance). See `[SECURITY.md](SECURITY.md)` for the full scope.
+Det contracts give you machine-checkable enforcement at the action boundary. They do not protect against vulnerabilities upstream of Sponsio (compromised LLM provider, malicious tools you've allowlisted, infrastructure-layer risks like transport encryption / SBOM provenance). See [`SECURITY.md`](SECURITY.md) for the full scope.
 
 ---
 
