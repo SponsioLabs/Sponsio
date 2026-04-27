@@ -36,7 +36,7 @@ from sponsio.patterns.library import _is_namespaced_tool_name, _physical_tool
         "acme:fetch",
         "acme:fetch_data",
         "my-plugin:hello",
-        "sponsio-shield:scan",
+        "sponsio-claude-code:scan",
         # Hypothetical MCP-style with single colon (the ``mcp__`` form
         # has no colon at all, so it's irrelevant here, but shorter
         # variants might appear).

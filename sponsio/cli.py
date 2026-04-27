@@ -3850,23 +3850,23 @@ def onboard(
 
 
 # ---------------------------------------------------------------------------
-# `sponsio shield ...` — plugin-system enforcement adapter
+# `sponsio plugin ...` — host-plugin runtime adapter
 # ---------------------------------------------------------------------------
 #
-# The ``shield`` subgroup hosts everything related to running Sponsio as a
-# host-installed shield over a plugin runtime (Claude Code today, OpenClaw
-# planned).  Today only ``shield guard`` is wired up; ``shield init``,
-# ``shield scan``, ``shield report``, and ``shield status`` are planned
-# Stage-2/3 commands and live behind the same group so users only have
-# to learn one prefix.
+# The ``plugin`` subgroup hosts everything related to running Sponsio as a
+# host-installed runtime over a plugin system (Claude Code, OpenClaw, …).
+# ``plugin guard`` is the per-call hook entry; ``plugin init``, ``plugin
+# install``, ``plugin scan``, ``plugin report``, and ``plugin status``
+# (Stage-2/3) live behind the same group so users only have to learn one
+# prefix.
 
 
 @cli.group()
-def shield():
-    """Host-installed runtime shield for plugin systems (Claude Code, …)."""
+def plugin():
+    """Host-plugin runtime for Claude Code, OpenClaw, …."""
 
 
-@shield.command(name="init")
+@plugin.command(name="init")
 @click.option(
     "--root",
     "root",
@@ -3889,29 +3889,29 @@ def shield():
     default=False,
     help="Skip the post-install JSON-on-stdin verification.",
 )
-def shield_init(root: Path | None, force: bool, no_smoke_test: bool):
+def plugin_init(root: Path | None, force: bool, no_smoke_test: bool):
     """Bootstrap ``~/.sponsio/plugins/`` with the default ``_host`` library.
 
     What this writes:
 
     \b
-      <root>/_host/sponsio.yaml         from sponsio/shield/defaults/_host.yaml
+      <root>/_host/sponsio.yaml         from sponsio/plugin/defaults/_host.yaml
 
     The default ``_host`` library reuses ``sponsio:capability/shell`` to
     block ``rm -rf /``, fork bombs, ``curl|bash``, reverse-shell
     primitives, line-continuation evasion, and CVE-2026-28460-class
     escapes against Claude Code's first-party Bash tool.
 
-    After running this, install or update the sponsio-shield Claude Code
-    plugin and load it with::
+    After running this, install or update the sponsio-claude-code plugin
+    and load it with::
 
-        claude --plugin-dir <path-to-sponsio-shield>
+        claude --plugin-dir <path-to-sponsio-claude-code>
 
     Per-plugin libraries for individual MCP servers / plugins live as
-    siblings of ``_host/`` and can be created by hand or — once Stage-2
-    lands — via ``sponsio shield scan``.
+    siblings of ``_host/`` and can be created by hand or via
+    ``sponsio plugin scan``.
     """
-    from sponsio.shield.registry import read_bundled
+    from sponsio.plugin.registry import read_bundled
 
     if root is None:
         env = os.environ.get("SPONSIO_PLUGIN_ROOT")
@@ -3948,7 +3948,7 @@ def shield_init(root: Path | None, force: bool, no_smoke_test: bool):
             click.echo("Skipped smoke test (existing file kept).")
         else:
             click.echo("Skipped smoke test (--no-smoke-test).")
-        _print_shield_next_steps()
+        _print_plugin_next_steps()
         return
 
     from sponsio.guard_stdin import run_stdin
@@ -4000,24 +4000,24 @@ def shield_init(root: Path | None, force: bool, no_smoke_test: bool):
         )
         sys.exit(1)
 
-    _print_shield_next_steps()
+    _print_plugin_next_steps()
 
 
-def _print_shield_next_steps() -> None:
+def _print_plugin_next_steps() -> None:
     """User-facing pointer to the next manual step."""
     click.echo("")
     click.echo("Next:")
-    click.echo("  1. Clone or download the sponsio-shield plugin.")
+    click.echo("  1. Clone or download the sponsio-claude-code plugin.")
     click.echo("  2. Load it in Claude Code:")
-    click.echo("       claude --plugin-dir /path/to/sponsio-shield")
-    click.echo("  3. Issue any Bash tool call — the shield wraps it.")
+    click.echo("       claude --plugin-dir /path/to/sponsio-claude-code")
+    click.echo("  3. Issue any Bash tool call — the plugin wraps it.")
     click.echo("")
     click.echo("Add starter libraries for popular MCP servers:")
-    click.echo("  sponsio shield install --list   # see what's bundled")
-    click.echo("  sponsio shield install github   # copy github starter")
+    click.echo("  sponsio plugin install --list   # see what's bundled")
+    click.echo("  sponsio plugin install github   # copy github starter")
 
 
-@shield.command(name="install")
+@plugin.command(name="install")
 @click.argument("names", nargs=-1)
 @click.option(
     "--list",
@@ -4049,7 +4049,7 @@ def _print_shield_next_steps() -> None:
     default=False,
     help="Overwrite existing libraries without prompting.",
 )
-def shield_install(
+def plugin_install(
     names: tuple[str, ...],
     list_only: bool,
     install_all: bool,
@@ -4065,19 +4065,19 @@ def shield_install(
     Examples:
 
     \b
-        sponsio shield install --list
-        sponsio shield install github
-        sponsio shield install github filesystem playwright
-        sponsio shield install --all
+        sponsio plugin install --list
+        sponsio plugin install github
+        sponsio plugin install github filesystem playwright
+        sponsio plugin install --all
     """
-    from sponsio.shield.registry import list_bundled, read_bundled
+    from sponsio.plugin.registry import list_bundled, read_bundled
 
     bundled = list_bundled()
 
     if list_only:
         click.echo("Bundled starter libraries:")
         for n in bundled:
-            marker = " (auto-installed by `shield init`)" if n == "_host" else ""
+            marker = " (auto-installed by `plugin init`)" if n == "_host" else ""
             click.echo(f"  {n}{marker}")
         return
 
@@ -4129,7 +4129,7 @@ def shield_install(
         sys.exit(1)
 
 
-@shield.command(name="scan")
+@plugin.command(name="scan")
 @click.argument(
     "plugin_dir",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
@@ -4173,7 +4173,7 @@ def shield_install(
     default=False,
     help="With --apply, overwrite an existing library file.",
 )
-def shield_scan(
+def plugin_scan(
     plugin_dir: Path,
     tools_csv: str,
     root: Path | None,
@@ -4190,7 +4190,7 @@ def shield_scan(
 
     Defaults to dry-run (prints the YAML); use ``--apply`` to write it.
     """
-    from sponsio.shield.scan import ManifestError, scan_plugin
+    from sponsio.plugin.scan import ManifestError, scan_plugin
 
     declared_tools = [t.strip() for t in tools_csv.split(",") if t.strip()]
     try:
@@ -4252,7 +4252,7 @@ def shield_scan(
         sys.exit(1)
 
 
-@shield.command(name="guard")
+@plugin.command(name="guard")
 @click.option(
     "--stdin",
     "use_stdin",
@@ -4263,7 +4263,7 @@ def shield_scan(
         "PreToolUse / PostToolUse protocol)."
     ),
 )
-def shield_guard(use_stdin: bool):
+def plugin_guard(use_stdin: bool):
     """Plugin-system hook entry point — evaluates one tool call.
 
     Wired into a Claude Code plugin via ``hooks/hooks.json``::
@@ -4273,7 +4273,7 @@ def shield_guard(use_stdin: bool):
             "PreToolUse": [
               {"matcher": "*",
                "hooks": [{"type": "command",
-                          "command": "sponsio shield guard --stdin"}]}
+                          "command": "sponsio plugin guard --stdin"}]}
             ]
           }
         }

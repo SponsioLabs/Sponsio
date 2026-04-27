@@ -1,0 +1,135 @@
+# =============================================================================
+# Starter library for the official Filesystem MCP server
+# (@modelcontextprotocol/server-filesystem).
+#
+# Routing key: ``filesystem`` — every tool whose name follows the
+# ``mcp__filesystem__*`` MCP convention is dispatched here.
+#
+# Install:
+#     sponsio plugin install filesystem
+# Or hand-copy this file into ``~/.sponsio/plugins/filesystem/sponsio.yaml``.
+#
+# The MCP server is started with one or more *allowed directories* on
+# its CLI; this library is the *second* layer of defence — it blocks
+# specific path patterns within those directories that should never
+# be modified by an agent (dotenv, SSH keys, AWS credentials, …).
+# Override or extend with ``overrides:`` per agent.
+# =============================================================================
+
+version: "1"
+
+agents:
+  filesystem:
+    contracts:
+
+      # -----------------------------------------------------------------
+      # § 1 — Sensitive-path hard denies on all write/edit/move ops
+      # -----------------------------------------------------------------
+
+      - desc: "write_file must not touch secrets / system config"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__filesystem__write_file
+            - path
+            - - "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[\\w.-]+)?$"
+              - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/"
+              - "(^|/)\\.gnupg/"
+              - "(^|/)\\.netrc$"
+              - "(^|/)\\.pgpass$"
+              - "(^|/)\\.kube/config$"
+              - "(^|/)\\.docker/config\\.json$"
+              - "(^|/)id_rsa($|\\.)"
+              - "(^|/)id_ed25519($|\\.)"
+              - "(^|/)\\.bashrc$"
+              - "(^|/)\\.zshrc$"
+              - "(^|/)crontab$"
+              - "(^|/)LaunchAgents/"
+              - "(^|/)LaunchDaemons/"
+              - "/etc/"
+              - "/usr/local/bin/"
+
+      - desc: "edit_file must not touch secrets / system config"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__filesystem__edit_file
+            - path
+            - - "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[\\w.-]+)?$"
+              - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/"
+              - "(^|/)\\.bashrc$"
+              - "(^|/)\\.zshrc$"
+              - "/etc/"
+
+      - desc: "move_file source must not be a secret"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__filesystem__move_file
+            - source
+            - - "(^|/)\\.env(\\.[^/]+)?$"
+              - "(^|/)\\.ssh/"
+              - "(^|/)id_rsa($|\\.)"
+              - "(^|/)id_ed25519($|\\.)"
+
+      - desc: "move_file destination must not overwrite secrets / system config"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__filesystem__move_file
+            - destination
+            - - "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[\\w.-]+)?$"
+              - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/"
+              - "/etc/"
+
+      # -----------------------------------------------------------------
+      # § 2 — Read-side guards
+      #
+      # Reading secrets from inside an MCP-allowed directory still
+      # leaks them into the agent's context window — and from there
+      # likely out via send_email / web_post / etc. Sponsio's
+      # ``no_data_leak`` is for the cross-tool flow case; here we
+      # cut off the read at source.
+      # -----------------------------------------------------------------
+
+      - desc: "read_file must not exfiltrate dotenv / SSH / AWS / browser credential files"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__filesystem__read_file
+            - path
+            - - "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[\\w.-]+)?$"
+              - "(^|/)\\.ssh/(?!known_hosts$|config$)"
+              - "(^|/)\\.aws/credentials$"
+              - "(^|/)\\.netrc$"
+              - "(^|/)\\.pgpass$"
+              - "(^|/)Library/Keychains"
+              - "(^|/)Library/Application Support/Google/Chrome/Default/Login Data"
+              - "(^|/)Library/Cookies/"
+
+      - desc: "read_multiple_files must not exfiltrate the same set"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__filesystem__read_multiple_files
+            - paths
+            - - "(^|/)\\.env(\\.[^/]+)?$"
+              - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/credentials"
+
+# -----------------------------------------------------------------------------
+# Notes
+# -----------------------------------------------------------------------------
+#
+# * The MCP filesystem server has no ``delete_file`` tool by design —
+#   it's the safe-by-default model. If your fork adds one, override
+#   this library with the corresponding rule (cf.
+#   ``capability/filesystem`` pack for shaped templates).
+#
+# * The dotenv regex deliberately skips ``.env.example``, ``.env.sample``,
+#   ``.env.template``, ``.env.dist`` — these exist to be committed and
+#   document expected variables. Same convention as the
+#   ``capability/filesystem`` pack.

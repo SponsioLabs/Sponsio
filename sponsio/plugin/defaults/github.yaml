@@ -1,0 +1,120 @@
+# =============================================================================
+# Starter library for the official GitHub MCP server
+# (https://github.com/github/github-mcp-server).
+#
+# Routing key: ``github`` — every tool whose name follows the
+# ``mcp__github__*`` MCP convention is dispatched here by
+# :mod:`sponsio.guard_stdin`.
+#
+# Install:
+#     sponsio plugin install github
+# Or hand-copy this file into ``~/.sponsio/plugins/github/sponsio.yaml``.
+#
+# These rules are hand-curated, *tighter* than what
+# ``sponsio plugin scan`` would generate from name heuristics alone.
+# Override individual rules with ``overrides:`` rather than forking.
+# =============================================================================
+
+version: "1"
+
+agents:
+  github:
+    contracts:
+
+      # -----------------------------------------------------------------
+      # § 1 — Hard denies on irrecoverable destructive ops
+      #
+      # ``delete_repository`` is the single most blast-radius action
+      # the MCP server exposes. We enforce-block it outright; the
+      # operator can ``overrides: - match: {desc: "..."}, disabled: true``
+      # for a one-off if they really mean it.
+      # -----------------------------------------------------------------
+
+      - desc: "delete_repository is blocked outright (overrides: disabled: true to allow)"
+        E:
+          pattern: rate_limit
+          args: [mcp__github__delete_repository, 0]
+
+      - desc: "delete_branch on protected branch names blocked"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__github__delete_branch
+            - branch
+            - - "^(main|master|prod|production|release/.*)$"
+
+      # -----------------------------------------------------------------
+      # § 2 — Force-write paths on sensitive files
+      #
+      # ``create_or_update_file`` / ``push_files`` can rewrite anything
+      # the agent can reach. Block paths that legitimate code rarely
+      # writes via an agent — secrets, CI config, branch protection
+      # bypass settings.
+      # -----------------------------------------------------------------
+
+      - desc: "create_or_update_file must not touch dotenv / SSH / CI / GH config"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__github__create_or_update_file
+            - path
+            - - "(^|/)\\.env(\\.[^/]+)?$"
+              - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/"
+              - "(^|/)\\.github/CODEOWNERS$"
+              - "(^|/)\\.github/workflows/.*\\.ya?ml$"
+              - "(^|/)\\.github/branch-protection\\.ya?ml$"
+
+      - desc: "push_files must not touch dotenv / SSH / CI / GH config"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__github__push_files
+            - path
+            - - "(^|/)\\.env(\\.[^/]+)?$"
+              - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/"
+              - "(^|/)\\.github/CODEOWNERS$"
+              - "(^|/)\\.github/workflows/.*\\.ya?ml$"
+
+      # -----------------------------------------------------------------
+      # § 3 — Loop / rate caps
+      #
+      # Issue / PR / comment storms are a common LLM failure mode.
+      # Tighter than the heuristic loop_detection because these all
+      # touch external visible state.
+      # -----------------------------------------------------------------
+
+      - desc: "no more than 20 issue creations per session"
+        E:
+          pattern: rate_limit
+          args: [mcp__github__create_issue, 20]
+
+      - desc: "no more than 10 PR creations per session"
+        E:
+          pattern: rate_limit
+          args: [mcp__github__create_pull_request, 10]
+
+      - desc: "no more than 50 comment writes per session"
+        E:
+          pattern: rate_limit
+          args: [mcp__github__add_issue_comment, 50]
+
+      - desc: "no more than 5 consecutive PR merges (runaway loop cap)"
+        E:
+          pattern: loop_detection
+          args: [mcp__github__merge_pull_request, 5]
+
+# -----------------------------------------------------------------------------
+# Notes
+# -----------------------------------------------------------------------------
+#
+# * Heuristic ``loop_detection`` (5 consecutive) and ``core/runaway``
+#   token / delegation caps fire only when the daemon mode lands —
+#   the stateless hook gets a fresh trace per call. The rate_limit
+#   rules above are the same: future-state. Listed now so the
+#   library is daemon-ready without a re-author cycle.
+#
+# * The filename blacklists are conservative; legitimate workflows
+#   that rotate ``.github/workflows/*`` (mass yaml-update bots) need
+#   to override the matching rule with ``disabled: true``.

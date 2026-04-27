@@ -1,0 +1,10 @@
+{
+  "name": "sponsio-claude-code",
+  "description": "Runtime contract guardrails for every tool call in your Claude Code session — backed by per-plugin contract libraries under ~/.sponsio/plugins/.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Sponsio Labs"
+  },
+  "homepage": "https://github.com/SponsioLabs/Sponsio",
+  "license": "Apache-2.0"
+}

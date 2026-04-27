@@ -151,10 +151,10 @@ def evaluate_event(event: dict) -> GuardOutcome:
     captured_out = io.StringIO()
     captured_err = io.StringIO()
 
-    # Sponsio-shield enforces by default — without enforce mode the
-    # shield logs but doesn't block, defeating the whole purpose.
+    # Host-plugin runtime enforces by default — without enforce mode
+    # the plugin logs but doesn't block, defeating the whole purpose.
     # Mode precedence: SPONSIO_GUARD_MODE > SPONSIO_MODE > "enforce".
-    # SPONSIO_GUARD_MODE is the shield-specific dial so operators can
+    # SPONSIO_GUARD_MODE is the plugin-specific dial so operators can
     # run a session-wide SPONSIO_MODE=observe (e.g. for an unrelated
     # integration in the same process) while still enforcing here.
     guard_mode = (
@@ -182,7 +182,7 @@ def evaluate_event(event: dict) -> GuardOutcome:
             )
             result = guard.guard_before(tool_name=tool_name, args=tool_input)
     except Exception as e:  # pragma: no cover - surfaced via stderr
-        sys.stderr.write(f"sponsio shield guard:evaluation error in {lib_path}: {e}\n")
+        sys.stderr.write(f"sponsio plugin guard:evaluation error in {lib_path}: {e}\n")
         # Fail open — never wedge a tool call on a Sponsio bug.
         return GuardOutcome(
             allowed=True,
@@ -274,17 +274,17 @@ def run_stdin(stdin_text: str | None = None) -> int:
     try:
         event = json.loads(raw)
     except json.JSONDecodeError as e:
-        sys.stderr.write(f"sponsio shield guard:invalid JSON on stdin: {e}\n")
+        sys.stderr.write(f"sponsio plugin guard:invalid JSON on stdin: {e}\n")
         return 0
 
     if not isinstance(event, dict):
-        sys.stderr.write("sponsio shield guard:stdin payload must be a JSON object\n")
+        sys.stderr.write("sponsio plugin guard:stdin payload must be a JSON object\n")
         return 0
 
     try:
         outcome = evaluate_event(event)
     except Exception as e:  # pragma: no cover - surfaced via stderr
-        sys.stderr.write(f"sponsio shield guard:evaluation error: {e}\n")
+        sys.stderr.write(f"sponsio plugin guard:evaluation error: {e}\n")
         return 0
 
     payload, code = render_reply(event, outcome)

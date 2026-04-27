@@ -96,13 +96,13 @@ sponsio = [
     # — see `sponsio.config._resolve_include_spec`.  Layout is
     # ``contracts/<category>/<name>.yaml`` (core / capability / incident).
     "contracts/*/*.yaml",
-    # Shield default per-plugin libraries — copied by `sponsio shield init`
+    # Plugin default per-plugin libraries — copied by `sponsio plugin init`
     # into ``~/.sponsio/plugins/<plugin>/sponsio.yaml``.  These are full
     # agent configs (not pack templates with ``*`` placeholders) — see
-    # ``sponsio.shield``.  Mirrored under ``plugins/sponsio-shield/libraries/``
-    # for source-checkout users; ``tests/test_shield_defaults_sync.py``
+    # ``sponsio.plugin``.  Mirrored under ``plugins/sponsio-claude-code/libraries/``
+    # for source-checkout users; ``tests/test_plugin_defaults_sync.py``
     # keeps the two trees identical.
-    "shield/defaults/*.yaml",
+    "plugin/defaults/*.yaml",
     # Agent Skills (Cursor / Claude Code / Codex).  Bundled so
     # ``sponsio skill install`` can locate the canonical source after
     # a pip install — see `sponsio.cli::skill_install`.  Keep the nested

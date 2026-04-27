@@ -1,4 +1,4 @@
-"""Integration tests for ``sponsio shield guard --stdin`` (Mode A — host-installed shield).
+"""Integration tests for ``sponsio plugin guard --stdin`` (Mode A — host-installed plugin).
 
 These exercise the in-process entry point in :mod:`sponsio.guard_stdin`
 end to end: build a temporary per-plugin library tree, point
