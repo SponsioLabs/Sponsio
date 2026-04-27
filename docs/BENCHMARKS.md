@@ -20,6 +20,53 @@
 
 ---
 
+## OSS positioning
+
+Sponsio is positioned around three claims that no existing guardrail framework matches simultaneously:
+
+1. **Fastest published agent guardrail.** 0.0052 ms (5.2 µs) per check on the synthetic micro-bench, 0.113 ms p50 on a real 26K-call AgentDojo workload, with **zero LLM calls on the blocking path**. Every alternative (Lakera Guard, NVIDIA NeMo Guardrails self-check, OpenAI Moderation, Llama Guard 4, LlamaFirewall AlignmentCheck) sits at 50–1,500 ms because each one runs an LLM-as-judge in the loop. Sponsio runs a compiled DFA.
+2. **First framework systematically evaluated across 12 LLM families on ODCV-Bench**, with **84%** high-risk protection averaged across the lineup (gemini-3-pro-preview, glm-4.6, grok-4.1-fast, minimax-m2 all at 90%). To our knowledge no other guardrail has published comparable cross-model coverage on the KPI-pressure / metric-gaming threat class.
+3. **First published deterministic-pattern result on RedCode-Exec**: **85% bash / 69% python / 76% combined** detection across 1,410 dangerous-snippet cases, at the same 5.2 µs hot-path budget.
+
+### Why the architecture allows this
+
+Agent **tool calls, CLI commands, and function calls are a finite enumerable surface**. Once the unsafe call patterns for a domain are identified (by hand, by `sponsio scan` over scenario source / policy docs, or by trace observation), they compile to a DFA that runs in microseconds. There is no semantic guesswork on the blocking path; the gate is the call surface itself.
+
+This includes failure modes other guardrails treat as semantic-only:
+
+- **Prompt-injection-driven failures**: the dangerous *outcome* is a tool call (transfer to attacker IBAN, deletion of sensitive file, exfil to a public mailbox). Det fingerprints the outcome regardless of whether the agent reached it via injection, jailbreak, or scope drift.
+- **Logic-flaw failures** (RedCode python `index12` bias logic, `index15` regex bypass, `index23` missing authorisation): these surface as specific code-text patterns. Once enumerated, det binds; the gap between Sponsio's 76% and a higher number is library coverage, not architectural limit.
+- **KPI-gaming failures** (ODCV `index4` data falsification, `index20` script tampering): same story; the dangerous action is a `sed -i` / `chmod` / redirect to `/app/data`, all enumerable.
+
+### What sto is for
+
+Sto handles what det fundamentally cannot see: **properties of the agent's generated response text** (toxicity, hallucination, faithfulness, contextual PII, scope drift in natural language, tone, goal coverage, transcript-level fabrication). These are not in the call surface; they live in the LLM's free-form output, so no det rule can fingerprint them.
+
+This means the four safety benchmarks split cleanly across the two axes:
+
+| Bench | Failure axis | Layer |
+|---|---|---|
+| **ODCV-Bench** | tool-call (data tampering, script edits, monitor disabling) | Det → 84% × 12 LLMs |
+| **RedCode-Exec** | tool-call + finite code-text surface | Det → 85% bash / 76% combined |
+| **AgentDojo** | tool-call (attacker IBAN, phishing URL, recipient) | Det → 30.4% overall, **62.8% slack / 52.8% banking** |
+| **τ²-bench airline** | partial tool-call (ordering) + content quality | Det → 23% recall (ordering); content remainder is sto |
+| **τ²-bench retail** | response content quality (assistant says wrong policy) | **Sto** → 0% (det by design) → ~11% / 5% FP (CoT judge), first measurable signal on a property class det fundamentally cannot address |
+
+### The continuous-improvement loop
+
+Det numbers above are a snapshot of the current contract library. The full loop is:
+
+```
+production traces ──→ sponsio scan ──→ proposed contracts
+       ↑                                       │
+       │                                       ▼
+       └──────── enforcement ←──────── library (versioned)
+```
+
+Each new attack pattern, each newly observed unsafe call, feeds back into the library. The 84% / 85% / 76% numbers are starting points, not ceilings; the architectural property is that they are **reachable** because the call surface is finite, and the library is the canonical artefact you grow over time.
+
+---
+
 ## 1. Hot-Path Performance
 
 Measures `guard_before()` / `guard_after()`, the deterministic enforcement path every tool call passes through. **No LLM is called on the hot path.** The pipeline compiles LTL formulas into a DFA and evaluates each tool call as an append to the trace.

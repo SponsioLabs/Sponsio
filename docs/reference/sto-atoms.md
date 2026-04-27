@@ -84,22 +84,57 @@ async with ClaudeSDKClient(options=ClaudeAgentOptions(hooks=guard.hooks())) as c
 
 ---
 
-## Core atoms
+## How sto fits with det
 
-These 8 atoms cover failure modes most LLM agents exhibit. Start here regardless of your product.
+Sponsio's deterministic layer gates **tool-call decisions**: any failure that has a tool-call manifestation (a dangerous bash command, a transfer to an attacker IBAN, an out-of-policy refund call) is captured at the action boundary, deterministically, in microseconds. The det layer does this regardless of *why* the agent made the call: prompt-injection-driven, jailbreak-driven, scope-drift-driven failures all hit the same det fingerprints (forbidden tool, forbidden args, forbidden ordering).
+
+The sto layer addresses **what det fundamentally cannot see**: properties of the agent's output text and the trace's overall semantics. These have no tool-call manifestation, so they are invisible to a tool-call gate, no matter how rich the contract library.
+
+| Axis | What it checks | Examples | Mechanism |
+|---|---|---|---|
+| **Det (tool-call boundary)** | Was the tool call a dangerous outcome? | dangerous bash, attacker IBAN, deletion of forbidden id | Pure DFA, microsecond, no LLM |
+| **Sto (response content / trace semantics)** | Did the agent *say* something problematic, drift from scope, or hallucinate? | slur in response, fabricated policy quote, off-topic recommendation | LLM-as-judge, milliseconds, additive |
+
+Pick the axis that matches the failure class you actually need to catch. A pure tool-using agent (refund bot, ops agent, coding agent) often only needs det — every dangerous failure surfaces as a tool call. A response-generating agent (RAG, summariser, customer-service text reply) often needs sto — its main failure mode is *what it says*, not what it calls.
+
+---
+
+## Atoms by axis
+
+### Response-content checks (sto territory — det fundamentally cannot do these)
+
+These atoms each check a property of the agent's *output text* (or, for trace-scoped variants, the whole conversation). They exist because the corresponding property is invisible to a tool-call gate.
 
 | Atom | What it checks | When to use |
 |---|---|---|
-| `injection_free` | Input contains no prompt-injection attempt (override system prompt, exfiltrate, bypass) | Any agent that reads user-provided text. **Default: on** |
-| `jailbreak_free` | Response is not complying with a jailbreak attempt | User-facing agents. **Default: on for consumer-facing** |
 | `toxic_free` | Response free of slurs, harassment, threats, dehumanizing language | Any agent whose output reaches humans |
-| `harmful` | Response doesn't encourage or enable real-world harm | Broader than `toxic_free` — covers non-linguistic harm |
-| `semantic_pii_free` | Response free of contextual PII (names tied to conditions, inferable identity) | Any agent touching user data |
-| `scope_respect(scope)` | Response stays within the stated scope | Agents with bounded remit |
+| `harmful` | Response doesn't encourage or enable real-world harm | Broader than `toxic_free` (covers non-linguistic harm) |
+| `semantic_pii_free` | Response free of contextual PII (names tied to conditions, inferable identity) | Any agent touching user data; pair with regex-PII det rule |
+| `scope_respect(scope)` | Response stays within a stated natural-language scope | Agents with a bounded remit that's not enumerable |
 | `hallucination_free(source)` | No invented facts not supported by provided source | Retrieval-augmented / tool-using agents |
 | `faithfulness(source)` | Response positively conforms to source | Research / summarization agents |
+| `transcript_consistency(grounding)` | No statement *anywhere in the conversation* contradicts the grounding doc | Customer-service / SOP-bound agents where any single turn could fabricate |
+| `tone_match(tone)` | Response matches a target tone register | Brand voice, customer-experience constraints |
+| `goal_coverage(goal)` | Agent answers every sub-goal stated by the user | Multi-turn task completion |
+| `no_omission(items)` | Required items are all addressed in the response | Compliance checklists, regulatory disclosures |
+| `metric_integrity(metric, methods)` | Stated metric was achieved through legitimate methods | KPI-pressure / metric-gaming detection |
 
-**Recommended minimum for a new agent**: `injection_free`, `toxic_free`, `semantic_pii_free`. Three contracts, solves 80% of the common issues.
+### Input-side helpers (mostly redundant when det covers the dangerous outcome)
+
+These exist for completeness, but in a tool-using agent setup they are usually **redundant**: if the prompt-injection or jailbreak attempt actually drives a dangerous tool call, det's tool-call gate catches it at the action boundary regardless of *why* the agent issued the call. Use these only when:
+
+- the agent generates text without ever calling tools (chat-only, generation-only setups), or
+- you specifically want to flag the *attempt* itself (telemetry, abuse logging) before any tool call happens.
+
+| Atom | What it checks | Notes |
+|---|---|---|
+| `injection_free` | Input contains no prompt-injection attempt | Det gates the resulting dangerous tool call directly; this atom is upstream, advisory |
+| `jailbreak_free` | Response is not complying with a jailbreak attempt | Same — if a jailbroken response then drives a dangerous call, det catches it |
+
+**Recommended minimum for a new agent**:
+
+- *Tool-using agent (most common):* det rules on the dangerous tool calls + `toxic_free` + `semantic_pii_free` if responses reach humans. No injection / jailbreak atoms needed unless you want telemetry.
+- *Response-generation agent (chat, RAG, summariser):* `toxic_free`, `hallucination_free` or `faithfulness` over your source, `scope_respect`, plus `semantic_pii_free`.
 
 ---
 
