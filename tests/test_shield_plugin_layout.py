@@ -79,10 +79,25 @@ def _skill_dirs() -> list[Path]:
     return sorted(p for p in SKILLS_DIR.iterdir() if p.is_dir())
 
 
-def test_at_least_two_skills_shipped():
-    """Setup + scan are the bare minimum first-time-user UX."""
+def test_setup_skill_shipped():
+    """The unified setup skill is the entry point for first-time UX.
+
+    Previously split across ``setup`` and ``scan``; merged into
+    ``setup`` because they share Mode A context (host-level
+    ``~/.sponsio/plugins/`` configuration) and the user's session
+    typically touches both halves. The split caused trigger ambiguity
+    and forced cross-references between two near-identical skill
+    bodies.
+    """
     names = {p.name for p in _skill_dirs()}
-    assert {"setup", "scan"} <= names
+    assert "setup" in names
+
+    # Merged-in coverage check: the setup description must mention
+    # both the install (bundled-starter) and scan (unbundled-plugin)
+    # halves so Claude Code triggers it for either entry phrase.
+    setup_md = (SKILLS_DIR / "setup" / "SKILL.md").read_text()
+    assert "scan" in setup_md.lower()
+    assert "install" in setup_md.lower()
 
 
 @pytest.mark.parametrize("skill_dir", _skill_dirs(), ids=lambda p: p.name)

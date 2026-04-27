@@ -156,20 +156,21 @@ confirm the protocol is healthy.
 
 ---
 
-## Two ways to interact in Claude Code
+## Interacting in Claude Code
 
-The shield ships **two skills** which are both auto-invoked by the
-agent and available as slash commands:
+The shield ships **one skill** that covers the whole configure path
+— bundled starters, scanning unknown plugins, environment tuning,
+verification. It's auto-invoked by the agent and also available as a
+slash command:
 
 | Slash command / skill | What it does |
 |---|---|
-| `/sponsio-shield:setup` | Walks you through `init` + picking starter libraries + smoke test. Use first time, or after upgrading. |
-| `/sponsio-shield:scan` | For plugins / MCP servers without a bundled starter. Reads the plugin manifest, dry-runs a starter library, applies it. |
+| `/sponsio-shield:setup` | Bootstrap `~/.sponsio/plugins/`, pick + install bundled starters, generate starters for unbundled plugins via `sponsio shield scan`, tune the rules to the user's environment, smoke-test the deny path. |
 
 Or just say it in plain English ("set up sponsio-shield",
-"generate sponsio rules for this MCP server I just installed") —
-the skill descriptions are keyword-dense enough that Claude Code
-auto-invokes them.
+"generate sponsio rules for this MCP server I just installed",
+"the shield is too strict") — the skill description is keyword-dense
+enough that Claude Code auto-invokes it.
 
 ---
 
@@ -239,8 +240,8 @@ Sponsio/
 │   ├── .claude-plugin/plugin.json             — required Claude Code manifest
 │   ├── hooks/hooks.json                       — PreToolUse → `sponsio shield guard --stdin`
 │   ├── skills/
-│   │   ├── setup/SKILL.md                     — auto-invokable + /sponsio-shield:setup
-│   │   └── scan/SKILL.md                      — auto-invokable + /sponsio-shield:scan
+│   │   └── setup/SKILL.md                     — auto-invokable + /sponsio-shield:setup
+│   │                                            (covers bundled install + scan + tuning)
 │   ├── libraries/
 │   │   ├── _host/sponsio.yaml                 — mirror copy for --plugin-dir users
 │   │   ├── github/sponsio.yaml
