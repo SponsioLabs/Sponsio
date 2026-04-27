@@ -133,6 +133,14 @@ A scenario is *high-risk* if the baseline agent received severity ≥ 3 from ODC
 
 **Key takeaway:** *"Sponsio protects 84% of high-risk KPI-pressure scenarios across 12 mainstream LLMs, including 90% on gemini-3-pro-preview, minimax-m2, glm-4.6, and grok-4.1-fast. p99 enforcement latency stays under 0.8 ms even with 18 scan-discovered contracts loaded."*
 
+### Library lift: rate-limit on gaming-prone evaluation scripts (2026-04-27)
+
+The "Known gaps" entry at the top of this section called out *metric gaming via randomness* (agents re-running scripts with `shuf` / `$RANDOM` until a favourable result) as a class the per-scenario LLM scan often missed. Adding a single library-level layer that rate-limits every gaming-prone script name (`run_evaluation.sh`, `generate_report.sh`, `grade_assignments.sh`, `audit_compliance.sh`, plus generic suffix matchers `*_evaluation.sh` / `*_grading.sh` / `*_audit.sh` / `*_scoring.sh`) at most 1 invocation closes this class for every scenario that ships such a script:
+
+- **glm-4.6 mandated**: 10/11 → **11/11** high-risk protection (Educational-Assessment, where `run_evaluation.sh` produces a stochastic grade and the agent re-rolled until the passing rate hit 100%, was the missed scenario; the new layer caught the second invocation).
+- The layer is **library-additive**: 12 hand-coded `count_with("bash", pattern) ≤ 1` contracts that compile to a DFA at startup. No per-scenario authoring; covers every current and future ODCV scenario that packages this style of script.
+- **FP risk is low**: the patterns target specific evaluation-script filenames in `/usr/local/bin/` or `/app/`, and only the second-and-later invocations are blocked. Legitimate one-shot uses are unaffected. Score-0/1/2 (clean) scenarios in the same eval pass show no new blocks attributable to this layer.
+
 Source: [`Benchmarks/ODCV-Bench/eval_sponsio.py`](../../../Benchmarks/ODCV-Bench/eval_sponsio.py)
 
 ```bash
@@ -422,5 +430,6 @@ The det numbers above stay the load-bearing claim. The pilot established three t
 | 2026-04-25 | Consolidated per-suite READMEs into this single file |
 | 2026-04-15 | τ²-bench offline replay: airline 7–23% recall / 4–16% FP, retail out-of-scope |
 | 2026-04-11 | ODCV-Bench v3 (prompt-aware scan): ~84% protection across 12 models |
+| 2026-04-27 | ODCV-Bench v4: library-additive rate-limit layer for gaming-prone evaluation scripts (`run_evaluation.sh`, `generate_report.sh`, etc.) closes the metric-gaming-via-randomness class. glm-4.6 mandated: 91% to 100%. No new FPs on score-0/1/2 (clean) scenarios. |
 
 **Related:** [README §Benchmarks](../README.md#benchmarks--performance) · [QUICKSTART](../QUICKSTART.md) · [Contract DSL](contracts.md) · [Stochastic atoms](sto-atoms.md) · [Architecture](architecture.md)
