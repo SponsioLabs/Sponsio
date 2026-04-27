@@ -72,7 +72,7 @@ Setup LangChain/LangGraph as an example. For other frameworks, see [Integrations
 <details>
 <summary><b>One-shot prompt</b> (Claude Code / Codex / Cursor)</summary>
 
-Cursor is supported, but due to a platform constraint Cursor can only run Sponsio in **observe mode** — Cursor's current hook surface doesn't let an external tool synchronously block a tool call before it executes. For full **enforce-mode** blocking, use Claude Code or Codex.
+Cursor is supported, but due to a platform constraint Cursor can only run Sponsio in observe mode, because Cursor's current hook surface doesn't let an external tool synchronously block a tool call before it executes. For full enforce-mode blocking, we recommend using Claude Code or Codex.
 
 ```text
 Set up Sponsio (https://pypi.org/project/sponsio/) in my project.
