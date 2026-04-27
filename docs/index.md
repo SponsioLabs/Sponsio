@@ -44,6 +44,7 @@ Then pick a track below.
 - **"Map a control to OWASP Agentic Top 10 (2026)"** → [OWASP coverage](owasp-agentic-top-10.md)
 - **"Look up a CLI flag"** → [CLI reference](reference/cli.md)
 - **"Reproduce the ODCV-Bench numbers"** → [Benchmarks](BENCHMARKS.md)
+- **"Read the curated libraries that drive the benchmark headlines"** → [Benchmark contract libraries](reference/benchmark-libraries.md)
 
 ---
 
