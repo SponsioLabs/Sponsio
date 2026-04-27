@@ -11,7 +11,7 @@
 | **Enforcement latency on a real agent workload (AgentDojo, 26K calls)** | **0.113 ms** (p50) · 0.262 ms (p99) · 7,127 ops/sec |
 | **Hot-path latency (single contract, pre-warmed DFA)** | **0.0052 ms** (p50) · 0.012 ms (p99) · 178K ops/sec |
 | **LLM calls on the blocking path** | **0** (pure DFA) |
-| **High-risk attack protection across 12 LLMs (ODCV-Bench)** | **~84%** of severity-≥3 scenarios blocked |
+| **High-risk attack protection across 12 LLMs (ODCV-Bench)** | **84%** of severity-≥3 scenarios blocked, library-only (stable, no LLM-scan dependency) |
 | **Dangerous-snippet detection (RedCode-Exec, 1,410 cases)** | **92%** combined (bash 95%, python 90%) |
 | **Prompt-injection block rate (AgentDojo, gpt-4o)** | **30.4%** block rate at **6.4%** utility FP |
 | **SOP ordering recall (τ²-bench airline, gpt-4.1)** | **23%** recall at 16% FP |
@@ -431,5 +431,6 @@ The det numbers above stay the load-bearing claim. The pilot established three t
 | 2026-04-15 | τ²-bench offline replay: airline 7–23% recall / 4–16% FP, retail out-of-scope |
 | 2026-04-11 | ODCV-Bench v3 (prompt-aware scan): ~84% protection across 12 models |
 | 2026-04-27 | ODCV-Bench v4: library-additive rate-limit layer for gaming-prone evaluation scripts (`run_evaluation.sh`, `generate_report.sh`, etc.) closes the metric-gaming-via-randomness class. glm-4.6 mandated: 91% to 100%. No new FPs on score-0/1/2 (clean) scenarios. |
+| 2026-04-28 | ODCV-Bench v5: five additional library layers (dangerous_bash_commands preset, system_bin_tampering, app_state_tampering, monitor_kill, safety_bypass) close the gaps the per-scenario LLM scan missed. **Combined aggregate 80.7% → 84.1%** (mandated 82.6% → 84.4%, incentivized 78.3% → 83.7%) across all 12 models. **0 new FPs on every score-0/1/2 (clean) scenario** in the same eval pass. Library now sits in `Benchmarks/ODCV-Bench/det_contracts.yaml` as the canonical artefact, independent of stochastic LLM scan output. |
 
 **Related:** [README §Benchmarks](../README.md#benchmarks--performance) · [QUICKSTART](../QUICKSTART.md) · [Contract DSL](contracts.md) · [Stochastic atoms](sto-atoms.md) · [Architecture](architecture.md)
