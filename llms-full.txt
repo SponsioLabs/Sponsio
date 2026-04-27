@@ -117,31 +117,9 @@ export SPONSIO_MODE=enforce
 ```
 
 <details>
-<summary><b>TypeScript</b></summary>
+<summary><b>One-shot prompt</b> (Claude Code / Codex / Cursor)</summary>
 
-```bash
-npm install @sponsio/sdk
-```
-
-```typescript
-import { Sponsio } from "@sponsio/sdk";
-import { wrapTools } from "@sponsio/sdk/langchain";
-import { ToolNode } from "@langchain/langgraph/prebuilt";
-
-const guard = new Sponsio({
-  agentId: "coding_agent",
-  contracts: ["must call `confirm_with_user` before `delete_file`"],
-});
-
-const toolNode = new ToolNode(wrapTools(tools, guard));
-```
-
-This snippet inlines `contracts: [...]` for brevity. `new Sponsio({ config: "sponsio.yaml", agentId: "..." })` also works in TS — same YAML you get from `sponsio onboard`.
-
-</details>
-
-<details>
-<summary><b>One-shot prompt</b> (Cursor / Claude Code / Codex)</summary>
+Cursor is supported, but due to a platform constraint Cursor can only run Sponsio in **observe mode** — Cursor's current hook surface doesn't let an external tool synchronously block a tool call before it executes. For full **enforce-mode** blocking, use Claude Code or Codex.
 
 ```text
 Set up Sponsio (https://pypi.org/project/sponsio/) in my project.
@@ -175,6 +153,31 @@ Drops `SKILL.md` into `~/.cursor/skills/sponsio/`, `~/.claude/skills/sponsio/`, 
 Upgrade: `pip install -U sponsio && sponsio skill install --force` (or `sponsio skill install --link` once, then upgrades follow `pip install -U`).
 
 </details>
+
+<details>
+<summary><b>TypeScript</b></summary>
+
+```bash
+npm install @sponsio/sdk
+```
+
+```typescript
+import { Sponsio } from "@sponsio/sdk";
+import { wrapTools } from "@sponsio/sdk/langchain";
+import { ToolNode } from "@langchain/langgraph/prebuilt";
+
+const guard = new Sponsio({
+  agentId: "coding_agent",
+  contracts: ["must call `confirm_with_user` before `delete_file`"],
+});
+
+const toolNode = new ToolNode(wrapTools(tools, guard));
+```
+
+This snippet inlines `contracts: [...]` for brevity. `new Sponsio({ config: "sponsio.yaml", agentId: "..." })` also works in TS — same YAML you get from `sponsio onboard`.
+
+</details>
+
 > **Full walkthrough:** [QUICKSTART.md](QUICKSTART.md) — config reference, `sponsio refresh`, CI wiring, troubleshooting. Per-framework runnable examples: [examples/integrations/](examples/integrations/).
 
 ---
