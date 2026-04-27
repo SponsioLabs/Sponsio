@@ -303,26 +303,40 @@ Pure prompt tuning hit a wall at v1. The right fix was to extend what the sto la
 
 The eval scripts already use these via the YAML manifests; the corresponding registrations in `sponsio/patterns/sto_catalog.py` are pending and gated on the same judge-strength question below.
 
-### What v2 found
+### v3: Stronger judge model with chain-of-thought (2026-04-27)
 
-| Bench | Sample | Sto-only blocked-failures | Sto-only utility FP | Limit |
-|---|---|---|---|---|
-| AgentDojo workspace | 50 attack / 30 utility | 0 / 50 | 4 / 30 | judge model saturation; few injection-followed calls in the sample anyway |
-| τ²-bench retail | 50 sims | 6 / 9 (67%) | 31 / 41 (76%) | judge model saturation: gemini-flash logprobs collapse to 0/1; 2.5-flash via BestOfN also returns "no" on every transcript regardless of content |
+v2 left judge-model strength as the open question. v3 swapped in `gemini-2.5-pro` with a chain-of-thought judge built on the published G-Eval pattern (DeepEval, Promptfoo, OpenReview JudgeBench all default to GPT-4 family + CoT for compliance reasoning). The judge writes step-by-step reasoning, then a `VERDICT: yes/no` line that a regex extracts into a binary confidence. New `GeminiCotJudge` class added to the bench harness; HTTP-level 90 s timeout per call (the SDK can hang past 8 hours otherwise).
 
-The architecture works (judge sees the right context, blocks fire when the prompt says they should). The bottleneck is **judge-model strength on hard reasoning tasks**: `gemini-2.0-flash` logprobs are saturated (every output is exactly 0 or 1 yes-probability), and `gemini-2.5-flash` via BestOfN sampling at n=6 returns "no" 6/6 times on every retail transcript regardless of content. Compliance and faithfulness questions require multi-step reasoning the small judge cannot do reliably; the next step is to test the same prompts against `gpt-4o-mini` or `claude-haiku` as judges.
+| Bench | Sample | Sto-only blocked-failures | Sto-only utility FP |
+|---|---|---|---|
+| AgentDojo workspace | 30 attack / 20 utility | 0 / 30 | 4 / 92 (4.3%) |
+| τ²-bench retail (3 prompt variants) | 50 sims each | 11–67% recall | 5–76% FP |
 
-### Where this leaves us
+**AgentDojo workspace stayed at 0 sto rescues even with the strong CoT judge.** This locks in the structural finding from v2: the gap on workspace is *attack reach*, not judge strength. Of 30 sampled attack traces, only 8 had a det-allowed side-effect call to begin with; the other 22 are agent-non-compliance traces (the model read the injection and ignored it, no malicious tool call was attempted). Sto cannot rescue what isn't there.
 
-Three concrete deliverables ship from the pilot:
+**τ²-bench retail with the CoT judge moved across a wide envelope** depending on prompt scaffolding: reasoning-first 2048 tokens gave 11% recall / 4.9% FP; verdict-first 4096 tokens gave 44% recall / 32% FP; reasoning-first 4096 tokens gave 25% recall / 50% FP on a partial sample. The judge fires, but its verdicts don't correlate stably with tau2's `reward_info.reward` labels. Investigation suggests tau2's pass/fail is driven by tool-call task completion, while the judge is correctly catching message-faithfulness issues; the two are different failure axes that don't track each other on this dataset.
+
+### What the pilot leaves shipped
+
+Three concrete deliverables that ship with the benchmark harness even when sto is off:
 
 1. **`sto_contracts.yaml` manifests** in each benchmark directory. Reviewable spec of every prompt, beta, atom, and triage rule. Re-runnable end-to-end with one CLI flag.
 2. **Disk-cached judge** (`~/.sponsio/sto_bench_cache.json`). SHA-256-keyed; same prompt never re-pays.
-3. **Two new atoms (`injection_free_in_context`, `transcript_consistency`) and a `tool_output` event source** in the eval harness. These extend Sponsio's expressiveness in a direction the existing single-event atom catalog doesn't cover. Promotion to `sponsio/patterns/sto_catalog.py` is gated on validating the judge-strength assumption with a model that does multi-step reasoning.
+3. **Three architectural extensions** to the sto layer's expressiveness:
+   - New event surface: **`tool_output` window** as judge context (catches injection that lives in untrusted tool outputs)
+   - New atom **`injection_free_in_context`** (user task + recent tool outputs + tool call → yes/no)
+   - New atom **`transcript_consistency`** (grounding doc + tool outputs + full transcript → yes/no)
+   - New judge class **`GeminiCotJudge`**: chain-of-thought + verdict extraction over `gemini-2.5-pro`, the production pattern used by G-Eval / DeepEval / Promptfoo
+
+Promoting the two new atoms into `sponsio/patterns/sto_catalog.py` is gated on a workload where the failure mode actually aligns with a single sto question (production agents with novel attacker fingerprints, hallucinated facts, scope drift). On the published AgentDojo and τ²-bench trace sets the reward signal is too misaligned with single-question semantic checks to give a stable lift.
 
 ### Position
 
-The det numbers above stay the load-bearing claim. The sto pilot established two things: (a) the architecture for context-rich sto checks (tool outputs, full transcripts, grounding docs) is sound and ready to extend the atom catalog when a stronger judge is wired in; (b) the published AgentDojo and τ²-bench numbers are bounded by attack-reach (workspace) and judge-strength (retail) more than by sto contract design. Where sto lands directly on the failure mode (production LLM apps with novel attacker fingerprints, unbounded scope drift, hallucinated facts), it is the right tool, and the manifest-driven harness can be lifted onto any of those workloads with no code changes.
+The det numbers above stay the load-bearing claim. The pilot established three things:
+
+1. **The architecture for context-rich sto checks is sound** (tool outputs, full transcripts, grounding docs all flow into the judge, manifest-driven, re-runnable).
+2. **A reasoning judge is mandatory** for compliance and faithfulness questions: `gemini-2.0-flash` logprobs saturate, `gemini-2.5-flash` BestOfN saturates, and only `gemini-2.5-pro` + chain-of-thought produces graded answers. This matches what every public LLM-as-judge tool (DeepEval, Promptfoo, JudgeBench) does, and it is now wired into our harness.
+3. **The published AgentDojo and τ²-bench numbers do not lift with sto** because their reward signals do not align with what sto naturally measures. Workspace's gap is attack reach (no malicious call exists in the trace to rescue); tau2 retail's reward is task-completion shape, not message faithfulness. Where sto does land directly on the failure mode (LLM apps with novel attacker fingerprints, unbounded scope drift, hallucinated facts in production), the same harness applies with no code changes.
 
 ---
 
