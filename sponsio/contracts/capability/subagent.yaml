@@ -87,9 +87,18 @@ agents:
           args:
             - exec
             - command
-            - - "(?:^|[\\s;&|])git\\s+(commit|push|rebase|reset\\s+--hard|reflog|filter-branch)\\b"
-              - "(?:^|[\\s;&|])git\\s+\\S*\\s*--force\\b"
-              - "(?:^|[\\s;&|])git\\s+rm\\b"
+            # ``git\b[^|;&]*?\b<verb>\b`` matches the verb anywhere
+            # in the same shell command — defeats the
+            # ``git -c core.hooksPath=/dev/null commit`` bypass an
+            # earlier brittle ``git\s+commit`` regex missed.  The
+            # ``[^|;&]*?`` keeps us inside the same command (won't
+            # cross ``|``, ``;``, ``&`` so ``git status; cat
+            # commit.log`` still passes).
+            - - "(?:^|[\\s;&|])git\\b[^|;&]*?\\b(commit|push|rebase|reflog|filter-branch|filter-repo)\\b"
+              - "(?:^|[\\s;&|])git\\b[^|;&]*?\\breset\\b[^|;&]*?\\b--hard\\b"
+              - "(?:^|[\\s;&|])git\\b[^|;&]*?\\b--force\\b"
+              - "(?:^|[\\s;&|])git\\b[^|;&]*?\\b-f\\b"
+              - "(?:^|[\\s;&|])git\\b[^|;&]*?\\brm\\b"
           source: "library:tier1.subagent"
 
       # =================================================================
