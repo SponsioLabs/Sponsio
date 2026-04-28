@@ -75,7 +75,7 @@ def config_path(tmp_path):
 
 
 def test_bench_default_prints_table(config_path):
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     result = runner.invoke(
         cli,
         [
@@ -101,7 +101,7 @@ def test_bench_default_prints_table(config_path):
 def test_bench_json_has_required_keys(config_path):
     """--json output is a stable contract: the CI perf-diff script
     reads these exact keys and will break if they rename."""
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     result = runner.invoke(
         cli,
         [
@@ -143,7 +143,7 @@ def test_bench_json_has_required_keys(config_path):
 def test_bench_warmup_discarded_from_summary(config_path):
     """After ``--warmup N``, the reported bucket count should
     reflect the post-warmup iterations, not warmup + iterations."""
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     result = runner.invoke(
         cli,
         [
@@ -168,7 +168,7 @@ def test_bench_rotates_through_provided_actions(config_path, tmp_path):
     """--actions list must be what drives the rotation; the
     tools: inventory is secondary.  We verify by using a tool
     name that DOESN'T appear in tools: — it should still work."""
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     result = runner.invoke(
         cli,
         [
@@ -194,7 +194,7 @@ def test_bench_rotates_through_provided_actions(config_path, tmp_path):
 
 
 def test_bench_missing_config_errors_early(tmp_path):
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     result = runner.invoke(
         cli,
         ["bench", str(tmp_path / "nope.yaml")],
@@ -213,7 +213,7 @@ def test_bench_multi_agent_without_flag_errors(tmp_path):
     refuse rather than silently benching a random one."""
     p = tmp_path / "multi.yaml"
     p.write_text(MULTI_AGENT_YAML)
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     result = runner.invoke(
         cli,
         ["bench", str(p), "-n", "10", "--warmup", "0", "--actions", "x"],
@@ -225,7 +225,7 @@ def test_bench_multi_agent_without_flag_errors(tmp_path):
 def test_bench_unknown_agent_errors(tmp_path):
     p = tmp_path / "multi.yaml"
     p.write_text(MULTI_AGENT_YAML)
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     result = runner.invoke(
         cli,
         [
@@ -246,7 +246,7 @@ def test_bench_unknown_agent_errors(tmp_path):
 
 
 def test_bench_empty_actions_errors(config_path):
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     result = runner.invoke(
         cli,
         [
@@ -268,7 +268,7 @@ def test_bench_no_actions_falls_back_to_extracted_tools(config_path):
     """Without --actions we should rotate through the ``tools:``
     inventory.  The config declares two tools, so the bench should
     pick both up."""
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     result = runner.invoke(
         cli,
         [

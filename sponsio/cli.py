@@ -3923,8 +3923,6 @@ def plugin_init(root: Path | None, force: bool, no_smoke_test: bool):
     # one or the other at runtime based on the hook payload's ``host``
     # field — see :mod:`sponsio.guard_stdin`.  Operators get useful
     # defaults whichever host plugin they install first.
-    wrote_any = False
-    skipped_existing_target = False
     primary_target: Path | None = None  # for smoke test
 
     for lib_name in ("_host", "_host_openclaw"):
@@ -3945,14 +3943,11 @@ def plugin_init(root: Path | None, force: bool, no_smoke_test: bool):
             click.echo(
                 f"{target} already exists. Re-run with --force to overwrite."
             )
-            if lib_name == "_host":
-                skipped_existing_target = True
             continue
 
         target_dir.mkdir(parents=True, exist_ok=True)
         target.write_text(src_text, encoding="utf-8")
         click.secho(f"✓ wrote {target}", fg="green")
-        wrote_any = True
         if lib_name == "_host":
             primary_target = target
 
@@ -4393,7 +4388,7 @@ def plugin_scan(
                 f"plugin_id={result.manifest.plugin_id}) ==="
             )
             click.echo("# JSON below is parsable by the host agent for the")
-            click.echo(f"# contract-extraction prompt at:")
+            click.echo("# contract-extraction prompt at:")
             click.echo(f"#     sponsio plugin prompt {target_host}")
             tools_json = [
                 {
