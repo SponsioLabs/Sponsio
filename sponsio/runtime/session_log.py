@@ -35,7 +35,24 @@ if TYPE_CHECKING:
     from sponsio.runtime.monitor import MonitorEvent
 
 
-DEFAULT_BASE_DIR = Path.home() / ".sponsio" / "sessions"
+def _resolve_default_base_dir() -> Path:
+    """Resolve the session-log base dir, honouring the env override.
+
+    ``SPONSIO_SESSIONS_DIR`` (if set) takes precedence over the
+    user-home default.  Used by tests + ops setups that want
+    sandboxed traces (e.g. ``sponsio refresh --emit-traces`` against
+    a CI-staged log directory).  Resolved per-import — set the env
+    before launching the sponsio process.
+    """
+    import os as _os
+
+    override = _os.environ.get("SPONSIO_SESSIONS_DIR")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".sponsio" / "sessions"
+
+
+DEFAULT_BASE_DIR = _resolve_default_base_dir()
 DEFAULT_KEEP_DAYS = 7
 DEFAULT_MAX_MB = 100
 

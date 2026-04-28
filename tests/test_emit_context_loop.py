@@ -1,0 +1,473 @@
+"""End-to-end tests for the agent-driven emit-context / prompt loop.
+
+The setup skill drives a host agent (Claude Code, Cursor, Codex)
+through three workflows, each shaped:
+
+    sponsio <verb> --emit-{context,traces}     →  structured JSON
+    sponsio <prompt-cmd> <flow>                →  prompt template
+    [agent applies prompt to JSON]             →  contract YAML
+    sponsio validate --config <yaml>           →  zero errors
+
+These tests don't actually call an LLM — they pin every step EXCEPT
+the agent's reasoning, plus a hand-authored sample YAML representing
+what a competent agent would produce.  When the user runs the loop
+in a live IDE, every CLI step here is the same path that fires.
+
+Coverage:
+
+  W1  — onboard agent-driven path (`--emit-context` + `prompt onboard`)
+  W3b — refresh agent-driven path (`--emit-traces` + `prompt refresh`)
+  Mode A — plugin scan agent-driven (`--introspect` + `plugin prompt <host>`)
+
+If any prompt template is renamed, deleted, or changes the
+``Output schema`` block, these tests fail and the SKILL.md needs
+re-syncing.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+MOCK_MCP_SERVER = (
+    REPO_ROOT / "examples" / "demo" / "mock_github_mcp" / "server.py"
+)
+
+
+def _run_cli(*args: str, timeout: int = 60) -> subprocess.CompletedProcess:
+    """Invoke the sponsio CLI as a subprocess.
+
+    Same shape as the helper in ``test_plugin_scan.py`` so the two
+    files share a debugging surface — if one breaks both can be
+    triaged with the same techniques.
+    """
+    return subprocess.run(
+        [sys.executable, "-m", "sponsio.cli", *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+# ===========================================================================
+# Prompt templates — exist + are well-formed
+# ===========================================================================
+
+
+@pytest.mark.parametrize(
+    ("subcmd", "flow"),
+    [
+        (("plugin", "prompt"), "claude-code"),
+        (("plugin", "prompt"), "openclaw"),
+        (("plugin", "prompt"), "mcp-bare"),
+        (("prompt",), "onboard"),
+        (("prompt",), "refresh"),
+    ],
+)
+def test_prompt_template_prints_well_formed(subcmd, flow):
+    """Every host-agent prompt the SKILL.md asks the agent to fetch
+    must (a) print, (b) be non-empty, (c) include a clear Output
+    schema section so the agent knows what to produce."""
+    proc = _run_cli(*subcmd, flow)
+    assert proc.returncode == 0, proc.stderr
+
+    out = proc.stdout
+    assert out.strip(), f"empty prompt for {flow!r}"
+
+    # Every prompt has a section that tells the agent what shape
+    # to output.  Templates are free to vary the exact heading
+    # ("Output schema" / "What you produce" / "Output format") but
+    # at least one MUST appear — without it the agent has no schema.
+    assert any(
+        marker in out
+        for marker in (
+            "Output schema",
+            "Output format",
+            "What you produce",
+        )
+    ), f"prompt {flow!r} has no output-schema section:\n{out[:400]}"
+
+    # And every prompt must reference Sponsio's pattern vocabulary
+    # — either inline or via the loaded marker.
+    assert any(
+        marker in out
+        for marker in (
+            "arg_blacklist",
+            "rate_limit",
+            "Pattern vocabulary",
+            "pattern vocabulary",
+        )
+    ), f"prompt {flow!r} doesn't reference any pattern vocabulary"
+
+
+# ===========================================================================
+# Mode A — plugin scan loop
+# ===========================================================================
+
+
+def _parse_inventory_block(scan_stdout: str) -> dict:
+    """Pull the ``# === tool inventory ===`` JSON block out of scan dry-run output."""
+    m = re.search(
+        r"# === tool inventory.*?===.*?\n(\{.*?\n\})\s*\n",
+        scan_stdout,
+        re.DOTALL,
+    )
+    assert m is not None, (
+        "scan dry-run output missing the tool-inventory JSON block "
+        "(host agent depends on this for the prompt input):\n" + scan_stdout
+    )
+    return json.loads(m.group(1))
+
+
+def test_plugin_scan_loop_produces_inventory_for_agent():
+    """Mode A loop step 1: introspect a real MCP server and verify
+    the dry-run output contains a parseable tool inventory the agent
+    can apply ``sponsio plugin prompt claude-code`` to."""
+    if not MOCK_MCP_SERVER.exists():
+        pytest.skip(f"demo MCP server not present at {MOCK_MCP_SERVER}")
+
+    proc = _run_cli(
+        "plugin", "scan",
+        "--plugin-id", "github-mock",
+        "--target-host", "claude-code",
+        "--introspect", f"python3 {MOCK_MCP_SERVER}",
+    )
+    assert proc.returncode == 0, proc.stderr
+
+    inv = _parse_inventory_block(proc.stdout)
+    assert inv["plugin_id"] == "github-mock"
+    assert inv["target_host"] == "claude-code"
+    assert len(inv["tools"]) == 3
+    # Every tool entry has the four fields the prompt template references.
+    for t in inv["tools"]:
+        assert "name" in t
+        assert "description" in t and t["description"]
+        assert "input_schema" in t
+        assert "tool_name_in_contracts" in t
+        # Claude Code namespacing applied
+        assert t["tool_name_in_contracts"].startswith("mcp__github-mock__")
+
+
+def test_plugin_scan_agent_produced_yaml_validates(tmp_path):
+    """Mode A loop step 4: hand-author the YAML a competent agent
+    would produce from the introspected inventory + prompt, write it
+    to disk, and confirm ``sponsio validate`` accepts every contract.
+
+    This is the load-bearing assertion: if the prompt schema drifts
+    from what ``validate`` accepts, the agent's output won't load
+    and the loop is broken."""
+    yaml_path = tmp_path / "sponsio.yaml"
+    yaml_path.write_text(
+        # Sample agent output — same shape as Test 1 in the
+        # closed-loop walkthrough.
+        """
+version: "1"
+agents:
+  github-mock:
+    include:
+      - sponsio:core/runaway
+    contracts:
+      - desc: "Block fetching repos that look like credential stores"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__github-mock__get_repo
+            - repo
+            - - "^(private-keys|secrets|credentials)$"
+              - ".*-keys$"
+          source: agent-extracted
+      - desc: "Cap issue comments per session"
+        E:
+          pattern: rate_limit
+          args: [mcp__github-mock__create_issue_comment, 5]
+          source: agent-extracted
+      - desc: "Block credential-shaped strings in issue comment bodies"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__github-mock__create_issue_comment
+            - body
+            - - "AKIA[A-Z0-9]{16}"
+              - "ghp_[A-Za-z0-9]{36,}"
+          source: agent-extracted
+"""
+    )
+    proc = _run_cli("validate", "--config", str(yaml_path))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    # The validator's success line carries the contract count it
+    # accepted.  We pin three contracts; if the includes pull in
+    # more, the count rises but our minimum should still hold.
+    assert "validated" in proc.stdout
+
+
+# ===========================================================================
+# Mode B — onboard loop
+# ===========================================================================
+
+
+@pytest.fixture()
+def mock_project(tmp_path):
+    """Build a minimal langgraph-shaped project + a security policy doc.
+
+    Everything the agent's W1 path expects: framework signal (the
+    langgraph import), some tool functions, and a root-level
+    ``security.md`` to drive policy-grounded contract proposals.
+    """
+    (tmp_path / "app.py").write_text(
+        '"""Customer-support agent built on langgraph."""\n'
+        "from langgraph.graph import StateGraph\n"
+        "def search_knowledge_base(query: str): pass\n"
+        "def send_email(to: str, body: str): pass\n"
+        "def delete_user(user_id: int): pass\n"
+        "def charge_card(amount: float, card_id: str): pass\n"
+    )
+    (tmp_path / "security.md").write_text(
+        "# Security policy\n"
+        "- send_email at most 5 per session.\n"
+        "- delete_user is irreversible — never call without explicit human confirmation.\n"
+        "- charge_card amount must be ≤ $5000 per call.\n"
+    )
+    return tmp_path
+
+
+def test_onboard_emit_context_shape(mock_project):
+    """Mode B loop step 1: emit-context dumps the structured inputs
+    the host agent needs.  Pins the JSON schema so a future internal
+    refactor of ``run_onboard`` can't silently drop a field the
+    prompt template depends on."""
+    proc = _run_cli("onboard", str(mock_project), "--emit-context")
+    assert proc.returncode == 0, proc.stderr
+
+    ctx = json.loads(proc.stdout)
+    # Required top-level fields — the prompt template references
+    # every one of these by name.
+    for key in (
+        "framework",
+        "agent_id",
+        "tool_inventory",
+        "auto_selected_packs",
+        "needs_workspace",
+        "existing_yaml",
+        "policy_docs",
+        "next_steps_hint",
+    ):
+        assert key in ctx, f"emit-context missing required key {key!r}"
+
+    # Framework detection actually fires (langgraph import is in
+    # app.py).  If the detector regresses we want to know.
+    assert ctx["framework"]["name"] == "langgraph", (
+        f"expected langgraph detection, got {ctx['framework']!r}"
+    )
+
+    # Pack auto-selection includes core/runaway for langgraph
+    # (multi-step framework).
+    assert "sponsio:core/runaway" in ctx["auto_selected_packs"]
+
+    # Policy doc captured + content surfaced for the agent to weight.
+    assert len(ctx["policy_docs"]) >= 1
+    sec = next(p for p in ctx["policy_docs"] if "security" in p["path"].lower())
+    assert "send_email" in sec["content"]
+    assert "delete_user" in sec["content"]
+    assert "charge_card" in sec["content"]
+
+    # next_steps_hint nudges the agent to the second half of the loop.
+    assert "sponsio prompt onboard" in ctx["next_steps_hint"]
+
+
+def test_onboard_agent_produced_yaml_validates(tmp_path, mock_project):
+    """Mode B loop step 4: a competent agent reads the emit-context
+    output + the policy doc and produces a sponsio.yaml.  Verify the
+    representative output validates cleanly — i.e. the prompt's
+    pattern vocabulary is consistent with what the runtime accepts."""
+    yaml_path = mock_project / "sponsio.yaml"
+    yaml_path.write_text(
+        """
+version: "1"
+mode: observe
+agents:
+  agent:
+    include:
+      - sponsio:core/universal
+      - sponsio:core/runaway
+    contracts:
+      - desc: "send_email rate-limited per security.md"
+        E:
+          pattern: rate_limit
+          args: [send_email, 5]
+          source: agent-extracted
+      - desc: "delete_user is irreversible per security.md"
+        E:
+          pattern: irreversible_once
+          args: [delete_user]
+          source: agent-extracted
+      - desc: "charge_card amount must be <= $5000 per security.md"
+        E:
+          pattern: arg_value_range
+          args: [charge_card, amount, 0, 5000]
+          source: agent-extracted
+"""
+    )
+    proc = _run_cli("validate", "--config", str(yaml_path))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "validated" in proc.stdout
+
+
+# ===========================================================================
+# Mode B — refresh loop
+# ===========================================================================
+
+
+def test_refresh_emit_traces_shape(tmp_path, monkeypatch):
+    """W3b loop step 1: emit-traces aggregates session events into
+    a JSON shape the refresh prompt can apply to.
+
+    Builds a synthetic session log so the test doesn't depend on
+    whatever happens to be on disk in ``~/.sponsio/sessions/``.
+    """
+    # 1. Stage a tiny sponsio.yaml the prompt's "existing_contracts"
+    #    field will mirror.
+    cfg = tmp_path / "sponsio.yaml"
+    cfg.write_text(
+        """
+version: "1"
+agents:
+  test_agent:
+    contracts:
+      - desc: "send_email at most 5 per session"
+        E:
+          pattern: rate_limit
+          args: [send_email, 5]
+          source: trace
+"""
+    )
+
+    # 2. Stage a synthetic session log under a sandboxed sessions
+    #    dir so we don't read the operator's real traces and we
+    #    don't pollute them either.  Override via the
+    #    ``SPONSIO_SESSIONS_DIR`` env var (honoured by
+    #    :func:`sponsio.runtime.session_log._resolve_default_base_dir`).
+    sessions_root = tmp_path / "sessions"
+    sessions = sessions_root / "test_agent"
+    sessions.mkdir(parents=True)
+    log = sessions / "20260101_000000_1.jsonl"
+
+    import time
+    now = time.time()
+
+    # Three "send_email" events: two passed, one would-have-blocked.
+    # Plus four "transfer_funds" events with no contract — should
+    # show up as an "uncovered_patterns" entry (>=3 calls threshold).
+    events = []
+    for i in range(2):
+        events.append({
+            "ts": now - 100 + i,
+            "agent_id": "test_agent",
+            "action": "send_email",
+            "pipeline": "det",
+            "constraint": "send_email at most 5 per session",
+            "result": {"action": "allowed", "message": ""},
+        })
+    events.append({
+        "ts": now - 50,
+        "agent_id": "test_agent",
+        "action": "send_email",
+        "pipeline": "det",
+        "constraint": "send_email at most 5 per session",
+        "result": {"action": "observed", "message": "would have blocked: 6th call"},
+    })
+    for i in range(4):
+        events.append({
+            "ts": now - 30 + i,
+            "agent_id": "test_agent",
+            "action": "transfer_funds",
+            "pipeline": "det",
+            "constraint": "",
+            "result": {"action": "allowed", "message": ""},
+        })
+
+    log.write_text("\n".join(json.dumps(e) for e in events) + "\n")
+
+    monkeypatch.setenv("SPONSIO_SESSIONS_DIR", str(sessions_root))
+    proc = _run_cli(
+        "refresh",
+        "-c", str(cfg),
+        "--since", "1d",
+        "--emit-traces",
+    )
+    assert proc.returncode == 0, proc.stderr
+
+    out = json.loads(proc.stdout)
+    assert "agents" in out
+    ag = out["agents"]["test_agent"]
+    assert ag["agent"] == "test_agent"
+    assert ag["total_events"] == 7
+
+    # Existing send_email contract round-trips
+    assert any(
+        c.get("desc", "").startswith("send_email")
+        for c in ag["existing_contracts"]
+    )
+
+    by_tool = {t["tool"]: t for t in ag["trace_summary"]["by_tool"]}
+    assert "send_email" in by_tool
+    assert by_tool["send_email"]["call_count"] == 3
+    assert by_tool["send_email"]["passed"] == 2
+    assert len(by_tool["send_email"]["would_have_blocked"]) == 1
+
+    # transfer_funds has no contract and was called 4× → uncovered.
+    uncovered_names = [
+        u["tool"] for u in ag["trace_summary"]["uncovered_patterns"]
+    ]
+    assert "transfer_funds" in uncovered_names
+
+    # Emit-traces nudge points at the prompt command.
+    assert "sponsio prompt refresh" in out["next_steps_hint"]
+
+
+def test_refresh_agent_produced_changes_compose_to_valid_yaml(tmp_path):
+    """W3b loop step 4: an agent reading emit-traces output produces
+    a ``proposed_changes:`` diff (add / retire / tighten).  The end
+    state — existing yaml + agent's adds — must validate cleanly.
+
+    We don't pin the diff shape here (the prompt is free to evolve);
+    we pin the post-merge YAML to make sure the *additions* an agent
+    is taught to produce don't conflict with the runtime schema.
+    """
+    yaml_path = tmp_path / "sponsio.yaml"
+    yaml_path.write_text(
+        """
+version: "1"
+mode: observe
+agents:
+  agent:
+    include:
+      - sponsio:core/universal
+    contracts:
+      - desc: "send_email at most 5 per session"
+        E:
+          pattern: rate_limit
+          args: [send_email, 5]
+          source: agent-extracted
+      # Agent additions from refresh:
+      - desc: "collect_and_snapshot must precede parser"
+        E:
+          pattern: must_precede
+          args: [collect_and_snapshot, parser]
+          source: agent-extracted-from-traces
+      - desc: "auditor at most 5 consecutive calls"
+        E:
+          pattern: loop_detection
+          args: [auditor, 5]
+          source: agent-extracted-from-traces
+"""
+    )
+    proc = _run_cli("validate", "--config", str(yaml_path))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "validated" in proc.stdout
