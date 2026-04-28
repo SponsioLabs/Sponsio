@@ -37,26 +37,42 @@ sponsio --version
 
 ## W1 — Initial setup
 
-Goal: from "project has no Sponsio" to "agent runs under observe mode with a sane contract file", in one command.
+Goal: from "project has no Sponsio" to "agent runs under observe mode with a sane contract file".
 
-### Steps
+### Two paths — pick by who's driving
 
-1. Run the one-shot entry point:
+**Path A — agent-driven (recommended when YOU are running inside an IDE).**
+You (the host agent) ARE the LLM the contract-mining prompt is written for, so there's no reason to make sponsio call a separate API for it. Use this path when you're in Cursor / Claude Code / Codex.
 
-   ```bash
-   sponsio onboard . --apply
-   ```
+```bash
+# 1. Get the structured inputs (no LLM call, no API key required)
+sponsio onboard <path> --emit-context
 
-   `onboard` detects framework (langgraph / langchain / crewai / openai_agents / claude_agent / vercel-ai / no-framework), picks an LLM provider if available, auto-selects contract packs (see "Auto-selected packs" below), writes `sponsio.yaml` in **observe** mode, and with `--apply` patches the agent entry file with a two-line wrap (backup at `.sponsio.bak`). Falls back to printing the patch snippet if the framework isn't auto-patchable.
+# 2. Get the prompt template
+sponsio prompt onboard
+```
 
-2. After `onboard` finishes, show the user three things — do not skip any:
-   - The generated `sponsio.yaml` (read it back and summarize: packs included, tools renamed, mode).
-   - The applied patch (from `report.apply_result.diff`) or the printed snippet.
-   - Any `sponsio doctor` warn/fail lines.
+The `--emit-context` JSON has: framework detection, AST-extracted tool inventory, auto-selected packs, any existing `sponsio.yaml`, and any root-level `security.md` / `policy.md` content. You apply the prompt to that JSON in your own context, produce a `sponsio.yaml`, and write it via Edit/Write. Then run `sponsio doctor` to verify.
 
-3. Explain observe mode explicitly: "Nothing is blocked on day 1. Every contract is still evaluated; violations are logged to `~/.sponsio/sessions/<agent_id>/*.jsonl` and (if a dashboard is configured) pushed there. Use `sponsio report --since 24h` after a day of real traffic to see what would have been blocked."
+**Path B — CLI-driven (recommended for CI / batch / no-agent-in-loop).**
+Single command; relies on a configured LLM provider env var (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY`).
 
-4. If `sponsio doctor` failed (not warned, failed), stop and surface it — don't let the user run their agent thinking the install is healthy when it isn't.
+```bash
+sponsio onboard . --apply
+```
+
+`onboard` detects framework, picks an LLM provider, auto-selects packs, writes `sponsio.yaml` in **observe** mode, and with `--apply` patches the agent entry file with a two-line wrap (backup at `.sponsio.bak`).
+
+### After either path
+
+Show the user three things — do not skip any:
+- The generated `sponsio.yaml` (read it back and summarize: packs included, tools renamed, mode).
+- The applied entry-file patch (from `report.apply_result.diff`) or the printed snippet.
+- Any `sponsio doctor` warn/fail lines.
+
+Explain observe mode explicitly: "Nothing is blocked on day 1. Every contract is still evaluated; violations are logged to `~/.sponsio/sessions/<agent_id>/*.jsonl` and (if a dashboard is configured) pushed there. Use `sponsio report --since 24h` after a day of real traffic to see what would have been blocked."
+
+If `sponsio doctor` failed (not warned, failed), stop and surface it — don't let the user run their agent thinking the install is healthy when it isn't.
 
 ### Auto-selected packs
 
@@ -221,7 +237,25 @@ Goal: treat `sponsio.yaml` as a **living library**, not a one-shot output. As re
 - After a material behavior change (new tools, new workflow, new integration).
 - Before flipping to enforce (W4) — catches late-arriving trace-sourced rules that weren't present in the original scan.
 
-### Steps
+### Two paths — same split as W1
+
+**Path A — agent-driven (recommended when YOU are running inside an IDE).**
+You read recent trace summaries and propose deltas in your own context. No extra API key, the user reviews changes in the same conversation.
+
+```bash
+# 1. Get the trace summary as JSON (no LLM, no API key)
+sponsio refresh -c sponsio.yaml --since 7d --emit-traces
+
+# 2. Get the prompt template
+sponsio prompt refresh
+```
+
+The `--emit-traces` JSON has, per agent: existing contracts, total event count, per-tool call counts with `blocked` / `would_have_blocked` / `passed` breakdowns, and an `uncovered_patterns` list (tools called ≥3× with no contract covering them). Apply the prompt; output a `proposed_changes:` YAML block for the user to review.
+
+When the user agrees, hand-edit the changes into `sponsio.yaml` (or, for `add` proposals only, run `sponsio refresh --apply` which mines + writes via the deterministic path — useful when changes are mostly additions).
+
+**Path B — CLI-driven (recommended for CI / batch / scheduled refresh).**
+Single-command path; relies on a configured LLM provider env var.
 
 1. Dry-run first. Always.
 

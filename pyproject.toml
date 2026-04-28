@@ -109,6 +109,11 @@ sponsio = [
     # reason over the tool inventory using its own LLM context — no
     # separate API call needed from the CLI.
     "plugin/prompts/*.md",
+    # Workflow prompt templates (onboard / refresh).  ``sponsio prompt
+    # <flow>`` prints these for the host agent driving the ``sponsio``
+    # skill — pair with ``sponsio onboard --emit-context`` or
+    # ``sponsio refresh --emit-traces``.
+    "prompts/*.md",
     # Agent Skills (Cursor / Claude Code / Codex).  Bundled so
     # ``sponsio skill install`` can locate the canonical source after
     # a pip install — see `sponsio.cli::skill_install`.  Keep the nested

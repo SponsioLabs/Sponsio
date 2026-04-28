@@ -3042,6 +3042,20 @@ def init(
     show_default=True,
     help="Forwarded to trace mining — minimum confidence for sequence rules.",
 )
+@click.option(
+    "--emit-traces",
+    "emit_traces",
+    is_flag=True,
+    default=False,
+    help=(
+        "Skip the LLM mining step and instead emit the trace summary "
+        "as JSON to stdout: per-rule fire counts, would-have-blocked "
+        "samples, uncovered-tool patterns, plus the existing contract "
+        "library.  Used by the host agent driving the ``sponsio`` "
+        "skill's W3b workflow: pair with ``sponsio prompt refresh`` "
+        "and apply in the agent's own LLM context — no extra API key."
+    ),
+)
 def refresh(
     config_path: Path,
     agent: str | None,
@@ -3051,6 +3065,7 @@ def refresh(
     apply_changes: bool,
     trace_min_support: int,
     trace_confidence_threshold: float,
+    emit_traces: bool,
 ):
     """Re-mine contracts from recent traces and merge into sponsio.yaml.
 
@@ -3124,6 +3139,91 @@ def refresh(
         target_agents = [agent]
     else:
         target_agents = list(agents_cfg.keys())
+
+    # ---- agent-driven path: dump trace summary, skip mining --------------
+    # The host agent driving the ``sponsio`` skill's W3b workflow uses
+    # this to feed a refresh prompt directly without burning a separate
+    # LLM call inside CodeAnalyzer.  Aggregation here is intentionally
+    # cheap — read JSONL events via ``load_events``, group by tool +
+    # outcome, sample a few per group.  The agent does the actual
+    # reasoning over the summary.
+    if emit_traces:
+        from sponsio.reporting.reader import load_events
+
+        per_agent: dict[str, dict] = {}
+        for agent_id in target_agents:
+            events = list(load_events(since=since, agent=agent_id))
+
+            by_tool: dict[str, dict] = {}
+            for ev in events:
+                tname = ev.action
+                if not tname:
+                    continue
+                slot = by_tool.setdefault(tname, {
+                    "tool": tname,
+                    "call_count": 0,
+                    "blocked": [],
+                    "would_have_blocked": [],
+                    "passed": 0,
+                })
+                slot["call_count"] += 1
+                if ev.is_blocked:
+                    slot["blocked"].append({
+                        "rule": ev.constraint,
+                        "message": ev.result_message,
+                        "ts": ev.ts,
+                    })
+                elif ev.is_observed:
+                    slot["would_have_blocked"].append({
+                        "rule": ev.constraint,
+                        "message": ev.result_message,
+                        "ts": ev.ts,
+                    })
+                elif ev.is_pass:
+                    slot["passed"] += 1
+
+            existing_contracts = list(
+                (agents_cfg.get(agent_id) or {}).get("contracts") or []
+            )
+            existing_tool_names: set[str] = set()
+            for c in existing_contracts:
+                if isinstance(c, dict):
+                    e_block = c.get("E") or {}
+                    e_args = e_block.get("args") or []
+                    if (
+                        isinstance(e_args, list)
+                        and e_args
+                        and isinstance(e_args[0], str)
+                    ):
+                        existing_tool_names.add(e_args[0])
+
+            uncovered = [
+                slot for tname, slot in by_tool.items()
+                if tname not in existing_tool_names and slot["call_count"] >= 3
+            ]
+
+            per_agent[agent_id] = {
+                "agent": agent_id,
+                "since": since,
+                "total_events": len(events),
+                "existing_contracts": existing_contracts,
+                "trace_summary": {
+                    "by_tool": list(by_tool.values()),
+                    "uncovered_patterns": uncovered,
+                },
+            }
+
+        click.echo(json.dumps({
+            "config_path": str(config_path),
+            "agents": per_agent,
+            "next_steps_hint": (
+                "Run ``sponsio prompt refresh`` to get the prompt "
+                "template, apply it to this JSON in your own LLM "
+                "context, output a proposed_changes diff for the "
+                "user to review and apply."
+            ),
+        }, indent=2, ensure_ascii=False, default=str))
+        return
 
     # Resolve trace paths per agent.  Explicit --trace wins for ALL
     # agents; otherwise each agent gets its own session-log directory.
@@ -3683,6 +3783,20 @@ _BENCH_STOPWORDS = {
     help="Emit the structured OnboardReport as JSON instead of text.",
 )
 @click.option(
+    "--emit-context",
+    "emit_context",
+    is_flag=True,
+    default=False,
+    help=(
+        "Skip the LLM step and instead emit the structured inputs "
+        "(framework / tool inventory / auto-selected packs / existing "
+        "yaml / discovered policy docs) as JSON to stdout. Used by the "
+        "host agent driving the ``sponsio`` skill: pair with "
+        "``sponsio prompt onboard`` and apply in the agent's own LLM "
+        "context — no UnifiedExtractor call, no extra API key."
+    ),
+)
+@click.option(
     "--push/--no-push",
     default=False,
     help=(
@@ -3706,6 +3820,7 @@ def onboard(
     apply: bool,
     no_doctor: bool,
     as_json: bool,
+    emit_context: bool,
     push: bool,
     push_url: str,
 ):
@@ -3738,8 +3853,84 @@ def onboard(
     from sponsio.onboard import OnboardReport, run_onboard
 
     def _progress(msg: str) -> None:
-        if not as_json:
+        if not as_json and not emit_context:
             click.echo(click.style("· ", fg="cyan", dim=True) + msg, err=True)
+
+    # ---- agent-driven path: dump inputs, skip LLM step ------------------
+    # ``--emit-context`` runs the deterministic stages (framework /
+    # provider / AST tool inventory / pack selection) and stops short of
+    # the LLM contract-mining inside CodeAnalyzer.generate_yaml.  The
+    # host agent picks up where we leave off using ``sponsio prompt
+    # onboard``.
+    if emit_context:
+        target_path = Path(target)
+        if target_path.suffix in {".yaml", ".yml"}:
+            root = target_path.parent or Path(".")
+            existing_yaml_path = target_path
+        else:
+            root = target_path
+            existing_yaml_path = target_path / "sponsio.yaml"
+
+        from sponsio.discovery.extractors.code_analysis import CodeAnalyzer
+        from sponsio.onboard import detect_framework, select_packs
+
+        framework = detect_framework(root)
+        # AST-only — explicit ``use_llm=False`` so this path never
+        # reads any provider env var.
+        analyzer = CodeAnalyzer(use_llm=False)
+        tool_inventory = analyzer.get_tool_inventory([str(root)]) or []
+        pack_selection = select_packs(framework.framework, tool_inventory)
+
+        existing_yaml_text = ""
+        if existing_yaml_path.exists():
+            try:
+                existing_yaml_text = existing_yaml_path.read_text(encoding="utf-8")
+            except OSError:
+                pass
+
+        # Surface common policy docs the agent should weight in the
+        # extraction.  Conservative search — root-level only, by
+        # convention — to avoid pulling in unrelated repo prose.  Dedup
+        # by inode so case-insensitive filesystems (macOS HFS+) don't
+        # report ``security.md`` and ``SECURITY.md`` twice.
+        policy_docs = []
+        seen_inodes: set[tuple[int, int]] = set()
+        for candidate in ("security.md", "SECURITY.md", "policy.md", "POLICY.md"):
+            p = root / candidate
+            if not p.is_file():
+                continue
+            try:
+                stat = p.stat()
+                key = (stat.st_dev, stat.st_ino)
+                if key in seen_inodes:
+                    continue
+                seen_inodes.add(key)
+                policy_docs.append({
+                    "path": str(p.relative_to(root)),
+                    "content": p.read_text(encoding="utf-8"),
+                })
+            except OSError:
+                pass
+
+        click.echo(json.dumps({
+            "framework": {
+                "name": framework.framework,
+                "evidence": framework.evidence,
+            },
+            "agent_id": agent_id,
+            "tool_inventory": tool_inventory,
+            "auto_selected_packs": list(pack_selection.packs),
+            "needs_workspace": pack_selection.needs_workspace,
+            "existing_yaml": existing_yaml_text,
+            "policy_docs": policy_docs,
+            "next_steps_hint": (
+                "Run ``sponsio prompt onboard`` to get the prompt "
+                "template, apply it to this JSON in your own LLM "
+                "context, then write the resulting YAML to "
+                f"{existing_yaml_path} via Edit/Write."
+            ),
+        }, indent=2, ensure_ascii=False))
+        return
 
     try:
         report: OnboardReport = run_onboard(
@@ -3848,6 +4039,52 @@ def onboard(
         "  # after a day or two of real traffic, flip `mode: enforce` in sponsio.yaml"
     )
     click.echo()
+
+
+# ---------------------------------------------------------------------------
+# `sponsio plugin ...` — host-plugin runtime adapter
+# ---------------------------------------------------------------------------
+# `sponsio prompt <flow>` — workflow prompts for host-agent driving
+# ---------------------------------------------------------------------------
+#
+# Counterpart to ``sponsio plugin prompt <host>``: prints the agent-facing
+# extraction prompt for a top-level workflow (``onboard`` / ``refresh``).
+# The setup skill at ``sponsio/skills/sponsio/SKILL.md`` calls this so the
+# host agent (Claude Code, Cursor, Codex) can apply the prompt in its own
+# LLM context against the JSON emitted by ``sponsio onboard --emit-context``
+# or ``sponsio refresh --emit-traces``.
+
+
+@cli.command(name="prompt")
+@click.argument(
+    "flow",
+    type=click.Choice(["onboard", "refresh"]),
+)
+def cmd_prompt(flow: str):
+    """Print the agent-facing prompt template for a sponsio workflow.
+
+    Used by the ``sponsio`` skill (``W1`` — initial setup, ``W3b`` —
+    refresh from traces) to drive the host agent through contract
+    authoring without burning a separate LLM API call.
+
+    Pair with the corresponding ``--emit-*`` flag:
+
+    \b
+        sponsio onboard . --emit-context     # structured input for prompt
+        sponsio prompt onboard               # the prompt itself
+
+    \b
+        sponsio refresh sponsio.yaml --emit-traces
+        sponsio prompt refresh
+
+    The agent reads both, applies the prompt to the JSON in its own
+    context, and writes the result via Edit/Write.  No
+    ``UnifiedExtractor`` / API key needed for this path.
+    """
+    from importlib.resources import files
+
+    pkg = files("sponsio.prompts")
+    click.echo(pkg.joinpath(f"{flow}.md").read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------------------
