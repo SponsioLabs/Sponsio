@@ -10,16 +10,111 @@
 # After installing the sponsio-claude-code plugin, copy this file (and
 # any sibling per-plugin libraries) into ``~/.sponsio/plugins/_host/``
 # to activate.  Override individual rules with ``overrides:``.
+#
+# Note on tool names + params:
+#   The shared `sponsio:capability/filesystem` pack uses canonical names
+#   (read/write/edit, param=path), but Claude Code's actual tool surface
+#   uses Bash / Read / Write / Edit / MultiEdit with param=file_path.
+#   `tool_rename:` remaps tool names but not param names, so
+#   filesystem-side rules are written directly here against the real
+#   Claude Code shape rather than via include.
 # =============================================================================
 
 version: "1"
 
 agents:
   _host:
-    # Reuse the shell-capability pack but rename its canonical "exec"
-    # tool to Claude Code's actual built-in name "Bash".
+    # Reuse the shell-capability pack against Bash. This covers
+    # rm -rf /, fork bombs, curl|bash, reverse-shell primitives,
+    # line-continuation evasion, etc.
     tool_rename:
       exec: Bash
 
     include:
       - sponsio:capability/shell
+
+    contracts:
+      # ---------- Sensitive-file blocks for Write / Edit / MultiEdit ----------
+      # Mirrors the `sponsio:capability/filesystem` deny patterns but
+      # uses Claude Code's actual `file_path` arg.
+      - desc: "Block writes to dotenv / secrets / SSH keys / cloud creds"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Write
+            - file_path
+            - - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/credentials"
+              - "(^|/)\\.aws/config"
+              - "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[\\w.-]+)?$"
+              - "(^|/)\\.netrc"
+              - "(^|/)\\.pgpass"
+              - "(^|/)\\.kube/config"
+              - "(^|/)\\.docker/config\\.json"
+              - "(^|/)\\.gnupg/"
+              - "^/etc/shadow($|/)"
+              - "^/etc/sudoers($|\\.d/|$)"
+              - "^/etc/ssh/ssh_host_"
+              - "^/etc/ssl/private/"
+              - "(^|/)Library/Keychains/"
+              - "(^|/)Library/LaunchAgents/"
+
+      - desc: "Block edits to dotenv / secrets / SSH keys / cloud creds"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Edit
+            - file_path
+            - - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/credentials"
+              - "(^|/)\\.aws/config"
+              - "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[\\w.-]+)?$"
+              - "(^|/)\\.netrc"
+              - "(^|/)\\.pgpass"
+              - "(^|/)\\.kube/config"
+              - "(^|/)\\.docker/config\\.json"
+              - "(^|/)\\.gnupg/"
+              - "^/etc/shadow($|/)"
+              - "^/etc/sudoers($|\\.d/|$)"
+              - "(^|/)Library/Keychains/"
+
+      - desc: "Block multi-file edits to dotenv / secrets / SSH keys / cloud creds"
+        E:
+          pattern: arg_blacklist
+          args:
+            - MultiEdit
+            - file_path
+            - - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/credentials"
+              - "(^|/)\\.aws/config"
+              - "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[\\w.-]+)?$"
+              - "(^|/)\\.netrc"
+              - "(^|/)\\.pgpass"
+              - "(^|/)\\.kube/config"
+              - "(^|/)\\.docker/config\\.json"
+              - "(^|/)\\.gnupg/"
+              - "^/etc/shadow($|/)"
+              - "^/etc/sudoers($|\\.d/|$)"
+              - "(^|/)Library/Keychains/"
+
+      # ---------- Read protections for credentials exfiltration ----------
+      - desc: "Block reads of SSH keys / cloud creds / dotenv secrets / keychains"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Read
+            - file_path
+            - - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/credentials"
+              - "(^|/)\\.aws/config"
+              - "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[\\w.-]+)?$"
+              - "(^|/)\\.netrc"
+              - "(^|/)\\.pgpass"
+              - "(^|/)\\.kube/config"
+              - "(^|/)\\.docker/config\\.json"
+              - "(^|/)\\.gnupg/"
+              - "^/etc/shadow($|/)"
+              - "^/etc/ssh/ssh_host_"
+              - "^/etc/ssl/private/"
+              - "(^|/)Library/Keychains/"
+              - "(^|/)Library/Cookies/"
