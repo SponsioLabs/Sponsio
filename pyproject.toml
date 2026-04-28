@@ -103,6 +103,12 @@ sponsio = [
     # for source-checkout users; ``tests/test_plugin_defaults_sync.py``
     # keeps the two trees identical.
     "plugin/defaults/*.yaml",
+    # Contract-extraction prompt templates (one per target host).
+    # ``sponsio plugin prompt <host>`` reads these and prints them so
+    # the host agent driving ``sponsio plugin scan --introspect`` can
+    # reason over the tool inventory using its own LLM context — no
+    # separate API call needed from the CLI.
+    "plugin/prompts/*.md",
     # Agent Skills (Cursor / Claude Code / Codex).  Bundled so
     # ``sponsio skill install`` can locate the canonical source after
     # a pip install — see `sponsio.cli::skill_install`.  Keep the nested

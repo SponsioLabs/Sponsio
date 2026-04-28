@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Configure the sponsio-openclaw runtime end-to-end — bootstrap the per-plugin contract library tree at ~/.sponsio/plugins/, generate fresh starter libraries for OpenClaw plugins / MCP servers via `sponsio plugin scan` (with `--introspect` to auto-discover tool inventory and `--llm` to extract semantic contracts), tune the shipped rules to the user's actual environment, and verify with a smoke test. Use when the user says any of "set up sponsio-openclaw", "configure sponsio-openclaw", "install the plugin", "first-time setup of sponsio for OpenClaw", "wire up sponsio in this OpenClaw session", "add Sponsio guardrails for my OpenClaw plugins", "tune the plugin for my environment", "the plugin is too strict / too loose", "calibrate sponsio rules", "scan this OpenClaw plugin", "generate sponsio rules for my OpenClaw plugin", "I just installed Y plugin / MCP server in OpenClaw, what should sponsio block", or asks how to make sponsio-openclaw actually block things.
+description: Configure the sponsio-openclaw runtime end-to-end — bootstrap the per-plugin contract library tree at ~/.sponsio/plugins/, generate fresh starter libraries for OpenClaw plugins / MCP servers via `sponsio plugin scan` (with `--introspect` to auto-discover tool inventory; the agent then applies the prompt from `sponsio plugin prompt openclaw` to extract semantic contracts using its own LLM context — no separate API call), tune the shipped rules to the user's actual environment, and verify with a smoke test. Use when the user says any of "set up sponsio-openclaw", "configure sponsio-openclaw", "install the plugin", "first-time setup of sponsio for OpenClaw", "wire up sponsio in this OpenClaw session", "add Sponsio guardrails for my OpenClaw plugins", "tune the plugin for my environment", "the plugin is too strict / too loose", "calibrate sponsio rules", "scan this OpenClaw plugin", "generate sponsio rules for my OpenClaw plugin", "I just installed Y plugin / MCP server in OpenClaw, what should sponsio block", or asks how to make sponsio-openclaw actually block things.
 ---
 
 # sponsio-openclaw — configure the host plugin
@@ -113,27 +113,47 @@ Last resort — ask the user "what tools does this plugin expose?"
 and pass them via `--tools`.  Use only when introspection fails or
 the plugin isn't structured as an MCP server.
 
-### 3.4 — Heuristic OR LLM (or both)
+### 3.4 — Dry-run
 
-* **Heuristic only** (fast, deterministic, no API key):
-  ```bash
-  sponsio plugin scan ... --target-host openclaw --introspect "..."
-  ```
-  Catches obvious destructive verbs, irreversible ops, rate-limit
-  candidates.
+```bash
+sponsio plugin scan --plugin-id <id> --target-host openclaw \
+  --introspect "<spawn-cmd>"
+```
 
-* **LLM-augmented** (slower, needs OpenAI/Anthropic/Gemini key):
-  ```bash
-  sponsio plugin scan ... --target-host openclaw --introspect "..." --llm
-  ```
-  Reads each tool's `description` + `inputSchema` and proposes
-  contracts the heuristic engine misses (semantic intent, param-
-  shape risks).  Side-car output goes to `sponsio.llm.yaml`.
+Output has two parts:
 
-  Use `--llm` when tool descriptions are rich; skip it when names
-  alone are descriptive enough.
+1. **Heuristic library yaml** (one per routed group) — name-pattern
+   rules covering destructive verbs, rate-limit / loop-detection
+   caps.  Deterministic floor.
 
-### 3.5 — Dry-run and review
+2. **Tool inventory JSON** under `# === tool inventory ... ===` —
+   every tool's `name`, `description`, `input_schema`, plus
+   `tool_name_in_contracts` (flat for OpenClaw — no `mcp__` prefix).
+   This is the *input* for the agent's own contract extraction.
+
+### 3.5 — Apply the contract-extraction prompt
+
+The heuristic engine catches obvious cases by name; the agent
+(you) fills semantic gaps by reading each tool's description +
+input_schema.  No API call needed — you ARE the LLM the prompt is
+written for.
+
+1. Get the prompt:
+   ```bash
+   sponsio plugin prompt openclaw
+   ```
+
+2. Apply it to the JSON tool inventory from Step 3.4.  Output a
+   JSON object:
+   ```json
+   {"contracts": [{"desc": "...", "pattern": "...", "args": [...]}]}
+   ```
+
+3. Translate to YAML and merge into the heuristic library.  Mark
+   each semantic contract with `source: agent-extracted` for
+   later traceability.
+
+### 3.6 — Review every contract
 
 ALWAYS start with the dry-run.  **Never** `--apply` until the user
 has seen the output.
@@ -157,7 +177,7 @@ overrides:
     disabled: true
 ```
 
-### 3.6 — Apply
+### 3.7 — Apply
 
 Once the user is happy with the dry-run:
 

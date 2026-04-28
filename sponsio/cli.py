@@ -4214,33 +4214,6 @@ def plugin_install(
     ),
 )
 @click.option(
-    "--llm",
-    "use_llm",
-    is_flag=True,
-    default=False,
-    help=(
-        "Use an LLM to read each tool's description + inputSchema and "
-        "propose contracts that name-heuristics miss (semantic intent, "
-        "param-shape risks).  Requires OPENAI_API_KEY / "
-        "ANTHROPIC_API_KEY / GOOGLE_API_KEY in env, or pass "
-        "--llm-model / --llm-provider explicitly.  Pairs with "
-        "--introspect — the LLM needs the tool inventory to reason."
-    ),
-)
-@click.option(
-    "--llm-model",
-    "llm_model",
-    default="",
-    help="LLM model name (default: provider-specific — gpt-4o-mini, etc.).",
-)
-@click.option(
-    "--llm-provider",
-    "llm_provider",
-    type=click.Choice(["openai", "anthropic", "gemini"]),
-    default=None,
-    help="LLM provider (default: auto-detect from env vars).",
-)
-@click.option(
     "--root",
     "root",
     type=click.Path(file_okay=False, path_type=Path),
@@ -4274,9 +4247,6 @@ def plugin_scan(
     introspect_cmd: str,
     introspect_env: tuple[str, ...],
     target_host: str,
-    use_llm: bool,
-    llm_model: str,
-    llm_provider: str | None,
     root: Path | None,
     apply: bool,
     no_runaway: bool,
@@ -4402,46 +4372,6 @@ def plugin_scan(
     if result.manifest.skill_names:
         click.echo(f"# skills:          {', '.join(result.manifest.skill_names)}")
 
-    # ---- Optional LLM-driven contract extraction ----
-    # Runs alongside the heuristic output, not instead of it.  The LLM
-    # block lands as an extra YAML group keyed under the plugin id —
-    # operators can review and merge into the heuristic library, or
-    # split into a separate file.
-    llm_yaml: str | None = None
-    if use_llm:
-        if not introspected_tools:
-            click.secho(
-                "--llm requires --introspect (the LLM needs the tool "
-                "inventory to reason).",
-                fg="red",
-            )
-            sys.exit(2)
-        from sponsio.plugin.llm_extraction import (
-            LLMExtractError,
-            extract_contracts_via_llm,
-            render_contracts_yaml,
-        )
-
-        click.echo("# extracting contracts via LLM …")
-        try:
-            llm_contracts = extract_contracts_via_llm(
-                introspected_tools,
-                target_host=target_host,
-                plugin_id=result.manifest.plugin_id,
-                model=llm_model or None,
-                provider=llm_provider,
-            )
-        except LLMExtractError as e:
-            click.secho(f"LLM extraction failed: {e}", fg="red")
-            sys.exit(1)
-        click.echo(f"# LLM proposed {len(llm_contracts)} contracts")
-        if llm_contracts:
-            llm_yaml = render_contracts_yaml(
-                llm_contracts,
-                plugin_id=result.manifest.plugin_id,
-                include_runaway=not no_runaway,
-            )
-
     if not apply:
         for g in result.groups:
             click.echo("")
@@ -4450,14 +4380,41 @@ def plugin_scan(
                 f"({len(g.tools)} tools, {len(g.proposed)} rules) ==="
             )
             click.echo(g.library_yaml)
-        if llm_yaml is not None:
+        # When ``--introspect`` was used, dump the full tool inventory
+        # (name + description + inputSchema) as JSON.  This is what a
+        # host agent driving the setup skill needs to apply the
+        # contract-extraction prompt — heuristic rules cover the
+        # obvious cases; the agent fills semantic gaps using the
+        # description + schema fields its own LLM context can read.
+        if introspected_tools:
             click.echo("")
             click.echo(
-                f"# === LLM proposals: {result.manifest.plugin_id} ==="
+                f"# === tool inventory (target_host={target_host}, "
+                f"plugin_id={result.manifest.plugin_id}) ==="
             )
-            click.echo(llm_yaml)
+            click.echo("# JSON below is parsable by the host agent for the")
+            click.echo(f"# contract-extraction prompt at:")
+            click.echo(f"#     sponsio plugin prompt {target_host}")
+            tools_json = [
+                {
+                    "name": t.name,
+                    "description": t.description,
+                    "input_schema": t.input_schema,
+                    **(
+                        {"tool_name_in_contracts": f"mcp__{result.manifest.plugin_id}__{t.name}"}
+                        if target_host == "claude-code"
+                        else {"tool_name_in_contracts": t.name}
+                    ),
+                }
+                for t in introspected_tools
+            ]
+            click.echo(json.dumps({
+                "plugin_id": result.manifest.plugin_id,
+                "target_host": target_host,
+                "tools": tools_json,
+            }, indent=2, ensure_ascii=False))
         click.echo(
-            "(dry-run — re-run with --apply to write each group to "
+            "\n(dry-run — re-run with --apply to write each group to "
             "<root>/<group>/sponsio.yaml)"
         )
         return
@@ -4482,25 +4439,51 @@ def plugin_scan(
         written.append(target)
         click.secho(f"  ✓ wrote {target}", fg="green")
 
-    # Side-car LLM library — written next to the heuristic library so
-    # operators can diff/merge.  Skips overwrite the same way.
-    if llm_yaml is not None:
-        target_dir = root / result.manifest.plugin_id
-        target = target_dir / "sponsio.llm.yaml"
-        if target.exists() and not force:
-            click.secho(
-                f"  skipped {target}: already exists "
-                f"(re-run with --force to overwrite)",
-                fg="yellow",
-            )
-        else:
-            target_dir.mkdir(parents=True, exist_ok=True)
-            target.write_text(llm_yaml, encoding="utf-8")
-            written.append(target)
-            click.secho(f"  ✓ wrote {target} (LLM proposals)", fg="green")
-
     if not written and not force:
         sys.exit(1)
+
+
+@plugin.command(name="prompt")
+@click.argument(
+    "target_host",
+    type=click.Choice(["claude-code", "openclaw", "mcp-bare"]),
+)
+def plugin_prompt(target_host: str):
+    """Print the contract-extraction prompt template for a target host.
+
+    The setup skill drives a host agent (Claude Code or OpenClaw)
+    through a four-step workflow:
+
+      1. ``sponsio plugin scan --introspect "..."`` to get the tool
+         inventory (description + inputSchema).
+      2. ``sponsio plugin prompt <host>`` (this command) to get the
+         prompt template for the target host.
+      3. The agent applies the prompt to the inventory using its own
+         LLM context — no separate API call.
+      4. The agent writes the resulting YAML to
+         ``~/.sponsio/plugins/<plugin-id>/sponsio.yaml``.
+
+    Three templates ship: claude-code (mcp__-prefixed tool names),
+    openclaw (flat names), mcp-bare (no host-specific assumptions).
+
+    Output goes to stdout — pipe to a file or capture via the agent.
+    """
+    from importlib.resources import files
+
+    pkg = files("sponsio.plugin.prompts")
+    main = pkg.joinpath(f"{target_host}.md").read_text(encoding="utf-8")
+    vocab = pkg.joinpath("_pattern_vocabulary.md").read_text(encoding="utf-8")
+    # Substitute the vocabulary section in place of the marker the
+    # template files reference.  Single source of truth for the
+    # pattern names + arg shapes; updates ripple to every host.
+    marker = "(Loaded from `_pattern_vocabulary.md` — use ONLY those patterns.)"
+    if marker in main:
+        click.echo(main.replace(marker, vocab))
+    else:
+        # Backward-safe fallback if a template forgets the marker.
+        click.echo(main)
+        click.echo("")
+        click.echo(vocab)
 
 
 @plugin.command(name="guard")

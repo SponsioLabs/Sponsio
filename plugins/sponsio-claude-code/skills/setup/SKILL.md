@@ -143,37 +143,58 @@ Three discovery paths in priority order:
    inconvenient).  Ask the user "what tools does this MCP server
    expose?" and pass them via `--tools t1,t2,t3`.  Last resort.
 
-### 3b.2 — pick heuristic OR LLM (or both)
-
-* **Heuristic only** (fast, deterministic, no API key):
-  ```bash
-  sponsio plugin scan ... --introspect "..."
-  ```
-  Catches obvious destructive verbs (`delete_*`, `remove_*`),
-  irreversible ops, rate-limit candidates.  Misses semantic intent.
-
-* **LLM-augmented** (slower, needs OpenAI/Anthropic/Gemini key):
-  ```bash
-  sponsio plugin scan ... --introspect "..." --llm
-  ```
-  Reads each tool's `description` + `inputSchema` and proposes
-  contracts the heuristic engine doesn't (e.g. `arg_blacklist`
-  patterns derived from param semantics, cross-tool ordering rules).
-  Output lands in a side-car `sponsio.llm.yaml` next to the
-  heuristic library so the operator can diff the two.
-
-  Use `--llm` when the user has already installed something with
-  rich tool descriptions (most production MCP servers); skip it for
-  trivial / well-named plugins where heuristics already nail it.
-
-### 3b.3 — dry-run the scan
+### 3b.2 — dry-run the scan
 
 ALWAYS start with the dry-run.  **Never** `--apply` until the user
-has seen the output.  The output is one rendered yaml per **routed
-group** (the same partitioning `sponsio.guard_stdin.derive_plugin_id`
-does at runtime — `Bash` → `_host`, `mcp__github__X` → `github`,
-etc.).  With `--llm`, an extra `LLM proposals:` block follows.  Show
-the user every group.
+has seen the output.
+
+```bash
+sponsio plugin scan --plugin-id <id> --target-host claude-code \
+  --introspect "<spawn-cmd>"
+```
+
+The output has two parts:
+
+1. **Heuristic library yaml** (one per routed group) — name-pattern
+   rules: destructive verbs → `irreversible_once`, generic
+   rate-limit / loop-detection caps.  This is the deterministic
+   floor; ship it as-is or harden further.
+
+2. **Tool inventory JSON** under `# === tool inventory ... ===` —
+   every tool's `name`, `description`, `input_schema`, plus a
+   `tool_name_in_contracts` field already namespaced for the target
+   host.  This is the *input* for the agent's own contract
+   extraction pass (Step 3b.3).
+
+### 3b.3 — agent applies the contract-extraction prompt
+
+The heuristic engine catches destructive verbs by name; the agent
+fills semantic gaps by reading each tool's description and
+input_schema.  No API call needed — you (the host agent) ARE the
+LLM the prompt is written for.
+
+1. Get the prompt:
+   ```bash
+   sponsio plugin prompt claude-code
+   ```
+   Pipe to a variable or just remember it for the next step.
+
+2. Apply the prompt mentally to the JSON tool inventory from the
+   previous step.  Output should be a JSON object matching:
+   ```json
+   {"contracts": [{"desc": "...", "pattern": "...", "args": [...]}]}
+   ```
+
+3. Translate that JSON into the YAML contract block format and
+   merge it into the heuristic library (or keep it as a separate
+   `sponsio.semantic.yaml` next to the heuristic one).  Each
+   semantic contract should carry `source: agent-extracted` so
+   future `sponsio refresh` runs can distinguish them from
+   heuristic rules.
+
+The whole loop is fast because (a) introspect + heuristic generation
+is one CLI call, (b) the prompt is short and on-disk (no network),
+(c) you reason over the inventory in your own context.
 
 ### 3b.4 — review every contract
 
