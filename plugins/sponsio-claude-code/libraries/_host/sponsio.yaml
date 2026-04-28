@@ -32,6 +32,7 @@ agents:
 
     include:
       - sponsio:capability/shell
+      - sponsio:incident/claude-code-secret-bypass
 
     contracts:
       # ---------- Sensitive-file blocks for Write / Edit / MultiEdit ----------
