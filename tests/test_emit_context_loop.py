@@ -471,3 +471,70 @@ agents:
     proc = _run_cli("validate", "--config", str(yaml_path))
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "validated" in proc.stdout
+
+
+# ===========================================================================
+# capability/database pack — destructive DB ops blocked at action boundary
+# ===========================================================================
+
+
+@pytest.mark.parametrize(
+    ("host", "tool", "command", "expect_deny"),
+    [
+        # Claude Code-shape (Bash)
+        ("claude-code", "Bash", 'psql -c "DROP DATABASE prod"', True),
+        ("claude-code", "Bash", 'mysql -e "drop table users"', True),
+        ("claude-code", "Bash", 'psql -c "DELETE FROM users;"', True),
+        ("claude-code", "Bash", 'psql -c "DELETE FROM users WHERE id=1;"', False),
+        ("claude-code", "Bash", "dropdb production", True),
+        ("claude-code", "Bash", "redis-cli -a pw FLUSHALL", True),
+        ("claude-code", "Bash", "alembic downgrade base", True),
+        ("claude-code", "Bash", "alembic downgrade -1", False),
+        ("claude-code", "Bash", "rm -rf /var/lib/postgresql/data", True),
+        ("claude-code", "Bash", "rm /etc/somefile", False),
+        ("claude-code", "Bash", 'psql -c "TRUNCATE TABLE logs"', True),
+        ("claude-code", "Bash", "truncate -s 0 /tmp/x.log", False),
+        # OpenClaw-shape (exec) — same rules via capability/database
+        ("openclaw", "exec", 'mysql -e "DROP TABLE users"', True),
+        ("openclaw", "exec", "redis-cli FLUSHDB", True),
+        ("openclaw", "exec", "ls -la /tmp", False),
+    ],
+)
+def test_database_pack_blocks_destructive_ops(tmp_path, monkeypatch, host, tool, command, expect_deny):
+    """Pin the capability/database pack's behaviour against
+    representative destructive cases.  If the regex tightens or
+    loosens enough to flip a verdict here, this test fires.
+
+    Covers both ``_host.yaml`` (Claude-Code-shape, ``Bash``) and
+    ``_host_openclaw.yaml`` (canonical ``exec``) — the pack's
+    canonical ``exec`` rules apply to both via ``tool_rename`` /
+    direct match.
+    """
+    # Stage both default libraries under a sandboxed plugin root so
+    # the test doesn't depend on the operator having run
+    # ``sponsio plugin init``.
+    from sponsio.plugin.registry import read_bundled
+
+    for lib_name in ("_host", "_host_openclaw"):
+        d = tmp_path / lib_name
+        d.mkdir()
+        (d / "sponsio.yaml").write_text(read_bundled(lib_name))
+
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
+
+    from sponsio.guard_stdin import evaluate_event
+
+    event = {
+        "hook_event_name": "PreToolUse",
+        "tool_name": tool,
+        "tool_input": {"command": command},
+    }
+    if host == "openclaw":
+        event["host"] = "openclaw"
+
+    result = evaluate_event(event)
+    got_deny = not result.allowed
+    assert got_deny == expect_deny, (
+        f"command={command!r} on host={host!r}: "
+        f"expected {'deny' if expect_deny else 'allow'}, got {result!r}"
+    )

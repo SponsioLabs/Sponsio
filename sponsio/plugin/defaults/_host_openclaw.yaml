@@ -48,6 +48,7 @@ agents:
     # tool name with `command` arg, so no `tool_rename` needed.
     include:
       - sponsio:capability/shell
+      - sponsio:capability/database
 
     contracts:
       # ---------- Sensitive-path blocks for write / edit / apply_patch ----------
