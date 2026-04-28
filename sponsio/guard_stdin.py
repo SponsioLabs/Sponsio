@@ -71,7 +71,7 @@ class GuardOutcome:
     library_path: str | None = None
 
 
-def derive_plugin_id(tool_name: str) -> str:
+def derive_plugin_id(tool_name: str, host: str | None = None) -> str:
     """Map a plugin-system tool name to the contract-library directory.
 
     Recognised forms:
@@ -80,25 +80,38 @@ def derive_plugin_id(tool_name: str) -> str:
     * Namespaced plugin skills (``my-plugin:hello``) → ``my-plugin``.
     * MCP servers (``mcp__acme__fetch``) → ``acme``.
 
-    Anything else falls back to ``_host`` so a misnamed tool still gets
-    *some* coverage (default-deny would be hostile in observe mode).
+    The ``host`` argument is taken from the hook payload's ``"host"``
+    field (``"claude-code"`` / ``"openclaw"`` / ``None``).  When it
+    indicates OpenClaw, fallback (i.e. anything not matching a
+    namespace pattern above) routes to ``_host_openclaw`` instead of
+    ``_host``, because the OpenClaw default library uses canonical
+    OpenClaw tool names (``exec`` / ``read`` / ``write`` / …) rather
+    than the Claude-Code-shaped names baked into ``_host``.
+
+    Anything else falls back to ``_host`` (or ``_host_openclaw``) so a
+    misnamed tool still gets *some* coverage (default-deny would be
+    hostile in observe mode).
     """
+    fallback = "_host_openclaw" if host == "openclaw" else "_host"
     if not tool_name:
-        return "_host"
+        return fallback
     if tool_name in _HOST_TOOL_NAMES:
+        # Claude-Code-shaped first-party tools always route to _host
+        # regardless of host hint — no equivalent first-party tools
+        # exist on OpenClaw with these exact names.
         return "_host"
     if tool_name.startswith("mcp__"):
         # mcp__<server>__<tool>
         parts = tool_name.split("__", 2)
         if len(parts) >= 2 and parts[1]:
             return parts[1]
-        return "_host"
+        return fallback
     if ":" in tool_name:
         # <plugin>:<tool> (Claude Code namespaced skill)
         plugin, _, _rest = tool_name.partition(":")
         if plugin:
             return plugin
-    return "_host"
+    return fallback
 
 
 def library_root() -> Path:
@@ -126,7 +139,8 @@ def evaluate_event(event: dict) -> GuardOutcome:
     """
     tool_name = event.get("tool_name") or ""
     tool_input = event.get("tool_input") or {}
-    plugin_id = derive_plugin_id(tool_name)
+    host = event.get("host") if isinstance(event.get("host"), str) else None
+    plugin_id = derive_plugin_id(tool_name, host=host)
     lib_path = library_path_for(plugin_id)
 
     if not lib_path.exists():

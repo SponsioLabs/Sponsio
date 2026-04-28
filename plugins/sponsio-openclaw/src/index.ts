@@ -170,6 +170,12 @@ export const sponsioOpenClawPlugin: SponsioOpenClawPlugin = {
             hook_event_name: "PreToolUse",
             tool_name: event?.toolName ?? "",
             tool_input: event?.params ?? {},
+            // Tells the guard which host's fallback library to use
+            // when the tool name doesn't match a namespace pattern
+            // (mcp__*, plugin:skill).  OpenClaw uses canonical names
+            // (exec / read / write / ...) so the fallback lands in
+            // _host_openclaw, not the Claude-Code-shaped _host.
+            host: "openclaw",
             // Pass session metadata so a future daemon-mode runtime
             // can correlate calls; today's stateless backend just
             // ignores these fields.

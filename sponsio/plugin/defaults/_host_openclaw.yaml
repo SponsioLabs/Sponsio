@@ -1,0 +1,134 @@
+# =============================================================================
+# Sample contract library for OpenClaw's built-in (host) tools.
+#
+# The sponsio-openclaw plugin routes any tool call whose name doesn't
+# match a per-plugin namespace into this library — i.e. OpenClaw's
+# first-party tools (exec, read, write, edit, apply_patch, web_fetch,
+# send_message, …).
+#
+# Why a separate file from `_host.yaml`:
+#   `_host.yaml` is Claude-Code-shaped (Bash / Read / Write / Edit /
+#   MultiEdit, param=`file_path`).  OpenClaw uses its own canonical
+#   names (exec / read / write / edit, param=`path`).  Hook payloads
+#   from the OpenClaw plugin carry `"host": "openclaw"` so
+#   `derive_plugin_id` knows to route fallback tool calls here instead
+#   of `_host`.  See `sponsio.guard_stdin.derive_plugin_id`.
+#
+# What this library covers out-of-the-box:
+#   - `capability/shell` (via include) — rm -rf /, fork bombs,
+#     curl|bash, reverse-shell primitives, line-continuation evasion.
+#   - sensitive-path denies on read / write / edit (dotenv, SSH keys,
+#     AWS creds, kube/docker/gnupg config, /etc/shadow, etc.).
+#
+# Not included by default (operator opt-in):
+#   - `sponsio:capability/filesystem`   (workspace: required)
+#   - `sponsio:incident/openclaw`        (workspace: required for the
+#     bootstrap-file rules; rich coverage of CVE-2026 incidents and
+#     ClawHavoc-class supply-chain attacks)
+#
+# To enable either, edit your local
+# `~/.sponsio/plugins/_host_openclaw/sponsio.yaml`:
+#
+#     agents:
+#       _host_openclaw:
+#         workspace: /path/to/your/working/directory
+#         include:
+#           - sponsio:capability/shell
+#           - sponsio:capability/filesystem
+#           - sponsio:incident/openclaw
+#
+# Override individual rules with `overrides:`.
+# =============================================================================
+
+version: "1"
+
+agents:
+  _host_openclaw:
+    # `capability/shell` already speaks OpenClaw's canonical `exec`
+    # tool name with `command` arg, so no `tool_rename` needed.
+    include:
+      - sponsio:capability/shell
+
+    contracts:
+      # ---------- Sensitive-path blocks for write / edit / apply_patch ----------
+      - desc: "Block writes to dotenv / SSH keys / cloud creds / OS secrets"
+        E:
+          pattern: arg_blacklist
+          args:
+            - write
+            - path
+            - - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/credentials"
+              - "(^|/)\\.aws/config"
+              - "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[\\w.-]+)?$"
+              - "(^|/)\\.netrc"
+              - "(^|/)\\.pgpass"
+              - "(^|/)\\.kube/config"
+              - "(^|/)\\.docker/config\\.json"
+              - "(^|/)\\.gnupg/"
+              - "(^|/)\\.clawdbot/\\.env"
+              - "^/etc/shadow($|/)"
+              - "^/etc/sudoers($|\\.d/|$)"
+              - "^/etc/ssh/ssh_host_"
+              - "^/etc/ssl/private/"
+              - "(^|/)Library/Keychains/"
+              - "(^|/)Library/LaunchAgents/"
+
+      - desc: "Block edits to dotenv / SSH keys / cloud creds / OS secrets"
+        E:
+          pattern: arg_blacklist
+          args:
+            - edit
+            - path
+            - - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/credentials"
+              - "(^|/)\\.aws/config"
+              - "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[\\w.-]+)?$"
+              - "(^|/)\\.netrc"
+              - "(^|/)\\.pgpass"
+              - "(^|/)\\.kube/config"
+              - "(^|/)\\.docker/config\\.json"
+              - "(^|/)\\.gnupg/"
+              - "(^|/)\\.clawdbot/\\.env"
+              - "^/etc/shadow($|/)"
+              - "^/etc/sudoers($|\\.d/|$)"
+              - "(^|/)Library/Keychains/"
+
+      - desc: "Block apply_patch to dotenv / SSH keys / cloud creds"
+        E:
+          pattern: arg_blacklist
+          args:
+            - apply_patch
+            - path
+            - - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/credentials"
+              - "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[\\w.-]+)?$"
+              - "(^|/)\\.netrc"
+              - "(^|/)\\.kube/config"
+              - "(^|/)\\.gnupg/"
+
+      # ---------- Read protections for credentials exfiltration ----------
+      # OpenClaw's most-cited supply-chain incident (the "weather-skill"
+      # AMOS payload) read ~/.clawdbot/.env then exfiltrated.  Blocking
+      # the read removes the trigger entirely.
+      - desc: "Block reads of SSH keys / cloud creds / dotenv secrets / keychains"
+        E:
+          pattern: arg_blacklist
+          args:
+            - read
+            - path
+            - - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/credentials"
+              - "(^|/)\\.aws/config"
+              - "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[\\w.-]+)?$"
+              - "(^|/)\\.netrc"
+              - "(^|/)\\.pgpass"
+              - "(^|/)\\.kube/config"
+              - "(^|/)\\.docker/config\\.json"
+              - "(^|/)\\.gnupg/"
+              - "(^|/)\\.clawdbot/\\.env"
+              - "^/etc/shadow($|/)"
+              - "^/etc/ssh/ssh_host_"
+              - "^/etc/ssl/private/"
+              - "(^|/)Library/Keychains/"
+              - "(^|/)Library/Cookies/"

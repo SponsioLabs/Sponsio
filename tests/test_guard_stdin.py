@@ -52,6 +52,34 @@ def test_derive_plugin_id(tool_name, expected):
     assert derive_plugin_id(tool_name) == expected
 
 
+@pytest.mark.parametrize(
+    ("tool_name", "host", "expected"),
+    [
+        # Unknown tool with host=openclaw → _host_openclaw fallback
+        ("exec", "openclaw", "_host_openclaw"),
+        ("read_file", "openclaw", "_host_openclaw"),
+        ("", "openclaw", "_host_openclaw"),
+        ("UnknownTool", "openclaw", "_host_openclaw"),
+        # Unknown tool with host=claude-code → _host fallback (default)
+        ("UnknownTool", "claude-code", "_host"),
+        # MCP-namespaced tool routes to <server> regardless of host
+        ("mcp__github__delete_repo", "openclaw", "github"),
+        ("mcp__github__delete_repo", "claude-code", "github"),
+        # Claude Code first-party tool always routes to _host (it's
+        # only meaningful in Claude Code's namespace; if OpenClaw ever
+        # had a literal "Bash" tool it would still match the
+        # Claude-Code-shape rules in _host, which is the right call).
+        ("Bash", "openclaw", "_host"),
+    ],
+)
+def test_derive_plugin_id_host_aware(tool_name, host, expected):
+    """``host`` field in the hook payload steers the fallback library
+    away from ``_host`` (Claude-Code-shape) when the call comes from
+    OpenClaw (canonical names + ``path`` arg).
+    """
+    assert derive_plugin_id(tool_name, host=host) == expected
+
+
 # ---------------------------------------------------------------------------
 # Library helpers
 # ---------------------------------------------------------------------------

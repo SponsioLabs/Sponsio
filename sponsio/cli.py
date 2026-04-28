@@ -3918,26 +3918,49 @@ def plugin_init(root: Path | None, force: bool, no_smoke_test: bool):
         env = os.environ.get("SPONSIO_PLUGIN_ROOT")
         root = Path(env).expanduser() if env else Path.home() / ".sponsio" / "plugins"
 
-    target_dir = root / "_host"
-    target = target_dir / "sponsio.yaml"
+    # Write both fallback libraries: ``_host`` (Claude-Code-shaped) and
+    # ``_host_openclaw`` (OpenClaw-shaped).  ``derive_plugin_id`` picks
+    # one or the other at runtime based on the hook payload's ``host``
+    # field — see :mod:`sponsio.guard_stdin`.  Operators get useful
+    # defaults whichever host plugin they install first.
+    wrote_any = False
+    skipped_existing_target = False
+    primary_target: Path | None = None  # for smoke test
 
-    try:
-        src_text = read_bundled("_host")
-    except (FileNotFoundError, ModuleNotFoundError) as e:
-        click.secho(
-            f"Error: bundled default library not found ({e}). Reinstall sponsio.",
-            fg="red",
-        )
-        sys.exit(1)
+    for lib_name in ("_host", "_host_openclaw"):
+        target_dir = root / lib_name
+        target = target_dir / "sponsio.yaml"
 
-    wrote_file = False
-    if target.exists() and not force:
-        click.echo(f"{target} already exists. Re-run with --force to overwrite.")
-    else:
+        try:
+            src_text = read_bundled(lib_name)
+        except (FileNotFoundError, ModuleNotFoundError) as e:
+            click.secho(
+                f"Error: bundled default library {lib_name!r} not found ({e}). "
+                f"Reinstall sponsio.",
+                fg="red",
+            )
+            sys.exit(1)
+
+        if target.exists() and not force:
+            click.echo(
+                f"{target} already exists. Re-run with --force to overwrite."
+            )
+            if lib_name == "_host":
+                skipped_existing_target = True
+            continue
+
         target_dir.mkdir(parents=True, exist_ok=True)
         target.write_text(src_text, encoding="utf-8")
         click.secho(f"✓ wrote {target}", fg="green")
-        wrote_file = True
+        wrote_any = True
+        if lib_name == "_host":
+            primary_target = target
+
+    # Smoke test runs against ``_host`` (the Claude-Code-shape fallback) —
+    # the test prompt is a Bash ``rm -rf /`` which needs that library.
+    # When no fresh ``_host`` write happened (existing file kept), skip
+    # rather than validating someone's customised library.
+    wrote_file = primary_target is not None
 
     # Smoke test: feed a JSON event through the actual hook entry point
     # and verify it (a) allows a benign command and (b) blocks rm -rf.
@@ -4083,9 +4106,10 @@ def plugin_install(
         return
 
     if install_all:
-        # ``_host`` is owned by ``init`` and has its own smoke-test
-        # path; don't double-write it here.
-        names = tuple(n for n in bundled if n != "_host")
+        # Fallback host libraries (``_host`` for Claude Code,
+        # ``_host_openclaw`` for OpenClaw) are owned by ``plugin init``
+        # and have their own smoke-test path; don't double-write here.
+        names = tuple(n for n in bundled if n not in {"_host", "_host_openclaw"})
 
     if not names:
         click.secho(

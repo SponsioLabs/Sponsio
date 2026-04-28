@@ -34,7 +34,21 @@ from sponsio.plugin.registry import list_bundled, read_bundled
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULTS_DIR = REPO_ROOT / "sponsio" / "plugin" / "defaults"
-PLUGIN_LIB_DIR = REPO_ROOT / "plugins" / "sponsio-claude-code" / "libraries"
+CLAUDE_LIB_DIR = REPO_ROOT / "plugins" / "sponsio-claude-code" / "libraries"
+OPENCLAW_LIB_DIR = REPO_ROOT / "plugins" / "sponsio-openclaw" / "libraries"
+
+# Where each bundled library's source-checkout mirror lives.  pip-install
+# users go through ``sponsio plugin install`` (package data); ``--plugin-dir``
+# users cp from the host plugin's tree.  Drift would mean half the install
+# paths get a stale library — `test_starter_library_matches_plugin_checkout`
+# pins them byte-identical.
+LIBRARY_MIRROR: dict[str, Path] = {
+    "_host": CLAUDE_LIB_DIR,
+    "github": CLAUDE_LIB_DIR,
+    "filesystem": CLAUDE_LIB_DIR,
+    "playwright": CLAUDE_LIB_DIR,
+    "_host_openclaw": OPENCLAW_LIB_DIR,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +64,16 @@ def test_list_bundled_covers_every_yaml_on_disk():
 
 def test_list_bundled_includes_expected_starters():
     bundled = set(list_bundled())
-    assert {"_host", "github", "filesystem", "playwright"} <= bundled
+    # ``_host`` is the Claude-Code-shape fallback; ``_host_openclaw``
+    # is the OpenClaw-shape fallback.  Both are written by
+    # ``sponsio plugin init``; both must be on the registry.
+    assert {
+        "_host",
+        "_host_openclaw",
+        "github",
+        "filesystem",
+        "playwright",
+    } <= bundled
 
 
 def test_read_bundled_round_trips_each_starter():
@@ -70,19 +93,25 @@ def test_read_bundled_unknown_raises():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["_host", "github", "filesystem", "playwright"])
+@pytest.mark.parametrize("name", list(LIBRARY_MIRROR.keys()))
 def test_starter_library_matches_plugin_checkout(name):
     """The same yaml must exist (byte-identical) under
-    ``sponsio/plugin/defaults/<name>.yaml`` and
-    ``plugins/sponsio-claude-code/libraries/<name>/sponsio.yaml``.
+    ``sponsio/plugin/defaults/<name>.yaml`` and the host-plugin
+    mirror tree (``plugins/<host-plugin>/libraries/<name>/sponsio.yaml``).
 
     Two install paths use the two locations: pip-installed users go
     through ``plugin install`` (package data); ``--plugin-dir``
     source-checkout users cp from the plugin tree. Drift means half
     the install paths get a stale library.
+
+    ``_host`` lives under ``sponsio-claude-code``; ``_host_openclaw``
+    under ``sponsio-openclaw``; shared MCP starters (github /
+    filesystem / playwright) currently live under
+    ``sponsio-claude-code`` because that's the active host where
+    operators install them today.
     """
     pkg = DEFAULTS_DIR / f"{name}.yaml"
-    plugin = PLUGIN_LIB_DIR / name / "sponsio.yaml"
+    plugin = LIBRARY_MIRROR[name] / name / "sponsio.yaml"
     assert pkg.exists(), f"missing package default at {pkg}"
     assert plugin.exists(), f"missing plugin checkout copy at {plugin}"
     assert pkg.read_bytes() == plugin.read_bytes(), (
@@ -299,7 +328,7 @@ def _run_install(*args: str) -> subprocess.CompletedProcess:
 def test_cli_list_shows_bundled():
     proc = _run_install("--list")
     assert proc.returncode == 0
-    for n in ["_host", "github", "filesystem", "playwright"]:
+    for n in ["_host", "_host_openclaw", "github", "filesystem", "playwright"]:
         assert n in proc.stdout
 
 
@@ -317,12 +346,14 @@ def test_cli_install_multiple_names(tmp_path):
 
 
 def test_cli_install_all_excludes_host(tmp_path):
-    """``--all`` must skip ``_host`` (owned by ``plugin init``)."""
+    """``--all`` must skip both fallback host libraries (``_host`` and
+    ``_host_openclaw``) since those are owned by ``plugin init``."""
     proc = _run_install("--all", "--root", str(tmp_path))
     assert proc.returncode == 0
     for n in ["github", "filesystem", "playwright"]:
         assert (tmp_path / n / "sponsio.yaml").exists()
     assert not (tmp_path / "_host" / "sponsio.yaml").exists()
+    assert not (tmp_path / "_host_openclaw" / "sponsio.yaml").exists()
 
 
 def test_cli_install_unknown_name_errors(tmp_path):
