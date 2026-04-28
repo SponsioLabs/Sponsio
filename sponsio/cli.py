@@ -3968,19 +3968,35 @@ def onboard(
         sponsio onboard --force --no-probe-ollama
     """
     from sponsio.onboard import OnboardReport, run_onboard
+    from sponsio.runtime.spinner import Spinner
+
+    # One spinner per command — long-wait emits (``…``-suffixed) start
+    # it, the next emit (or the final ``stop()`` after run_onboard)
+    # cleans up.  Skipped silently when stderr isn't a TTY, so CI / pipe
+    # / docker output stays line-oriented.
+    _spinner = Spinner()
 
     def _progress(msg: str) -> None:
         # ``▸`` prefix = stage section header (bold cyan, no ``· `` bullet
         # and a leading blank line so it visually breaks up the long
         # scan/LLM/pack/doctor stretches).  Anything else is a per-step
-        # progress line — dim cyan ``· `` bullet.
+        # progress line — dim cyan ``· `` bullet.  Emits ending with
+        # ``…`` are "this will take a while" announcements; we hand them
+        # to the spinner so the user sees motion during the wait.
         if as_json or emit_context:
             return
+        # Always stop any running spinner first so the next line lands
+        # cleanly (rather than on top of a stale frame).
+        _spinner.stop()
         if msg.startswith("▸ "):
             click.echo("", err=True)
             click.secho(msg, fg="cyan", bold=True, err=True)
+            return
+        line = click.style("· ", fg="cyan", dim=True) + msg
+        if msg.endswith("…"):
+            _spinner.start(line)
         else:
-            click.echo(click.style("· ", fg="cyan", dim=True) + msg, err=True)
+            click.echo(line, err=True)
 
     # ---- agent-driven path: dump inputs, skip LLM step ------------------
     # ``--emit-context`` runs the deterministic stages (framework /
@@ -4161,8 +4177,15 @@ def onboard(
                 progress=_progress,
             )
         except FileExistsError as e:
+            _spinner.stop()
             click.echo(click.style("Error: ", fg="red") + str(e), err=True)
             sys.exit(1)
+        finally:
+            # Belt + braces: if the last emit was a ``…`` line (rare —
+            # run_onboard normally pairs each "Running …" with a "done"
+            # emit), make sure we don't leave the spinner thread spinning
+            # forever and the cursor stuck on a stale frame.
+            _spinner.stop()
 
     # Write the rcfile (idempotent, plain write_text).  Skipped when
     # target was a single file rather than a directory — the rcfile
