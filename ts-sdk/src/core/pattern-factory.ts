@@ -38,6 +38,7 @@ import {
   approvalFreshness,
   sanitizedBeforeSink,
   duplicateCallLimit,
+  argAllowlist,
   argBlacklist,
   scopeLimit,
   argLengthLimit,
@@ -280,6 +281,12 @@ export function buildPatternByName(
         asStr(needArg(args, 1, "field"), "field"),
         asStrList(needArg(args, 2, "patterns"), "patterns"),
       );
+    case "arg_allowlist":
+      return argAllowlist(
+        asStr(needArg(args, 0, "tool"), "tool"),
+        asStr(needArg(args, 1, "field"), "field"),
+        asStrList(needArg(args, 2, "patterns"), "patterns"),
+      );
     case "scope_limit":
       return scopeLimit(
         asStr(needArg(args, 0, "tool"), "tool"),
@@ -380,6 +387,7 @@ export const KNOWN_DET_PATTERNS: readonly string[] = Object.freeze([
   "mutual_exclusion",
   "tool_allowlist",
   "arg_blacklist",
+  "arg_allowlist",
   "scope_limit",
   "arg_length_limit",
   "data_intact",
