@@ -269,11 +269,11 @@ Sponsio is benchmarked on two public agent-safety suites covering two distinct f
 
 | Benchmark                                  | What it measures                          | Sponsio result                                                                            |
 | ------------------------------------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------- |
-| **ODCV-Bench** (12 LLMs × 80 trajectories) | Intent integrity under KPI pressure       | **84.5%** high-risk scenarios blocked · **0 new FPs** on clean (score-0/1/2) scenarios    |
+| **ODCV-Bench** (12 LLMs × 80 trajectories) | Intent integrity under KPI pressure       | **84.5%** blocked (next-best published baseline: **52%**) · **0 new FPs** on clean scenarios |
 | **RedCode-Exec** (1,410 cases)             | Dangerous bash / python snippet detection | **95% bash · 90% python · 92% combined** · **0% utility FP** on 60-file clean-code audit |
 
 
-To our knowledge this is the **first published deterministic-pattern result on RedCode-Exec**, and the first guardrail systematically evaluated across 12 LLM families on ODCV-Bench. Both libraries ship as loadable contract packs (`sponsio:benchmark/redcode_exec`, `sponsio:benchmark/odcv_bench`) and grow from production traces — the numbers above are starting points, not ceilings. Semantic properties det can't fingerprint (tone, hallucination, scope drift in NL output) fall to the [stochastic pipeline](docs/sto-atoms.md) (beta).
+To our knowledge this is the **first published deterministic-pattern result on RedCode-Exec**, and the first guardrail systematically evaluated across 12 LLM families on ODCV-Bench. Both libraries ship as loadable contract packs (`sponsio:benchmark/redcode_exec`, `sponsio:benchmark/odcv_bench`). Semantic properties det can't fingerprint (tone, hallucination, scope drift in NL output) fall to the [stochastic pipeline](docs/sto-atoms.md) (beta).
 
 ### Hot-Path Performance
 
@@ -286,9 +286,22 @@ To our knowledge this is the **first published deterministic-pattern result on R
 | **RedCode python** (810 whole-script calls)               | 9         | 0.811 ms      | 1.035 ms  |
 
 
+**Backend-engineer anchor:** at 0.139 ms p50 on ODCV mandated, Sponsio's hot path adds **less overhead than a single local Redis read** (typical 0.1–0.5 ms).
+
 <u>**400×–13,000× faster than any LLM-as-judge guardrail**</u> (gpt-4o-mini, Lakera Guard, OpenAI Moderation — all 50–800 ms per check) on the same per-tool-call workload, at zero LLM cost on the hot path. Per-call latency scales linearly with contract count; p99 stays under 1.04 ms across every measured workload. The heaviest scenario (9-contract layered regex over a whole RedCode python script) is still **50× faster than the cheapest LLM-as-judge call**.
 
 Full per-model breakdown, methodology, harness scripts: [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
+
+### Today's numbers are starting points, not ceilings
+
+```text
+production traces ──→ sponsio scan ──→ proposed contracts
+       ↑                                       │
+       │                                       ▼
+       └──────── enforcement ←──────── library (versioned)
+```
+
+**Today's 84.5% / 92% are starting points, not ceilings.** The library grows from your traces and ships back upstream — every new attack pattern, every newly observed unsafe call, feeds the next release.
 
 ---
 
