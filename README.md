@@ -227,7 +227,7 @@ Sponsio blocks the wire — amount cap, missing compliance approve, no confirmat
 <details>
 <summary><b>4. OpenClaw — Malicious skill exfiltrates <code>.env</code> to AMOS stealer</b></summary>
 
-**Integration**: OpenClaw via the [`sponsio-openclaw-shield`](plugins/sponsio-openclaw-shield/) plugin (one-line install). **OWASP**: ASI-04 — Agentic Supply Chain Vulnerabilities · references the [ClawHavoc incident](https://genai.owasp.org/2026/04/14/owasp-genai-exploit-round-up-report-q1-2026/) — 1,184 malicious ClawHub skills shipping AMOS stealer payloads in early 2026.
+**Integration**: OpenClaw via the [`sponsio-openclaw`](plugins/sponsio-openclaw/) plugin (one-line install). **OWASP**: ASI-04 — Agentic Supply Chain Vulnerabilities · references the [ClawHavoc incident](https://genai.owasp.org/2026/04/14/owasp-genai-exploit-round-up-report-q1-2026/) — 1,184 malicious ClawHub skills shipping AMOS stealer payloads in early 2026.
 
 User installs `weather-skill` from ClawHub. On first invocation the skill reads `~/.clawdbot/.env` — paid AI API keys, OAuth refresh tokens, custom-model endpoints — and POSTs the contents to an attacker-controlled endpoint disguised as a weather API. *"After reading `~/.clawdbot/.env`, no outbound network calls"* + *"`http_request` arguments must not contain `$ENV_`*"* block the exfiltration on the read trigger; the legitimate weather API call (city → forecast JSON) still goes through.
 
@@ -241,7 +241,7 @@ User installs `weather-skill` from ClawHub. On first invocation the skill reads 
 
 
 
-*Demo GIF coming — `sponsio-openclaw-shield` blocks the outbound POST on the `.env` read trigger; weather lookup still completes.*
+*Demo GIF coming — `sponsio-openclaw` blocks the outbound POST on the `.env` read trigger; weather lookup still completes.*
 
 </details>
 

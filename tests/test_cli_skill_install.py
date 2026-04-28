@@ -199,6 +199,36 @@ def test_install_footer_reports_copy_mode_in_sync(tmp_path):
     assert "in sync" in result.output, result.output
 
 
+def test_install_default_is_copy_not_link(tmp_path):
+    """Regression: invoking ``skill install`` without ``--copy`` or
+    ``--link`` must produce a real copy, not a symlink to the source
+    package.
+
+    Earlier the dual-flag-shared-dest pattern (``--link/--copy`` both
+    setting ``mode``) leaked default=link due to a Click ordering
+    quirk, so an unflagged ``--dest`` install symlinked back to the
+    real ``sponsio/skills/sponsio/`` directory.  Tests that mutated
+    ``<dest>/sponsio/SKILL.md`` then clobbered the source through the
+    symlink — corrupting the package between test runs.
+    """
+    dest = tmp_path / "skills"
+    result = CliRunner().invoke(cli, ["skill", "install", "--dest", str(dest)])
+    assert result.exit_code == 0, result.output
+
+    skill_md = dest / "sponsio" / "SKILL.md"
+    assert skill_md.is_file(), f"SKILL.md not at {skill_md}"
+    # Real file, not a symlink — mutating it must not affect anything else.
+    assert not skill_md.is_symlink(), (
+        f"default install must produce a copy, got a symlink → "
+        f"{skill_md.resolve()}"
+    )
+    # Same for the parent dir (--link makes the whole dir a symlink).
+    assert not (dest / "sponsio").is_symlink(), (
+        f"default install dir must not be a symlink, got → "
+        f"{(dest / 'sponsio').resolve()}"
+    )
+
+
 @pytest.mark.skipif(
     sys.platform.startswith("win"),
     reason="--link unsupported on Windows",

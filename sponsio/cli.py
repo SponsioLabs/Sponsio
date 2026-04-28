@@ -748,22 +748,17 @@ def _print_skill_discovery_footer(
     ),
 )
 @click.option(
-    "--link",
-    "mode",
-    flag_value="link",
-    default="copy",
+    "--link/--copy",
+    "use_link",
+    default=False,
     help=(
-        "Symlink the bundled skill instead of copying it.  Upgrades via "
-        "``pip install -U sponsio`` then propagate automatically; the "
-        "default ``--copy`` requires re-running this command after "
-        "upgrades.  Not supported on Windows."
+        "``--copy`` (default) makes a standalone copy under "
+        "``<dest>/sponsio/``; safer cross-platform but requires "
+        "re-running this command after ``pip install -U sponsio``. "
+        "``--link`` symlinks back to the bundled skill so upgrades "
+        "propagate automatically; not reliable on Windows (auto-"
+        "downgraded to copy)."
     ),
-)
-@click.option(
-    "--copy",
-    "mode",
-    flag_value="copy",
-    help="Copy the bundled skill (default).  Safer cross-platform.",
 )
 @click.option(
     "--dest",
@@ -779,7 +774,8 @@ def _print_skill_discovery_footer(
     is_flag=True,
     help="Overwrite an existing ``<dest>/sponsio/`` entry.",
 )
-def skill_install(tool: str, mode: str, dest: Path | None, force: bool):
+def skill_install(tool: str, use_link: bool, dest: Path | None, force: bool):
+    mode = "link" if use_link else "copy"
     """Install the bundled Sponsio Agent Skill into a coding-agent's
     skills directory.
 
