@@ -1,8 +1,10 @@
 """CLI tests for ``sponsio bench``.
 
 Uses Click's ``CliRunner`` (in-process) so the test is fast and
-doesn't spawn a Python subprocess per case.  Parse ``--json`` via ``result.stdout`` — Click 8.2+ keeps stderr
-separate; ``result.output`` interleaves both and breaks ``json.loads``.
+doesn't spawn a Python subprocess per case.  Constructed with
+``mix_stderr=False`` so ``result.stdout`` is just stdout — the
+contract banner the runtime emits goes to stderr and would otherwise
+interleave with the ``--json`` payload and break ``json.loads``.
 
 What we cover:
 
@@ -73,7 +75,7 @@ def config_path(tmp_path):
 
 
 def test_bench_default_prints_table(config_path):
-    runner = CliRunner()
+    runner = CliRunner(mix_stderr=False)
     result = runner.invoke(
         cli,
         [
@@ -99,7 +101,7 @@ def test_bench_default_prints_table(config_path):
 def test_bench_json_has_required_keys(config_path):
     """--json output is a stable contract: the CI perf-diff script
     reads these exact keys and will break if they rename."""
-    runner = CliRunner()
+    runner = CliRunner(mix_stderr=False)
     result = runner.invoke(
         cli,
         [
@@ -141,7 +143,7 @@ def test_bench_json_has_required_keys(config_path):
 def test_bench_warmup_discarded_from_summary(config_path):
     """After ``--warmup N``, the reported bucket count should
     reflect the post-warmup iterations, not warmup + iterations."""
-    runner = CliRunner()
+    runner = CliRunner(mix_stderr=False)
     result = runner.invoke(
         cli,
         [
@@ -166,7 +168,7 @@ def test_bench_rotates_through_provided_actions(config_path, tmp_path):
     """--actions list must be what drives the rotation; the
     tools: inventory is secondary.  We verify by using a tool
     name that DOESN'T appear in tools: — it should still work."""
-    runner = CliRunner()
+    runner = CliRunner(mix_stderr=False)
     result = runner.invoke(
         cli,
         [
@@ -192,7 +194,7 @@ def test_bench_rotates_through_provided_actions(config_path, tmp_path):
 
 
 def test_bench_missing_config_errors_early(tmp_path):
-    runner = CliRunner()
+    runner = CliRunner(mix_stderr=False)
     result = runner.invoke(
         cli,
         ["bench", str(tmp_path / "nope.yaml")],
@@ -200,7 +202,10 @@ def test_bench_missing_config_errors_early(tmp_path):
     # Click type=click.Path(exists=True) rejects before the callback
     # runs, so exit code is 2 (usage error).
     assert result.exit_code == 2
-    assert "nope.yaml" in result.output or "does not exist" in result.output
+    # Click usage errors land on stderr with mix_stderr=False.
+    assert (
+        "nope.yaml" in result.stderr or "does not exist" in result.stderr
+    )
 
 
 def test_bench_multi_agent_without_flag_errors(tmp_path):
@@ -208,19 +213,19 @@ def test_bench_multi_agent_without_flag_errors(tmp_path):
     refuse rather than silently benching a random one."""
     p = tmp_path / "multi.yaml"
     p.write_text(MULTI_AGENT_YAML)
-    runner = CliRunner()
+    runner = CliRunner(mix_stderr=False)
     result = runner.invoke(
         cli,
         ["bench", str(p), "-n", "10", "--warmup", "0", "--actions", "x"],
     )
     assert result.exit_code == 2
-    assert "multiple agents" in result.output
+    assert "multiple agents" in result.stderr
 
 
 def test_bench_unknown_agent_errors(tmp_path):
     p = tmp_path / "multi.yaml"
     p.write_text(MULTI_AGENT_YAML)
-    runner = CliRunner()
+    runner = CliRunner(mix_stderr=False)
     result = runner.invoke(
         cli,
         [
@@ -237,11 +242,11 @@ def test_bench_unknown_agent_errors(tmp_path):
         ],
     )
     assert result.exit_code == 2
-    assert "ghost" in result.output
+    assert "ghost" in result.stderr
 
 
 def test_bench_empty_actions_errors(config_path):
-    runner = CliRunner()
+    runner = CliRunner(mix_stderr=False)
     result = runner.invoke(
         cli,
         [
@@ -256,14 +261,14 @@ def test_bench_empty_actions_errors(config_path):
         ],
     )
     assert result.exit_code == 2
-    assert "empty" in result.output
+    assert "empty" in result.stderr
 
 
 def test_bench_no_actions_falls_back_to_extracted_tools(config_path):
     """Without --actions we should rotate through the ``tools:``
     inventory.  The config declares two tools, so the bench should
     pick both up."""
-    runner = CliRunner()
+    runner = CliRunner(mix_stderr=False)
     result = runner.invoke(
         cli,
         [
