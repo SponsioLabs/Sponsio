@@ -36,24 +36,37 @@ from pathlib import Path
 # before their generic parents (``anthropic``/``openai``).
 _FRAMEWORK_IMPORT_SIGNATURES: tuple[tuple[str, tuple[str, ...]], ...] = (
     # framework_id, (python import prefixes that imply the framework)
-    ("langgraph", ("langgraph",)),
+    #
+    # Each prefix list has two flavours:
+    #   1. The framework's own import path (``langgraph`` / ``crewai`` /
+    #      ``claude_agent_sdk`` / ...) — strongest evidence, this is
+    #      how greenfield projects declare a framework.
+    #   2. The matching ``sponsio.<adapter>`` import — the wrap snippet
+    #      onboard prints lands here, so once the user has pasted it
+    #      we can re-detect the framework even if their app doesn't
+    #      directly import the underlying SDK (common in scripted
+    #      demos that mock out the framework client and rely solely
+    #      on Sponsio's adapter for the agent surface).
+    ("langgraph", ("langgraph", "sponsio.langgraph")),
     # ``langchain_core`` is the modern split (langchain ≥ 0.1):
     # ``from langchain_core.tools import tool`` is now the canonical
     # import path and the bare ``langchain.`` prefix doesn't match it.
     ("langchain", ("langchain.", "langchain_core")),
-    ("claude_agent", ("claude_agent_sdk", "anthropic.agents")),
-    ("google_adk", ("google.adk",)),
-    ("crewai", ("crewai",)),
+    ("claude_agent", ("claude_agent_sdk", "anthropic.agents", "sponsio.claude_agent")),
+    ("google_adk", ("google.adk", "sponsio.google_adk")),
+    ("crewai", ("crewai", "sponsio.crewai")),
     (
         "openai_agents",
         (
             "openai_agents",
             "agents.",
+            "sponsio.agents",
         ),
     ),
-    ("openai", ("openai",)),
-    ("vercel_ai", ("ai ",)),  # placeholder; JS-only, rarely reachable from .py
-    ("mcp", ("mcp.",)),
+    ("openai", ("openai", "sponsio.openai")),
+    # placeholder; JS-only, rarely reachable from .py
+    ("vercel_ai", ("ai ", "sponsio.vercel_ai")),
+    ("mcp", ("mcp.", "sponsio.mcp")),
 )
 
 # Pyproject / requirements package-name hints.  Used when import grep

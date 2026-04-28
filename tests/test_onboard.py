@@ -193,6 +193,38 @@ class TestDetectFramework:
         assert hint.framework == "none"
         assert hint.factory == "sponsio"
 
+    def test_sponsio_adapter_import_implies_framework(self, tmp_path: Path):
+        # Once the user has pasted the wrap snippet onboard prints
+        # (``from sponsio.crewai import Sponsio``), re-running
+        # ``detect_framework`` must recognise crewai even when the
+        # underlying SDK isn't directly imported in the file (common
+        # in scripted demos that mock the framework client).  Without
+        # this, demos rcfiles end up frozen at ``framework: none`` and
+        # the wrap-snippet output reverts to the generic ``import
+        # sponsio`` form.
+        (tmp_path / "agent.py").write_text(
+            "from sponsio.crewai import Sponsio\nguard = Sponsio()\n"
+        )
+        hint = detect_framework(tmp_path)
+        assert hint.framework == "crewai"
+        assert hint.factory == "sponsio.crewai"
+
+    def test_sponsio_adapter_import_for_claude_agent(self, tmp_path: Path):
+        (tmp_path / "agent.py").write_text("from sponsio.claude_agent import Sponsio\n")
+        hint = detect_framework(tmp_path)
+        assert hint.framework == "claude_agent"
+        assert hint.factory == "sponsio.claude_agent"
+
+    def test_direct_framework_import_beats_sponsio_adapter(self, tmp_path: Path):
+        # When both ``crewai`` (direct) and ``sponsio.crewai`` (adapter)
+        # appear, the framework identification is the same (crewai) —
+        # this is mostly a smoke test that mixing the two doesn't trip
+        # the prefix matcher into a confused state.
+        (tmp_path / "a.py").write_text("from crewai import Crew\n")
+        (tmp_path / "b.py").write_text("from sponsio.crewai import Sponsio\n")
+        hint = detect_framework(tmp_path)
+        assert hint.framework == "crewai"
+
     def test_venv_excluded(self, tmp_path: Path):
         """A langgraph install in .venv must NOT trigger detection —
         otherwise every project with langgraph installed would report
