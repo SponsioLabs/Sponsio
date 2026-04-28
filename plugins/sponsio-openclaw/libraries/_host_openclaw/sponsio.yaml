@@ -49,6 +49,7 @@ agents:
     include:
       - sponsio:capability/shell
       - sponsio:capability/database
+      - sponsio:capability/credentials
 
     contracts:
       # ---------- Sensitive-path blocks for write / edit / apply_patch ----------

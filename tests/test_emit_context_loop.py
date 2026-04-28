@@ -552,3 +552,76 @@ def test_database_pack_blocks_destructive_ops(
         f"command={command!r} on host={host!r}: "
         f"expected {'deny' if expect_deny else 'allow'}, got {result!r}"
     )
+
+
+# ===========================================================================
+# capability/credentials pack — secret shapes blocked at write boundary
+# ===========================================================================
+
+
+# 40-char filler that looks shape-correct (alnum only, no separators) so
+# the regex actually fires — real credential suffixes don't carry
+# underscores or dashes inside the random portion.
+_DEMO_FILLER = "DEMOFAKEXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+
+
+@pytest.mark.parametrize(
+    ("host", "tool", "content", "expect_deny"),
+    [
+        # Positive — real credential shapes
+        ("claude-code", "Write", f"creds=AKIA{'X' * 16}", True),
+        ("claude-code", "Write", f"GITHUB_TOKEN=ghp_{_DEMO_FILLER}", True),
+        ("claude-code", "Write", f"STRIPE_KEY=sk_live_{_DEMO_FILLER}", True),
+        ("claude-code", "Write", f"OPENAI=sk-proj-{_DEMO_FILLER}", True),
+        ("claude-code", "Write", f"ANTHROPIC=sk-ant-{_DEMO_FILLER}", True),
+        ("claude-code", "Write", "SLACK=xoxb-12345678-DEMO-FAKE", True),
+        ("claude-code", "Write", "GOOG=AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ1234567", True),
+        ("claude-code", "Write", "-----BEGIN OPENSSH PRIVATE KEY-----\nMII...", True),
+        ("claude-code", "Edit", f"sk_live_{_DEMO_FILLER}", True),
+        # Negative — lookalike prose / explanations
+        ("claude-code", "Write", "See AWS access keys in the docs", False),
+        ("claude-code", "Write", "ghp_ tokens look like ghp_<36 chars>", False),
+        ("claude-code", "Write", "commit deadbeef1234 fixed the bug", False),
+        # OpenClaw side — same canonical names via include
+        ("openclaw", "write", f"creds=AKIA{'X' * 16}", True),
+        ("openclaw", "edit", "-----BEGIN RSA PRIVATE KEY-----", True),
+        ("openclaw", "write", "hello world", False),
+    ],
+)
+def test_credentials_pack_blocks_secret_writes(tmp_path, monkeypatch, host, tool, content, expect_deny):
+    """Pin the capability/credentials pack against representative
+    secret shapes from the major providers, plus negatives that look
+    similar in prose.  Same dual-host coverage as the database pack
+    test above — Claude Code's ``Write`` / ``Edit`` and OpenClaw's
+    canonical ``write`` / ``edit``.
+    """
+    from sponsio.plugin.registry import read_bundled
+
+    for lib_name in ("_host", "_host_openclaw"):
+        d = tmp_path / lib_name
+        d.mkdir()
+        (d / "sponsio.yaml").write_text(read_bundled(lib_name))
+
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
+
+    from sponsio.guard_stdin import evaluate_event
+
+    field = "new_string" if tool in ("Edit", "edit") else "content"
+    event = {
+        "hook_event_name": "PreToolUse",
+        "tool_name": tool,
+        "tool_input": {
+            "file_path": "/tmp/x.md",
+            "path": "/tmp/x.md",
+            field: content,
+        },
+    }
+    if host == "openclaw":
+        event["host"] = "openclaw"
+
+    result = evaluate_event(event)
+    got_deny = not result.allowed
+    assert got_deny == expect_deny, (
+        f"content={content!r} on {host}/{tool}: "
+        f"expected {'deny' if expect_deny else 'allow'}, got {result!r}"
+    )

@@ -26,13 +26,20 @@ agents:
   _host:
     # Reuse the shell-capability pack against Bash. This covers
     # rm -rf /, fork bombs, curl|bash, reverse-shell primitives,
-    # line-continuation evasion, etc.
+    # line-continuation evasion, etc.  ``credentials`` covers
+    # secret-shape payloads in Write.content / Edit.new_string —
+    # rename canonical ``write`` / ``edit`` / ``apply_patch`` to
+    # Claude Code's actual tool surface.
     tool_rename:
       exec: Bash
+      write: Write
+      edit: Edit
+      apply_patch: MultiEdit
 
     include:
       - sponsio:capability/shell
       - sponsio:capability/database
+      - sponsio:capability/credentials
       - sponsio:incident/claude-code-secret-bypass
 
     contracts:
