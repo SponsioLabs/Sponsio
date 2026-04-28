@@ -22,6 +22,7 @@ from sponsio.patterns.library import (
     DetFormula,
     always_followed_by,
     approval_freshness,
+    arg_allowlist,
     arg_blacklist,
     arg_length_limit,
     bounded_retry,
@@ -139,6 +140,7 @@ _PATTERN_REGISTRY: dict[str, Callable[..., DetFormula]] = {
     "cooldown": cooldown,
     "segregation_of_duty": segregation_of_duty,
     "bounded_retry": bounded_retry,
+    "arg_allowlist": arg_allowlist,
     "arg_blacklist": arg_blacklist,
     "arg_length_limit": arg_length_limit,
     "scope_limit": scope_limit,
@@ -486,6 +488,20 @@ def _extract_actions(text: str) -> list[str]:
 # Keyword rules: (keywords_to_match, pattern_name, min_args)
 # Order matters — first match wins. More specific patterns first.
 _KEYWORD_RULES: list[tuple[list[str], str, int]] = [
+    # --- arg_allowlist (must come before arg_blacklist for "must be one of"
+    #     phrases that could otherwise trip the "must not contain" rule) ---
+    (
+        [
+            r"arg(?:ument)?s?\s+(?:must\s+be|must\s+match)\s+(?:one\s+of|in)",
+            r"(?:command|input|param|recipient|to|host|domain|url)\s+must\s+be\s+(?:one\s+of|in)",
+            r"allowlist",
+            r"whitelist",
+            r"only\s+(?:allow|permit)\s+(?:the\s+)?(?:value|values|recipient|recipients|host|hosts|domain|domains)",
+            r"restrict\s+(?:.*\s+)?(?:to|in)\s+(?:the\s+)?(?:allowed|allow-listed|whitelisted)\s+(?:value|values|set|list)",
+        ],
+        "arg_allowlist",
+        2,
+    ),
     # --- arg_blacklist (must come before general "must not contain") ---
     (
         [
@@ -910,6 +926,28 @@ def _extract_blacklist_patterns(text: str) -> list[str]:
         parts = re.split(r"\s+or\s+|\s*,\s*|\s+and\s+", tail)
         return [p.strip().rstrip(".") for p in parts if p.strip()]
     return []
+
+
+def _extract_allowlist_patterns(text: str) -> list[str]:
+    """Extracts allowed-value patterns from NL text.
+
+    Looks for quoted or backtick-delimited strings after 'one of' / 'in'
+    / 'allow' / 'permit' / 'whitelist' / 'allowlist'. Falls back to
+    splitting the tail on 'or' / ',' / 'and'.
+    """
+    m = re.search(
+        r"(?:one\s+of|in|allow(?:list)?|whitelist|permit)\s+(.+)",
+        text,
+        re.IGNORECASE,
+    )
+    if not m:
+        return []
+    tail = m.group(1)
+    items = _BACKTICK_RE.findall(tail) or _QUOTED_RE.findall(tail)
+    if items:
+        return items
+    parts = re.split(r"\s+or\s+|\s*,\s*|\s+and\s+", tail)
+    return [p.strip().rstrip(".") for p in parts if p.strip()]
 
 
 def _extract_paths(text: str) -> list[str]:
@@ -1529,6 +1567,31 @@ def parse_dsl(expr: str) -> ParsedConstraint:
         except Exception as e:
             return _build_error(nl_line, "must_confirm", str(e), (actions[0],))
         return _build_constraint(nl_line, "must_confirm", (actions[0],), formula)
+
+    # --- arg_allowlist: extract tool, param field, and allowed patterns ---
+    if pattern_name == "arg_allowlist":
+        # e.g. "send_money recipient must be one of `US-internal-001`, `US-internal-002`"
+        #   → arg_allowlist("send_money", "recipient", ["US-internal-001", "US-internal-002"])
+        allowed = _extract_allowlist_patterns(text)
+        if len(actions) < 1:
+            return _build_error(
+                nl_line,
+                "arg_allowlist",
+                "arg_allowlist needs at least 1 tool name",
+            )
+        tool = actions[0]
+        param = actions[1] if len(actions) >= 2 else "command"
+        if not allowed:
+            return _build_error(
+                nl_line,
+                "arg_allowlist",
+                "arg_allowlist needs allowed patterns (e.g. 'must be one of `a`, `b`')",
+            )
+        try:
+            formula = arg_allowlist(tool, param, allowed, desc=text)
+        except Exception as e:
+            return _build_error(nl_line, "arg_allowlist", str(e), (tool, param))
+        return _build_constraint(nl_line, "arg_allowlist", (tool, param), formula)
 
     # --- arg_blacklist: extract tool, param field, and forbidden patterns ---
     if pattern_name == "arg_blacklist":

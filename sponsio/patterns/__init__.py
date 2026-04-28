@@ -19,7 +19,8 @@ from sponsio.patterns.library import (
     requires_permission,
     sanitized_before_sink,
     segregation_of_duty,
-    # Argument / path constraints (3)
+    # Argument / path constraints (4)
+    arg_allowlist,
     arg_blacklist,
     data_intact,
     scope_limit,
@@ -33,6 +34,7 @@ from sponsio.patterns.library import (
 __all__ = [
     "always_followed_by",
     "approval_freshness",
+    "arg_allowlist",
     "arg_blacklist",
     "audit_after",
     "backup_before_destructive",

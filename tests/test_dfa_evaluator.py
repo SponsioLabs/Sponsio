@@ -41,6 +41,7 @@ from sponsio.models.contract import Contract
 from sponsio.models.trace import Event, Trace
 from sponsio.patterns.library import (
     always_followed_by,
+    arg_allowlist,
     arg_blacklist,
     bounded_retry,
     must_precede,
@@ -334,6 +335,58 @@ class TestDifferentialPatterns:
         v_dfa2.sync(trace_bad, collect_content_atoms([f]))
         assert v_rec2.check(f).holds is False
         assert v_dfa2.check(f).holds is False
+
+    def test_arg_allowlist(self):
+        """Dual of arg_blacklist: arg must match one of the allowed patterns."""
+        f = arg_allowlist(
+            "send_money", "recipient", ["US-internal-001", "US-internal-002"]
+        )
+        from sponsio.tracer.grounding import collect_content_atoms
+
+        # Allowed: matches one of the listed patterns
+        trace_ok = Trace(
+            events=[
+                Event(
+                    ts=0,
+                    agent="bot",
+                    event_type="tool_call",
+                    tool="send_money",
+                    args={"recipient": "US-internal-001", "amount": 100},
+                ),
+            ]
+        )
+        v_rec = TraceVerifier(backend="recursive")
+        v_rec.sync(trace_ok, collect_content_atoms([f]))
+        v_dfa = TraceVerifier(backend="dfa")
+        v_dfa.sync(trace_ok, collect_content_atoms([f]))
+        assert v_rec.check(f).holds is True
+        assert v_dfa.check(f).holds is True
+
+        # Blocked: matches no allowed pattern
+        trace_bad = Trace(
+            events=[
+                Event(
+                    ts=0,
+                    agent="bot",
+                    event_type="tool_call",
+                    tool="send_money",
+                    args={"recipient": "ATTACKER-IBAN-999", "amount": 100},
+                ),
+            ]
+        )
+        v_rec2 = TraceVerifier(backend="recursive")
+        v_rec2.sync(trace_bad, collect_content_atoms([f]))
+        v_dfa2 = TraceVerifier(backend="dfa")
+        v_dfa2.sync(trace_bad, collect_content_atoms([f]))
+        assert v_rec2.check(f).holds is False
+        assert v_dfa2.check(f).holds is False
+
+    def test_arg_allowlist_empty_patterns_raises(self):
+        """An empty allowlist would block every call - reject at construction."""
+        import pytest
+
+        with pytest.raises(ValueError, match="non-empty"):
+            arg_allowlist("send_money", "recipient", [])
 
 
 class TestDifferentialIncremental:

@@ -186,14 +186,19 @@ def patterns():
         "cyan",
     )
 
-    # --- Argument / path / length (4) ---
+    # --- Argument / path / length (5) ---
     _section(
-        "Argument & Path Constraints (4 det)",
+        "Argument & Path Constraints (5 det)",
         [
             (
                 "arg_blacklist",
                 "tool `bash` arg `command` must not match `rm -rf`",
                 "forbid patterns in args",
+            ),
+            (
+                "arg_allowlist",
+                "tool `send_money` arg `recipient` must be one of `US-internal-001`, `US-internal-002`",
+                "arg must match one of the allowed patterns",
             ),
             (
                 "scope_limit",

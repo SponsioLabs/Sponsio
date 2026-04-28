@@ -4,12 +4,12 @@
  * Port of sponsio/patterns/library.py (det patterns).
  * Each function returns a formula AST + description.
  *
- * 35 patterns across 7 categories:
+ * 36 patterns across 7 categories:
  *   Core temporal (14): mustPrecede, alwaysFollowedBy, noReversal,
  *     requiresPermission, noDataLeak, mutualExclusion, rateLimit,
  *     idempotent, deadline, mustConfirm, cooldown, segregationOfDuty,
  *     boundedRetry, loopDetection
- *   Argument (4): argBlacklist, scopeLimit, argLengthLimit, dataIntact
+ *   Argument (5): argBlacklist, argAllowlist, scopeLimit, argLengthLimit, dataIntact
  *   OWASP (8): destructiveActionGate, untrustedSourceGate,
  *     requiredStepsCompletion, toolAllowlist, dangerousBashCommands,
  *     dangerousSqlVerbs, irreversibleOnce, confirmAfterSource
@@ -417,6 +417,28 @@ export function argBlacklist(tool: string, field: string, patterns: string[]): D
     formula: f,
     desc: `\`${tool}\`.${field} must not match ${JSON.stringify(patterns)}`,
     patternName: "arg_blacklist",
+    liveness: false,
+  };
+}
+
+export function argAllowlist(tool: string, field: string, patterns: string[]): DetFormula {
+  if (patterns.length === 0) {
+    throw new Error(
+      "arg_allowlist: 'patterns' must be non-empty. An empty allowlist " +
+      "would block every call to the tool. Use tool_allowlist to ban " +
+      "the tool itself, or arg_blacklist if you want to forbid specific patterns."
+    );
+  }
+  const physical = physicalTool(tool);
+  let body: Formula = new Atom("arg_field_has", [physical, field, patterns[0]]);
+  for (let i = 1; i < patterns.length; i++) {
+    body = new Or(body, new Atom("arg_field_has", [physical, field, patterns[i]]));
+  }
+  const f = new G(new Implies(called(tool), body));
+  return {
+    formula: f,
+    desc: `\`${tool}\`.${field} must match one of ${JSON.stringify(patterns)}`,
+    patternName: "arg_allowlist",
     liveness: false,
   };
 }

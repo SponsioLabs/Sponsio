@@ -28,8 +28,9 @@ Available patterns (35 det + 1 deprecated):
     bounded_retry(action, N)        -- at most N retries
     loop_detection(action, N)       -- max N consecutive calls
 
-  Argument / path (4):
+  Argument / path (5):
     arg_blacklist(tool, param, patterns) -- forbid patterns in tool args
+    arg_allowlist(tool, param, patterns) -- arg must match one of the allowed patterns
     scope_limit(tool, allowed)      -- restrict tool to allowed paths
     arg_length_limit(tool, param, N)-- max N chars in argument field
     data_intact(tool, paths)        -- tool must use original data
@@ -717,6 +718,62 @@ def arg_blacklist(
         formula=formula,
         desc=desc or f"{tool}.{param} must not match forbidden patterns",
         pattern_name="arg_blacklist",
+        args=(tool, param, tuple(patterns)),
+    )
+
+
+def arg_allowlist(
+    tool: str, param: str, patterns: list[str], desc: str = ""
+) -> DetFormula:
+    """Restricts a tool argument's value to a whitelist of regex patterns.
+
+    The dual of :func:`arg_blacklist`: instead of banning a list of
+    forbidden patterns, every call must satisfy at least one of the
+    allowed patterns. Use this when the safe set is small and the
+    threat surface is "anything else" (e.g. recipient must be one of
+    a known set of internal IBANs, URL must point at one of an
+    approved set of internal hosts).
+
+    Compiles to LTL::
+
+        G(called(tool) → arg_field_has(tool, param, p1) ∨ arg_field_has(tool, param, p2) ∨ ...)
+
+    Uses ``arg_field_has`` for field-specific matching: only the value
+    of ``args[param]`` is checked, not the entire serialized args dict.
+
+    Args:
+        tool: Tool name to monitor.
+        param: Argument key whose value to inspect (e.g. ``"recipient"``).
+        patterns: List of regex patterns. The arg value must match at
+            least one. Empty list raises ``ValueError``.
+        desc: Optional human-readable description.
+
+    Returns:
+        A ``DetFormula`` encoding the constraint.
+
+    Raises:
+        ValueError: If ``patterns`` is empty (an empty allowlist would
+            block every call, which is almost always a config bug;
+            use ``tool_allowlist`` to ban a tool entirely instead).
+    """
+    if not patterns:
+        raise ValueError(
+            "arg_allowlist: 'patterns' must be non-empty. An empty "
+            "allowlist would block every call to the tool. Use "
+            "tool_allowlist to ban the tool itself, or arg_blacklist "
+            "if you want to forbid specific patterns."
+        )
+
+    physical_tool = _physical_tool(tool)
+    body: Formula = Atom("arg_field_has", physical_tool, param, patterns[0])
+    for pattern in patterns[1:]:
+        body = Or(body, Atom("arg_field_has", physical_tool, param, pattern))
+
+    formula = G(Implies(_called(tool), body))
+    return DetFormula(
+        formula=formula,
+        desc=desc or f"{tool}.{param} must match one of the allowed patterns",
+        pattern_name="arg_allowlist",
         args=(tool, param, tuple(patterns)),
     )
 

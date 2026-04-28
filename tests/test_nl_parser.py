@@ -11,6 +11,7 @@ import pytest
 
 from sponsio.generation.nl_to_contract import (
     _extract_actions,
+    _extract_allowlist_patterns,
     _extract_blacklist_patterns,
     _extract_paths,
     _match_keyword_rule,
@@ -99,6 +100,31 @@ class TestExtractBlacklistPatterns:
 
     def test_no_match(self):
         result = _extract_blacklist_patterns("some random text")
+        assert result == []
+
+
+class TestExtractAllowlistPatterns:
+    def test_one_of_quoted(self):
+        result = _extract_allowlist_patterns(
+            "recipient must be one of `US-internal-001`, `US-internal-002`"
+        )
+        assert "US-internal-001" in result
+        assert "US-internal-002" in result
+
+    def test_in_quoted(self):
+        result = _extract_allowlist_patterns(
+            'host must be in "trusted.com" or "partners.org"'
+        )
+        assert "trusted.com" in result
+        assert "partners.org" in result
+
+    def test_or_unquoted(self):
+        result = _extract_allowlist_patterns("must be one of foo or bar")
+        assert "foo" in result
+        assert "bar" in result
+
+    def test_no_match(self):
+        result = _extract_allowlist_patterns("some random text")
         assert result == []
 
 
