@@ -81,18 +81,20 @@ class TestSelectPacks:
             "google_adk",
         ],
     )
-    def test_runaway_picked_for_agentic_frameworks(self, fw):
-        """Agentic loops have budget exposure (token spend, infinite
-        recursion, fan-out).  The runaway pack's loop_detection /
-        token_budget rules are exactly what catches that, but only
-        useful when the loop exists.  Pin the gate."""
+    def test_runaway_not_auto_included(self, fw):
+        """The ``core/runaway`` pack used to auto-include for agentic
+        frameworks with hard-coded budget defaults (200k tokens, depth
+        5, ...).  Those numbers were arbitrary and produced noise on
+        every project; the pack is now empty and not auto-included.
+        Users who want runaway protection write project-specific
+        ``token_budget`` / ``delegation_depth_limit`` /
+        ``loop_detection`` contracts in their own yaml."""
         sel = select_packs(fw, _t("any_tool"))
-        assert "sponsio:core/runaway" in sel.packs
+        assert "sponsio:core/runaway" not in sel.packs
 
     @pytest.mark.parametrize("fw", ["openai", "none", "vercel_ai", "mcp"])
-    def test_runaway_skipped_for_one_shot_frameworks(self, fw):
-        """Frameworks without a built-in loop don't need runaway —
-        the user's own loop, if any, is invisible to us."""
+    def test_runaway_not_auto_included_one_shot(self, fw):
+        """Same outcome for one-shot frameworks: never auto-included."""
         sel = select_packs(fw, _t("any_tool"))
         assert "sponsio:core/runaway" not in sel.packs
 
@@ -151,11 +153,11 @@ class TestSelectPacks:
     def test_combined_shell_and_fs(self):
         """A typical coding-agent project has both shell and fs tools
         — the heuristic should pick both packs and combine renames in
-        one dict."""
+        one dict.  ``core/runaway`` used to auto-include here too but
+        was removed (its budgets were arbitrary)."""
         sel = select_packs("langgraph", _t("bash", "read_file", "write_file"))
         assert sel.packs == [
             "sponsio:core/universal",
-            "sponsio:core/runaway",
             "sponsio:capability/shell",
             "sponsio:capability/filesystem",
         ]
@@ -330,7 +332,7 @@ class TestRunOnboardAutoSelect:
         )
         assert out.pack_selection is not None
         assert "sponsio:core/universal" in out.pack_selection.packs
-        assert "sponsio:core/runaway" in out.pack_selection.packs
+        assert "sponsio:core/runaway" not in out.pack_selection.packs
         assert "sponsio:capability/shell" in out.pack_selection.packs
         assert "sponsio:capability/filesystem" in out.pack_selection.packs
 

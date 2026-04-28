@@ -389,7 +389,10 @@ def _synth_arg_check(ir: ConstraintIR) -> tuple[Formula, str, str]:
 
 
 def _synth_arg_allow(ir: ConstraintIR) -> tuple[Formula, str, str]:
-    """G(called(tool) → arg_field_has(tool, field, p1) ∨ ...)"""
+    """G(called(tool) → arg_field_has(tool, field, p1) ∨ ...) — dual of
+    ``_synth_arg_check`` for the small-known-safe-set case (recipient
+    must be one of X/Y/Z, host must be on internal allowlist, ...).
+    """
     tool = ir.subject
     physical = _physical_tool(tool)
     fld = ir.params["field"]
@@ -398,7 +401,7 @@ def _synth_arg_allow(ir: ConstraintIR) -> tuple[Formula, str, str]:
     for p in patterns[1:]:
         body = Or(body, Atom("arg_field_has", physical, fld, p))
     f = G(Implies(_called(tool), body))
-    return f, f"{tool}.{fld} must match one of the allowed patterns", "arg_allowlist"
+    return f, f"{tool}.{fld} must match allowed patterns", "arg_allowlist"
 
 
 def _synth_scope_check(ir: ConstraintIR) -> tuple[Formula, str, str]:
@@ -751,7 +754,10 @@ _SYNTH_TABLE: dict[str, dict[str, Any]] = {
     "retries": {"fn": _synth_retries, "needs": ["quantifier"]},
     # --- Argument / path ---
     "arg_check": {"fn": _synth_arg_check, "needs": ["params.field", "params.patterns"]},
-    "arg_allow": {"fn": _synth_arg_allow, "needs": ["params.field", "params.patterns"]},
+    "arg_allow": {
+        "fn": _synth_arg_allow,
+        "needs": ["params.field", "params.patterns"],
+    },
     "scope_check": {"fn": _synth_scope_check, "needs": ["params.prefixes"]},
     "length_check": {
         "fn": _synth_length_check,

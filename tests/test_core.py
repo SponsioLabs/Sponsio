@@ -402,3 +402,98 @@ class TestTopLevelImports:
     def test_bad_import_raises(self):
         with pytest.raises((AttributeError, ImportError)):
             from sponsio import NonExistentThing  # noqa: F401
+
+
+class TestAgentIdFallback:
+    """Behaviour of `Sponsio(config=...)` when the requested agent_id
+    isn't a literal match for the YAML's `agents:` keys.
+
+    Goal of the fallback: keep users out of "edit four files in sync
+    just to change a name" hell.  In single-agent configs there's
+    only one possible answer; in multi-agent configs we can't guess.
+    """
+
+    @pytest.fixture
+    def single_agent_yaml(self, tmp_path):
+        path = tmp_path / "sponsio.yaml"
+        path.write_text(
+            """
+version: "1"
+defaults:
+  mode: enforce
+agents:
+  sre_optimizer:
+    contracts:
+      - E:
+          pattern: rate_limit
+          args: [delete_snapshot, 5]
+"""
+        )
+        return path
+
+    @pytest.fixture
+    def multi_agent_yaml(self, tmp_path):
+        path = tmp_path / "sponsio.yaml"
+        path.write_text(
+            """
+version: "1"
+defaults:
+  mode: enforce
+agents:
+  alice:
+    contracts:
+      - E:
+          pattern: rate_limit
+          args: [foo, 1]
+  bob:
+    contracts:
+      - E:
+          pattern: rate_limit
+          args: [bar, 1]
+"""
+        )
+        return path
+
+    def test_default_agent_id_picks_only_agent_silently(self, single_agent_yaml):
+        # Pre-fix behaviour preserved: default agent_id="agent" with
+        # a single-agent config silently auto-infers, no warning.
+        import sponsio
+
+        guard = sponsio.Sponsio(config=str(single_agent_yaml))
+        assert guard.agent_id == "sre_optimizer"
+
+    def test_explicit_matching_agent_id_works(self, single_agent_yaml):
+        import sponsio
+
+        guard = sponsio.Sponsio(config=str(single_agent_yaml), agent_id="sre_optimizer")
+        assert guard.agent_id == "sre_optimizer"
+
+    def test_explicit_mismatched_agent_id_falls_back_with_warning(
+        self, single_agent_yaml
+    ):
+        # The case the user actually hit: yaml has `sre_optimizer`,
+        # caller passes `agent_id="something_else"`.  Old behaviour:
+        # ValueError "Agent not found".  New: fall back to the only
+        # agent, surface a UserWarning so it's audible.
+        import sponsio
+
+        with pytest.warns(UserWarning, match="not found in config"):
+            guard = sponsio.Sponsio(
+                config=str(single_agent_yaml), agent_id="totally_wrong"
+            )
+        assert guard.agent_id == "sre_optimizer"
+
+    def test_multi_agent_mismatch_still_errors(self, multi_agent_yaml):
+        # Multi-agent: there's no unambiguous fallback, raise so the
+        # user fixes the call site.  Error message lists the
+        # available agents so they don't have to grep the yaml.
+        import sponsio
+
+        with pytest.raises(ValueError, match=r"multiple agents.*alice.*bob"):
+            sponsio.Sponsio(config=str(multi_agent_yaml), agent_id="not_alice_or_bob")
+
+    def test_multi_agent_explicit_match_works(self, multi_agent_yaml):
+        import sponsio
+
+        guard = sponsio.Sponsio(config=str(multi_agent_yaml), agent_id="alice")
+        assert guard.agent_id == "alice"

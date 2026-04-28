@@ -288,7 +288,14 @@ def print_banner(contracts: list, colorize: bool | None = None) -> None:
     bare = [TerminalReporter._contract_label(c) for c in contracts if _is_bare(c)]
     bare = [b for b in bare if b]
     if bare:
-        joined = ", ".join(f"'{b}'" for b in bare)
+        # One contract per line — when 20+ unconditional contracts are
+        # active (typical with auto-included packs like core/universal +
+        # core/runaway) the old comma-joined single line wraps to a
+        # ~1500-char paragraph that's unreadable.  Bullet form keeps
+        # every contract on its own line, easy to skim or grep.
         active = _ansi_code(_GREEN, "⚡ active from start:", colorize)
-        print(f"  {active} {joined}", file=sys.stderr)
+        print(f"  {active}", file=sys.stderr)
+        for label in bare:
+            bullet = _ansi_code(_DIM, "  · ", colorize)
+            print(f"   {bullet}{label}", file=sys.stderr)
     print("", file=sys.stderr)

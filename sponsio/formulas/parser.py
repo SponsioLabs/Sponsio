@@ -92,14 +92,22 @@ def _tokenize(text: str) -> list[str]:
         elif c in "(),":
             tokens.append(c)
             i += 1
-        elif c == "'":
-            # Quoted string
-            j = text.index("'", i + 1)
-            tokens.append(text[i + 1 : j])
-            i = j + 1
-        elif c == '"':
-            j = text.index('"', i + 1)
-            tokens.append(text[i + 1 : j])
+        elif c in "'\"":
+            # Quoted string — scan past backslash-escaped quote chars
+            # so a regex like ``'foo\\'bar'`` doesn't truncate at the
+            # middle apostrophe, then reverse the Python ``repr``
+            # escapes the LLM extractor's ``parse_formula`` round-trip
+            # leaves embedded.
+            q = c
+            j = i + 1
+            while j < len(text) and text[j] != q:
+                if text[j] == "\\" and j + 1 < len(text):
+                    j += 2
+                    continue
+                j += 1
+            if j >= len(text):
+                raise ParseError(f"Unterminated string starting at {i}")
+            tokens.append(_unescape_str_token(text[i : j + 1]))
             i = j + 1
         else:
             # Identifier or number
@@ -372,6 +380,66 @@ def parse_repr(text: str) -> And | Or | Not | Implies | G | F | X | U | Atom:
     return result
 
 
+def _unescape_str_token(token: str) -> str:
+    """Strip surrounding quotes and reverse Python ``repr`` escapes.
+
+    The :func:`_tokenize_repr` tokenizer copies quoted-string tokens
+    verbatim (so it can correctly detect the closing quote), but the
+    callers want the un-escaped string value.  Without this helper a
+    round-trip through ``repr(formula)`` →
+    :func:`parse_repr` doubles every backslash: a regex like ``rm\\s+``
+    serialises to ``'rm\\\\s+'`` and re-parses as the literal four
+    characters ``r m \\ s + ...``, which then never matches at runtime.
+
+    Handles the escape forms that :meth:`Atom.__repr__` and friends can
+    produce via Python's ``repr``:
+
+      * ``\\\\`` → ``\\`` (the load-bearing one for regex args)
+      * ``\\'`` / ``\\"`` → ``'`` / ``"``
+      * ``\\n`` / ``\\t`` / ``\\r`` → newline / tab / carriage return
+
+    Anything else following a backslash is preserved verbatim, so a
+    raw regex like ``\\d`` (which never goes through ``repr`` because
+    the source isn't a Python string literal) survives unchanged.
+    """
+    if not token:
+        return token
+    if len(token) >= 2 and token[0] in "'\"" and token[-1] == token[0]:
+        body = token[1:-1]
+    else:
+        body = token
+
+    if "\\" not in body:
+        return body
+
+    out: list[str] = []
+    i = 0
+    n = len(body)
+    while i < n:
+        c = body[i]
+        if c == "\\" and i + 1 < n:
+            nxt = body[i + 1]
+            if nxt in ("\\", "'", '"'):
+                out.append(nxt)
+                i += 2
+                continue
+            if nxt == "n":
+                out.append("\n")
+                i += 2
+                continue
+            if nxt == "t":
+                out.append("\t")
+                i += 2
+                continue
+            if nxt == "r":
+                out.append("\r")
+                i += 2
+                continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def _atom_to_var(node):
     """Coerce an ``Atom('foo', *args)`` to ``Var('foo', *args)``.
 
@@ -517,7 +585,7 @@ def _parse_repr_unary(peek, consume, parse_expr):
             while peek() != ")":
                 if peek() == ",":
                     consume(",")
-                args.append(consume().strip("'\""))
+                args.append(_unescape_str_token(consume()))
             consume(")")
             return Atom(name, *args)
         return Atom(name)

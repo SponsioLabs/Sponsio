@@ -639,21 +639,46 @@ class TraceVerifier:
     ) -> ContractVerdict:
         """Evaluate a whole contract: assumptions, then enforcements.
 
-        Semantics match the runtime monitor:
+        Two semantics are supported, switched by ``contract.activate_at``:
 
-        * **Assumptions** are evaluated left-to-right. On the first
-          failure, evaluation stops (short-circuit) and the returned
-          ``assumptions`` list ends with that failing verdict.
+        **Default — global semantics** (``activate_at is None``):
+
+        * **Assumptions** are evaluated left-to-right at position 0.
+          On the first failure, evaluation stops (short-circuit) and
+          the returned ``assumptions`` list ends with that failing
+          verdict.
         * **Enforcements** are all evaluated (even if some fail) — but
-          only if every assumption held. If the assumption failed, the
-          ``enforcements`` list is empty.
+          only if every assumption held.  Each enforcement is checked
+          at position 0 against the *full* trace.
+
+          Suitable for invariants ("if assumption holds throughout,
+          then enforcement holds throughout").  See
+          ``Contract.activate_at`` docstring.
+
+        **Reactive semantics** (``activate_at == "first_match"``):
+
+        * Each assumption is one of ``F(φ)`` or atomic.  Activation
+          point is the first position where φ (resp. the atom) holds.
+          The contract activates at the *latest* of all assumptions'
+          activation points (since assumptions AND together).
+        * If any assumption never activates within the current trace,
+          the contract is *vacuously satisfied* — no enforcement
+          violations reported.
+        * Enforcements are evaluated at position k (the activation
+          point), not 0.  Events before k are not subject to E.
+
+          Suitable for trigger-then-enforce safety contracts ("after
+          secret read, no outbound POST" should not retroactively flag
+          POSTs that happened before the secret read).
+
+        Other notes:
+
         * Sto constraints (those without a ``formula`` attribute) are
           skipped — they go through the sto pipeline, not here.
         * Liveness formulas (``DetFormula.liveness == True``) are
           skipped by default — at runtime they can't be enforced by
-          blocking, so the monitor ignores them mid-session. Pass
-          ``include_liveness=True`` for offline / end-of-session checks
-          where pending obligations should be definitively judged.
+          blocking, so the monitor ignores them mid-session.  Pass
+          ``include_liveness=True`` for offline / end-of-session checks.
 
         Args:
             contract: The contract to evaluate.
@@ -662,6 +687,16 @@ class TraceVerifier:
         Returns:
             A :class:`ContractVerdict` with per-constraint verdicts.
         """
+        if contract.activate_at == "first_match":
+            return self._check_contract_reactive(contract, include_liveness)
+        return self._check_contract_global(contract, include_liveness)
+
+    def _check_contract_global(
+        self,
+        contract: Contract,
+        include_liveness: bool,
+    ) -> ContractVerdict:
+        """Default semantics: A and E each evaluated against the full trace."""
         # Assumption phase (short-circuit)
         a_results: list[Verdict] = []
         for a in contract.assumptions:
@@ -707,6 +742,123 @@ class TraceVerifier:
                         formula=e,
                     )
                 )
+
+        return ContractVerdict(assumptions=a_results, enforcements=e_results)
+
+    def _check_contract_reactive(
+        self,
+        contract: Contract,
+        include_liveness: bool,
+    ) -> ContractVerdict:
+        """activate_at='first_match': find activation point, eval E from there.
+
+        Implementation:
+
+        1. For each (det) assumption A, find the first position k_i
+           where A's "evidence" first holds (atom or F-child).
+        2. If any assumption never activates, return a ContractVerdict
+           where that assumption's ``holds=False`` and enforcements is
+           empty (vacuous — no violations reported).
+        3. Otherwise activation point k = max(k_i) — the latest one to
+           fire, since assumptions AND together.
+        4. For each enforcement E, evaluate E at pos=k against the
+           full valuations.  We bypass the G-cache (which assumes
+           pos=0) and call ``eval_formula`` directly with the chosen
+           position.
+        """
+        from sponsio.formulas.evaluator import evaluate as eval_formula
+        from sponsio.formulas.formula import Atom, F
+
+        # Find activation point per assumption.  Assumptions whose
+        # shape is not F(φ) / atomic shouldn't reach this code path —
+        # ``Contract._validate_first_match_assumption_shape`` rejects
+        # them at construction time — but we double-check defensively.
+        a_results: list[Verdict] = []
+        activation_positions: list[int] = []
+        n = len(self._valuations)
+
+        for a in contract.assumptions:
+            if not _is_det(a):
+                continue
+            raw = _raw_formula(a)
+            if isinstance(raw, F):
+                trigger = raw.child
+            elif isinstance(raw, Atom):
+                trigger = raw
+            else:
+                # Shouldn't happen — Contract validation should have caught this.
+                a_results.append(
+                    Verdict(
+                        holds=False,
+                        desc=_desc(a),
+                        kind="assumption",
+                        formula=a,
+                    )
+                )
+                break
+
+            # Linear scan for the first position where the trigger holds.
+            k = None
+            for pos in range(n):
+                if eval_formula(trigger, self._valuations, pos):
+                    k = pos
+                    break
+
+            if k is None:
+                # Assumption never activated → contract vacuous.
+                a_results.append(
+                    Verdict(
+                        holds=False,
+                        desc=_desc(a),
+                        kind="assumption",
+                        formula=a,
+                    )
+                )
+                # Short-circuit: no enforcement evaluation.
+                return ContractVerdict(assumptions=a_results, enforcements=[])
+
+            activation_positions.append(k)
+            a_results.append(
+                Verdict(
+                    holds=True,
+                    desc=_desc(a),
+                    kind="assumption",
+                    formula=a,
+                )
+            )
+
+        # All assumptions activated.  Pick the latest activation
+        # position so every assumption is satisfied at evaluation time.
+        if not activation_positions:
+            # Defensive: a contract with activate_at='first_match' but
+            # no det assumptions should never have been constructed.
+            # Treat as global-default to avoid crashes.
+            return self._check_contract_global(contract, include_liveness)
+        k_star = max(activation_positions)
+
+        # Enforcement phase at pos=k_star.
+        e_results: list[Verdict] = []
+        for e in contract.enforcements:
+            if not _is_det(e):
+                continue
+            is_liveness = _is_det_formula(e) and getattr(e, "liveness", False)
+            if not include_liveness and is_liveness:
+                continue
+            raw = _raw_formula(e)
+            # Bypass the G-cache (it assumes pos=0).  Call the
+            # stateless evaluator directly with our activation
+            # position.  Cost: O(suffix_length) per enforcement, which
+            # is the right complexity — we explicitly want the suffix
+            # semantic.
+            holds = eval_formula(raw, self._valuations, k_star)
+            e_results.append(
+                Verdict(
+                    holds=holds,
+                    desc=_desc(e),
+                    kind="enforcement",
+                    formula=e,
+                )
+            )
 
         return ContractVerdict(assumptions=a_results, enforcements=e_results)
 

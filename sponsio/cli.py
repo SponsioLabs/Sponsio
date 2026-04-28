@@ -940,7 +940,19 @@ def _looks_like_sponsio_config(path: Path) -> bool:
 )
 @click.option("--agent", "-a", "agent_id", help="Agent ID to validate (with --config)")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-def validate(contracts, config_path, agent_id, as_json):
+@click.option(
+    "--traces",
+    "trace_paths",
+    multiple=True,
+    type=click.Path(exists=True),
+    help=(
+        "Replay each parsed contract against the trace file(s) or "
+        "directory.  Adds a per-contract pass/fail/error count so you "
+        "can see whether a rule would have hit your historical traffic "
+        "before flipping it to enforce mode.  Repeat for multiple paths."
+    ),
+)
+def validate(contracts, config_path, agent_id, as_json, trace_paths):
     """Validate that contract strings parse into formal patterns.
 
     If you pass a single existing ``.yaml`` / ``.yml`` path that looks like
@@ -948,10 +960,17 @@ def validate(contracts, config_path, agent_id, as_json):
     it is treated as ``--config`` automatically so ``sponsio validate
     ./sponsio.yaml`` does the right thing.
 
+    With ``--traces``, each successfully-parsed deterministic contract is
+    replayed against the supplied trace files / directories and a
+    pass / fail / error count is reported alongside the parse result.
+    Counts only — for per-failure attribution and repair suggestions
+    see the proprietary ``sponsio-pro`` validation pipeline.
+
     Examples:\n
         sponsio validate "tool `A` must precede `B`"\n
         sponsio validate --config sponsio.yaml\n
         sponsio validate --config sponsio.yaml --agent customer_bot\n
+        sponsio validate --config sponsio.yaml --traces traces/\n
         sponsio validate ./sponsio.yaml   # same as --config when file looks like a project config
     """
     from sponsio.generation.nl_to_contract import (
@@ -1002,6 +1021,29 @@ def validate(contracts, config_path, agent_id, as_json):
     if not config_path and not contracts:
         click.echo("Usage: sponsio validate [CONTRACTS...] or --config FILE")
         sys.exit(1)
+
+    # ---- trace replay setup -------------------------------------------
+    # Loaded once so a 1000-contract config doesn't re-parse the trace
+    # bundle 1000 times.  ``trace_paths`` is empty in the common case.
+    traces_loaded: list = []
+    if trace_paths:
+        from sponsio.discovery.loaders import load_traces
+
+        try:
+            traces_loaded = load_traces(list(trace_paths))
+        except Exception as e:  # noqa: BLE001
+            click.echo(
+                click.style("Error: ", fg="red")
+                + f"failed to load traces from {list(trace_paths)}: {e}",
+                err=True,
+            )
+            sys.exit(1)
+        if not as_json and not traces_loaded:
+            click.echo(
+                click.style("  warn: ", fg="yellow")
+                + "no traces loaded — replay counts will all be 0",
+                err=True,
+            )
 
     # Collect contracts to validate (flatten contract entries into
     # per-section lists for display).
@@ -1060,6 +1102,15 @@ def validate(contracts, config_path, agent_id, as_json):
                 # Handle both ConstraintEntry (from config) and plain strings
                 from sponsio.config import ConstraintEntry, _compile_structured
 
+                # Track the compiled formula (or DetFormula wrapper) so
+                # the replay path below has a single source of truth
+                # regardless of which branch produced it.
+                formula_for_replay = None
+                # ``result`` is only set in the NL branches; init here
+                # so the replay-eligibility check below doesn't trip
+                # UnboundLocalError on structured / ltl entries.
+                result = None
+
                 if isinstance(entry, ConstraintEntry):
                     if entry.is_structured:
                         try:
@@ -1075,6 +1126,8 @@ def validate(contracts, config_path, agent_id, as_json):
                             )
                             kind = "STO" if isinstance(compiled, StoFormula) else "DET"
                             nl = f"{entry.pattern}({', '.join(str(a) for a in entry.args)})"
+                            if kind == "DET":
+                                formula_for_replay = compiled
                         except Exception as e:
                             ok = False
                             pattern = entry.pattern or ""
@@ -1091,6 +1144,7 @@ def validate(contracts, config_path, agent_id, as_json):
                             formula = repr(compiled.formula)
                             kind = "DET"
                             nl = entry.ltl or ""
+                            formula_for_replay = compiled
                         except Exception as e:
                             ok = False
                             pattern = "ltl"
@@ -1119,6 +1173,7 @@ def validate(contracts, config_path, agent_id, as_json):
                                 else ""
                             )
                             kind = "DET"
+                            formula_for_replay = result.hard
                         elif result.is_sto:
                             ok = True
                             pattern = getattr(result.sto, "desc", "")
@@ -1147,6 +1202,7 @@ def validate(contracts, config_path, agent_id, as_json):
                             else ""
                         )
                         kind = "DET"
+                        formula_for_replay = result.hard
                     elif result.is_sto:
                         pattern = getattr(result.sto, "desc", "")
                         formula = ""
@@ -1157,6 +1213,27 @@ def validate(contracts, config_path, agent_id, as_json):
                         kind = "UNKNOWN"
                         all_ok = False
 
+                # Replay against historical traces \u2014 only meaningful for
+                # successfully-parsed DET contracts (sto contracts need
+                # an LLM judge, which sponsio-pro covers).
+                replay_summary: dict | None = None
+                if (
+                    traces_loaded
+                    and ok
+                    and kind == "DET"
+                    and formula_for_replay is not None
+                ):
+                    from sponsio.discovery.trace_replay import replay_formula
+
+                    rep = replay_formula(formula_for_replay, traces_loaded)
+                    replay_summary = {
+                        "pass": rep.pass_count,
+                        "fail": rep.fail_count,
+                        "error": rep.error_count,
+                        "pass_rate": rep.pass_rate,
+                        "errors": list(rep.errors),
+                    }
+
                 entry = {
                     "nl": nl,
                     "ok": ok,
@@ -1166,6 +1243,8 @@ def validate(contracts, config_path, agent_id, as_json):
                     "agent": aid,
                     "section": section,
                 }
+                if replay_summary is not None:
+                    entry["replay"] = replay_summary
                 all_results.append(entry)
                 if not ok:
                     all_ok = False
@@ -1182,6 +1261,27 @@ def validate(contracts, config_path, agent_id, as_json):
                         click.echo(click.style(f"      Pattern : {pattern}", dim=True))
                     if formula:
                         click.echo(click.style(f"      Formula : {formula}", dim=True))
+                    if replay_summary is not None:
+                        rate = replay_summary["pass_rate"]
+                        rate_str = "n/a" if rate is None else f"{rate:.0%}"
+                        replay_line = (
+                            f"      Replay  : "
+                            f"{replay_summary['pass']} pass / "
+                            f"{replay_summary['fail']} fail"
+                        )
+                        if replay_summary["error"]:
+                            replay_line += f" / {replay_summary['error']} error"
+                        replay_line += f"  ({rate_str})"
+                        # Color: green if no fails+errors, yellow if any
+                        # fails / errors (the contract would block, or
+                        # a trace was malformed).
+                        color = (
+                            "green"
+                            if replay_summary["fail"] == 0
+                            and replay_summary["error"] == 0
+                            else "yellow"
+                        )
+                        click.echo(click.style(replay_line, fg=color, dim=True))
 
     if as_json:
         click.echo(json.dumps({"contracts": all_results, "ok": all_ok}, indent=2))
@@ -3159,26 +3259,33 @@ def refresh(
                 tname = ev.action
                 if not tname:
                     continue
-                slot = by_tool.setdefault(tname, {
-                    "tool": tname,
-                    "call_count": 0,
-                    "blocked": [],
-                    "would_have_blocked": [],
-                    "passed": 0,
-                })
+                slot = by_tool.setdefault(
+                    tname,
+                    {
+                        "tool": tname,
+                        "call_count": 0,
+                        "blocked": [],
+                        "would_have_blocked": [],
+                        "passed": 0,
+                    },
+                )
                 slot["call_count"] += 1
                 if ev.is_blocked:
-                    slot["blocked"].append({
-                        "rule": ev.constraint,
-                        "message": ev.result_message,
-                        "ts": ev.ts,
-                    })
+                    slot["blocked"].append(
+                        {
+                            "rule": ev.constraint,
+                            "message": ev.result_message,
+                            "ts": ev.ts,
+                        }
+                    )
                 elif ev.is_observed:
-                    slot["would_have_blocked"].append({
-                        "rule": ev.constraint,
-                        "message": ev.result_message,
-                        "ts": ev.ts,
-                    })
+                    slot["would_have_blocked"].append(
+                        {
+                            "rule": ev.constraint,
+                            "message": ev.result_message,
+                            "ts": ev.ts,
+                        }
+                    )
                 elif ev.is_pass:
                     slot["passed"] += 1
 
@@ -3198,7 +3305,8 @@ def refresh(
                         existing_tool_names.add(e_args[0])
 
             uncovered = [
-                slot for tname, slot in by_tool.items()
+                slot
+                for tname, slot in by_tool.items()
                 if tname not in existing_tool_names and slot["call_count"] >= 3
             ]
 
@@ -3213,16 +3321,23 @@ def refresh(
                 },
             }
 
-        click.echo(json.dumps({
-            "config_path": str(config_path),
-            "agents": per_agent,
-            "next_steps_hint": (
-                "Run ``sponsio prompt refresh`` to get the prompt "
-                "template, apply it to this JSON in your own LLM "
-                "context, output a proposed_changes diff for the "
-                "user to review and apply."
-            ),
-        }, indent=2, ensure_ascii=False, default=str))
+        click.echo(
+            json.dumps(
+                {
+                    "config_path": str(config_path),
+                    "agents": per_agent,
+                    "next_steps_hint": (
+                        "Run ``sponsio prompt refresh`` to get the prompt "
+                        "template, apply it to this JSON in your own LLM "
+                        "context, output a proposed_changes diff for the "
+                        "user to review and apply."
+                    ),
+                },
+                indent=2,
+                ensure_ascii=False,
+                default=str,
+            )
+        )
         return
 
     # Resolve trace paths per agent.  Explicit --trace wins for ALL
@@ -3757,17 +3872,6 @@ _BENCH_STOPWORDS = {
     ),
 )
 @click.option(
-    "--apply",
-    is_flag=True,
-    help=(
-        "Auto-patch the detected agent entry file with the Sponsio "
-        "wrap.  Writes a `.sponsio.bak` backup and validates the "
-        "result re-parses before saving.  Currently supported for "
-        "langgraph / langchain; other frameworks fall back to the "
-        "printed snippet."
-    ),
-)
-@click.option(
     "--no-doctor",
     is_flag=True,
     help=(
@@ -3811,18 +3915,31 @@ _BENCH_STOPWORDS = {
     default="http://127.0.0.1:8000",
     help="Dashboard URL to push to (default: http://127.0.0.1:8000).",
 )
+@click.option(
+    "--interactive/--no-interactive",
+    "interactive",
+    default=None,
+    help=(
+        "Prompt for framework / LLM provider / model up front and "
+        "write `.sponsiorc` + `.env.example` next to sponsio.yaml. "
+        "Default: auto — interactive when stdin is a TTY, "
+        "non-interactive otherwise (CI, scripts, docker entrypoints, "
+        "``--json``, ``--emit-context``).  Pass ``--no-interactive`` "
+        "to force the silent path even from a terminal."
+    ),
+)
 def onboard(
     target: Path,
     agent_id: str,
     mode: str,
     force: bool,
     no_probe_ollama: bool,
-    apply: bool,
     no_doctor: bool,
     as_json: bool,
     emit_context: bool,
     push: bool,
     push_url: str,
+    interactive: bool | None,
 ):
     """One-shot project wire-up — detect framework, write sponsio.yaml, print patch.
 
@@ -3853,7 +3970,16 @@ def onboard(
     from sponsio.onboard import OnboardReport, run_onboard
 
     def _progress(msg: str) -> None:
-        if not as_json and not emit_context:
+        # ``▸`` prefix = stage section header (bold cyan, no ``· `` bullet
+        # and a leading blank line so it visually breaks up the long
+        # scan/LLM/pack/doctor stretches).  Anything else is a per-step
+        # progress line — dim cyan ``· `` bullet.
+        if as_json or emit_context:
+            return
+        if msg.startswith("▸ "):
+            click.echo("", err=True)
+            click.secho(msg, fg="cyan", bold=True, err=True)
+        else:
             click.echo(click.style("· ", fg="cyan", dim=True) + msg, err=True)
 
     # ---- agent-driven path: dump inputs, skip LLM step ------------------
@@ -3905,69 +4031,212 @@ def onboard(
                 if key in seen_inodes:
                     continue
                 seen_inodes.add(key)
-                policy_docs.append({
-                    "path": str(p.relative_to(root)),
-                    "content": p.read_text(encoding="utf-8"),
-                })
+                policy_docs.append(
+                    {
+                        "path": str(p.relative_to(root)),
+                        "content": p.read_text(encoding="utf-8"),
+                    }
+                )
             except OSError:
                 pass
 
-        click.echo(json.dumps({
-            "framework": {
-                "name": framework.framework,
-                "evidence": framework.evidence,
-            },
-            "agent_id": agent_id,
-            "tool_inventory": tool_inventory,
-            "auto_selected_packs": list(pack_selection.packs),
-            "needs_workspace": pack_selection.needs_workspace,
-            "existing_yaml": existing_yaml_text,
-            "policy_docs": policy_docs,
-            "next_steps_hint": (
-                "Run ``sponsio prompt onboard`` to get the prompt "
-                "template, apply it to this JSON in your own LLM "
-                "context, then write the resulting YAML to "
-                f"{existing_yaml_path} via Edit/Write."
-            ),
-        }, indent=2, ensure_ascii=False))
+        click.echo(
+            json.dumps(
+                {
+                    "framework": {
+                        "name": framework.framework,
+                        "evidence": framework.evidence,
+                    },
+                    "agent_id": agent_id,
+                    "tool_inventory": tool_inventory,
+                    "auto_selected_packs": list(pack_selection.packs),
+                    "needs_workspace": pack_selection.needs_workspace,
+                    "existing_yaml": existing_yaml_text,
+                    "policy_docs": policy_docs,
+                    "next_steps_hint": (
+                        "Run ``sponsio prompt onboard`` to get the prompt "
+                        "template, apply it to this JSON in your own LLM "
+                        "context, then write the resulting YAML to "
+                        f"{existing_yaml_path} via Edit/Write."
+                    ),
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
         return
 
-    try:
-        report: OnboardReport = run_onboard(
-            target,
-            agent_id=agent_id,
-            mode=mode,
-            force=force,
-            probe_ollama=not no_probe_ollama,
-            apply=apply,
-            run_doctor=not no_doctor,
-            progress=_progress,
+    # ---- interactive setup (prompts + dotfile writes) ------------------
+    # Decide whether to run prompts.  --json and --emit-context force
+    # non-interactive (prompts would corrupt the structured output).
+    # Otherwise an explicit --interactive / --no-interactive flag wins;
+    # without one, follow the TTY: real shell → prompts, CI / pipe /
+    # docker entrypoint → silent.
+    from sponsio.onboard import _wrap_snippet  # type: ignore[attr-defined]
+    from sponsio.onboard import detect_framework as _detect_fw_for_prompts
+    from sponsio.onboard import detect_provider as _detect_prov_for_prompts
+    from sponsio.onboard_setup import (
+        SetupAnswers,
+        maybe_no_api_key_warning,
+        run_setup_prompts,
+        stdin_is_tty,
+        write_sponsiorc,
+    )
+    from sponsio.sponsiorc import load_sponsiorc
+
+    if as_json or emit_context:
+        is_interactive = False
+    elif interactive is not None:
+        is_interactive = interactive
+    else:
+        is_interactive = stdin_is_tty()
+
+    target_dir = target if target.is_dir() else target.parent
+
+    # Resolve where sponsio.yaml will live so we can detect a "second
+    # run" case below without duplicating run_onboard's path logic.
+    if target.suffix in {".yaml", ".yml"}:
+        out_path_check = target
+    else:
+        out_path_check = target_dir / "sponsio.yaml"
+    yaml_already_exists = out_path_check.exists() and not force
+
+    # Second-run UX: if the user already ran onboard here (.sponsiorc is
+    # present), skip the prompts and reuse the saved choices.  Re-asking
+    # every time was annoying and the user explicitly flagged it.
+    rc = load_sponsiorc(target_dir) if target_dir.exists() else None
+    rc_in_target = (
+        rc is not None
+        and rc.found
+        and rc.source_path is not None
+        and rc.source_path.parent.resolve() == target_dir.resolve()
+    )
+
+    if rc_in_target:
+        # Reuse the rcfile values verbatim — that's the whole point of
+        # the dotfile.  Prompts only fire when there's nothing to reuse.
+        answers = SetupAnswers(
+            framework=rc.framework or "none",
+            provider=rc.extractor_provider or "none",
+            model=rc.extractor_model or "",
+            api_key_env=rc.extractor_api_key_env or "",
         )
-    except FileExistsError as e:
-        click.echo(click.style("Error: ", fg="red") + str(e), err=True)
-        sys.exit(1)
+        pre_fw = None
+        pre_prov = None
+    else:
+        # Pre-detect framework + provider so the prompts have sensible
+        # defaults.  Cheap (no LLM); run even in non-interactive mode
+        # so the rcfile we write below reflects what onboard actually
+        # used.
+        pre_fw = _detect_fw_for_prompts(target_dir) if target_dir.exists() else None
+        pre_prov = _detect_prov_for_prompts(probe_ollama=not no_probe_ollama)
+        answers = run_setup_prompts(
+            detected_framework=pre_fw.framework if pre_fw else "none",
+            detected_provider=pre_prov.provider,
+            detected_model=pre_prov.model or "",
+            detected_api_key_env=pre_prov.env_var or "",
+            interactive=is_interactive,
+        )
+
+    # Second-run UX: existing sponsio.yaml + no --force → preserve it.
+    # We still refresh the dotfiles + reprint the wrap snippet so the
+    # command stays useful (re-running onboard to remind yourself how
+    # to wire it up shouldn't error).  --force keeps the regenerate
+    # path for users who actually want a fresh yaml.
+    report: OnboardReport | None = None
+    if yaml_already_exists:
+        if not as_json and not emit_context:
+            click.echo()
+            click.secho(f"✓ {out_path_check}", fg="green")
+            click.echo("  preserved (re-run with --force to regenerate)")
+    else:
+        try:
+            report = run_onboard(
+                target,
+                agent_id=agent_id,
+                mode=mode,
+                force=force,
+                probe_ollama=not no_probe_ollama,
+                run_doctor=not no_doctor,
+                progress=_progress,
+            )
+        except FileExistsError as e:
+            click.echo(click.style("Error: ", fg="red") + str(e), err=True)
+            sys.exit(1)
+
+    # Write the rcfile (idempotent, plain write_text).  Skipped when
+    # target was a single file rather than a directory — the rcfile
+    # location is ambiguous in that case.  We deliberately do NOT
+    # write a ``.env.example`` here: sponsio reads ``os.environ``
+    # directly (no python-dotenv in the runtime), so a ``.env``-based
+    # recipe would silently fail.  Users keep secrets in their shell
+    # rc / direnv / system keychain — the rcfile records only the
+    # variable name (``api_key_env``), not the value.
+    sponsiorc_path: Path | None = None
+    if target_dir.exists() and target_dir.is_dir():
+        sponsiorc_path = write_sponsiorc(answers, target_dir)
 
     if as_json:
-        click.echo(json.dumps(report.to_dict(), indent=2))
+        payload = (
+            report.to_dict()
+            if report is not None
+            else {
+                "out_path": str(out_path_check),
+                "preserved": True,
+            }
+        )
+        payload["setup"] = {
+            "interactive": is_interactive,
+            "framework": answers.framework,
+            "provider": answers.provider,
+            "model": answers.model,
+            "api_key_env": answers.api_key_env,
+            "api_key_set_in_env": answers.api_key_set_in_env,
+            "sponsiorc_path": str(sponsiorc_path) if sponsiorc_path else None,
+        }
+        click.echo(json.dumps(payload, indent=2))
         return
 
     # Human-readable summary.  Kept compact so the wrap snippet is the
-    # last thing the user sees — it's what they need to act on.
-    click.echo()
-    click.secho(f"✓ {report.out_path}", fg="green")
-    click.echo(f"  tools:      {report.tools_count}")
-    click.echo(f"  contracts:  {report.contracts_count}")
-    click.echo(f"  mode:       {report.mode}")
-    click.echo(f"  framework:  {report.framework.framework}")
-    click.echo(f"  provider:   {report.provider.provider}")
-    if report.starter_pack_used:
-        click.secho(
-            "  · starter-pack applied (no-LLM safety net)",
-            fg="yellow",
-            dim=True,
-        )
+    # last thing the user sees — it's what they need to act on.  When
+    # report is None we're on the second-run preserve path; the "✓
+    # sponsio.yaml preserved" line was already printed above.
+    if report is not None:
+        click.echo()
+        click.secho(f"✓ {report.out_path}", fg="green")
+        click.echo(f"  tools:      {report.tools_count}")
+        click.echo(f"  contracts:  {report.contracts_count}")
+        click.echo(f"  mode:       {report.mode}")
+        click.echo(f"  framework:  {report.framework.framework}")
+        click.echo(f"  provider:   {report.provider.provider}")
+        if report.starter_pack_used:
+            click.secho(
+                "  · starter-pack applied (no-LLM safety net)",
+                fg="yellow",
+                dim=True,
+            )
 
-    if report.doctor_results is not None:
+    # Dotfiles written alongside sponsio.yaml.  Surface the paths so
+    # the user knows which file holds their tool config (vs. the
+    # contract library) and where to drop their actual API key.
+    if sponsiorc_path is not None:
+        click.echo()
+        click.secho(f"✓ {sponsiorc_path}", fg="green")
+        click.echo(
+            "  framework + LLM config — edit this file to change "
+            "framework / model / api_key_env"
+        )
+    # No-key warning — fires when the user picked a provider that
+    # needs a key but the env var isn't actually set, or when
+    # provider==none (so onboard fell back to the name-heuristic
+    # starter pack instead of LLM-inferred contracts).
+    no_key_msg = maybe_no_api_key_warning(answers)
+    if no_key_msg is not None:
+        click.echo()
+        for ln in no_key_msg.splitlines():
+            click.secho("  " + ln, fg="yellow")
+
+    if report is not None and report.doctor_results is not None:
         total = len(report.doctor_results)
         fails = sum(1 for r in report.doctor_results if r.status == "fail")
         warns = sum(1 for r in report.doctor_results if r.status == "warn")
@@ -3986,36 +4255,34 @@ def onboard(
                         f"    {click.style(r.icon, fg=color)} {r.name}: {r.detail}"
                     )
 
-    for w in report.warnings:
-        click.echo()
-        click.echo(click.style("  warn: ", fg="yellow") + w)
-
-    # Apply path: show diff when a patch was written, else fall back
-    # to the snippet so the user still sees what to do.
-    ar = report.apply_result
-    if ar is not None and getattr(ar, "applied", False):
-        click.echo()
-        click.secho(f"✓ patched {ar.file} (backup: {ar.backup})", fg="green")
-        if ar.diff:
-            click.echo(ar.diff)
-    else:
-        if ar is not None and ar.reason and not ar.error:
+    if report is not None:
+        for w in report.warnings:
             click.echo()
-            click.echo(
-                click.style("· apply skipped: ", fg="bright_black", dim=True)
-                + ar.reason
-            )
-        click.echo()
-        click.secho("Add this to your agent entry point:", bold=True)
-        click.echo()
-        for ln in report.wrap_snippet.splitlines():
-            click.echo(f"  {click.style(ln, fg='cyan')}")
+            click.echo(click.style("  warn: ", fg="yellow") + w)
+
+    # Print the framework-specific patch snippet.  Auto-applying it
+    # to the user's agent file used to live behind ``--apply`` but
+    # was removed (only langgraph / langchain were supported, and a
+    # coding agent / manual paste does the same job for any
+    # framework with fewer surprises).  On the second-run preserve
+    # path the framework comes from the rcfile-derived answers (the
+    # user's saved choice, not a fresh detection).
+    snippet = (
+        report.wrap_snippet
+        if report is not None
+        else _wrap_snippet(answers.framework or "none", agent_id)
+    )
+    click.echo()
+    click.secho("Add this to your agent entry point:", bold=True)
+    click.echo()
+    for ln in snippet.splitlines():
+        click.echo(f"  {click.style(ln, fg='cyan')}")
 
     # --push: surface the generated yaml in the local dashboard (one
     # command == everything the dashboard needs). Silently skipped if
     # the dashboard isn't running, so a CI invocation without `serve`
     # up doesn't fail.
-    if push:
+    if push and report is not None:
         try:
             yaml_content = report.out_path.read_text()
         except Exception as e:
@@ -4177,9 +4444,7 @@ def plugin_init(root: Path | None, force: bool, no_smoke_test: bool):
             sys.exit(1)
 
         if target.exists() and not force:
-            click.echo(
-                f"{target} already exists. Re-run with --force to overwrite."
-            )
+            click.echo(f"{target} already exists. Re-run with --force to overwrite.")
             continue
 
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -4512,9 +4777,7 @@ def plugin_scan(
         env_dict: dict[str, str] = {}
         for kv in introspect_env:
             if "=" not in kv:
-                click.secho(
-                    f"--introspect-env expects KEY=VALUE, got {kv!r}", fg="red"
-                )
+                click.secho(f"--introspect-env expects KEY=VALUE, got {kv!r}", fg="red")
                 sys.exit(2)
             k, _, v = kv.partition("=")
             env_dict[k] = v
@@ -4633,18 +4896,26 @@ def plugin_scan(
                     "description": t.description,
                     "input_schema": t.input_schema,
                     **(
-                        {"tool_name_in_contracts": f"mcp__{result.manifest.plugin_id}__{t.name}"}
+                        {
+                            "tool_name_in_contracts": f"mcp__{result.manifest.plugin_id}__{t.name}"
+                        }
                         if target_host == "claude-code"
                         else {"tool_name_in_contracts": t.name}
                     ),
                 }
                 for t in introspected_tools
             ]
-            click.echo(json.dumps({
-                "plugin_id": result.manifest.plugin_id,
-                "target_host": target_host,
-                "tools": tools_json,
-            }, indent=2, ensure_ascii=False))
+            click.echo(
+                json.dumps(
+                    {
+                        "plugin_id": result.manifest.plugin_id,
+                        "target_host": target_host,
+                        "tools": tools_json,
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
         click.echo(
             "\n(dry-run — re-run with --apply to write each group to "
             "<root>/<group>/sponsio.yaml)"

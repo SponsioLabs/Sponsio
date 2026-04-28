@@ -109,14 +109,15 @@ app.add_middleware(
 # limit in FastAPI/Starlette by default. The check is on the header so
 # we reject before reading the body.
 _MAX_OTEL_BYTES = int(os.environ.get("SPONSIO_MAX_OTEL_BYTES", str(10 * 1024 * 1024)))
-_BODY_SIZE_CAPS: tuple[tuple[str, int], ...] = (
-    ("/api/otel/", _MAX_OTEL_BYTES),
-)
+_BODY_SIZE_CAPS: tuple[tuple[str, int], ...] = (("/api/otel/", _MAX_OTEL_BYTES),)
 
 
 @app.middleware("http")
 async def _body_size_middleware(request: Request, call_next):
-    cap = next((n for prefix, n in _BODY_SIZE_CAPS if request.url.path.startswith(prefix)), None)
+    cap = next(
+        (n for prefix, n in _BODY_SIZE_CAPS if request.url.path.startswith(prefix)),
+        None,
+    )
     if cap is not None and request.method in ("POST", "PUT", "PATCH"):
         cl = request.headers.get("content-length")
         if cl is None:

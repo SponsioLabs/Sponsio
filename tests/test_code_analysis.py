@@ -458,7 +458,13 @@ class TestAssumptionEmission:
         monkeypatch.setattr(analyzer, "extract", lambda paths: [proposal])
         monkeypatch.setattr(analyzer, "get_tool_inventory", lambda paths: [])
         yaml_text = analyzer.generate_yaml([], agent_id="bot")
-        assert '- A: "called(modify_order)"' in yaml_text
+        # LLM-extracted assumptions (pattern_name="assumption") now emit
+        # as `A:\n  ltl: ...` so they round-trip cleanly through
+        # parse_repr; the older `A: "called(modify_order)"` NL form
+        # would have to go through the NL parser at load time and was
+        # fragile for raw LTL.
+        assert "- A:" in yaml_text
+        assert "ltl: \"called('modify_order')\"" in yaml_text
         assert "E:" in yaml_text
         assert "pattern: must_precede" in yaml_text
         assert "args: [get_order_details, modify_order]" in yaml_text
@@ -490,11 +496,21 @@ class TestAssumptionEmission:
         assert c.enforcement is not None
 
     def test_assumption_emission_falls_back_to_desc(self, monkeypatch):
-        # Simulate a proposal where evidence["assumption_raw"] is missing
-        # (e.g. older LLM extractor or hand-built constraint). The emitter
-        # must still produce a usable A:.
+        # When the assumption was constructed with a non-LLM
+        # ``pattern_name`` (legacy / hand-built), the emitter falls
+        # back to the NL string from ``desc`` so the entry stays
+        # human-readable in the yaml.  LLM-extracted assumptions
+        # (``pattern_name="assumption"``) take the structured ``ltl:``
+        # path covered by ``test_yaml_emits_A_field_when_assumption_present``.
         proposal = self._make_proposal_with_assumption()
         proposal.evidence.pop("assumption_raw", None)
+        # Re-tag so we exercise the desc-fallback branch, not the
+        # ltl-emit branch.
+        proposal.assumption = type(proposal.assumption)(
+            formula=proposal.assumption.formula,
+            desc=proposal.assumption.desc,
+            pattern_name="custom",
+        )
         analyzer = CodeAnalyzer()
         monkeypatch.setattr(analyzer, "extract", lambda paths: [proposal])
         monkeypatch.setattr(analyzer, "get_tool_inventory", lambda paths: [])

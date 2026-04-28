@@ -60,6 +60,8 @@ LAUNCH_PLAN.md
 docs/demo-video-script.md
 # Full benchmark write-ups / model-by-model tables — private; do not force-add
 docs/benchmark-results.md
+# Closed-source planning — design brief for sponsio-pro modules
+docs/internal/proprietary-validation-pipeline.md
 examples/scan_test_agent_run_debug.py
 sponsio-code-review.md
 

@@ -37,7 +37,6 @@ from sponsio.onboard import (
     detect_provider,
     run_onboard,
 )
-from sponsio.onboard_apply import apply_patch
 
 
 # ---------------------------------------------------------------------------
@@ -482,16 +481,48 @@ class TestOnboardCli:
         assert data["mode"] == "observe"
         assert data["tools_count"] >= 1
 
-    def test_cli_refuses_without_force_on_existing(
+    def test_cli_preserves_yaml_without_force_on_existing(
         self, tmp_path: Path, clean_provider_env
     ):
+        # Second-run UX: re-running ``sponsio onboard`` in a project
+        # that already has a sponsio.yaml must NOT error out.  The
+        # command should silently preserve the existing yaml (only
+        # ``--force`` regenerates) while still refreshing the dotfiles
+        # + reprinting the wrap snippet — the common "what was that
+        # snippet again?" use case.
         runner = CliRunner()
         project = _make_fixture_project(tmp_path)
         (project / "sponsio.yaml").write_text("# precious\n")
-        result = runner.invoke(onboard, [str(project), "--no-probe-ollama"])
-        assert result.exit_code != 0
+        result = runner.invoke(
+            onboard,
+            [str(project), "--no-probe-ollama", "--no-doctor", "--no-interactive"],
+        )
+        assert result.exit_code == 0, result.output
         # Doesn't clobber.
         assert (project / "sponsio.yaml").read_text() == "# precious\n"
+        # Surfaces the preserve path so users know why nothing changed.
+        assert "preserved" in result.output
+
+    def test_cli_force_regenerates_existing_yaml(
+        self, tmp_path: Path, clean_provider_env
+    ):
+        # ``--force`` is the explicit opt-in for regenerating yaml.
+        runner = CliRunner()
+        project = _make_fixture_project(tmp_path)
+        (project / "sponsio.yaml").write_text("# precious\n")
+        result = runner.invoke(
+            onboard,
+            [
+                str(project),
+                "--no-probe-ollama",
+                "--no-doctor",
+                "--no-interactive",
+                "--force",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        # ``--force`` regenerates: the placeholder content is gone.
+        assert (project / "sponsio.yaml").read_text() != "# precious\n"
 
 
 # ---------------------------------------------------------------------------
@@ -574,165 +605,6 @@ class TestDedup:
         filtered = _dedup_starter_proposals(starter, scan_yaml)
         kept = {p.formula.pattern_name for p in filtered}
         assert "token_budget" not in kept
-
-
-# ---------------------------------------------------------------------------
-# --apply patcher
-# ---------------------------------------------------------------------------
-
-
-_LANGGRAPH_FIXTURE = (
-    "from langgraph.prebuilt import create_react_agent\n"
-    "from langchain_core.tools import tool\n"
-    "\n"
-    "@tool\n"
-    "def t1(x: str) -> str:\n"
-    "    return x\n"
-    "\n"
-    "tools = [t1]\n"
-    "agent = create_react_agent(model, tools)\n"
-)
-
-
-class TestApplyPatch:
-    def test_basic_langgraph_patch(self, tmp_path: Path):
-        f = tmp_path / "agent.py"
-        f.write_text(_LANGGRAPH_FIXTURE)
-        result = apply_patch(f, framework="langgraph", agent_id="bot")
-        assert result.applied
-        assert result.backup is not None and result.backup.exists()
-        text = f.read_text()
-        # Wrap inserted around the tools positional arg.
-        assert "_sponsio_guard.wrap(tools)" in text
-        # Import + guard init present after the import block.
-        assert "from sponsio.langgraph import Sponsio" in text
-        # Result is still valid Python.
-        import ast as _ast
-
-        _ast.parse(text)
-
-    def test_idempotent_on_second_run(self, tmp_path: Path):
-        f = tmp_path / "agent.py"
-        f.write_text(_LANGGRAPH_FIXTURE)
-        first = apply_patch(f, framework="langgraph", agent_id="bot")
-        assert first.applied
-        before_second = f.read_text()
-        second = apply_patch(f, framework="langgraph", agent_id="bot")
-        assert not second.applied
-        assert "already patched" in second.reason
-        # File must not have been touched the second time.
-        assert f.read_text() == before_second
-
-    def test_kwarg_tools_arg_is_wrapped(self, tmp_path: Path):
-        """Real-world LangGraph code often uses ``tools=`` as a kwarg.
-        The patcher must handle that as well as positional."""
-        f = tmp_path / "agent.py"
-        f.write_text(
-            "from langgraph.prebuilt import create_react_agent\n"
-            "agent = create_react_agent(model=None, tools=[])\n"
-        )
-        result = apply_patch(f, framework="langgraph", agent_id="bot")
-        assert result.applied
-        assert "tools=_sponsio_guard.wrap([])" in f.read_text()
-
-    def test_unknown_framework_soft_skips(self, tmp_path: Path):
-        f = tmp_path / "agent.py"
-        f.write_text("import openai\n")
-        result = apply_patch(f, framework="openai", agent_id="bot")
-        assert not result.applied
-        # Soft skip: reason populated, error empty.
-        assert result.error == ""
-        assert "auto-apply" in result.reason
-
-    def test_no_target_call_soft_skips(self, tmp_path: Path):
-        """File imports langgraph but never calls create_react_agent —
-        nothing to wrap; soft skip with a clear reason."""
-        f = tmp_path / "agent.py"
-        f.write_text(
-            "from langgraph.graph import StateGraph\nbuilder = StateGraph(int)\n"
-        )
-        result = apply_patch(f, framework="langgraph", agent_id="bot")
-        assert not result.applied
-        assert "didn't find" in result.reason
-
-    def test_spacing_is_normalized(self, tmp_path: Path):
-        """The patched file must have at most one blank line between
-        the guard init and the next non-blank line — even when the
-        original source already had multiple blanks after the imports.
-
-        Regression for the friction point where pre-existing PEP-8
-        blanks compounded with the patcher's own ``\n\n`` and produced
-        3-4 stacked blank lines in the diff banner.
-        """
-        f = tmp_path / "agent.py"
-        # Two blanks (PEP-8) between imports and decorator — the
-        # default shape `black` would produce.
-        f.write_text(
-            "from langgraph.prebuilt import create_react_agent\n"
-            "from langchain_core.tools import tool\n"
-            "\n"
-            "\n"
-            "@tool\n"
-            "def t1(x: str) -> str:\n"
-            "    return x\n"
-            "\n"
-            "agent = create_react_agent(model, [t1])\n"
-        )
-        result = apply_patch(f, framework="langgraph", agent_id="bot")
-        assert result.applied
-        text = f.read_text()
-        # Find the `_sponsio_guard = ...` line, then count contiguous
-        # blanks below it before the next non-blank line.
-        guard_line_idx = next(
-            i
-            for i, ln in enumerate(text.splitlines())
-            if ln.startswith("_sponsio_guard = ")
-        )
-        following = text.splitlines()[guard_line_idx + 1 :]
-        blanks = 0
-        for ln in following:
-            if ln.strip() == "":
-                blanks += 1
-            else:
-                break
-        # Exactly two blank lines (module-level PEP-8 separator).
-        assert blanks == 2, (
-            f"expected 2 blank lines after _sponsio_guard, got {blanks}\n"
-            f"---\n{text}\n---"
-        )
-
-    def test_syntax_error_is_refused_safely(self, tmp_path: Path):
-        f = tmp_path / "agent.py"
-        f.write_text("def broken(:\n    pass\n")
-        result = apply_patch(f, framework="langgraph", agent_id="bot")
-        assert not result.applied
-        # Hard error: error populated, file untouched.
-        assert "SyntaxError" in result.error
-        assert f.read_text() == "def broken(:\n    pass\n"
-
-
-class TestRunOnboardWithApply:
-    def test_apply_flag_patches_entry_file(self, tmp_path: Path, clean_provider_env):
-        project = _make_fixture_project(tmp_path)
-        report = run_onboard(
-            project,
-            probe_ollama=False,
-            apply=True,
-            run_doctor=False,  # keep this test focused on --apply
-        )
-        assert report.apply_result is not None
-        assert report.apply_result.applied is True
-        # The entry file we detected was patched.
-        text = (project / "src" / "agent.py").read_text()
-        assert "from sponsio.langgraph import Sponsio" in text
-
-    def test_no_apply_means_no_patch(self, tmp_path: Path, clean_provider_env):
-        project = _make_fixture_project(tmp_path)
-        report = run_onboard(project, probe_ollama=False, run_doctor=False)
-        assert report.apply_result is None
-        # Source file untouched.
-        text = (project / "src" / "agent.py").read_text()
-        assert "from sponsio.langgraph import Sponsio" not in text
 
 
 # ---------------------------------------------------------------------------

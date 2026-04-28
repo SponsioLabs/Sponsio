@@ -1,25 +1,38 @@
 # =============================================================================
 # sponsio/contracts/core/runaway.yaml
 #
-# Tier 0 — Runaway defense.  Covers the "while(true) with a credit card"
-# failure class: infinite tool loops, uncapped delegation chains, and
-# session token budgets.  Evidence in 2025-2026 public posts:
+# Tier 0 — Runaway defense.  Targets the "while(true) with a credit
+# card" failure class: infinite tool loops, uncapped delegation
+# chains, session token budgets.
 #
-#   - LangGraph GRAPH_RECURSION_LIMIT hit from simple cyclic edges
-#   - Meta Llama + LangGraph: model re-calls the same tool 20+ times
-#     until recursion limit, never emits final response
-#   - "$14 OpenAI bill overnight" — agent stuck in retry loop for 6h
-#   - OpenAI Agents SDK / LangGraph: same-tool repeats without progress
+# Status: **intentionally empty**.  The previous version of this
+# pack hard-coded threshold defaults (200k total tokens, 150k input,
+# 50k output, delegation depth 5, 10-consecutive-tool loop cap).
+# Those numbers are arbitrary — the right value depends on which
+# model the agent runs against, the team's budget, the workflow
+# length, and the tools.  Shipping picked-out-of-the-air defaults
+# that fire silently against every project's traffic was net-
+# negative: users either ignored the noise or hit them mid-task with
+# no good way to tune.
 #
-# All three patterns here are trace-level.  Per-request guardrails (NeMo,
-# LlamaFirewall, Guardrails AI) structurally cannot see this class of
-# failure — they have no cross-turn state.
+# What replaces this pack:
 #
-# Include from a user config via:
-#   include:
-#     - sponsio:core/runaway
+#   * For token budgets, use ``pattern: token_budget`` directly in
+#     your own ``contracts:`` block with a number tied to your
+#     billing constraint, e.g. ``args: [50000, "total"]`` for a hard
+#     $1.50 cap on gpt-4o-mini.
+#   * For loop detection, use the per-tool ``pattern: loop_detection``
+#     entries in ``capability/shell.yaml`` etc., or write your own
+#     ``pattern: loop_detection args: [<tool>, <N>]`` against the
+#     specific tool you want capped.
+#   * For delegation-depth, use ``pattern: delegation_depth_limit``
+#     with your team's actual maximum sub-agent depth.
 #
-# Source tag convention:
+# The pack file is kept (rather than deleted) so existing
+# ``include: sponsio:core/runaway`` lines in user yaml don't error
+# out — they just resolve to zero contracts.
+#
+# Source tag convention (when contracts return):
 #   library:tier0.runaway
 # =============================================================================
 
@@ -27,82 +40,4 @@ version: "1"
 
 agents:
   "*":
-    contracts:
-
-      # -- Token budget -------------------------------------------------
-      #
-      # Hard per-session cap.  Chosen conservative: 200k total tokens is
-      # ~$0.60 at gpt-4o-mini rates, ~$6 at gpt-4o, ~$30 at claude-opus.
-      # Users with tight budgets should lower this; users running long
-      # research tasks may need to raise it.  token_count(type) is
-      # populated from OTEL gen_ai.usage.* span attributes.
-      - desc: "Session total tokens must not exceed 200k"
-        E:
-          pattern: token_budget
-          args: [200000, "total"]
-          source: "library:tier0.runaway"
-
-      - desc: "Session input tokens must not exceed 150k"
-        E:
-          pattern: token_budget
-          args: [150000, "input_tokens"]
-          source: "library:tier0.runaway"
-
-      - desc: "Session output tokens must not exceed 50k"
-        E:
-          pattern: token_budget
-          args: [50000, "output_tokens"]
-          source: "library:tier0.runaway"
-
-      # -- Delegation depth --------------------------------------------
-      #
-      # Anyone using multi-agent frameworks (CrewAI, LangGraph subgraphs,
-      # OpenAI Agents SDK handoffs).  delegation_depth increments on
-      # every `message` event between agents.
-      - desc: "Agent-to-agent delegation chain must not exceed depth 5"
-        E:
-          pattern: delegation_depth_limit
-          args: [5]
-          source: "library:tier0.runaway"
-
-      # -- Loop detection ----------------------------------------------
-      #
-      # loop_detection catches N-consecutive-identical-tool-calls.  We
-      # can't enumerate every tool here (the inventory is agent-specific),
-      # so we use a wildcard LTL form: no tool may be called >10 times
-      # consecutively, regardless of name.  consecutive_count(tool) is
-      # tracked per-tool by grounding; the formula below uses arithmetic
-      # at the AST level via a universal-ish pattern encoded as LTL.
-      #
-      # Because Sponsio's Var/count atoms are per-tool (count is
-      # parameterized), a truly "any tool" form requires either a FOL
-      # quantifier (not yet shipped) or the monitor emitting a synthetic
-      # max_consecutive Var.  Until one of those lands, agents that
-      # include this file should add per-tool loop_detection entries in
-      # their own config, one per tool.  See capability/*.yaml for
-      # preset loop caps on the common dangerous tools (exec, web_fetch).
-      #
-      # The generic guard below uses bounded_retry on a synthetic atom
-      # `__any_tool__` that an integration can emit at guard_before to
-      # get the effect of "nothing at all > 25 consecutive steps."  When
-      # not emitted, the formula is vacuously satisfied, so including
-      # this does no harm.
-      - desc: "No single tool may repeat >10 times consecutively (integration must emit consecutive_count)"
-        E:
-          ltl: "G(consecutive_count(__any_tool__) <= 10)"
-          source: "library:tier0.runaway"
-
-# -----------------------------------------------------------------------------
-# Known gaps (tracked as follow-up work, not blocking this file)
-# -----------------------------------------------------------------------------
-#
-# - Wildcard consecutive_count across all tools — would need a synthetic
-#   atom emitted by the monitor.  Discussed above.
-#
-# - Dollar-cost budget — token_budget covers token ceilings; there is no
-#   `$X` atom.  For paid-API-key scenarios (e.g., OpenClaw weather-skill
-#   incident) this is a gap.  Workaround: set a conservative token_budget.
-#
-# - Time-based rate limits (tokens per hour, calls per minute) — current
-#   budgets are per-session.  A sliding-window atom would need grounding
-#   changes.
+    contracts: []

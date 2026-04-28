@@ -219,8 +219,7 @@ def test_install_default_is_copy_not_link(tmp_path):
     assert skill_md.is_file(), f"SKILL.md not at {skill_md}"
     # Real file, not a symlink — mutating it must not affect anything else.
     assert not skill_md.is_symlink(), (
-        f"default install must produce a copy, got a symlink → "
-        f"{skill_md.resolve()}"
+        f"default install must produce a copy, got a symlink → {skill_md.resolve()}"
     )
     # Same for the parent dir (--link makes the whole dir a symlink).
     assert not (dest / "sponsio").is_symlink(), (

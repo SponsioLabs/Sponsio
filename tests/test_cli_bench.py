@@ -1,10 +1,11 @@
 """CLI tests for ``sponsio bench``.
 
 Uses Click's ``CliRunner`` (in-process) so the test is fast and
-doesn't spawn a Python subprocess per case.  Constructed with
-``mix_stderr=False`` so ``result.stdout`` is just stdout — the
-contract banner the runtime emits goes to stderr and would otherwise
-interleave with the ``--json`` payload and break ``json.loads``.
+doesn't spawn a Python subprocess per case.  Click 8.3 separates
+stdout/stderr by default (``mix_stderr=False`` was removed because
+it became the only behaviour), so ``result.stdout`` is just stdout
+— the contract banner the runtime emits goes to stderr and is
+read via ``result.stderr`` in the error-path tests below.
 
 What we cover:
 
@@ -202,10 +203,8 @@ def test_bench_missing_config_errors_early(tmp_path):
     # Click type=click.Path(exists=True) rejects before the callback
     # runs, so exit code is 2 (usage error).
     assert result.exit_code == 2
-    # Click usage errors land on stderr with mix_stderr=False.
-    assert (
-        "nope.yaml" in result.stderr or "does not exist" in result.stderr
-    )
+    # Click usage errors land on stderr (default in click 8.3).
+    assert "nope.yaml" in result.stderr or "does not exist" in result.stderr
 
 
 def test_bench_multi_agent_without_flag_errors(tmp_path):

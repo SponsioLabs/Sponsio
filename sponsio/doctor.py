@@ -7,7 +7,7 @@ command:
     • Python           3.11.8
     ✓ sponsio import    0.1.0a0
     ✓ Optional SDKs     langchain, openai (crewai not installed — ok)
-    ✓ LLM credentials   GOOGLE_API_KEY present (gemini-2.0-flash, 1500/day free)
+    ✓ LLM credentials   GOOGLE_API_KEY present (gemini-2.5-flash, 1500/day free)
     ✓ Project scan      12 tools found in src/
     ✓ Guard smoke-test  contract wires up, data_write visible
     ✓ Runtime mode      observe (shadow — safe default)
@@ -145,8 +145,8 @@ def check_optional_sdks() -> CheckResult:
 
 # Env var → (provider label, default model, note)
 _LLM_PROVIDERS: tuple[tuple[str, str, str, str], ...] = (
-    ("GEMINI_API_KEY", "Gemini", "gemini-2.0-flash", "1500 req/day free tier"),
-    ("GOOGLE_API_KEY", "Gemini", "gemini-2.0-flash", "1500 req/day free tier"),
+    ("GEMINI_API_KEY", "Gemini", "gemini-2.5-flash", "1500 req/day free tier"),
+    ("GOOGLE_API_KEY", "Gemini", "gemini-2.5-flash", "1500 req/day free tier"),
     ("ANTHROPIC_API_KEY", "Anthropic", "claude-3-5-sonnet-20241022", ""),
     ("OPENAI_API_KEY", "OpenAI", "gpt-4o-mini", ""),
 )

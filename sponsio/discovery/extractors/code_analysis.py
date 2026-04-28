@@ -1795,31 +1795,98 @@ class CodeAnalyzer:
 
                 if p.formula:
                     pattern = p.formula.pattern_name
-                    a_text = self._render_assumption(p)
-                    if a_text:
-                        # `A: ... E: ...` pair — confidence comment goes on
-                        # the entry (`- A:`) line.
-                        lines.append(f'      - A: "{a_text}"{confidence_tag}')
-                        lines.append("        E:")
-                        lines.append(f"          pattern: {pattern}")
+                    # ``pattern_name == "formula"`` is the sentinel used by
+                    # :func:`sponsio.generation.llm_extraction._compile_det`
+                    # for constraints that came back as raw LTL rather than
+                    # one of the registered patterns.  Emitting them as
+                    # ``pattern: formula`` would re-fail at load time
+                    # ("Unknown pattern 'formula'"), so round-trip via the
+                    # ``ltl:`` escape hatch instead — using ``repr()`` to
+                    # produce the operator-form syntax that
+                    # :func:`sponsio.formulas.parser.parse_repr` (the parser
+                    # the YAML loader uses for ``ltl:``) understands.
+                    is_raw_ltl = pattern == "formula"
+
+                    # For raw-LTL contracts, generate a ``desc:`` line so
+                    # reviewers reading the yaml can grok what the
+                    # formula does without parsing operator soup.  We
+                    # prefer the LLM-supplied ``nl_description`` (captures
+                    # the user-intent phrasing the model was trying to
+                    # encode) and fall back to :func:`formula_to_nl`
+                    # (mechanical "always: if … then …" paraphrase) when
+                    # no NL was attached — still beats a bare LTL line.
+                    # Pattern-based contracts skip this: ``pattern:
+                    # rate_limit`` + args are self-describing already.
+                    desc_text = ""
+                    if is_raw_ltl:
+                        if p.nl_description and p.nl_description.strip():
+                            desc_text = p.nl_description.strip()
+                        else:
+                            try:
+                                from sponsio.formulas.nl_gen import formula_to_nl
+
+                                desc_text = formula_to_nl(p.formula.formula).strip()
+                            except Exception:
+                                desc_text = ""
+
+                    a_emit = self._render_assumption_yaml(p)
+                    # Entry start.  When we have a desc, that's the
+                    # top-level field; A / E are siblings.  When we
+                    # don't, fall back to the original "- A:" / "- E:"
+                    # short forms so non-LTL contracts stay terse.
+                    inner_indent = "        "  # 8 spaces — body of "- " entry
+                    if desc_text:
+                        lines.append(
+                            f"      - desc: "
+                            f"{self._emit_yaml_scalar(desc_text)}"
+                            f"{confidence_tag}"
+                        )
+                        if a_emit:
+                            lines.append(f"{inner_indent}{a_emit['head']}")
+                            for sub in a_emit.get("rest", []):
+                                lines.append(sub)
+                        lines.append(f"{inner_indent}E:")
+                        head_indent = "          "
+                    elif a_emit:
+                        lines.append(f"      - {a_emit['head']}{confidence_tag}")
+                        for sub in a_emit.get("rest", []):
+                            lines.append(sub)
+                        lines.append(f"{inner_indent}E:")
+                        head_indent = "          "
                     else:
                         lines.append(f"      - E:{confidence_tag}")
-                        lines.append(f"          pattern: {pattern}")
+                        head_indent = "          "
 
-                    # Reconstruct args for the enforcement
-                    if p.evidence and "args" in p.evidence:
-                        args = p.evidence["args"]
-                        lines.append(f"          args: {self._emit_yaml_list(args)}")
-                    elif p.evidence:
-                        caller = p.evidence.get("caller", "")
-                        callee = p.evidence.get("callee", "")
-                        if caller and callee:
+                    if is_raw_ltl:
+                        ltl_str = repr(p.formula.formula)
+                        lines.append(
+                            f"{head_indent}ltl: {self._emit_yaml_scalar(ltl_str)}"
+                        )
+                    else:
+                        lines.append(f"{head_indent}pattern: {pattern}")
+
+                        # Reconstruct args for the enforcement
+                        if p.evidence and "args" in p.evidence:
+                            args = p.evidence["args"]
                             lines.append(
-                                f"          args: {self._emit_yaml_list([callee, caller])}"
+                                f"{head_indent}args: {self._emit_yaml_list(args)}"
                             )
+                        elif p.evidence:
+                            caller = p.evidence.get("caller", "")
+                            callee = p.evidence.get("callee", "")
+                            if caller and callee:
+                                lines.append(
+                                    f"{head_indent}args: "
+                                    f"{self._emit_yaml_list([callee, caller])}"
+                                )
                     if src_label:
-                        lines.append(f"          source: {src_label}")
+                        lines.append(f"{head_indent}source: {src_label}")
                 elif p.sto:
+                    if not p.nl_description:
+                        # Sto proposal without an NL description would
+                        # round-trip as ``- E: ""``, which the loader
+                        # rejects (``enforcement: None``).  Drop instead.
+                        continue
                     a_text = self._render_assumption(p)
                     if a_text:
                         lines.append(f'      - A: "{a_text}"{confidence_tag}')
@@ -1866,6 +1933,36 @@ class CodeAnalyzer:
             else:
                 parts.append(cls._emit_yaml_scalar(v))
         return "[" + ", ".join(parts) + "]"
+
+    def _render_assumption_yaml(self, p: ProposedConstraint) -> dict[str, Any] | None:
+        """Return YAML lines for the assumption block, or None when none.
+
+        For LLM-extracted assumptions (``pattern_name == "assumption"``)
+        we emit ``A:\\n  ltl: ...`` so the LTL round-trips through
+        :func:`sponsio.formulas.parser.parse_repr` at load time.  For
+        all other shapes we fall back to the legacy NL string form
+        (``A: "<text>"``) which the loader feeds to its NL extractor.
+
+        Returns:
+            Dict with keys ``head`` (the ``A: ...`` opener line) and
+            optional ``rest`` (continuation lines, indented to ``8``).
+            Returns ``None`` when no assumption is set.
+        """
+        if p.assumption is None:
+            return None
+
+        is_raw_ltl = getattr(p.assumption, "pattern_name", "") == "assumption"
+        if is_raw_ltl:
+            ltl_str = repr(p.assumption.formula)
+            return {
+                "head": "A:",
+                "rest": [f"          ltl: {self._emit_yaml_scalar(ltl_str)}"],
+            }
+
+        a_text = self._render_assumption(p)
+        if not a_text:
+            return None
+        return {"head": f'A: "{a_text}"'}
 
     @staticmethod
     def _render_assumption(p: ProposedConstraint) -> str:

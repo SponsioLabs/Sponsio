@@ -37,42 +37,26 @@ sponsio --version
 
 ## W1 — Initial setup
 
-Goal: from "project has no Sponsio" to "agent runs under observe mode with a sane contract file".
+Goal: from "project has no Sponsio" to "agent runs under observe mode with a sane contract file", in one command.
 
-### Two paths — pick by who's driving
+### Steps
 
-**Path A — agent-driven (recommended when YOU are running inside an IDE).**
-You (the host agent) ARE the LLM the contract-mining prompt is written for, so there's no reason to make sponsio call a separate API for it. Use this path when you're in Cursor / Claude Code / Codex.
+1. Run the one-shot entry point:
 
-```bash
-# 1. Get the structured inputs (no LLM call, no API key required)
-sponsio onboard <path> --emit-context
+   ```bash
+   sponsio onboard .
+   ```
 
-# 2. Get the prompt template
-sponsio prompt onboard
-```
+   `onboard` detects framework (langgraph / langchain / crewai / openai_agents / claude_agent / vercel-ai / no-framework), picks an LLM provider if available, auto-selects contract packs (see "Auto-selected packs" below), and writes `sponsio.yaml` in **observe** mode plus a `.sponsiorc` + `.env.example`.  It prints a framework-specific 2-3 line patch the user pastes into their agent entry file — there's no auto-patcher, since the snippet is self-explanatory and a coding agent (or manual paste) does it cleaner than a heuristic patcher could.
 
-The `--emit-context` JSON has: framework detection, AST-extracted tool inventory, auto-selected packs, any existing `sponsio.yaml`, and any root-level `security.md` / `policy.md` content. You apply the prompt to that JSON in your own context, produce a `sponsio.yaml`, and write it via Edit/Write. Then run `sponsio doctor` to verify.
+2. After `onboard` finishes, show the user three things — do not skip any:
+   - The generated `sponsio.yaml` (read it back and summarize: packs included, tools renamed, mode).
+   - The printed wrap snippet — paste it into the agent entry file at the marked location (the snippet's inline comment shows where the wrap must run *before* the agent is built).
+   - Any `sponsio doctor` warn/fail lines.
 
-**Path B — CLI-driven (recommended for CI / batch / no-agent-in-loop).**
-Single command; relies on a configured LLM provider env var (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY`).
+3. Explain observe mode explicitly: "Nothing is blocked on day 1. Every contract is still evaluated; violations are logged to `~/.sponsio/sessions/<agent_id>/*.jsonl` and (if a dashboard is configured) pushed there. Use `sponsio report --since 24h` after a day of real traffic to see what would have been blocked."
 
-```bash
-sponsio onboard . --apply
-```
-
-`onboard` detects framework, picks an LLM provider, auto-selects packs, writes `sponsio.yaml` in **observe** mode, and with `--apply` patches the agent entry file with a two-line wrap (backup at `.sponsio.bak`).
-
-### After either path
-
-Show the user three things — do not skip any:
-- The generated `sponsio.yaml` (read it back and summarize: packs included, tools renamed, mode).
-- The applied entry-file patch (from `report.apply_result.diff`) or the printed snippet.
-- Any `sponsio doctor` warn/fail lines.
-
-Explain observe mode explicitly: "Nothing is blocked on day 1. Every contract is still evaluated; violations are logged to `~/.sponsio/sessions/<agent_id>/*.jsonl` and (if a dashboard is configured) pushed there. Use `sponsio report --since 24h` after a day of real traffic to see what would have been blocked."
-
-If `sponsio doctor` failed (not warned, failed), stop and surface it — don't let the user run their agent thinking the install is healthy when it isn't.
+4. If `sponsio doctor` failed (not warned, failed), stop and surface it — don't let the user run their agent thinking the install is healthy when it isn't.
 
 ### Auto-selected packs
 
@@ -237,25 +221,7 @@ Goal: treat `sponsio.yaml` as a **living library**, not a one-shot output. As re
 - After a material behavior change (new tools, new workflow, new integration).
 - Before flipping to enforce (W4) — catches late-arriving trace-sourced rules that weren't present in the original scan.
 
-### Two paths — same split as W1
-
-**Path A — agent-driven (recommended when YOU are running inside an IDE).**
-You read recent trace summaries and propose deltas in your own context. No extra API key, the user reviews changes in the same conversation.
-
-```bash
-# 1. Get the trace summary as JSON (no LLM, no API key)
-sponsio refresh -c sponsio.yaml --since 7d --emit-traces
-
-# 2. Get the prompt template
-sponsio prompt refresh
-```
-
-The `--emit-traces` JSON has, per agent: existing contracts, total event count, per-tool call counts with `blocked` / `would_have_blocked` / `passed` breakdowns, and an `uncovered_patterns` list (tools called ≥3× with no contract covering them). Apply the prompt; output a `proposed_changes:` YAML block for the user to review.
-
-When the user agrees, hand-edit the changes into `sponsio.yaml` (or, for `add` proposals only, run `sponsio refresh --apply` which mines + writes via the deterministic path — useful when changes are mostly additions).
-
-**Path B — CLI-driven (recommended for CI / batch / scheduled refresh).**
-Single-command path; relies on a configured LLM provider env var.
+### Steps
 
 1. Dry-run first. Always.
 
@@ -300,7 +266,6 @@ Single-command path; relies on a configured LLM provider env var.
 ### Do NOT
 
 - Do NOT run refresh on traces from an agent still in early iteration. Wait until the workflow is stable; otherwise every sprint invalidates the library.
-- Do NOT use `--apply` without first showing the dry-run diff.
 - Do NOT remove `source: scan` / `source: policy` entries in the yaml by hand just because refresh doesn't touch them — they represent knowledge refresh can't reconstruct (code AST, policy docs). If you think one is wrong, edit `overrides:`, don't delete.
 
 ---
@@ -475,7 +440,7 @@ Full list: `sponsio patterns`. 29 det + 7 sto.
 
 ---
 
-## Integration snippets (W1 fallback when `--apply` can't patch)
+## Integration snippets (paste into your agent entry file after onboard)
 
 All frameworks share the same `sponsio.yaml`; only the wiring at the agent entry point differs.
 
@@ -516,7 +481,7 @@ await guard.guardBefore({ toolName: "...", toolArgs: {...} });
 
 - Does NOT run the agent. It orchestrates the CLI and explains results.
 - Does NOT guarantee contracts are complete — they're proposals from heuristics + LLM; the user reviews.
-- Does NOT modify code outside the agent entry file (and only in W1 with `--apply`, with a backup).
+- Does NOT modify the user's code at all — the wrap snippet is printed for the user (or their coding assistant) to paste into the agent entry file.
 
 If asked for something out of scope (e.g., "also check my DB schema"), say so and offer the closest thing Sponsio can do.
 
@@ -526,7 +491,7 @@ If asked for something out of scope (e.g., "also check my DB schema"), say so an
 
 This skill only uses these. Internal refactors are safe as long as these stay stable.
 
-1. **CLI**: `sponsio onboard [--apply]`, `sponsio scan PATHS [--agent N] [--llm] [--policy P] [-t GLOB] [-o FILE] [--append]`, `sponsio refresh [-c FILE] [-a AGENT] [-t GLOB] [--since DUR] [--mode add-only|replace-trace] [--apply]`, `sponsio validate [--config FILE | "NL string"] [--json]`, `sponsio check --trace FILE --config FILE --agent ID`, `sponsio report --agent ID --since DUR`, `sponsio doctor`, `sponsio patterns`, `sponsio packs`, `sponsio skill install [--tool cursor|claude|codex|both|auto]`. Exit 0 on success.
+1. **CLI**: `sponsio onboard`, `sponsio scan PATHS [--agent N] [--llm] [--policy P] [-t GLOB] [-o FILE] [--append]`, `sponsio refresh [-c FILE] [-a AGENT] [-t GLOB] [--since DUR] [--mode add-only|replace-trace] [--apply]`, `sponsio validate [--config FILE | "NL string"] [--json]`, `sponsio check --trace FILE --config FILE --agent ID`, `sponsio report --agent ID --since DUR`, `sponsio doctor`, `sponsio patterns`, `sponsio packs`, `sponsio skill install [--tool cursor|claude|codex|both|auto]`. Exit 0 on success.
 2. **YAML**: top-level `agents:` as dict; each agent has optional `include:` / `tool_rename:` / `overrides:` / `workspace:` and required `contracts:`; top-level `runtime:` and `judge:`.
 3. **Patterns**: names in the table above keep their semantics. Renaming is a breaking change for this skill.
 4. **`validate --json` shape**: per-contract `ok` / `type` / `pattern` / `formula` / `agent`.

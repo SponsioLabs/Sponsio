@@ -242,11 +242,14 @@ class TestPacksStillLoadAfterFixes:
     # id `openclaw_local` instead of the `*` template), but is now
     # template-shaped like the others and uses `<agent>` for the
     # one LTL atom that needs to reference the running agent.
+    # ``sponsio:core/runaway`` is excluded from this set on purpose —
+    # the pack is intentionally empty (its old hard-coded budget
+    # defaults were arbitrary) so a "non-zero contracts" assertion
+    # would mis-classify "intentionally empty" as "broken parsing".
     @pytest.mark.parametrize(
         "spec,needs_workspace",
         [
             ("sponsio:core/universal", False),
-            ("sponsio:core/runaway", False),
             ("sponsio:capability/shell", False),
             ("sponsio:capability/filesystem", True),
             ("sponsio:incident/openclaw", True),
@@ -262,6 +265,16 @@ class TestPacksStillLoadAfterFixes:
         # nonzero lower bound catches "the rewrites broke parsing"
         # regressions.
         assert len(cfg.agents["bot"].contracts) > 0
+
+    def test_runaway_pack_loads_empty_without_error(self, tmp_path):
+        """``core/runaway`` is intentionally empty — the include must
+        still resolve cleanly so existing yaml files keep working,
+        just with zero contracts contributed.  Asserts the file
+        parses + agents block compiles, even with an empty list."""
+        cfg_path = tmp_path / "sponsio.yaml"
+        cfg_path.write_text("agents:\n  bot:\n    include: ['sponsio:core/runaway']\n")
+        cfg = load_config(cfg_path)
+        assert cfg.agents["bot"].contracts == []
 
 
 # ---------------------------------------------------------------------------

@@ -330,9 +330,7 @@ def test_cli_rejects_non_plugin_dir_without_plugin_id(tmp_path):
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-MOCK_MCP_SERVER = (
-    REPO_ROOT / "examples" / "demo" / "mock_github_mcp" / "server.py"
-)
+MOCK_MCP_SERVER = REPO_ROOT / "examples" / "demo" / "mock_github_mcp" / "server.py"
 
 
 def test_introspect_against_mock_mcp(tmp_path):
@@ -344,9 +342,12 @@ def test_introspect_against_mock_mcp(tmp_path):
         pytest.skip(f"demo MCP server not present at {MOCK_MCP_SERVER}")
 
     proc = _run_cli(
-        "--plugin-id", "github-mock",
-        "--target-host", "claude-code",
-        "--introspect", f"python3 {MOCK_MCP_SERVER}",
+        "--plugin-id",
+        "github-mock",
+        "--target-host",
+        "claude-code",
+        "--introspect",
+        f"python3 {MOCK_MCP_SERVER}",
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
@@ -365,8 +366,10 @@ def test_introspect_against_mock_mcp(tmp_path):
 def test_introspect_invalid_command_errors(tmp_path):
     """Bad spawn command surfaces as exit 1 with the IntrospectError."""
     proc = _run_cli(
-        "--plugin-id", "x",
-        "--introspect", "this-binary-definitely-does-not-exist-xyz",
+        "--plugin-id",
+        "x",
+        "--introspect",
+        "this-binary-definitely-does-not-exist-xyz",
     )
     assert proc.returncode == 1
     combined = (proc.stdout or "") + (proc.stderr or "")

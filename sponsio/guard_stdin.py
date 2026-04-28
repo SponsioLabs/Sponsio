@@ -19,13 +19,21 @@ The ``plugin`` segment is derived from the inbound ``tool_name``:
     "acme:fetch_data"       -> "acme"           (Claude Code namespaced skill)
     "mcp__acme__fetch"      -> "acme"           (MCP server convention)
 
-Trace continuity across calls is not yet implemented — every invocation
-gets a fresh empty trace, so trace-aware contracts (must_precede,
-rate_limit, cooldown) are silent in this prototype. Argument-level
-contracts (scope_limit, arg_blacklist, arg_value_range, dangerous_*,
-tool_allowlist) all fire correctly because they evaluate on the
-single current event. A daemon mode that maintains per-session traces
-is the next iteration.
+Trace continuity is implemented via a per-plugin append-only JSONL log
+co-located with the library file at
+``~/.sponsio/plugins/<plugin>/.shield-trace.jsonl``.  Each invocation
+loads prior events into the BaseGuard's monitor before evaluation, so
+trace-aware contracts (must_precede, cooldown, A/G temporal patterns)
+fire correctly.  After a guard call is *allowed*, the new event is
+appended to the log; blocked calls are not appended because the action
+never executed.
+
+The trace log is rotated automatically: files older than
+``SPONSIO_SHIELD_TRACE_TTL_HOURS`` (default 24) are pruned on access,
+and the current trace is reset between rotations so a long-lived
+``_host`` plugin doesn't accumulate stale events forever.  This is the
+file-based "session state" — a true daemon mode (single long-running
+process holding state in memory) is a future optimisation.
 """
 
 from __future__ import annotations
@@ -35,6 +43,7 @@ import io
 import json
 import os
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -130,6 +139,127 @@ def library_path_for(plugin_id: str) -> Path:
     return library_root() / plugin_id / "sponsio.yaml"
 
 
+# ----------------------------------------------------------------------
+# Per-plugin trace continuity (file-based)
+# ----------------------------------------------------------------------
+
+
+def _trace_file_for(plugin_id: str) -> Path:
+    """Per-plugin shield trace log path.
+
+    The trace lives **inside** each plugin's library directory at
+    ``<plugin_root>/<plugin>/.shield-trace.jsonl``.  Co-locating with the
+    library file means:
+
+    1. ``$SPONSIO_PLUGIN_ROOT`` isolation is automatically inherited —
+       tests that swap plugin root get a fresh trace dir for free, no
+       second env var to remember.
+    2. The trace and the rules that govern it travel together — moving
+       a plugin library directory takes its session state with it.
+
+    Override the trace location entirely via ``$SPONSIO_SHIELD_TRACE_ROOT``
+    when you need decoupled storage (e.g. read-only library mounts).
+    """
+    override = os.environ.get("SPONSIO_SHIELD_TRACE_ROOT")
+    if override:
+        return Path(override).expanduser() / plugin_id / "trace.jsonl"
+    return library_root() / plugin_id / ".shield-trace.jsonl"
+
+
+def _trace_ttl_seconds() -> int:
+    """Stale-trace cutoff.  Default 24h; override via env for tests."""
+    raw = os.environ.get("SPONSIO_SHIELD_TRACE_TTL_HOURS", "24")
+    try:
+        hours = float(raw)
+    except ValueError:
+        hours = 24.0
+    return int(hours * 3600)
+
+
+def _maybe_rotate(path: Path) -> None:
+    """Drop the trace file if it's older than the TTL.
+
+    A long-lived `_host` plugin (i.e. the user's whole Claude Code
+    session) will accumulate events indefinitely otherwise.  We treat
+    inactivity > TTL as "new session".
+    """
+    if not path.exists():
+        return
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return
+    if time.time() - mtime > _trace_ttl_seconds():
+        try:
+            path.unlink()
+        except OSError:  # pragma: no cover - racy unlink
+            pass
+
+
+def _load_prior_events(plugin_id: str):
+    """Reconstruct the prior session trace for ``plugin_id``.
+
+    Returns a list of ``Event`` objects, oldest first.  Empty list if
+    there's no log yet (first call) or the log is past TTL.
+    """
+    path = _trace_file_for(plugin_id)
+    _maybe_rotate(path)
+    if not path.exists():
+        return []
+
+    # Lazy import — keeps cold-start cheap when no log exists.
+    from sponsio.models.trace import Event
+
+    events = []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as e:
+        sys.stderr.write(f"sponsio shield guard:could not read trace log {path}: {e}\n")
+        return []
+
+    for raw in text.splitlines():
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            d = json.loads(raw)
+        except json.JSONDecodeError:
+            # One bad line shouldn't poison the rest; skip and continue.
+            continue
+        try:
+            events.append(
+                Event(
+                    ts=int(d["ts"]),
+                    agent=d["agent"],
+                    event_type=d["type"],
+                    tool=d.get("tool"),
+                    key=d.get("key"),
+                    contains=d.get("contains"),
+                    to=d.get("to"),
+                    args=d.get("args"),
+                    content=d.get("content"),
+                )
+            )
+        except (KeyError, ValueError, TypeError):
+            continue
+    return events
+
+
+def _append_event(plugin_id: str, event_dict: dict) -> None:
+    """Append one Event-shaped dict to the per-plugin trace log.
+
+    Atomic at the level of one ``write`` syscall (a JSONL line is one
+    write); concurrent hooks won't tear individual records, though
+    interleaving order isn't guaranteed.  Claude Code's hook protocol
+    is sequential per-session today, so this is acceptable.
+    """
+    path = _trace_file_for(plugin_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(event_dict, separators=(",", ":")) + "\n"
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(line)
+
+
 def evaluate_event(event: dict) -> GuardOutcome:
     """Run one PreToolUse event against the matching per-plugin library.
 
@@ -182,6 +312,10 @@ def evaluate_event(event: dict) -> GuardOutcome:
     saved_env = os.environ.get("SPONSIO_MODE")
     os.environ["SPONSIO_MODE"] = guard_mode
 
+    # Load prior session trace from the per-plugin JSONL log (if any).
+    # ``_load_prior_events`` handles TTL rotation internally.
+    prior_events = _load_prior_events(plugin_id)
+
     try:
         with (
             contextlib.redirect_stdout(captured_out),
@@ -194,6 +328,13 @@ def evaluate_event(event: dict) -> GuardOutcome:
                 verbosity=0,
                 mode=guard_mode,
             )
+            # Seed the monitor with the reconstructed trace so trace-aware
+            # contracts (must_precede, cooldown, A→G temporal, …) see the
+            # full session history rather than an empty trace.
+            if prior_events:
+                from sponsio.models.trace import Trace
+
+                guard._monitor.import_trace(Trace(events=list(prior_events)))
             result = guard.guard_before(tool_name=tool_name, args=tool_input)
     except Exception as e:  # pragma: no cover - surfaced via stderr
         sys.stderr.write(f"sponsio plugin guard:evaluation error in {lib_path}: {e}\n")
@@ -212,6 +353,28 @@ def evaluate_event(event: dict) -> GuardOutcome:
         else:
             os.environ["SPONSIO_MODE"] = saved_env
     if result.allowed:
+        # Append the now-permitted event to the trace log so the next
+        # PreToolUse subprocess sees it.  Use the ts BaseGuard actually
+        # assigned (== ``len(trace.events) - 1`` after the append).  If
+        # we computed ts ourselves we'd race the monitor's own ts and
+        # collisions would silently confuse re-grounded valuations on
+        # the next subprocess.
+        last_event = guard._monitor.trace.events[-1]
+        try:
+            _append_event(
+                plugin_id,
+                {
+                    "ts": last_event.ts,
+                    "agent": last_event.agent,
+                    "type": last_event.event_type,
+                    "tool": last_event.tool,
+                    "args": last_event.args,
+                },
+            )
+        except OSError as e:  # pragma: no cover - log-write failure
+            sys.stderr.write(
+                f"sponsio shield guard:could not append trace event: {e}\n"
+            )
         return GuardOutcome(
             allowed=True,
             plugin_id=plugin_id,

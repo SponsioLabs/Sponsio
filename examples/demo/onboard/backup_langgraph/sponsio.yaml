@@ -1,0 +1,90 @@
+version: 1
+
+# No LLM configured — `sponsio scan` currently runs AST + starter-pack
+# only.  To enable richer inference, uncomment and fill in:
+# extractor:
+#   provider: gemini   # 1500 req/day free tier
+#   api_key: ${GOOGLE_API_KEY}
+
+# Runtime sto-judge (evaluates stochastic atoms like `injection_free`)
+# on the agent's hot path.  Favour cheap+fast model; fault tolerance
+# matters because LLM outages must NOT cascade into agent outages.
+judge:
+  fallback_mode: allow  # allow|deny|skip on judge failure
+  circuit_breaker: true
+
+defaults:
+  mode: observe  # observe|enforce — observe = shadow (safe default)
+
+tools:
+  - name: list_snapshots
+    description: "List backup snapshots under a directory."
+    params: "root: str"
+  - name: estimate_savings
+    description: "Estimate the monthly storage cost for a snapshot glob."
+    params: "pattern: str"
+  - name: delete_snapshot
+    description: "Delete a snapshot by path (requires age_days for audit)."
+    params: "path: str, age_days: int"
+  - name: generate_report
+    description: "Write the cost-optimization report."
+    params: "output_path: str"
+  - name: list_snapshots
+    description: "List backup snapshots under a directory."
+    params: "root: str"
+  - name: estimate_savings
+    description: "Estimate the monthly storage cost for a snapshot glob."
+    params: "pattern: str"
+  - name: delete_snapshot
+    description: "Delete a snapshot by path (requires age_days for audit)."
+    params: "path: str, age_days: int"
+  - name: generate_report
+    description: "Write the cost-optimization report to a file."
+    params: "output_path: str"
+
+agents:
+  sre_optimizer:
+    # Auto-selected contract packs.  Each pack ships a curated set
+    # of rules; use `overrides:` below to disable individual ones
+    # without forking the pack.
+    include:
+      - sponsio:core/universal  # universal: applies to every LLM agent
+
+    contracts:
+      - E:  # confidence: 0.55
+          pattern: idempotent
+          args: [delete_snapshot]
+          source: scan
+      - E:  # confidence: 0.50
+          pattern: arg_blacklist
+          args: [delete_snapshot, path, ["\\.\\./", "~/\\.ssh/", "^/etc/(?:passwd|shadow|sudoers)", "^/proc/", "^/sys/", "\\.aws/credentials"]]
+          source: scan
+
+      - E:  # confidence: 0.60
+          pattern: tool_allowlist
+          args: [[delete_snapshot, estimate_savings, generate_report, list_snapshots]]
+          source: scan
+      - E:  # confidence: 0.50
+          pattern: loop_detection
+          args: [delete_snapshot, 5]
+          source: scan
+      - E:  # confidence: 0.50
+          pattern: loop_detection
+          args: [estimate_savings, 5]
+          source: scan
+      - E:  # confidence: 0.50
+          pattern: loop_detection
+          args: [generate_report, 5]
+          source: scan
+      - E:  # confidence: 0.50
+          pattern: loop_detection
+          args: [list_snapshots, 5]
+          source: scan
+      - E:  # confidence: 0.50
+          pattern: token_budget
+          args: [100000, total]
+          source: scan
+      - E:  # confidence: 0.50
+          pattern: delegation_depth_limit
+          args: [3]
+          source: scan

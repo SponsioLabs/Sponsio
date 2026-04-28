@@ -58,7 +58,11 @@ def _skill_md_path() -> Path:
 # the skill contract, update both places — CI will tell you which one
 # drifted.
 SURFACE: list[tuple[tuple[str, ...], list[str]]] = [
-    (("onboard",), ["--apply"]),
+    # `onboard` no longer has any required surface flags — `--apply`
+    # was removed (the printed snippet is self-explanatory enough that
+    # auto-patching the agent file added more risk than value).  Empty
+    # list means "command must exist, no flag invariants".
+    (("onboard",), []),
     (
         ("scan",),
         ["--agent", "--llm", "--policy", "-t", "-o", "--append"],

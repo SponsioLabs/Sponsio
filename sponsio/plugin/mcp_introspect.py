@@ -99,19 +99,22 @@ def introspect_mcp_server(
 
     try:
         # 1. initialize
-        _send(proc, {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": PROTOCOL_VERSION,
-                "capabilities": {},
-                "clientInfo": {
-                    "name": "sponsio-plugin-scan",
-                    "version": "0.1.0",
+        _send(
+            proc,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": {
+                        "name": "sponsio-plugin-scan",
+                        "version": "0.1.0",
+                    },
                 },
             },
-        })
+        )
         init_resp = _read_response(proc, expected_id=1, timeout=timeout)
         if "error" in init_resp:
             raise IntrospectError(
@@ -119,17 +122,23 @@ def introspect_mcp_server(
             )
 
         # 2. notifications/initialized — fire-and-forget, no reply
-        _send(proc, {
-            "jsonrpc": "2.0",
-            "method": "notifications/initialized",
-        })
+        _send(
+            proc,
+            {
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized",
+            },
+        )
 
         # 3. tools/list
-        _send(proc, {
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/list",
-        })
+        _send(
+            proc,
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/list",
+            },
+        )
         list_resp = _read_response(proc, expected_id=2, timeout=timeout)
         if "error" in list_resp:
             raise IntrospectError(
@@ -139,7 +148,9 @@ def introspect_mcp_server(
         result = list_resp.get("result") or {}
         raw_tools = result.get("tools") or []
         if not isinstance(raw_tools, list):
-            raise IntrospectError(f"tools/list returned non-list: {type(raw_tools).__name__}")
+            raise IntrospectError(
+                f"tools/list returned non-list: {type(raw_tools).__name__}"
+            )
 
         tools: list[ToolInfo] = []
         for t in raw_tools:
@@ -148,11 +159,13 @@ def introspect_mcp_server(
             name = t.get("name")
             if not isinstance(name, str) or not name:
                 continue
-            tools.append(ToolInfo(
-                name=name,
-                description=t.get("description") or "",
-                input_schema=t.get("inputSchema") or {},
-            ))
+            tools.append(
+                ToolInfo(
+                    name=name,
+                    description=t.get("description") or "",
+                    input_schema=t.get("inputSchema") or {},
+                )
+            )
         return tools
     finally:
         # Always clean up: terminate, then kill if it doesn't exit
@@ -180,7 +193,9 @@ def _send(proc: subprocess.Popen, msg: dict) -> None:
         # Most likely server died; surface its stderr if we can grab it.
         stderr_tail = _read_stderr_tail(proc)
         suffix = f"\n--- server stderr ---\n{stderr_tail}" if stderr_tail else ""
-        raise IntrospectError(f"server closed stdin while sending {msg.get('method')!r}{suffix}") from e
+        raise IntrospectError(
+            f"server closed stdin while sending {msg.get('method')!r}{suffix}"
+        ) from e
 
 
 def _read_response(
@@ -256,6 +271,7 @@ def _read_stderr_tail(proc: subprocess.Popen, max_chars: int = 800) -> str:
         # On Python 3.9+ stdin/stdout/stderr are TextIOWrapper; .peek
         # isn't available, but we can do a non-blocking read via os.
         import fcntl  # noqa: PLC0415 — POSIX-only, demo limitation
+
         flags = fcntl.fcntl(proc.stderr.fileno(), fcntl.F_GETFL)
         fcntl.fcntl(proc.stderr.fileno(), fcntl.F_SETFL, flags | os.O_NONBLOCK)
         try:

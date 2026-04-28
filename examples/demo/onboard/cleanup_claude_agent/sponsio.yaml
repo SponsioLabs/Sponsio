@@ -1,0 +1,52 @@
+version: 1
+
+# Parse-time LLM (used by `sponsio scan` to turn code/docs into
+# contracts).  Offline & one-shot — favour accuracy over latency.
+extractor:
+  provider: gemini
+  model: gemini-2.5-flash
+  api_key: ${GOOGLE_API_KEY}
+
+# Runtime sto-judge (evaluates stochastic atoms like `injection_free`)
+# on the agent's hot path.  Favour cheap+fast model; fault tolerance
+# matters because LLM outages must NOT cascade into agent outages.
+judge:
+  provider: gemini
+  model: gemini-2.5-flash
+  api_key: ${GOOGLE_API_KEY}
+  fallback_mode: allow  # allow|deny|skip on judge failure
+  circuit_breaker: true
+
+defaults:
+  mode: observe  # observe|enforce — observe = shadow (safe default)
+
+agents:
+  agent:
+    # Auto-selected contract packs.  Each pack ships a curated set
+    # of rules; use `overrides:` below to disable individual ones
+    # without forking the pack.
+    include:
+      - sponsio:core/universal  # universal: applies to every LLM agent
+
+    contracts:
+      - desc: "`Bash` (matching `git\\s+commit`) called at most 0 times"
+        E:
+          ltl: "G((Var('count_with', 'Bash', 'git\\\\s+commit') <= 0))"
+          source: scan
+      - desc: "`Bash` (matching `git\\s+push`) called at most 0 times"
+        E:
+          ltl: "G((Var('count_with', 'Bash', 'git\\\\s+push') <= 0))"
+          source: scan
+      - desc: "`Bash` (matching `rm\\s+.*(\\.env|\\.git)`) called at most 0 times"
+        E:
+          ltl: "G((Var('count_with', 'Bash', 'rm\\\\s+.*(\\\\.env|\\\\.git)') <= 0))"
+          source: scan
+      - desc: "`Bash` (matching `git\\s+push\\s+.*--force.*\\b(main|master)\\b`) called at most 0 times"
+        E:
+          ltl: "G((Var('count_with', 'Bash', 'git\\\\s+push\\\\s+.*--force.*\\\\b(main|master)\\\\b') <= 0))"
+          source: scan
+
+      - E:  # confidence: 0.50
+          pattern: token_budget
+          args: [100000, total]
+          source: scan

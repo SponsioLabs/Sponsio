@@ -146,7 +146,9 @@ class ScanResult:
     file per group."""
 
 
-def synthesize_manifest(plugin_id: str, *, name: str = "", description: str = "") -> PluginManifest:
+def synthesize_manifest(
+    plugin_id: str, *, name: str = "", description: str = ""
+) -> PluginManifest:
     """Build a minimal :class:`PluginManifest` for plugin-less targets.
 
     Used when scanning a bare MCP server (no Claude-Code wrapping

@@ -99,6 +99,33 @@ class Contract:
             preserves existing det semantics.
         beta: Enforcement satisfaction threshold in [0, 1]. Default 1.0
             — preserves existing det semantics.
+        activate_at: When the assumption A is satisfied, *where* the
+            enforcement E should start being checked.
+
+            * ``None`` (default) — global semantics: A and E are each
+              evaluated as standalone LTL over the full trace from
+              position 0.  If A holds, every position must satisfy E
+              including positions before A's "evidence event".  This is
+              the historical Sponsio semantic — appropriate for global
+              invariants ("if user is admin throughout, then every
+              read is logged").
+            * ``"first_match"`` — reactive semantics: find the first
+              position k where A becomes true (its evidence event), then
+              evaluate E starting at position k.  Events before k are
+              not subject to E.  Appropriate for trigger-then-enforce
+              safety contracts ("after secret is read, no outbound
+              POST" should not retroactively flag a POST that happened
+              before the secret read).
+
+              Supported assumption shapes for ``first_match``:
+                - ``F(φ)``       — activation k = first position where φ holds
+                - ``Atom``       — activation k = first position where the
+                                    atom holds
+                - list of those — activation k = max of each assumption's
+                                    first-match (the latest one to fire)
+              Other shapes (``G(φ)``, ``φ U ψ``, arithmetic comparisons,
+              …) are rejected at __post_init__ time so the user gets a
+              clear error rather than silently mis-specified semantics.
     """
 
     agent: Agent
@@ -107,6 +134,9 @@ class Contract:
     desc: str | None = None
     alpha: float = 1.0
     beta: float = 1.0
+    activate_at: str | None = None
+
+    _VALID_ACTIVATE_AT = (None, "first_match")
 
     def __post_init__(self) -> None:
         if self.enforcement is None or (
@@ -126,6 +156,50 @@ class Contract:
                 f"Contract(agent={self.agent.id!r}): beta must be in [0, 1], "
                 f"got {self.beta!r}"
             )
+        if self.activate_at not in self._VALID_ACTIVATE_AT:
+            raise ValueError(
+                f"Contract(agent={self.agent.id!r}): activate_at must be one of "
+                f"{self._VALID_ACTIVATE_AT!r}, got {self.activate_at!r}"
+            )
+        if self.activate_at == "first_match":
+            if self.assumption is None:
+                raise ValueError(
+                    f"Contract(agent={self.agent.id!r}): activate_at='first_match' "
+                    f"requires a non-None assumption (there is nothing to activate)."
+                )
+            self._validate_first_match_assumption_shape()
+
+    def _validate_first_match_assumption_shape(self) -> None:
+        """Reject assumptions whose ``first_match`` semantics are unclear.
+
+        ``first_match`` is well-defined for ``F(φ)`` (activation = first
+        position where φ holds) and for atomic predicates (same).  It
+        is *not* well-defined for ``G(φ)`` (which can only become true
+        at end-of-trace) or arithmetic comparisons over counters.  We
+        reject the unsupported shapes at construction time rather than
+        silently treating them as a per-position re-evaluation.
+        """
+        from sponsio.formulas.formula import Atom, F
+        from sponsio.patterns.library import DetFormula
+
+        def _check(constraint: Any, idx: int) -> None:
+            if not hasattr(constraint, "formula"):
+                # Sto / non-DetFormula assumption — sto pipeline owns it.
+                return
+            raw = (
+                constraint.formula if isinstance(constraint, DetFormula) else constraint
+            )
+            if isinstance(raw, (F, Atom)):
+                return
+            raise ValueError(
+                f"Contract(agent={self.agent.id!r}): activate_at='first_match' "
+                f"only supports F(φ) or atomic assumptions; assumption[{idx}] "
+                f"has shape {type(raw).__name__}. Use the default global "
+                f"semantics (omit activate_at) or rewrite the assumption."
+            )
+
+        for i, a in enumerate(self.assumptions):
+            _check(a, i)
 
     # -----------------------------------------------------------------
     # Atom-type introspection (for runtime dispatch)

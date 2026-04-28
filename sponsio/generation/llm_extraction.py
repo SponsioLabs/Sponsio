@@ -76,6 +76,10 @@ Tool-call atoms (fired when event_type == "tool_call"):
   arg_field_has(tool, field, pattern)  — specific arg field matches regex
   arg_length_exceeds(tool, field, N)   — arg field length > N chars (injection detection)
   arg_paths_within(tool, prefix, ...)  — all file paths in args are within allowed prefixes
+  arg_numeric(tool, field)             — numeric value of a numeric arg field
+                                         (use inside Var(...) for arithmetic, e.g.
+                                         G(Le(Var(arg_numeric, wire_transfer, amount), Const(50000))))
+                                         to express bounds like "amount must be ≤ 50000".
 
 Data-flow atoms (fired on data_read / data_write / message events):
   contains(field)                      — a data_write event included this field
@@ -943,7 +947,7 @@ class UnifiedExtractor:
         self._base_url = base_url
 
         if provider == "gemini":
-            self._model = model or "gemini-2.0-flash"
+            self._model = model or "gemini-2.5-flash"
             self._api_key = (
                 api_key
                 or os.environ.get("GOOGLE_API_KEY")
@@ -1165,7 +1169,15 @@ class UnifiedExtractor:
             results.append(result)
 
             if result.error:
-                logger.warning(
+                # Demoted from warning → debug: per-failure noise during
+                # LLM extraction would print one ugly stderr line per
+                # malformed candidate (LLMs typically emit 1-2 unparseable
+                # constraints out of 5-8).  The aggregate count is
+                # already surfaced in the "Scan summary: X kept, Y
+                # dropped" line that wraps the loop, which is enough
+                # for the user; full per-item traces are still reachable
+                # via ``logging.basicConfig(level=logging.DEBUG)``.
+                logger.debug(
                     "Constraint compilation failed: %s — %s",
                     result.nl_description,
                     result.error,

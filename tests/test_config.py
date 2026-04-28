@@ -327,3 +327,116 @@ def test_agents_guard_alias():
     from sponsio.integrations.agents import AgentsGuard, AgentsSDKGuard
 
     assert AgentsGuard is AgentsSDKGuard
+
+
+# ---------------------------------------------------------------------------
+# Strict-vs-non-strict compile policy
+# ---------------------------------------------------------------------------
+
+
+_BAD_REGEX_LTL = (
+    "G((called('delete_snapshot') -> "
+    "!(arg_field_has('delete_snapshot', 'path', '.*/dev/.*(?<!/prod/.*)'))))"
+)
+
+
+def _bad_regex_yaml(mode: str) -> str:
+    """Build a yaml with one good contract + one bad-regex contract."""
+    return f"""
+version: "1"
+defaults:
+  mode: {mode}
+agents:
+  bot:
+    contracts:
+      - E:
+          ltl: "G(!(arg_field_has('Bash', 'command', 'rm\\\\s+.*\\\\.env')))"
+      - E:
+          ltl: "{_BAD_REGEX_LTL}"
+"""
+
+
+def test_observe_mode_skips_bad_contract_with_warning(tmp_path, monkeypatch):
+    """In observe mode, a bad-regex contract is skipped with a warning;
+    other contracts still load."""
+    monkeypatch.delenv("SPONSIO_STRICT_COMPILE", raising=False)
+
+    f = tmp_path / "sponsio.yaml"
+    f.write_text(_bad_regex_yaml("observe"))
+    cfg = load_config(str(f))
+
+    with pytest.warns(UserWarning, match="skipped 1 contract"):
+        kw = config_to_guard_kwargs(cfg, "bot")
+
+    # 2 in yaml, 1 skipped → 1 valid contract loaded.
+    assert kw["contracts"] is not None
+    assert len(kw["contracts"]) == 1
+
+
+def test_enforce_mode_hard_raises_on_bad_contract(tmp_path, monkeypatch):
+    """In enforce mode, a bad-regex contract aborts the whole load."""
+    monkeypatch.delenv("SPONSIO_STRICT_COMPILE", raising=False)
+
+    f = tmp_path / "sponsio.yaml"
+    f.write_text(_bad_regex_yaml("enforce"))
+    cfg = load_config(str(f))
+
+    with pytest.raises(ConfigError, match="Invalid regex"):
+        config_to_guard_kwargs(cfg, "bot")
+
+
+def test_strict_env_overrides_observe_mode(tmp_path, monkeypatch):
+    """SPONSIO_STRICT_COMPILE=1 escalates observe mode back to hard-raise."""
+    monkeypatch.setenv("SPONSIO_STRICT_COMPILE", "1")
+
+    f = tmp_path / "sponsio.yaml"
+    f.write_text(_bad_regex_yaml("observe"))
+    cfg = load_config(str(f))
+
+    with pytest.raises(ConfigError, match="Invalid regex"):
+        config_to_guard_kwargs(cfg, "bot")
+
+
+def test_non_strict_env_overrides_enforce_mode(tmp_path, monkeypatch):
+    """SPONSIO_STRICT_COMPILE=0 demotes enforce mode to soft-warn.
+
+    Escape hatch for cases where an op temporarily wants the agent to
+    keep running with partial coverage rather than crash on a bad rule.
+    """
+    monkeypatch.setenv("SPONSIO_STRICT_COMPILE", "0")
+
+    f = tmp_path / "sponsio.yaml"
+    f.write_text(_bad_regex_yaml("enforce"))
+    cfg = load_config(str(f))
+
+    with pytest.warns(UserWarning, match="skipped 1 contract"):
+        kw = config_to_guard_kwargs(cfg, "bot")
+    assert len(kw["contracts"]) == 1
+
+
+def test_all_good_contracts_no_warning(tmp_path, monkeypatch):
+    """Sanity: yaml with no bad regexes triggers no warning in either mode."""
+    monkeypatch.delenv("SPONSIO_STRICT_COMPILE", raising=False)
+
+    good = """
+version: "1"
+defaults:
+  mode: observe
+agents:
+  bot:
+    contracts:
+      - E:
+          ltl: "G(!(arg_field_has('Bash', 'command', 'rm\\\\s+')))"
+"""
+    f = tmp_path / "sponsio.yaml"
+    f.write_text(good)
+    cfg = load_config(str(f))
+
+    import warnings as _warnings
+
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter("always")
+        kw = config_to_guard_kwargs(cfg, "bot")
+    assert len(kw["contracts"]) == 1
+    skip_warns = [w for w in caught if "skipped" in str(w.message)]
+    assert skip_warns == []

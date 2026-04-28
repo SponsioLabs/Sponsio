@@ -397,15 +397,37 @@ def Sponsio(  # noqa: N802 — branded factory function
 
     # Config mode (build guard from parsed YAML)
     if parsed is not None:
-        # Auto-infer agent_id when user didn't specify and config has one agent
-        if agent_id == "agent" and agent_id not in parsed.agents:
+        # When the requested agent_id isn't in the config, but the
+        # config only has one agent block, fall back to that single
+        # agent — it's unambiguous and saves the user from having to
+        # keep `--agent <name>` on every onboard / Sponsio() call line
+        # in sync with the demo's hardcoded id.  Multi-agent configs
+        # still require an explicit pick (no good default).
+        if agent_id not in parsed.agents:
             if len(parsed.agents) == 1:
-                agent_id = next(iter(parsed.agents))
+                only_agent = next(iter(parsed.agents))
+                # Surface the fallback when the user actively asked
+                # for a non-default name (likely a typo or a stale
+                # agent_id) so they notice if the wrong agent's rules
+                # got applied.  The default "agent" sentinel doesn't
+                # warn — that's the auto-infer path that's been
+                # silent forever.
+                if agent_id != "agent":
+                    import warnings
+
+                    warnings.warn(
+                        f"agent_id={agent_id!r} not found in config; "
+                        f"using the only agent defined: {only_agent!r}.",
+                        UserWarning,
+                        stacklevel=3,
+                    )
+                agent_id = only_agent
             elif len(parsed.agents) > 1:
                 available = list(parsed.agents.keys())
                 raise ValueError(
-                    f"Config has multiple agents {available}. "
-                    f"Please specify agent_id=... explicitly."
+                    f"agent_id={agent_id!r} not found in config and "
+                    f"the config defines multiple agents {available}. "
+                    f"Please specify a valid agent_id explicitly."
                 )
 
         from sponsio.config import config_to_guard_kwargs

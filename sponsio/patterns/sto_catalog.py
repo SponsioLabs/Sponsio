@@ -1199,9 +1199,7 @@ def _eval_transcript_consistency(atom: Atom, trace: Trace, t: int) -> StoResult:
     )
     question = atom.prompt_override or default_q
     conf, raw = judge.judge(
-        f"{question}\n\n"
-        f"GROUNDING:\n{grounding}\n\n"
-        f"CONVERSATION:\n{content}"
+        f"{question}\n\nGROUNDING:\n{grounding}\n\nCONVERSATION:\n{content}"
     )
     return StoResult(
         score=float(conf),

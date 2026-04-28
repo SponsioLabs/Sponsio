@@ -37,7 +37,10 @@ from pathlib import Path
 _FRAMEWORK_IMPORT_SIGNATURES: tuple[tuple[str, tuple[str, ...]], ...] = (
     # framework_id, (python import prefixes that imply the framework)
     ("langgraph", ("langgraph",)),
-    ("langchain", ("langchain.",)),
+    # ``langchain_core`` is the modern split (langchain ≥ 0.1):
+    # ``from langchain_core.tools import tool`` is now the canonical
+    # import path and the bare ``langchain.`` prefix doesn't match it.
+    ("langchain", ("langchain.", "langchain_core")),
     ("claude_agent", ("claude_agent_sdk", "anthropic.agents")),
     ("google_adk", ("google.adk",)),
     ("crewai", ("crewai",)),
@@ -302,7 +305,10 @@ def detect_provider(
         return ProviderHint(
             provider="gemini",
             env_var=env,
-            model="gemini-2.0-flash",
+            # 2.5-flash, not 2.0-flash: 2.0 has a much tighter free-tier
+            # quota and onboard's contract-extraction call burns through
+            # it on first run, surfacing as 429 RESOURCE_EXHAUSTED.
+            model="gemini-2.5-flash",
             evidence=f"{env} set (1500 req/day free tier)",
         )
 
@@ -400,21 +406,6 @@ def _ollama_pick_model(url: str, timeout_s: float) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-# Frameworks where the agent runs a multi-step loop on its own —
-# the runaway pack's budget / loop-detection rules are only useful
-# when the loop exists in the first place.  A bare `openai` chat
-# completion call doesn't qualify; LangGraph / CrewAI etc. do.
-_RUNAWAY_FRAMEWORKS = frozenset(
-    {
-        "langgraph",
-        "langchain",
-        "crewai",
-        "openai_agents",
-        "claude_agent",
-        "google_adk",
-    }
-)
-
 # Tool-name → pack tool slot.  Each pack ships rules keyed on a
 # specific generic name (``exec`` for the shell pack, ``read`` /
 # ``write`` / ``edit`` / ``apply_patch`` for the filesystem pack).
@@ -463,8 +454,8 @@ class PackSelection:
     Attributes:
         packs: ordered include specs (e.g. ``["sponsio:core/universal",
             "sponsio:capability/shell"]``).  Order matches what the
-            user will see in YAML — universal first, runaway second,
-            capability packs after.
+            user will see in YAML — universal first, capability packs
+            after.
         tool_rename: mapping from pack-canonical name (``exec``,
             ``read``, …) to the host's actual tool name.  Empty when
             the host happens to use the same names the packs use.
@@ -505,10 +496,6 @@ def select_packs(
 
     * **``sponsio:core/universal``** — always.  Provides PII /
       injection-free output guards that apply to any LLM agent.
-    * **``sponsio:core/runaway``** — when the framework runs a
-      multi-step loop on its own (LangGraph / CrewAI / etc.).  The
-      pack's budget + loop-detection rules don't apply to
-      one-shot completion calls.
     * **``sponsio:capability/shell``** — when any tool name matches
       a shell-execution alias (``bash`` / ``exec`` / ``run_command``
       / …).
@@ -534,11 +521,13 @@ def select_packs(
     sel.packs.append("sponsio:core/universal")
     sel.evidence.append("universal: applies to every LLM agent")
 
-    if framework in _RUNAWAY_FRAMEWORKS:
-        sel.packs.append("sponsio:core/runaway")
-        sel.evidence.append(
-            f"runaway: agentic-loop framework ({framework}) has budget exposure"
-        )
+    # ``sponsio:core/runaway`` used to be auto-included for agentic-
+    # loop frameworks (langgraph / crewai / etc.), shipping hard-
+    # coded token budgets + loop / delegation caps.  Those defaults
+    # were arbitrary (200k tokens, depth 5, ...) and produced noisy
+    # contracts every user had to override.  The pack is now empty
+    # by design — see ``sponsio/contracts/core/runaway.yaml`` for the
+    # rationale and the patterns users should reach for instead.
 
     # Shell pack
     shell_renames: dict[str, str] = {}
@@ -595,11 +584,6 @@ class OnboardReport:
     starter_pack_used: bool = False
     wrap_snippet: str = ""
     warnings: list[str] = field(default_factory=list)
-    # Populated only when ``--apply`` is requested.  ``None`` means
-    # the caller didn't ask for the patch; an :class:`ApplyResult`
-    # object is present even when the patch was a soft skip (already
-    # patched / unsupported framework).
-    apply_result: object | None = None
     # Populated only when ``run_doctor=True`` (the CLI default).  A
     # list of :class:`sponsio.doctor.CheckResult` plus the doctor
     # exit code.  Tests can assert on the count of failed checks.
@@ -640,16 +624,6 @@ class OnboardReport:
             "wrap_snippet": self.wrap_snippet,
             "warnings": list(self.warnings),
         }
-        if self.apply_result is not None:
-            ar = self.apply_result
-            d["apply"] = {
-                "applied": getattr(ar, "applied", False),
-                "file": (str(ar.file) if getattr(ar, "file", None) else None),
-                "backup": (str(ar.backup) if getattr(ar, "backup", None) else None),
-                "reason": getattr(ar, "reason", ""),
-                "error": getattr(ar, "error", ""),
-                "diff": getattr(ar, "diff", ""),
-            }
         if self.pack_selection is not None:
             d["packs"] = {
                 "selected": list(self.pack_selection.packs),
@@ -941,7 +915,6 @@ def run_onboard(
     force: bool = False,
     scan_paths: list[Path] | None = None,
     probe_ollama: bool = True,
-    apply: bool = False,
     run_doctor: bool = True,
     progress=None,
 ) -> OnboardReport:
@@ -993,14 +966,22 @@ def run_onboard(
         )
 
     # --- Stage 1: framework detection -----------------------------------
+    # Don't emit a "framework: ..." progress line here — the final
+    # summary already prints framework/provider, and a pre-emit just
+    # repeats the same info one second before the summary lands.
     framework = detect_framework(root)
-    _emit(f"framework: {framework.framework} ({framework.evidence})")
 
     # --- Stage 2: provider detection ------------------------------------
     provider = detect_provider(probe_ollama=probe_ollama)
-    _emit(f"provider: {provider.provider} ({provider.evidence})")
 
     # --- Stage 3: scan + starter-pack -----------------------------------
+    # ``▸`` prefix is recognised by the CLI's progress sink as a
+    # section header — printed bold-cyan without the ``· `` per-step
+    # bullet.  Splits the long scan/LLM/pack stretch from the doctor
+    # block visually so a 20s LLM wait doesn't look like one
+    # undifferentiated stall.
+    _emit("▸ Scanning your code")
+
     # Lazy import — CodeAnalyzer pulls in optional LLM SDKs on import
     # paths, and ``sponsio --help`` shouldn't pay for that.
     from sponsio.discovery.extractors.code_analysis import CodeAnalyzer
@@ -1026,6 +1007,14 @@ def run_onboard(
         )
     else:
         analyzer_kwargs.update(use_llm=False)
+
+    # Pipe our progress callback into the analyzer so its long-running
+    # emits — "AST scan: N tools", "Running LLM inference (model=...)…",
+    # "LLM inference done in 15.7s" — show up live during the wait.
+    # Without this the user sees ~20 silent seconds during the LLM
+    # call and reasonably wonders if the command froze.
+    if progress is not None:
+        analyzer_kwargs["progress"] = progress
 
     analyzer = CodeAnalyzer(**analyzer_kwargs)
 
@@ -1100,44 +1089,13 @@ def run_onboard(
     out_path.write_text(final_yaml)
     _emit(f"wrote {out_path}")
 
-    # --- Stage 5: wrap snippet (always) + optional auto-apply --------
+    # --- Stage 5: wrap snippet ------------------------------------------
+    # Auto-patching the user's agent file used to live behind
+    # ``--apply`` but was removed (only langgraph / langchain were
+    # supported and a coding agent / manual paste does the same job
+    # for any framework with fewer surprises).  The CLI prints the
+    # snippet for the user to apply.
     snippet = _wrap_snippet(framework.framework, agent_id)
-
-    apply_result = None
-    if apply:
-        # Lazy import — keeps onboard.py importable even if a future
-        # refactor breaks the apply module.
-        from sponsio.onboard_apply import apply_patch
-
-        # Resolve a sponsio.yaml path that's actually relative to
-        # whichever directory the user will run their agent from.
-        # Best effort: relative to the entry file's parent if known,
-        # else relative to ``out_path.parent``.
-        entry = framework.entry_file
-        config_relpath = "sponsio.yaml"
-        if entry is not None:
-            try:
-                rel = out_path.resolve().relative_to(entry.parent.resolve())
-                config_relpath = str(rel)
-            except ValueError:
-                # Cross-tree path — leave as plain "sponsio.yaml" and
-                # rely on the user's own working directory. That's
-                # the same default any framework already assumes.
-                pass
-
-        apply_result = apply_patch(
-            entry,
-            framework=framework.framework,
-            agent_id=agent_id,
-            config_relpath=config_relpath,
-        )
-        if apply_result.applied:
-            _emit(f"apply: patched {apply_result.file}")
-        elif apply_result.error:
-            _emit(f"apply: error — {apply_result.error}")
-            warnings.append(f"--apply failed: {apply_result.error}")
-        else:
-            _emit(f"apply: skipped — {apply_result.reason}")
 
     # --- Stage 6: doctor ------------------------------------------------
     doctor_results = None
@@ -1150,6 +1108,7 @@ def run_onboard(
         # in the CLI summary block immediately below, with per-check
         # details.  Emitting both here and there double-printed
         # ``doctor: 6/8 ok, 2 warn`` in the user-facing banner.
+        _emit("▸ Health checks")
         _emit("running doctor checks…")
         try:
             from sponsio.doctor import run_doctor as _run_doctor
@@ -1184,7 +1143,6 @@ def run_onboard(
         starter_pack_used=starter_pack_used,
         wrap_snippet=snippet,
         warnings=warnings,
-        apply_result=apply_result,
         doctor_results=doctor_results,
         doctor_exit_code=doctor_exit_code,
         pack_selection=pack_selection,

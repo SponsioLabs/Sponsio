@@ -1,0 +1,40 @@
+# =============================================================================
+# Operator-supplied Sponsio config for the GitHub MCP demo.
+#
+# Drop this at:
+#   $DEMO_HOME/.sponsio/plugins/github/sponsio.yaml
+#
+# The bundle (sponsio:incident/mcp-composition) ships universal body-shape
+# rules for free.  This file adds the per-deployment allowlists — what
+# repos and what comment targets the agent is allowed to touch.
+#
+# For the demo, the operator's intent is:
+#
+#   "I'm triaging issues in my-org/public-repo.  Claude can read issues
+#    and post comments — but only on this one repo.  Anything else (other
+#    repos, private repos, etc.) is off-limits."
+#
+# The Heist PoC tries to escape this via cross-repo escalation; the rules
+# below stop it at the action boundary.
+# =============================================================================
+
+version: "1"
+
+agents:
+  github:
+    include:
+      - sponsio:incident/mcp-composition
+
+    contracts:
+      # ---- Repo allowlist (the GitHub Heist defense) -----------------
+      - desc: "GitHub MCP get_repo: repo restricted to my-org/public-repo"
+        E:
+          ltl: 'G(called(mcp__github__get_repo) -> arg_field_has(mcp__github__get_repo, repo, "^public-repo$"))'
+
+      - desc: "GitHub MCP get_file_contents: repo restricted to my-org/public-repo"
+        E:
+          ltl: 'G(called(mcp__github__get_file_contents) -> arg_field_has(mcp__github__get_file_contents, repo, "^public-repo$"))'
+
+      - desc: "GitHub MCP create_issue_comment: target repo restricted to my-org/public-repo"
+        E:
+          ltl: 'G(called(mcp__github__create_issue_comment) -> arg_field_has(mcp__github__create_issue_comment, repo, "^public-repo$"))'

@@ -11,14 +11,12 @@ from sponsio.discovery._types import (
     ProposedConstraint,
 )
 from sponsio.discovery.store import PatternStore
-from sponsio.discovery.validation import ValidationPipeline
 
 __all__ = [
     "ConstraintStatus",
     "DiscoverySource",
     "ProposedConstraint",
     "PatternStore",
-    "ValidationPipeline",
     "discover",
 ]
 
@@ -130,13 +128,26 @@ def discover(
         all_proposals.extend(analyzer.extract(code_paths))
 
     # --- Validation ---
+    # The OSS ValidationPipeline was removed (its triviality and
+    # consistency steps had known false-positive / false-negative
+    # patterns — see docs/internal/proprietary-validation-pipeline.md).
+    # Pre-deploy validation now lives in the proprietary `sponsio-pro`
+    # package; OSS users get a minimal trace replay via the
+    # `sponsio validate --traces` CLI instead.
     if validate and all_proposals:
-        existing = store.get_verified() if store else []
-        pipeline = ValidationPipeline(
-            existing_formulas=existing,
-            historical_traces=all_traces or [],
+        import warnings
+
+        warnings.warn(
+            "sponsio.discovery.discover(validate=True) is a no-op in OSS — "
+            "the bundled ValidationPipeline was removed because its "
+            "triviality and consistency algorithms produced unreliable "
+            "results. Install `sponsio-pro` for the replacement pipeline, "
+            "or run `sponsio validate --traces` for a basic trace-replay "
+            "report. The `validate=` parameter will be dropped in the "
+            "next minor release.",
+            DeprecationWarning,
+            stacklevel=2,
         )
-        all_proposals = pipeline.validate_batch(all_proposals)
 
     # --- Import into store ---
     if store:

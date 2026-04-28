@@ -600,6 +600,7 @@ class BaseGuard:
             # preserve existing det semantics).
             alpha = float(entry.get("alpha", 1.0))
             beta = float(entry.get("beta", 1.0))
+            activate_at = entry.get("activate_at")
 
             parsed_e = self._parse_constraint_field(
                 e_raw, user_formulas, soft_constraints
@@ -620,6 +621,7 @@ class BaseGuard:
                     desc=desc,
                     alpha=alpha,
                     beta=beta,
+                    activate_at=activate_at,
                 )
             )
 

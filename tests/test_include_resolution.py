@@ -176,7 +176,12 @@ class TestIncludeIntoAgent:
     def test_multiple_packs_concat_in_order(self, tmp_path):
         """When two packs are included, contracts from the first appear
         before contracts from the second.  Stable order is part of the
-        contract — overrides: target by index in some configurations."""
+        contract — overrides: target by index in some configurations.
+
+        Uses universal + capability/shell because both packs are
+        non-empty (``core/runaway`` would have been the canonical
+        choice but it's intentionally empty now).
+        """
         cfg_path = _write_yaml(
             tmp_path,
             "sponsio.yaml",
@@ -185,17 +190,17 @@ class TestIncludeIntoAgent:
               bot:
                 include:
                   - sponsio:core/universal
-                  - sponsio:core/runaway
+                  - sponsio:capability/shell
             """,
         )
         cfg = load_config(cfg_path)
         ac = cfg.agents["bot"]
         sources = [c.pack_source for c in ac.contracts]
-        first_runaway = sources.index("sponsio:core/runaway")
+        first_shell = sources.index("sponsio:capability/shell")
         last_universal = (
             len(sources) - 1 - sources[::-1].index("sponsio:core/universal")
         )
-        assert last_universal < first_runaway
+        assert last_universal < first_shell
 
     def test_local_contracts_appended_after_includes(self, tmp_path):
         """Hand-written contracts appear AFTER everything pulled from
@@ -212,7 +217,7 @@ class TestIncludeIntoAgent:
             agents:
               bot:
                 include:
-                  - sponsio:core/runaway
+                  - sponsio:core/universal
                 contracts:
                   - desc: "my own thing"
                     E: {pattern: rate_limit, args: [exec, 100]}

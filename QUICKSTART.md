@@ -125,7 +125,7 @@ What it does:
 
 No LLM key? `onboard` still ships a name-heuristic starter plus `sponsio:core/runaway` (token budgets, delegation depth, loop caps) — all deterministic, zero LLM calls.
 
-Pass `--apply` to additionally patch your agent entry file in-place (with a `.sponsio.bak` backup). Currently supported for LangGraph / LangChain; other frameworks print the snippet and you paste it yourself. Other framework adapters are a one-line import swap — see [`docs/integrations.md`](docs/integrations.md).
+After `onboard` finishes it prints a framework-specific 2-3 line patch — paste it into your agent entry file at the marked spot (the snippet's inline comment shows where the wrap must run *before* the agent is built). All framework adapters are a one-line import swap — see [`docs/integrations.md`](docs/integrations.md).
 
 ### TypeScript (Node.js)
 

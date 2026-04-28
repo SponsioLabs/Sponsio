@@ -136,6 +136,11 @@ class ContractEntry:
     desc: str | None = None
     alpha: float = 1.0
     beta: float = 1.0
+    activate_at: str | None = None
+    """Trigger-then-enforce semantic switch.  See ``Contract.activate_at``
+    docstring.  Default ``None`` = global semantics; ``"first_match"`` =
+    reactive semantics (E checked from the first position where A
+    activates, not from position 0)."""
     pack_source: str | None = None
     """Origin of this entry — ``None`` for hand-written contracts,
     or the include spec (e.g. ``"sponsio:core/universal"``) for
@@ -176,7 +181,7 @@ class JudgeSection:
 
     Runtime judging happens on every guarded turn — latency, cost,
     and resilience matter.  Most users want a *cheaper, faster* model
-    here (e.g. ``gpt-4o-mini``, ``gemini-2.0-flash``) and care about
+    here (e.g. ``gpt-4o-mini``, ``gemini-2.5-flash``) and care about
     the fault-tolerance knobs.
 
     Defaults match :class:`sponsio.runtime.evaluators.StoEvaluator`'s
@@ -569,12 +574,20 @@ def _parse_contract_entry(item: Any, agent_id: str) -> ContractEntry:
 
     alpha, beta = _parse_thresholds(item, agent_id)
 
+    activate_at = item.get("activate_at")
+    if activate_at is not None and activate_at not in ("first_match",):
+        raise ConfigError(
+            f"Agent '{agent_id}': contract entry has unknown activate_at "
+            f"value {activate_at!r}; supported values are: 'first_match'."
+        )
+
     return ContractEntry(
         enforcement=_parse_constraint_field(e_raw),  # type: ignore[arg-type]
         assumption=_parse_constraint_field(a_raw),
         desc=desc,
         alpha=alpha,
         beta=beta,
+        activate_at=activate_at,
     )
 
 
@@ -1425,7 +1438,29 @@ def _compile_structured(entry: ConstraintEntry) -> Any:
                 coerced_args.append(int(a))
             else:
                 coerced_args.append(a)
-        return fn(*coerced_args)
+        compiled = fn(*coerced_args)
+
+        # Many det patterns (``arg_blacklist``, ``called_with``,
+        # ``arg_field_has``-style derivatives, ...) inline regex args
+        # into the AST.  Pre-compile them now so an unsupported regex
+        # feature (variable-width lookbehind, unbalanced groups, ...)
+        # surfaces at config load instead of as a runtime ``re.error``
+        # the first time the relevant tool fires.
+        from sponsio.formulas.regex_check import (
+            RegexValidationError,
+            check_regexes,
+        )
+
+        formula_ast = getattr(compiled, "formula", None)
+        if formula_ast is not None:
+            try:
+                check_regexes(formula_ast)
+            except RegexValidationError as e:
+                raise ConfigError(
+                    f"Invalid regex in pattern={entry.pattern!r} "
+                    f"args={entry.args!r}: {e}"
+                ) from e
+        return compiled
 
     return _compile_stochastic(entry, det_registry)
 
@@ -1512,6 +1547,14 @@ def _compile_ltl(entry: ConstraintEntry) -> Any:
         formula = parse_repr(entry.ltl)
     except ParseError as e:
         raise ConfigError(f"Failed to parse ltl formula {entry.ltl!r}: {e}") from e
+
+    from sponsio.formulas.regex_check import RegexValidationError, check_regexes
+
+    try:
+        check_regexes(formula)
+    except RegexValidationError as e:
+        raise ConfigError(f"Invalid regex in ltl formula {entry.ltl!r}: {e}") from e
+
     return DetFormula(
         formula=formula,
         desc=entry.ltl,
@@ -1575,6 +1618,51 @@ def _compile_single(
     return None
 
 
+def _resolve_strict_compile(mode: str | None) -> bool:
+    """Decide whether contract compile failures should hard-raise or soft-warn.
+
+    Precedence:
+
+    1. ``SPONSIO_STRICT_COMPILE`` env (``1`` / ``true`` / ``yes`` → strict;
+       ``0`` / ``false`` / ``no`` → non-strict).  User has the final say.
+    2. ``defaults.mode`` from yaml: ``enforce`` → strict, anything else
+       (``observe`` / unset) → non-strict.
+
+    The intent: enforce mode defaults to strict because a silently-skipped
+    contract becomes a security gap in production; observe mode defaults
+    to non-strict because the whole point of observe is to keep running
+    and surface what would fire — one bad contract shouldn't take down
+    the other 20 along with it.
+    """
+    import os
+
+    env = os.environ.get("SPONSIO_STRICT_COMPILE")
+    if env is not None:
+        return env.strip().lower() in ("1", "true", "yes", "on")
+    return (mode or "").strip().lower() == "enforce"
+
+
+def _short_constraint_label(value: Any) -> str:
+    """Best-effort label for a skipped constraint shown in the warning.
+
+    ``value`` is the raw ``ce.enforcement`` field — a ``ConstraintEntry``,
+    a list of them, or ``None``.  Returns the first non-empty handle we
+    can find (pattern name + args / ltl text / nl text), truncated for
+    readability.  Pure cosmetic; never raises.
+    """
+    if value is None:
+        return "<empty enforcement>"
+    if isinstance(value, list):
+        return _short_constraint_label(value[0]) if value else "<empty list>"
+    if isinstance(value, ConstraintEntry):
+        if value.is_structured:
+            return f"pattern={value.pattern!r} args={value.args!r}"[:120]
+        if value.is_ltl:
+            return (value.ltl or "")[:120]
+        return (value.nl or "<empty>")[:120]
+    return str(value)[:120]
+
+
 def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any]:
     """Extract BaseGuard constructor kwargs for a specific agent.
 
@@ -1609,26 +1697,56 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
         else None
     )
 
+    strict = _resolve_strict_compile(config.defaults.get("mode"))
+
     contract_dicts: list[dict] = []
+    skipped: list[tuple[str, str]] = []
     for ce in ac.contracts:
-        entry: dict[str, Any] = {
-            "enforcement": _compile_field(
-                ce.enforcement, tool_inventory=tool_inventory
-            ),
-        }
-        if ce.assumption is not None:
-            entry["assumption"] = _compile_field(
-                ce.assumption, tool_inventory=tool_inventory
-            )
-        if ce.desc:
-            entry["desc"] = ce.desc
-        # Pass alpha/beta through only if non-default (avoids noise for
-        # pure-det contracts; Contract constructor defaults are 1.0/1.0).
-        if ce.alpha != 1.0:
-            entry["alpha"] = ce.alpha
-        if ce.beta != 1.0:
-            entry["beta"] = ce.beta
-        contract_dicts.append(entry)
+        try:
+            entry: dict[str, Any] = {
+                "enforcement": _compile_field(
+                    ce.enforcement, tool_inventory=tool_inventory
+                ),
+            }
+            if ce.assumption is not None:
+                entry["assumption"] = _compile_field(
+                    ce.assumption, tool_inventory=tool_inventory
+                )
+            if ce.desc:
+                entry["desc"] = ce.desc
+            # Pass alpha/beta through only if non-default (avoids noise for
+            # pure-det contracts; Contract constructor defaults are 1.0/1.0).
+            if ce.alpha != 1.0:
+                entry["alpha"] = ce.alpha
+            if ce.beta != 1.0:
+                entry["beta"] = ce.beta
+            if ce.activate_at is not None:
+                entry["activate_at"] = ce.activate_at
+            contract_dicts.append(entry)
+        except ConfigError as exc:
+            # In strict mode (enforce default, or SPONSIO_STRICT_COMPILE=1)
+            # any compile failure aborts loading — silently shipping a
+            # broken enforcement rule in production is worse than the
+            # crash.  In non-strict mode (observe default) skip the bad
+            # contract and surface a single batched warning so the rest of
+            # the yaml stays usable while reviewing.
+            if strict:
+                raise
+            label = ce.desc or _short_constraint_label(ce.enforcement)
+            skipped.append((label, str(exc)))
+
+    if skipped:
+        import warnings
+
+        bullet = "\n  - ".join(f"{label}: {err}" for label, err in skipped)
+        warnings.warn(
+            f"sponsio: skipped {len(skipped)} contract(s) for agent "
+            f"{agent_id!r} (observe mode, non-strict compile). "
+            f"Set SPONSIO_STRICT_COMPILE=1 or `defaults.mode: enforce` "
+            f"to escalate to ConfigError.\n  - " + bullet,
+            UserWarning,
+            stacklevel=2,
+        )
 
     kwargs: dict[str, Any] = {
         "agent_id": agent_id,

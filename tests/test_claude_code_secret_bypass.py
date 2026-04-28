@@ -133,9 +133,7 @@ def test_r1_docker_compose_then_pipe_stdin_exfil_denied(shielded_home, capsys):
     assert trace_log.exists()
     assert "docker compose config" in trace_log.read_text()
 
-    out, _ = _run(
-        _hook_event(f"echo placeholder | {EXFIL_PIPE_STDIN}"), capsys
-    )
+    out, _ = _run(_hook_event(f"echo placeholder | {EXFIL_PIPE_STDIN}"), capsys)
     payload = _assert_denied(out)
     # After the A/E + activate_at rewrite, the deny reason shows the
     # *enforcement* formula (the egress prohibition), not the trigger.
@@ -156,9 +154,7 @@ def test_r1_docker_compose_then_substitution_exfil_denied(shielded_home, capsys)
 
 def test_r2_op_run_then_pipe_stdin_exfil_denied(shielded_home, capsys):
     _run(_hook_event("op run -- npm test"), capsys)
-    out, _ = _run(
-        _hook_event(f"cat /tmp/dump | {EXFIL_PIPE_STDIN}"), capsys
-    )
+    out, _ = _run(_hook_event(f"cat /tmp/dump | {EXFIL_PIPE_STDIN}"), capsys)
     _assert_denied(out)
 
 
@@ -176,9 +172,7 @@ def test_r2_dotenvx_then_backtick_exfil_denied(shielded_home, capsys):
 
 def test_r4_printenv_then_pipe_stdin_exfil_denied(shielded_home, capsys):
     _run(_hook_event("printenv > /tmp/dump"), capsys)
-    out, _ = _run(
-        _hook_event(f"cat /tmp/dump | {EXFIL_PIPE_STDIN}"), capsys
-    )
+    out, _ = _run(_hook_event(f"cat /tmp/dump | {EXFIL_PIPE_STDIN}"), capsys)
     _assert_denied(out)
 
 
@@ -190,9 +184,7 @@ def test_r4_bare_env_then_substitution_exfil_denied(shielded_home, capsys):
 
 def test_r4_export_p_then_pipe_stdin_exfil_denied(shielded_home, capsys):
     _run(_hook_event("export -p > /tmp/dump"), capsys)
-    out, _ = _run(
-        _hook_event(f"cat /tmp/dump | {EXFIL_PIPE_STDIN}"), capsys
-    )
+    out, _ = _run(_hook_event(f"cat /tmp/dump | {EXFIL_PIPE_STDIN}"), capsys)
     _assert_denied(out)
 
 
@@ -204,9 +196,7 @@ def test_r6_git_log_p_then_substitution_exfil_denied(shielded_home, capsys):
 
 def test_r6_git_show_p_then_pipe_stdin_exfil_denied(shielded_home, capsys):
     _run(_hook_event("git show -p HEAD~50"), capsys)
-    out, _ = _run(
-        _hook_event(f"cat /tmp/dump | {EXFIL_PIPE_STDIN}"), capsys
-    )
+    out, _ = _run(_hook_event(f"cat /tmp/dump | {EXFIL_PIPE_STDIN}"), capsys)
     _assert_denied(out)
 
 
@@ -364,9 +354,7 @@ def test_proc_environ_via_read_tool_denied(shielded_home, capsys):
 
 def test_bare_pipe_into_curl_post_denied(shielded_home, capsys):
     """Single command pipe-into-curl-stdin — caught even with empty trace."""
-    out, _ = _run(
-        _hook_event(f"docker compose config | {EXFIL_PIPE_STDIN}"), capsys
-    )
+    out, _ = _run(_hook_event(f"docker compose config | {EXFIL_PIPE_STDIN}"), capsys)
     _assert_denied(out)
 
 
