@@ -556,6 +556,46 @@ class TestOnboardCli:
         # ``--force`` regenerates: the placeholder content is gone.
         assert (project / "sponsio.yaml").read_text() != "# precious\n"
 
+    def test_yaml_preserve_path_uses_fresh_detection_over_stale_rcfile(
+        self, tmp_path: Path, clean_provider_env
+    ):
+        # Regression: when sponsio.yaml already exists (preserve path)
+        # the wrap snippet was reading framework from .sponsiorc only.
+        # If an older detector wrote ``framework: none`` (because it
+        # didn't recognise ``sponsio.<adapter>`` imports), the preserve
+        # path would forever print the generic ``import sponsio``
+        # snippet even after the detector was fixed.  Today, fresh
+        # ``detect_framework`` runs even on the preserve path and beats
+        # a stale rcfile.
+        runner = CliRunner()
+        project = tmp_path / "proj"
+        project.mkdir()
+        # Code uses the Sponsio adapter — detection should infer
+        # crewai from this alone (sponsio.crewai prefix is in the
+        # signature list).
+        (project / "agent.py").write_text(
+            "from sponsio.crewai import Sponsio\nguard = Sponsio()\n"
+        )
+        # Pre-existing yaml means we hit the preserve path...
+        (project / "sponsio.yaml").write_text("# precious\n")
+        # ...with a stale rcfile claiming no framework.
+        (project / ".sponsiorc").write_text(
+            "framework: none\nextractor:\n  provider: none\n"
+        )
+
+        result = runner.invoke(
+            onboard,
+            [str(project), "--no-probe-ollama", "--no-doctor", "--no-interactive"],
+        )
+        assert result.exit_code == 0, result.output
+        # yaml itself untouched.
+        assert (project / "sponsio.yaml").read_text() == "# precious\n"
+        # Wrap snippet uses the framework-specific factory, not the
+        # generic ``import sponsio`` fallback that the stale rcfile
+        # would have steered us toward.
+        assert "from sponsio.crewai import Sponsio" in result.output
+        assert "import sponsio\nguard = sponsio.Sponsio" not in result.output
+
 
 # ---------------------------------------------------------------------------
 # Miscellaneous helpers

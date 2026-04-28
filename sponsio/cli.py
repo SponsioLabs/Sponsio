@@ -4131,13 +4131,22 @@ def onboard(
     if rc_in_target:
         # Reuse the rcfile values verbatim — that's the whole point of
         # the dotfile.  Prompts only fire when there's nothing to reuse.
+        # We still run framework detection so the wrap snippet on the
+        # yaml-preserve path reflects current code (not a stale
+        # rcfile).  Detection beating rcfile here is intentional: the
+        # only way ``framework`` ends up wrong in an rcfile is when an
+        # older detection couldn't recognise the user's code; if today's
+        # detector finds something concrete, that's the better answer.
+        pre_fw = _detect_fw_for_prompts(target_dir) if target_dir.exists() else None
+        detected_fw = (
+            pre_fw.framework if pre_fw and pre_fw.framework != "none" else None
+        )
         answers = SetupAnswers(
-            framework=rc.framework or "none",
+            framework=detected_fw or rc.framework or "none",
             provider=rc.extractor_provider or "none",
             model=rc.extractor_model or "",
             api_key_env=rc.extractor_api_key_env or "",
         )
-        pre_fw = None
         pre_prov = None
     else:
         # Pre-detect framework + provider so the prompts have sensible
