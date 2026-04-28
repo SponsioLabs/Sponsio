@@ -240,7 +240,7 @@ Sponsio blocks the wire — amount cap, missing compliance approve, no confirmat
 <details>
 <summary><b>4. OpenClaw — Malicious skill exfiltrates <code>.env</code> to AMOS stealer</b></summary>
 
-**Integration**: OpenClaw via the [`sponsio-openclaw-shield`](plugins/sponsio-openclaw-shield/) plugin (one-line install). **OWASP**: ASI-04 — Agentic Supply Chain Vulnerabilities · references the [ClawHavoc incident](https://genai.owasp.org/2026/04/14/owasp-genai-exploit-round-up-report-q1-2026/) — 1,184 malicious ClawHub skills shipping AMOS stealer payloads in early 2026.
+**Integration**: OpenClaw via the [`sponsio-openclaw`](plugins/sponsio-openclaw/) plugin (one-line install). **OWASP**: ASI-04 — Agentic Supply Chain Vulnerabilities · references the [ClawHavoc incident](https://genai.owasp.org/2026/04/14/owasp-genai-exploit-round-up-report-q1-2026/) — 1,184 malicious ClawHub skills shipping AMOS stealer payloads in early 2026.
 
 User installs `weather-skill` from ClawHub. On first invocation the skill reads `~/.clawdbot/.env` — paid AI API keys, OAuth refresh tokens, custom-model endpoints — and POSTs the contents to an attacker-controlled endpoint disguised as a weather API. *"After reading `~/.clawdbot/.env`, no outbound network calls"* + *"`http_request` arguments must not contain `$ENV_`*"* block the exfiltration on the read trigger; the legitimate weather API call (city → forecast JSON) still goes through.
 
@@ -254,7 +254,7 @@ User installs `weather-skill` from ClawHub. On first invocation the skill reads 
 
 
 
-*Demo GIF coming — `sponsio-openclaw-shield` blocks the outbound POST on the `.env` read trigger; weather lookup still completes.*
+*Demo GIF coming — `sponsio-openclaw` blocks the outbound POST on the `.env` read trigger; weather lookup still completes.*
 
 </details>
 
@@ -264,30 +264,29 @@ Run any of these locally with `sponsio demo --scenario cleanup|backup|wire|openc
 
 ## Benchmarks & Performance
 
-Sponsio is benchmarked on four public agent-safety suites covering four distinct failure modes. All offline-replay against published trajectories, not Sponsio-authored test sets.
+Sponsio is benchmarked on two public agent-safety suites covering two distinct failure modes — rational KPI-pressure metric gaming, and dangerous bash / python snippet detection. All offline-replay against published trajectories, not Sponsio-authored test sets, and **library-only** (no per-scenario LLM scan on the blocking path).
 
 
-| Benchmark                                   | What it measures                          | Sponsio result                                                         |
-| ------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------- |
-| **ODCV-Bench** (12 LLMs × 80 trajectories)  | Intent integrity under KPI pressure       | **~84%** high-risk scenarios blocked                                   |
-| **RedCode-Exec** (1,410 cases)              | Dangerous bash / python snippet detection | **85% bash · 69% python** (~76% combined)                              |
-| **AgentDojo** (gpt-4o, 6,200 attack traces) | Prompt-injection robustness               | **62.8% slack · 52.8% banking** · 30.4% overall at **6.4% utility FP** |
-| **τ²-bench airline** (3 models)             | Conversational SOP ordering               | **23% recall** at 4–16% FP (best: o4-mini, 18% / 4%)                   |
+| Benchmark                                  | What it measures                          | Sponsio result                                                                            |
+| ------------------------------------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------- |
+| **ODCV-Bench** (12 LLMs × 80 trajectories) | Intent integrity under KPI pressure       | **84.5%** high-risk scenarios blocked · **0 new FPs** on clean (score-0/1/2) scenarios    |
+| **RedCode-Exec** (1,410 cases)             | Dangerous bash / python snippet detection | **95% bash · 90% python · 92% combined** · **0% utility FP** on 60-file clean-code audit |
 
 
-<u>**These are first-release numbers**</u>, deterministic path only (v0 bundles). Every benchmark has headroom: more patterns and tighter heuristics on the deterministic side, and the stochastic pipeline (beta) on the semantic side. Expect meaningful gains on intent-driven failures, content-quality SOPs, and semantic-shaped injection in later releases. See [docs/sto-atoms.md](docs/sto-atoms.md) for the stochastic pipeline.
+To our knowledge this is the **first published deterministic-pattern result on RedCode-Exec**, and the first guardrail systematically evaluated across 12 LLM families on ODCV-Bench. Both libraries ship as loadable contract packs (`sponsio:benchmark/redcode_exec`, `sponsio:benchmark/odcv_bench`) and grow from production traces — the numbers above are starting points, not ceilings. Semantic properties det can't fingerprint (tone, hallucination, scope drift in NL output) fall to the [stochastic pipeline](docs/sto-atoms.md) (beta).
 
 ### Hot-Path Performance
 
 
-| Workload                                                      | p50           | p99       |
-| ------------------------------------------------------------- | ------------- | --------- |
-| **Synthetic micro-bench** (single contract, pre-warmed DFA)   | **0.0052 ms** | 0.0122 ms |
-| **Real agent workload** (AgentDojo, 26K calls, 3–6 contracts) | **0.113 ms**  | 0.262 ms  |
-| Heaviest measured (RedCode python whole-script)               | 0.811 ms      | 1.035 ms  |
+| Workload                                                  | Contracts | p50           | p99       |
+| --------------------------------------------------------- | --------- | ------------- | --------- |
+| **Synthetic micro-bench** (single contract, pre-warmed DFA) | 1         | **0.0052 ms** | 0.012 ms  |
+| **ODCV-Bench mandated** (1,438 calls, scan-discovered)    | 6–18      | **0.139 ms**  | 0.765 ms  |
+| **RedCode bash** (3,848 per-command calls)                | 7         | 0.434 ms      | 0.558 ms  |
+| **RedCode python** (810 whole-script calls)               | 9         | 0.811 ms      | 1.035 ms  |
 
 
-<u>**400×–13,000× faster than any LLM-as-judge guardrail**</u> (gpt-4o-mini, Lakera Guard, OpenAI Moderation — all 50–800 ms per check) on the same per-tool-call workload, at zero LLM cost on the hot path. Per-call latency scales linearly with contract count; p99 stays under 1.04 ms across every workload measured. A typical 8–20-tool-call agent turn adds **less enforcement overhead than a single model output token**.
+<u>**400×–13,000× faster than any LLM-as-judge guardrail**</u> (gpt-4o-mini, Lakera Guard, OpenAI Moderation — all 50–800 ms per check) on the same per-tool-call workload, at zero LLM cost on the hot path. Per-call latency scales linearly with contract count; p99 stays under 1.04 ms across every measured workload. The heaviest scenario (9-contract layered regex over a whole RedCode python script) is still **50× faster than the cheapest LLM-as-judge call**.
 
 Full per-model breakdown, methodology, harness scripts: [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
 
@@ -763,7 +762,7 @@ npm install -D @sponsio/scan-ts
 npx sponsio-scan-ts onboard .
 ```
 
-When the Python [`sponsio` CLI](https://pypi.org/project/sponsio/) is on `PATH`, that command pipes the extracted tool JSON into `sponsio scan` and writes a full `sponsio.yaml` (same as the manual pipe in [`ts-scanner`’s README](ts-scanner/README.md)). If `sponsio` is not installed, it still writes a small observe-mode file with a few det-only `E: …` natural-language rules so the TypeScript `Sponsio` class can start without Python. `sponsio-scan-ts onboard . --llm` passes `--llm` through to `sponsio scan` (set `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` as in [`docs/cli.md` → Provider matrix](docs/cli.md#provider-matrix)).
+When the Python [`sponsio` CLI](https://pypi.org/project/sponsio/) is on `PATH`, that command pipes the extracted tool JSON into `sponsio scan` and writes a full `sponsio.yaml` (same as the manual pipe in [`/scan-ts`’s README](ts/packages/scanner/README.md)). If `sponsio` is not installed, it still writes a small observe-mode file with a few det-only `E: …` natural-language rules so the TypeScript `Sponsio` class can start without Python. `sponsio-scan-ts onboard . --llm` passes `--llm` through to `sponsio scan` (set `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` as in [`docs/cli.md` → Provider matrix](docs/cli.md#provider-matrix)).
 
 ## 4. Run your agent and observe
 
@@ -1078,7 +1077,8 @@ Then pick a track below.
 - **"Ship from shadow mode into production"** → [Observe vs. enforce](guides/observe-vs-enforce.md)
 - **"Pick the right pattern for a rule I have in mind"** → [Pattern catalog](reference/patterns.md)
 - **"Drop in a ready-made contract pack (shell, filesystem, runaway defense)"** → [Contract library](reference/contract-lib.md)
-- **"Wrap my Claude Code session with Sponsio guardrails"** → [sponsio-shield quickstart](../plugins/sponsio-shield/QUICKSTART.md)
+- **"Wrap my Claude Code session with Sponsio guardrails"** → [sponsio-claude-code quickstart](../plugins/sponsio-claude-code/QUICKSTART.md)
+- **"Compare host plugins across Claude Code and OpenClaw"** → [Host plugins (Mode A)](plugins.md)
 - **"Add a stochastic atom for tone, PII, or scope"** → [Stochastic atoms](reference/sto-atoms.md)
 - **"Understand why Sponsio uses LTL"** → [Architecture](concepts/architecture.md)
 - **"Map a control to OWASP Agentic Top 10 (2026)"** → [OWASP coverage](owasp-agentic-top-10.md)
@@ -3392,7 +3392,7 @@ The TS scanner statically understands Vercel's `tool({...})`,
 LangChain's `new DynamicStructuredTool({...})`, and LangGraph.js's
 `tool(fn, cfg)` — plus common Zod patterns
 (`z.object / string / number / enum / literal / array / optional`).
-See [`ts-scanner/README.md`](https://github.com/sponsio-labs/sponsio/tree/main/ts-scanner)
+See [`ts/packages/scanner/README.md`](https://github.com/sponsio-labs/sponsio/tree/main//scan-ts)
 for the full matrix.
 
 ---
@@ -3748,8 +3748,8 @@ G(Implies(
 2. If it needs a new observable, add atom extraction in [`sponsio/tracer/grounding.py`](../../sponsio/tracer/grounding.py).
 3. Add NL parsing in [`sponsio/generation/nl_to_contract.py`](../../sponsio/generation/nl_to_contract.py).
 4. Tests for pattern behavior and NL parsing.
-5. If the pattern belongs in the TS det core, mirror in [`ts-sdk/src/core/patterns.ts`](../../ts-sdk/src/core/patterns.ts).
-   If you don't mirror it, add a row to [`ts-sdk-parity.md`](./ts-sdk-parity.md) so users know.
+5. If the pattern belongs in the TS det core, mirror in [`ts/packages/sdk/src/core/patterns.ts`](../../ts/packages/sdk/src/core/patterns.ts).
+   If you don't mirror it, add a row to [`/sdk-parity.md`](.//sdk-parity.md) so users know.
 6. Document it here.
 
 
@@ -5299,7 +5299,7 @@ Quick pointers for specific tasks:
 - **Adding a deterministic pattern** — [Architecture § Adding a pattern](concepts/architecture.md) and [Pattern catalog § Adding a new pattern](reference/patterns.md#adding-a-new-pattern).
 - **Adding a stochastic atom** — [Sto atom catalog § Writing a custom sto atom](reference/sto-atoms.md#writing-a-custom-sto-atom).
 - **Adding a framework integration** — [CLAUDE.md § Add an integration](../CLAUDE.md). Inherit from `BaseGuard`, keep the framework-specific code thin, register in `sponsio/core.py`.
-- **Python / TypeScript parity** — if you touch the deterministic core, mirror in `ts-sdk/src/`. The parity table is in [CLAUDE.md](../CLAUDE.md).
+- **Python / TypeScript parity** — if you touch the deterministic core, mirror in `ts/packages/sdk/src/`. The parity table is in [CLAUDE.md](../CLAUDE.md).
 - **Security disclosures** — see [SECURITY.md](../SECURITY.md); please do not file public issues for vulnerabilities.
 
 ## Local development

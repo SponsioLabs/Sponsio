@@ -251,30 +251,29 @@ Run any of these locally with `sponsio demo --scenario cleanup|backup|wire|openc
 
 ## Benchmarks & Performance
 
-Sponsio is benchmarked on four public agent-safety suites covering four distinct failure modes. All offline-replay against published trajectories, not Sponsio-authored test sets.
+Sponsio is benchmarked on two public agent-safety suites covering two distinct failure modes — rational KPI-pressure metric gaming, and dangerous bash / python snippet detection. All offline-replay against published trajectories, not Sponsio-authored test sets, and **library-only** (no per-scenario LLM scan on the blocking path).
 
 
-| Benchmark                                   | What it measures                          | Sponsio result                                                         |
-| ------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------- |
-| **ODCV-Bench** (12 LLMs × 80 trajectories)  | Intent integrity under KPI pressure       | **~84%** high-risk scenarios blocked                                   |
-| **RedCode-Exec** (1,410 cases)              | Dangerous bash / python snippet detection | **85% bash · 69% python** (~76% combined)                              |
-| **AgentDojo** (gpt-4o, 6,200 attack traces) | Prompt-injection robustness               | **62.8% slack · 52.8% banking** · 30.4% overall at **6.4% utility FP** |
-| **τ²-bench airline** (3 models)             | Conversational SOP ordering               | **23% recall** at 4–16% FP (best: o4-mini, 18% / 4%)                   |
+| Benchmark                                  | What it measures                          | Sponsio result                                                                            |
+| ------------------------------------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------- |
+| **ODCV-Bench** (12 LLMs × 80 trajectories) | Intent integrity under KPI pressure       | **84.5%** high-risk scenarios blocked · **0 new FPs** on clean (score-0/1/2) scenarios    |
+| **RedCode-Exec** (1,410 cases)             | Dangerous bash / python snippet detection | **95% bash · 90% python · 92% combined** · **0% utility FP** on 60-file clean-code audit |
 
 
-<u>**These are first-release numbers**</u>, deterministic path only (v0 bundles). Every benchmark has headroom: more patterns and tighter heuristics on the deterministic side, and the stochastic pipeline (beta) on the semantic side. Expect meaningful gains on intent-driven failures, content-quality SOPs, and semantic-shaped injection in later releases. See [docs/sto-atoms.md](docs/sto-atoms.md) for the stochastic pipeline.
+To our knowledge this is the **first published deterministic-pattern result on RedCode-Exec**, and the first guardrail systematically evaluated across 12 LLM families on ODCV-Bench. Both libraries ship as loadable contract packs (`sponsio:benchmark/redcode_exec`, `sponsio:benchmark/odcv_bench`) and grow from production traces — the numbers above are starting points, not ceilings. Semantic properties det can't fingerprint (tone, hallucination, scope drift in NL output) fall to the [stochastic pipeline](docs/sto-atoms.md) (beta).
 
 ### Hot-Path Performance
 
 
-| Workload                                                      | p50           | p99       |
-| ------------------------------------------------------------- | ------------- | --------- |
-| **Synthetic micro-bench** (single contract, pre-warmed DFA)   | **0.0052 ms** | 0.0122 ms |
-| **Real agent workload** (AgentDojo, 26K calls, 3–6 contracts) | **0.113 ms**  | 0.262 ms  |
-| Heaviest measured (RedCode python whole-script)               | 0.811 ms      | 1.035 ms  |
+| Workload                                                  | Contracts | p50           | p99       |
+| --------------------------------------------------------- | --------- | ------------- | --------- |
+| **Synthetic micro-bench** (single contract, pre-warmed DFA) | 1         | **0.0052 ms** | 0.012 ms  |
+| **ODCV-Bench mandated** (1,438 calls, scan-discovered)    | 6–18      | **0.139 ms**  | 0.765 ms  |
+| **RedCode bash** (3,848 per-command calls)                | 7         | 0.434 ms      | 0.558 ms  |
+| **RedCode python** (810 whole-script calls)               | 9         | 0.811 ms      | 1.035 ms  |
 
 
-<u>**400×–13,000× faster than any LLM-as-judge guardrail**</u> (gpt-4o-mini, Lakera Guard, OpenAI Moderation — all 50–800 ms per check) on the same per-tool-call workload, at zero LLM cost on the hot path. Per-call latency scales linearly with contract count; p99 stays under 1.04 ms across every workload measured. A typical 8–20-tool-call agent turn adds **less enforcement overhead than a single model output token**.
+<u>**400×–13,000× faster than any LLM-as-judge guardrail**</u> (gpt-4o-mini, Lakera Guard, OpenAI Moderation — all 50–800 ms per check) on the same per-tool-call workload, at zero LLM cost on the hot path. Per-call latency scales linearly with contract count; p99 stays under 1.04 ms across every measured workload. The heaviest scenario (9-contract layered regex over a whole RedCode python script) is still **50× faster than the cheapest LLM-as-judge call**.
 
 Full per-model breakdown, methodology, harness scripts: [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
 
