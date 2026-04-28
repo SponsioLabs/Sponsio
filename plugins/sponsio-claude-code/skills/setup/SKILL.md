@@ -106,45 +106,76 @@ sponsio plugin install --all
 ## Step 3b — unbundled plugins (use `sponsio plugin scan`)
 
 For every MCP server / plugin that isn't in the bundled set, generate
-a starter library. Don't try to hand-author one — the heuristics in
-`sponsio plugin scan` cover the common patterns (irreversible ops,
-bash exec, sql, rate limits, loops) better than ad-hoc rules.
+a starter library. Don't try to hand-author one — the scanner has
+two engines (heuristic + LLM) that together cover most patterns
+better than ad-hoc rules.
 
 ### 3b.1 — discover the plugin's tool inventory
 
-The scanner can't currently introspect an MCP server's tool list at
-rest, so collect names another way:
+Three discovery paths in priority order:
 
-* If the plugin defines tools as **`skills/*/SKILL.md`** (slash
-  commands), tool names are `<plugin-id>:<skill-name>`. Read
-  `<dir>/skills/` to enumerate.
-* If the plugin runs an **MCP server**, real tool names are
-  `mcp__<server>__<tool>`. Run `claude mcp list` to see registered
-  servers, or read the plugin's `.mcp.json` for server names. The
-  actual tool list comes from running the MCP server — not parsable
-  statically. Ask the user: "What tools does this MCP server expose?
-  You can paste a list, or open `claude` and let me see." If they
-  don't know, suggest they open a session, list any
-  `mcp__<server>__*` tool names that appear in `/help`, and bring
-  those back.
-* If the user just says "everything", run scan with no `--tools` and
-  explain the result is baseline-only (just `core/runaway`).
+1. **`--introspect "<spawn-cmd>"`** (preferred for MCP servers).
+   sponsio spawns the server, does the JSON-RPC handshake, calls
+   `tools/list`, and auto-populates the tool inventory along with
+   parameter schemas the LLM can use.  Read the plugin's `.mcp.json`
+   (or `claude mcp list`) to find the spawn command.
 
-### 3b.2 — dry-run the scan
+   ```bash
+   sponsio plugin scan \
+     --plugin-id <name> \
+     --target-host claude-code \
+     --introspect "python3 /path/to/server.py"
+   ```
 
-Always start with the dry-run. **Never** `--apply` until the user has
-seen the output.
+   For Claude Code MCP integrations, ALWAYS pass
+   `--target-host claude-code` so tool names get the
+   `mcp__<plugin-id>__` prefix Claude Code surfaces them under.
 
-```bash
-sponsio plugin scan <plugin-dir> --tools tool_a,tool_b,tool_c
-```
+2. **Slash-command plugins** (no MCP server, just `skills/*/SKILL.md`).
+   Tool names are `<plugin-id>:<skill-name>`.  Read `<dir>/skills/`
+   to enumerate, then pass via `--tools`:
 
-The output is one rendered yaml per **routed group** (the same
-partitioning that `sponsio.guard_stdin.derive_plugin_id` does at
-runtime — `Bash` → `_host`, `mcp__github__X` → `github`, etc.). Show
+   ```bash
+   sponsio plugin scan <plugin-dir> --tools my-plugin:foo,my-plugin:bar
+   ```
+
+3. **Operator-supplied tool list** (when introspection fails or is
+   inconvenient).  Ask the user "what tools does this MCP server
+   expose?" and pass them via `--tools t1,t2,t3`.  Last resort.
+
+### 3b.2 — pick heuristic OR LLM (or both)
+
+* **Heuristic only** (fast, deterministic, no API key):
+  ```bash
+  sponsio plugin scan ... --introspect "..."
+  ```
+  Catches obvious destructive verbs (`delete_*`, `remove_*`),
+  irreversible ops, rate-limit candidates.  Misses semantic intent.
+
+* **LLM-augmented** (slower, needs OpenAI/Anthropic/Gemini key):
+  ```bash
+  sponsio plugin scan ... --introspect "..." --llm
+  ```
+  Reads each tool's `description` + `inputSchema` and proposes
+  contracts the heuristic engine doesn't (e.g. `arg_blacklist`
+  patterns derived from param semantics, cross-tool ordering rules).
+  Output lands in a side-car `sponsio.llm.yaml` next to the
+  heuristic library so the operator can diff the two.
+
+  Use `--llm` when the user has already installed something with
+  rich tool descriptions (most production MCP servers); skip it for
+  trivial / well-named plugins where heuristics already nail it.
+
+### 3b.3 — dry-run the scan
+
+ALWAYS start with the dry-run.  **Never** `--apply` until the user
+has seen the output.  The output is one rendered yaml per **routed
+group** (the same partitioning `sponsio.guard_stdin.derive_plugin_id`
+does at runtime — `Bash` → `_host`, `mcp__github__X` → `github`,
+etc.).  With `--llm`, an extra `LLM proposals:` block follows.  Show
 the user every group.
 
-### 3b.3 — review every contract
+### 3b.4 — review every contract
 
 For each contract in each group, state:
 
@@ -172,7 +203,7 @@ either:
        disabled: true
    ```
 
-### 3b.4 — apply
+### 3b.5 — apply
 
 Once the user is happy with the dry-run:
 

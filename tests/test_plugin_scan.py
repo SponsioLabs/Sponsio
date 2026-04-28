@@ -311,9 +311,63 @@ def test_cli_apply_force_overwrites(tmp_path):
     assert "Bash" in new_content
 
 
-def test_cli_rejects_non_plugin_dir(tmp_path):
+def test_cli_rejects_non_plugin_dir_without_plugin_id(tmp_path):
+    """A bare dir without ``.claude-plugin/plugin.json`` is fine *if*
+    the operator passes ``--plugin-id``; otherwise scan exits 2 with a
+    clear hint.  This rejection used to be hard (exit 1, manifest
+    error) before the bare-MCP scan path landed."""
     bare = tmp_path / "bare"
     bare.mkdir()
     proc = _run_cli(str(bare), "--tools", "Bash")
+    assert proc.returncode == 2
+    combined = (proc.stdout or "") + (proc.stderr or "")
+    assert "--plugin-id" in combined or "plugin id" in combined.lower()
+
+
+# ---------------------------------------------------------------------------
+# --introspect: spawn an MCP server and pull tools/list
+# ---------------------------------------------------------------------------
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+MOCK_MCP_SERVER = (
+    REPO_ROOT / "examples" / "demo" / "mock_github_mcp" / "server.py"
+)
+
+
+def test_introspect_against_mock_mcp(tmp_path):
+    """End-to-end: spawn the demo mock GitHub MCP server, do
+    ``initialize`` + ``tools/list``, render heuristic rules.  Skips
+    when the demo server isn't checked out alongside this worktree
+    (the demo lives in the main checkout, not branch-specific)."""
+    if not MOCK_MCP_SERVER.exists():
+        pytest.skip(f"demo MCP server not present at {MOCK_MCP_SERVER}")
+
+    proc = _run_cli(
+        "--plugin-id", "github-mock",
+        "--target-host", "claude-code",
+        "--introspect", f"python3 {MOCK_MCP_SERVER}",
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+    out = proc.stdout
+    # Server returns 3 tools; CLI should namespace them mcp__github-mock__*
+    # and partition them into the github-mock library group.
+    assert "discovered 3 tools" in out
+    assert "mcp__github-mock__list_issues" in out
+    assert "mcp__github-mock__get_repo" in out
+    assert "mcp__github-mock__create_issue_comment" in out
+    # The synthesized manifest landed
+    assert "plugin_id='github-mock'" in out
+    assert "github-mock (3 tools" in out
+
+
+def test_introspect_invalid_command_errors(tmp_path):
+    """Bad spawn command surfaces as exit 1 with the IntrospectError."""
+    proc = _run_cli(
+        "--plugin-id", "x",
+        "--introspect", "this-binary-definitely-does-not-exist-xyz",
+    )
     assert proc.returncode == 1
-    assert "scan failed" in proc.stdout or "scan failed" in proc.stderr
+    combined = (proc.stdout or "") + (proc.stderr or "")
+    assert "introspect failed" in combined.lower()

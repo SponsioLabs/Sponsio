@@ -146,11 +146,30 @@ class ScanResult:
     file per group."""
 
 
+def synthesize_manifest(plugin_id: str, *, name: str = "", description: str = "") -> PluginManifest:
+    """Build a minimal :class:`PluginManifest` for plugin-less targets.
+
+    Used when scanning a bare MCP server (no Claude-Code wrapping
+    plugin directory) — the operator passes ``--introspect`` and a
+    ``plugin-id`` and we synthesize the rest.  Mirrors what
+    :func:`parse_plugin_manifest` would have read off ``plugin.json``.
+    """
+    return PluginManifest(
+        plugin_id=plugin_id,
+        name=name or plugin_id,
+        version="",
+        description=description,
+        mcp_servers=[],
+        skill_names=[],
+    )
+
+
 def scan_plugin(
-    plugin_dir: Path,
+    plugin_dir: Path | None,
     declared_tools: list[str] | None = None,
     *,
     include_runaway: bool = True,
+    manifest: PluginManifest | None = None,
 ) -> ScanResult:
     """End-to-end scan: manifest → tools partitioned by routed plugin_id
     → one rendered yaml per group.
@@ -181,7 +200,13 @@ def scan_plugin(
     # Lazy import to avoid a runtime import cycle at module load time.
     from sponsio.guard_stdin import derive_plugin_id
 
-    manifest = parse_plugin_manifest(plugin_dir)
+    if manifest is None:
+        if plugin_dir is None:
+            raise ManifestError(
+                "scan_plugin: pass either a plugin_dir or an explicit "
+                "synthesised manifest (use synthesize_manifest)."
+            )
+        manifest = parse_plugin_manifest(plugin_dir)
     tools = list(declared_tools or [])
 
     # Partition tools by routed plugin_id. ``manifest.plugin_id`` is

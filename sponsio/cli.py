@@ -4157,7 +4157,18 @@ def plugin_install(
 @plugin.command(name="scan")
 @click.argument(
     "plugin_dir",
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    type=click.Path(file_okay=False, path_type=Path),
+    required=False,
+)
+@click.option(
+    "--plugin-id",
+    "plugin_id_override",
+    default="",
+    help=(
+        "Explicit plugin id when scanning a bare MCP server (no "
+        "Claude Code .claude-plugin/plugin.json wrapping it).  "
+        "Required when no plugin_dir is given or it lacks a manifest."
+    ),
 )
 @click.option(
     "--tools",
@@ -4166,10 +4177,68 @@ def plugin_install(
     default="",
     help=(
         "Comma-separated tool names the plugin exposes (e.g. "
-        "`mcp__github__create_issue,mcp__github__list_repos`). The "
-        "scanner can't infer these from the manifest yet — pass them "
-        "in or accept a baseline-only library."
+        "`mcp__github__create_issue,mcp__github__list_repos`). Use "
+        "``--introspect`` to query the MCP server directly instead."
     ),
+)
+@click.option(
+    "--introspect",
+    "introspect_cmd",
+    default="",
+    help=(
+        "Spawn an MCP server with this command and call ``tools/list`` "
+        "to auto-populate the tool inventory.  Example: "
+        "``--introspect 'python3 server.py'``.  Mutually exclusive "
+        "with ``--tools``; takes precedence when both are given."
+    ),
+)
+@click.option(
+    "--introspect-env",
+    "introspect_env",
+    multiple=True,
+    help=(
+        "Environment variable for the introspected server, repeatable: "
+        "``--introspect-env API_KEY=xxx --introspect-env LOG=/tmp/x``."
+    ),
+)
+@click.option(
+    "--target-host",
+    type=click.Choice(["claude-code", "openclaw"]),
+    default="claude-code",
+    show_default=True,
+    help=(
+        "Which host runtime will load the generated library.  Determines "
+        "how introspected MCP tool names are namespaced: claude-code "
+        "prefixes them as ``mcp__<plugin-id>__<tool>`` (matching what "
+        "Claude Code surfaces); openclaw keeps them flat."
+    ),
+)
+@click.option(
+    "--llm",
+    "use_llm",
+    is_flag=True,
+    default=False,
+    help=(
+        "Use an LLM to read each tool's description + inputSchema and "
+        "propose contracts that name-heuristics miss (semantic intent, "
+        "param-shape risks).  Requires OPENAI_API_KEY / "
+        "ANTHROPIC_API_KEY / GOOGLE_API_KEY in env, or pass "
+        "--llm-model / --llm-provider explicitly.  Pairs with "
+        "--introspect — the LLM needs the tool inventory to reason."
+    ),
+)
+@click.option(
+    "--llm-model",
+    "llm_model",
+    default="",
+    help="LLM model name (default: provider-specific — gpt-4o-mini, etc.).",
+)
+@click.option(
+    "--llm-provider",
+    "llm_provider",
+    type=click.Choice(["openai", "anthropic", "gemini"]),
+    default=None,
+    help="LLM provider (default: auto-detect from env vars).",
 )
 @click.option(
     "--root",
@@ -4199,30 +4268,124 @@ def plugin_install(
     help="With --apply, overwrite an existing library file.",
 )
 def plugin_scan(
-    plugin_dir: Path,
+    plugin_dir: Path | None,
+    plugin_id_override: str,
     tools_csv: str,
+    introspect_cmd: str,
+    introspect_env: tuple[str, ...],
+    target_host: str,
+    use_llm: bool,
+    llm_model: str,
+    llm_provider: str | None,
     root: Path | None,
     apply: bool,
     no_runaway: bool,
     force: bool,
 ):
-    """Generate a starter contract library from a Claude Code plugin.
+    """Generate a starter contract library from a host plugin.
 
-    Reads ``<plugin-dir>/.claude-plugin/plugin.json`` for the plugin id,
-    optionally ``.mcp.json`` and ``skills/`` for context, then runs
-    name-heuristic rule generation on every tool listed via
-    ``--tools``.
+    Reads ``<plugin-dir>/.claude-plugin/plugin.json`` (Claude Code) or
+    ``<plugin-dir>/openclaw.plugin.json`` (OpenClaw), optionally
+    ``.mcp.json`` and ``skills/`` for context, then runs name-heuristic
+    rule generation on every tool — either listed via ``--tools`` or
+    auto-discovered via ``--introspect`` against a running MCP server.
 
     Defaults to dry-run (prints the YAML); use ``--apply`` to write it.
     """
-    from sponsio.plugin.scan import ManifestError, scan_plugin
+    from sponsio.plugin.scan import (
+        ManifestError,
+        scan_plugin,
+        synthesize_manifest,
+    )
 
-    declared_tools = [t.strip() for t in tools_csv.split(",") if t.strip()]
+    declared_tools: list[str] = []
+    introspected_tools: list = []  # ToolInfo objects (used by --llm)
+    if introspect_cmd:
+        from sponsio.plugin.mcp_introspect import (
+            IntrospectError,
+            introspect_mcp_server,
+        )
+        import shlex
+
+        env_dict: dict[str, str] = {}
+        for kv in introspect_env:
+            if "=" not in kv:
+                click.secho(
+                    f"--introspect-env expects KEY=VALUE, got {kv!r}", fg="red"
+                )
+                sys.exit(2)
+            k, _, v = kv.partition("=")
+            env_dict[k] = v
+
+        cmd = shlex.split(introspect_cmd)
+        click.echo(f"# introspecting via: {' '.join(cmd)}")
+        try:
+            tools = introspect_mcp_server(cmd, env=env_dict)
+        except IntrospectError as e:
+            click.secho(f"introspect failed: {e}", fg="red")
+            sys.exit(1)
+        introspected_tools = tools
+        # Namespace tool names per the target host runtime.  Claude
+        # Code surfaces MCP tools as ``mcp__<plugin-id>__<tool>``;
+        # OpenClaw keeps them flat.  Without this, scan would route
+        # all tools to ``_host`` (the fallback) instead of the
+        # plugin-id directory.
+        canonical_names = [t.name for t in tools]
+        if target_host == "claude-code":
+            ns = plugin_id_override or (plugin_dir.name if plugin_dir else "")
+            if not ns:
+                click.secho(
+                    "--introspect with --target-host claude-code needs a plugin-id "
+                    "(via --plugin-id or by passing a plugin_dir).",
+                    fg="red",
+                )
+                sys.exit(2)
+            declared_tools = [f"mcp__{ns}__{n}" for n in canonical_names]
+        else:
+            declared_tools = list(canonical_names)
+        click.echo(
+            f"# discovered {len(canonical_names)} tools: "
+            f"{', '.join(canonical_names) or '(none)'}"
+        )
+        if target_host == "claude-code" and canonical_names:
+            click.echo(f"# namespaced for claude-code: {', '.join(declared_tools)}")
+        if tools_csv.strip():
+            click.secho(
+                "# (--tools ignored; --introspect takes precedence)",
+                fg="yellow",
+            )
+    else:
+        declared_tools = [t.strip() for t in tools_csv.split(",") if t.strip()]
+
+    # Synthesize a manifest when we're scanning a bare MCP server (no
+    # Claude Code wrapping plugin) — operator passes --introspect and
+    # --plugin-id; no .claude-plugin/plugin.json needed.
+    synthetic_manifest = None
+    plugin_dir_has_manifest = (
+        plugin_dir is not None
+        and (plugin_dir / ".claude-plugin" / "plugin.json").exists()
+    )
+    if not plugin_dir_has_manifest:
+        if not plugin_id_override:
+            click.secho(
+                "scan needs either:\n"
+                "  - a Claude Code plugin dir (with .claude-plugin/plugin.json), or\n"
+                "  - --plugin-id <id> when scanning a bare MCP server.",
+                fg="red",
+            )
+            sys.exit(2)
+        synthetic_manifest = synthesize_manifest(plugin_id_override)
+        if plugin_dir is None:
+            # We still pass plugin_dir=None into scan_plugin; manifest
+            # override carries everything needed.
+            plugin_dir = None
+        click.echo(f"# using synthesized manifest for plugin_id={plugin_id_override!r}")
     try:
         result = scan_plugin(
             plugin_dir,
             declared_tools=declared_tools,
             include_runaway=not no_runaway,
+            manifest=synthetic_manifest,
         )
     except ManifestError as e:
         click.secho(f"scan failed: {e}", fg="red")
@@ -4239,6 +4402,46 @@ def plugin_scan(
     if result.manifest.skill_names:
         click.echo(f"# skills:          {', '.join(result.manifest.skill_names)}")
 
+    # ---- Optional LLM-driven contract extraction ----
+    # Runs alongside the heuristic output, not instead of it.  The LLM
+    # block lands as an extra YAML group keyed under the plugin id —
+    # operators can review and merge into the heuristic library, or
+    # split into a separate file.
+    llm_yaml: str | None = None
+    if use_llm:
+        if not introspected_tools:
+            click.secho(
+                "--llm requires --introspect (the LLM needs the tool "
+                "inventory to reason).",
+                fg="red",
+            )
+            sys.exit(2)
+        from sponsio.plugin.llm_extraction import (
+            LLMExtractError,
+            extract_contracts_via_llm,
+            render_contracts_yaml,
+        )
+
+        click.echo("# extracting contracts via LLM …")
+        try:
+            llm_contracts = extract_contracts_via_llm(
+                introspected_tools,
+                target_host=target_host,
+                plugin_id=result.manifest.plugin_id,
+                model=llm_model or None,
+                provider=llm_provider,
+            )
+        except LLMExtractError as e:
+            click.secho(f"LLM extraction failed: {e}", fg="red")
+            sys.exit(1)
+        click.echo(f"# LLM proposed {len(llm_contracts)} contracts")
+        if llm_contracts:
+            llm_yaml = render_contracts_yaml(
+                llm_contracts,
+                plugin_id=result.manifest.plugin_id,
+                include_runaway=not no_runaway,
+            )
+
     if not apply:
         for g in result.groups:
             click.echo("")
@@ -4247,6 +4450,12 @@ def plugin_scan(
                 f"({len(g.tools)} tools, {len(g.proposed)} rules) ==="
             )
             click.echo(g.library_yaml)
+        if llm_yaml is not None:
+            click.echo("")
+            click.echo(
+                f"# === LLM proposals: {result.manifest.plugin_id} ==="
+            )
+            click.echo(llm_yaml)
         click.echo(
             "(dry-run — re-run with --apply to write each group to "
             "<root>/<group>/sponsio.yaml)"
@@ -4272,6 +4481,23 @@ def plugin_scan(
         target.write_text(g.library_yaml, encoding="utf-8")
         written.append(target)
         click.secho(f"  ✓ wrote {target}", fg="green")
+
+    # Side-car LLM library — written next to the heuristic library so
+    # operators can diff/merge.  Skips overwrite the same way.
+    if llm_yaml is not None:
+        target_dir = root / result.manifest.plugin_id
+        target = target_dir / "sponsio.llm.yaml"
+        if target.exists() and not force:
+            click.secho(
+                f"  skipped {target}: already exists "
+                f"(re-run with --force to overwrite)",
+                fg="yellow",
+            )
+        else:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target.write_text(llm_yaml, encoding="utf-8")
+            written.append(target)
+            click.secho(f"  ✓ wrote {target} (LLM proposals)", fg="green")
 
     if not written and not force:
         sys.exit(1)
