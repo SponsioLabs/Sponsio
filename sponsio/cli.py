@@ -4461,7 +4461,7 @@ def plugin_init(root: Path | None, force: bool, no_smoke_test: bool):
     # defaults whichever host plugin they install first.
     primary_target: Path | None = None  # for smoke test
 
-    for lib_name in ("_host", "_host_openclaw"):
+    for lib_name in ("_host", "_host_subagent", "_host_openclaw"):
         target_dir = root / lib_name
         target = target_dir / "sponsio.yaml"
 
@@ -4638,7 +4638,7 @@ def plugin_install(
         # Fallback host libraries (``_host`` for Claude Code,
         # ``_host_openclaw`` for OpenClaw) are owned by ``plugin init``
         # and have their own smoke-test path; don't double-write here.
-        names = tuple(n for n in bundled if n not in {"_host", "_host_openclaw"})
+        names = tuple(n for n in bundled if n not in {"_host", "_host_subagent", "_host_openclaw"})
 
     if not names:
         click.secho(

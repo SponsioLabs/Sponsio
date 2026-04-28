@@ -1,0 +1,175 @@
+# =============================================================================
+# sponsio/contracts/capability/subagent.yaml
+#
+# Capability pack — privilege boundary for Task-spawned sub-agents.
+# Include in your sub-agent host library (default ``_host_subagent``)
+# in addition to the regular shell / database / credentials packs.
+#
+# Rationale:
+#
+# A Claude Code Task-spawned sub-agent receives a *task description*
+# from the main agent, not the user's original prompt.  It has no
+# access to the conversation that authorised the task and cannot
+# surface a confirmation prompt back to the user.  This means
+# alignment-style "wait, is this what the user actually wanted?"
+# refusals don't fire — sub-agents execute their task with high
+# compliance, even when the task description was over-broad
+# ("set up the dev environment" → may interpret as drop-and-recreate
+# the database).
+#
+# Sponsio's response: the SAME tool call that's allowed for the main
+# agent (where the user can review every action in the conversation
+# transcript) gets denied for sub-agents (where the user has no
+# visibility).  This forces side-effect work to flow through the
+# main conversation, where the user can intervene.
+#
+# Threat model boundary:
+#
+#   - This pack relies on Claude Code's PreToolUse payload field
+#     ``agent_id`` (present iff the call originates from a sub-agent).
+#     Sponsio's ``derive_plugin_id`` reads this and routes to
+#     ``_host_subagent``; rules in this pack therefore only ever
+#     evaluate against sub-agent calls.
+#   - It does NOT block sub-agents from doing useful work
+#     (read, search, summarize).  It blocks side-effects whose
+#     authorization should travel back through the main conversation:
+#     git mutations, filesystem writes outside scratch space, network
+#     calls, destructive shell, package installs.
+#
+# Real-world incidents this pack defends against:
+#
+#   - Recurring r/ClaudeAI: sub-agent runs ``npm install -g <pkg>``
+#     to fix a broken setup, mutating global state without user
+#     approval.
+#   - "Refactor agent" pattern: parent dispatches Explore to fix a
+#     broken test; Explore commits its fix without showing diff to
+#     user.  Force-push later overwrites work.
+#   - Database setup overreach: parent says "init the db", Explore
+#     runs ``psql DROP DATABASE && CREATE DATABASE``, wiping prod.
+#
+# Include via:
+#   include:
+#     - sponsio:capability/subagent
+#
+# Tool naming:
+#   The pack uses canonical ``exec`` for the shell tool.  Claude
+#   Code's ``_host_subagent.yaml`` adds ``tool_rename: exec: Bash``
+#   so the rules apply to Claude Code's first-party Bash.
+#
+# Source tag convention:
+#   library:tier1.subagent
+# =============================================================================
+
+version: "1"
+
+tools:
+  - name: exec
+    description: "Shell command execution (placeholder — replace with your tool's real name)"
+    params: "command: str"
+
+agents:
+  "*":
+    contracts:
+
+      # =================================================================
+      # § 1 — Sub-agents may not commit, push, or rewrite git history
+      # =================================================================
+      #
+      # Forces the work product to flow back through the main
+      # conversation where the user sees every diff before it lands
+      # in version control.  Sub-agent edits remain in the working
+      # tree; main agent (with user-visible reasoning) decides
+      # whether to commit.
+
+      - desc: "Sub-agents may not commit, push, force-push, or rewrite git history"
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            - - "(?:^|[\\s;&|])git\\s+(commit|push|rebase|reset\\s+--hard|reflog|filter-branch)\\b"
+              - "(?:^|[\\s;&|])git\\s+\\S*\\s*--force\\b"
+              - "(?:^|[\\s;&|])git\\s+rm\\b"
+          source: "library:tier1.subagent"
+
+      # =================================================================
+      # § 2 — Sub-agents may not install packages globally
+      # =================================================================
+      #
+      # Global package installs leak side-effects beyond the project
+      # working tree — they affect the user's whole machine.  Main
+      # agent can request these explicitly with user visibility;
+      # sub-agents shouldn't decide unilaterally.
+
+      - desc: "Sub-agents may not install packages globally or system-wide"
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            - - "(?:^|[\\s;&|])npm\\s+install\\s+(?:-g|--global)\\b"
+              - "(?:^|[\\s;&|])yarn\\s+global\\s+add\\b"
+              - "(?:^|[\\s;&|])pnpm\\s+add\\s+(?:-g|--global)\\b"
+              - "(?:^|[\\s;&|])pip\\s+install\\s+(?:-U\\s+)?[^-]"
+              - "(?:^|[\\s;&|])pipx\\s+install\\b"
+              - "(?:^|[\\s;&|])brew\\s+install\\b"
+              - "(?:^|[\\s;&|])apt(?:-get)?\\s+install\\b"
+              - "(?:^|[\\s;&|])sudo\\b"
+          source: "library:tier1.subagent"
+
+      # =================================================================
+      # § 3 — Sub-agents may not make outbound network calls
+      # =================================================================
+      #
+      # Curl / wget / ssh-out from a sub-agent context is a common
+      # exfiltration / supply-chain vector — the sub-agent doesn't
+      # have user-conversation context to know whether contacting an
+      # arbitrary host is appropriate.
+
+      - desc: "Sub-agents may not make outbound HTTP / shell-tunneled network calls"
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            - - "(?:^|[\\s;&|])curl\\b"
+              - "(?:^|[\\s;&|])wget\\b"
+              - "(?:^|[\\s;&|])nc\\s+-"
+              - "(?:^|[\\s;&|])ssh\\s+\\S+@"
+              - "(?:^|[\\s;&|])scp\\b"
+              - "(?:^|[\\s;&|])rsync\\s+\\S+@"
+          source: "library:tier1.subagent"
+
+      # =================================================================
+      # § 4 — Sub-agents may not write outside scratch / project paths
+      # =================================================================
+      #
+      # System paths (/etc, /var, ~/, /usr/) are out of scope for any
+      # sub-agent task; if the work product needs them, the main
+      # agent should do it with user visibility.
+
+      - desc: "Sub-agents may not write to system / user-home paths"
+        E:
+          pattern: arg_blacklist
+          args:
+            - write
+            - file_path
+            - - "^/(etc|var|usr|opt|root|boot)/"
+              - "^/Users/[^/]+/[^/]"             # macOS user home (any non-cwd)
+              - "^/home/[^/]+/[^/]"              # Linux user home
+              - "^~/"                            # tilde-expanded home
+              - "^[A-Za-z]:\\\\\\\\Users\\\\\\\\"  # Windows user home
+          source: "library:tier1.subagent"
+
+      - desc: "Sub-agents may not edit system / user-home paths"
+        E:
+          pattern: arg_blacklist
+          args:
+            - edit
+            - file_path
+            - - "^/(etc|var|usr|opt|root|boot)/"
+              - "^/Users/[^/]+/[^/]"
+              - "^/home/[^/]+/[^/]"
+              - "^~/"
+              - "^[A-Za-z]:\\\\\\\\Users\\\\\\\\"
+          source: "library:tier1.subagent"

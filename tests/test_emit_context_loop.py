@@ -625,3 +625,118 @@ def test_credentials_pack_blocks_secret_writes(tmp_path, monkeypatch, host, tool
         f"content={content!r} on {host}/{tool}: "
         f"expected {'deny' if expect_deny else 'allow'}, got {result!r}"
     )
+
+
+# ===========================================================================
+# capability/subagent + _host_subagent routing — privilege boundary
+# ===========================================================================
+#
+# Pin the asymmetric routing (main agent vs Task-spawned sub-agent)
+# and the rule set that fires for each.  The same Bash command that
+# is allowed for the main session can deny when the hook payload
+# carries an ``agent_id`` field — Claude Code sets this iff the
+# tool call originates from inside a Task / Explore / general-purpose
+# sub-agent.
+
+
+@pytest.mark.parametrize(
+    ("agent_id", "tool", "command_or_path", "expect_deny", "expected_route"),
+    [
+        # ----- Main agent (no agent_id) — expanded privileges -------------
+        # Side-effects allowed: main agent has user-conversation context
+        # to confirm intent; user sees every action.
+        (None, "Bash", "git commit -m fix",                False, "_host"),
+        (None, "Bash", "git push origin main",             False, "_host"),
+        (None, "Bash", "npm install -g typescript",        False, "_host"),
+        (None, "Bash", "curl https://example.com",         False, "_host"),
+        (None, "Bash", "brew install jq",                  False, "_host"),
+        # ... but baseline destructive ops still deny for main:
+        (None, "Bash", "rm -rf /",                          True, "_host"),
+        (None, "Bash", 'psql -c "DROP DATABASE prod"',      True, "_host"),
+
+        # ----- Sub-agent (agent_id present) — same call, deny ------------
+        # No user-conversation context to confirm intent → side-effects
+        # blocked; sub-agent must report findings back through main agent.
+        ("agt_42", "Bash", "git commit -m fix",             True, "_host_subagent"),
+        ("agt_42", "Bash", "git push --force origin main",  True, "_host_subagent"),
+        ("agt_42", "Bash", "npm install -g typescript",     True, "_host_subagent"),
+        ("agt_42", "Bash", "curl https://example.com",      True, "_host_subagent"),
+        ("agt_42", "Bash", "brew install jq",               True, "_host_subagent"),
+        ("agt_42", "Bash", "sudo systemctl restart pg",     True, "_host_subagent"),
+
+        # Sub-agent: read-only / scoped ops still allowed — sub-agents
+        # can do useful research / verify-shape work.
+        ("agt_42", "Bash", "ls -la",                       False, "_host_subagent"),
+        ("agt_42", "Bash", "pytest tests/",                False, "_host_subagent"),
+        ("agt_42", "Bash", "npm install",                  False, "_host_subagent"),
+        ("agt_42", "Bash", "git status",                   False, "_host_subagent"),
+
+        # Sub-agent: same destructive baseline as main (inherited via
+        # capability/database, capability/shell).
+        ("agt_42", "Bash", "rm -rf /",                      True, "_host_subagent"),
+        ("agt_42", "Bash", 'psql -c "DROP DATABASE prod"',  True, "_host_subagent"),
+    ],
+)
+def test_subagent_routing_and_restrictions(
+    tmp_path, monkeypatch, agent_id, tool, command_or_path, expect_deny, expected_route
+):
+    """End-to-end: ``agent_id`` in the hook payload routes to
+    ``_host_subagent`` (not ``_host``); the sub-agent library has a
+    strictly tighter ruleset (capability/subagent on top of the
+    shared baseline).
+    """
+    from sponsio.plugin.registry import read_bundled
+
+    for lib_name in ("_host", "_host_subagent"):
+        d = tmp_path / lib_name
+        d.mkdir()
+        (d / "sponsio.yaml").write_text(read_bundled(lib_name))
+
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
+
+    from sponsio.guard_stdin import evaluate_event
+
+    event = {
+        "hook_event_name": "PreToolUse",
+        "tool_name": tool,
+        "tool_input": {"command": command_or_path},
+    }
+    if agent_id is not None:
+        event["agent_id"] = agent_id
+
+    result = evaluate_event(event)
+    assert result.plugin_id == expected_route, (
+        f"{tool!r} agent_id={agent_id!r} routed to {result.plugin_id!r}, "
+        f"expected {expected_route!r}"
+    )
+    got_deny = not result.allowed
+    assert got_deny == expect_deny, (
+        f"{tool} {command_or_path!r} agent_id={agent_id!r}: "
+        f"expected {'deny' if expect_deny else 'allow'}, got {result!r}"
+    )
+
+
+def test_subagent_write_denied_for_system_paths(tmp_path, monkeypatch):
+    """Sub-agents can't write to /etc, /var, user-home — those should
+    flow through the main agent so the user sees the diff."""
+    from sponsio.plugin.registry import read_bundled
+
+    for lib_name in ("_host", "_host_subagent"):
+        d = tmp_path / lib_name
+        d.mkdir()
+        (d / "sponsio.yaml").write_text(read_bundled(lib_name))
+
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
+
+    from sponsio.guard_stdin import evaluate_event
+
+    for path in ("/etc/hosts", "/var/log/foo.log", "/Users/alice/.bashrc"):
+        ev = {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Write",
+            "tool_input": {"file_path": path, "content": "x"},
+            "agent_id": "agt_99",
+        }
+        r = evaluate_event(ev)
+        assert not r.allowed, f"sub-agent should NOT be allowed to Write {path!r}"
+        assert r.plugin_id == "_host_subagent"

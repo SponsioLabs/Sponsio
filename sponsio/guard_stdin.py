@@ -80,7 +80,11 @@ class GuardOutcome:
     library_path: str | None = None
 
 
-def derive_plugin_id(tool_name: str, host: str | None = None) -> str:
+def derive_plugin_id(
+    tool_name: str,
+    host: str | None = None,
+    is_subagent: bool = False,
+) -> str:
     """Map a plugin-system tool name to the contract-library directory.
 
     Recognised forms:
@@ -97,18 +101,39 @@ def derive_plugin_id(tool_name: str, host: str | None = None) -> str:
     OpenClaw tool names (``exec`` / ``read`` / ``write`` / …) rather
     than the Claude-Code-shaped names baked into ``_host``.
 
-    Anything else falls back to ``_host`` (or ``_host_openclaw``) so a
-    misnamed tool still gets *some* coverage (default-deny would be
-    hostile in observe mode).
+    The ``is_subagent`` argument signals the call originated from a
+    Task-spawned sub-agent (Claude Code's PreToolUse payload includes
+    an ``agent_id`` field only when the hook fires inside a
+    sub-agent).  Sub-agent calls route to ``_host_subagent`` instead
+    of ``_host`` — sub-agents lack the user-conversation context the
+    main agent has, so the privilege-boundary library applies tighter
+    rules (e.g. no ``git commit/push``, restricted Bash whitelist).
+    Tighter than ``_host``, not orthogonal — operators include the
+    same packs in both libraries plus ``capability/subagent`` in the
+    sub-agent variant.
+
+    Anything else falls back to ``_host`` / ``_host_openclaw`` /
+    ``_host_subagent`` so a misnamed tool still gets *some* coverage
+    (default-deny would be hostile in observe mode).
     """
-    fallback = "_host_openclaw" if host == "openclaw" else "_host"
+    if host == "openclaw":
+        # OpenClaw doesn't expose a Task / sub-agent equivalent today,
+        # so the openclaw fallback path doesn't carry the sub-agent
+        # boundary.  If an OpenClaw equivalent surfaces later, mirror
+        # the Claude Code logic here.
+        fallback = "_host_openclaw"
+    elif is_subagent:
+        fallback = "_host_subagent"
+    else:
+        fallback = "_host"
     if not tool_name:
         return fallback
     if tool_name in _HOST_TOOL_NAMES:
-        # Claude-Code-shaped first-party tools always route to _host
-        # regardless of host hint — no equivalent first-party tools
-        # exist on OpenClaw with these exact names.
-        return "_host"
+        # Claude-Code-shaped first-party tools route to the
+        # appropriate Claude-Code library.  Sub-agent calls go to
+        # _host_subagent so the stricter rule set applies; main
+        # agent calls go to _host as before.
+        return "_host_subagent" if is_subagent else "_host"
     if tool_name.startswith("mcp__"):
         # mcp__<server>__<tool>
         parts = tool_name.split("__", 2)
@@ -270,7 +295,14 @@ def evaluate_event(event: dict) -> GuardOutcome:
     tool_name = event.get("tool_name") or ""
     tool_input = event.get("tool_input") or {}
     host = event.get("host") if isinstance(event.get("host"), str) else None
-    plugin_id = derive_plugin_id(tool_name, host=host)
+    # Claude Code's PreToolUse payload includes ``agent_id`` only when
+    # the hook fires inside a Task-spawned sub-agent.  Its presence
+    # alone is the signal — value is just the sub-agent's ID.  Empty
+    # string is treated as absent (defensive against future shape
+    # drift).
+    raw_agent_id = event.get("agent_id")
+    is_subagent = isinstance(raw_agent_id, str) and bool(raw_agent_id.strip())
+    plugin_id = derive_plugin_id(tool_name, host=host, is_subagent=is_subagent)
     lib_path = library_path_for(plugin_id)
 
     if not lib_path.exists():
