@@ -135,7 +135,7 @@ The TS scanner statically understands Vercel's `tool({...})`,
 LangChain's `new DynamicStructuredTool({...})`, and LangGraph.js's
 `tool(fn, cfg)` — plus common Zod patterns
 (`z.object / string / number / enum / literal / array / optional`).
-See [`ts-scanner/README.md`](https://github.com/sponsio-labs/sponsio/tree/main/ts-scanner)
+See [`ts/packages/scanner/README.md`](https://github.com/sponsio-labs/sponsio/tree/main//scan-ts)
 for the full matrix.
 
 ---

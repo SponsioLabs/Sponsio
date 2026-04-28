@@ -50,12 +50,12 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install + Build TS SDK
-        working-directory: ts-sdk
-        run: npm install && npx tsc
+      - name: Install + Build TS workspace
+        working-directory: ts
+        run: npm install && npm run build --workspaces
 
       - name: Run cross-language tests
-        working-directory: ts-sdk
+        working-directory: ts/packages/sdk
         run: node dist/__tests__/core.test.js
 
   lint:

@@ -30,7 +30,7 @@ of what is and isn't available in TS so users can plan around it.
 
 ### Patterns
 
-The TS pattern library (`ts-sdk/src/core/patterns.ts`) implements 35
+The TS pattern library (`ts/packages/sdk/src/core/patterns.ts`) implements 35
 factories; Python (`sponsio/patterns/library.py`) has 41. The 6
 unimplemented in TS:
 
@@ -67,7 +67,7 @@ LLM-observation contracts can't currently be enforced from TS alone.
 
 ### NL parser
 
-TS's `parseNl()` (`ts-sdk/src/core/nl-parser.ts`) recognises 8 patterns:
+TS's `parseNl()` (`ts/packages/sdk/src/core/nl-parser.ts`) recognises 8 patterns:
 `mustPrecede`, `alwaysFollowedBy`, `rateLimit`, `idempotent`,
 `mutualExclusion`, `noReversal`, `cooldown`, `argBlacklist`.
 

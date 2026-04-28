@@ -35,10 +35,9 @@ venv/
 # Frontend build outputs
 web/node_modules/
 web/dist/
-ts-sdk/node_modules/
-ts-sdk/dist/
-ts-scanner/node_modules/
-ts-scanner/dist/
+ts/node_modules/
+ts/packages/*/node_modules/
+ts/packages/*/dist/
 plugins/sponsio-openclaw-shield/node_modules/
 plugins/sponsio-openclaw-shield/dist/
 web-reference/

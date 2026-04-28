@@ -23,7 +23,17 @@ const SCENARIOS: Array<{
   }>;
 }> = JSON.parse(
   readFileSync(
-    resolve(__dirname, "..", "..", "..", "tests", "cross_language", "scenarios.json"),
+    resolve(
+      __dirname,
+      "..",
+      "..",
+      "..",
+      "..",
+      "..",
+      "tests",
+      "cross_language",
+      "scenarios.json",
+    ),
     "utf-8",
   ),
 ).scenarios;

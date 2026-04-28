@@ -45,7 +45,7 @@ loader, contract-pack `include:` resolution, `tool_rename:` /
 `workspace:` substitution, and `overrides:` merging are all in
 Python today. Spawning the existing CLI gives 100% logic reuse at
 the cost of ~80ms per tool call. The
-[`ts-sdk/`](../../ts-sdk/) has the deterministic engine; a
+[`ts/packages/sdk/`](../../ts/packages/sdk/) has the deterministic engine; a
 pure-TS path is feasible later but requires porting the YAML
 config loader.
 

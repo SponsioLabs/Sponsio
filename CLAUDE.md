@@ -80,7 +80,9 @@ sponsio/
 
 api/                   FastAPI dashboard backend
 web/                   dashboard frontend
-ts-sdk/                TypeScript det engine and integrations
+ts/                    TypeScript workspace (npm workspaces)
+├── packages/sdk/      @sponsio/sdk: det engine + framework integrations
+└── packages/scanner/  @sponsio/scan-ts: AST static scanner CLI
 docs/                  user-facing documentation
 examples/              source-checkout demos and integration examples
 tests/                 pytest suite
@@ -123,7 +125,7 @@ Do not suggest a judge call for properties that are exactly checkable with regex
 
 Python and TypeScript share the deterministic core. When changing these Python files, check the matching TS files:
 
-| Python | TypeScript (`ts-sdk/src/`) |
+| Python | TypeScript (`ts/packages/sdk/src/`) |
 |---|---|
 | `sponsio/formulas/formula.py` | `core/formula.ts` |
 | `sponsio/formulas/evaluator.py` | `core/evaluator.ts` |

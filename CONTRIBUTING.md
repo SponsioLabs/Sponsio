@@ -18,7 +18,7 @@ Skim those first if you plan to touch the runtime or add a pattern.
 - **Small PRs beat big PRs.** One concern per PR. If a change is
   unavoidably large, split it into a stack and link the commits.
 - **Tests are not optional** for any change that touches `sponsio/`,
-  `api/`, or `ts-sdk/`. Docs-only and CI-only changes are exempt.
+  `api/`, or `ts/packages/sdk/`. Docs-only and CI-only changes are exempt.
 
 ---
 
@@ -37,7 +37,7 @@ Optional — if you'll be touching the dashboard or TypeScript SDK:
 
 ```bash
 cd web && npm install            # React frontend
-cd ../ts-sdk && npm install      # TypeScript engine
+cd ..//sdk && npm install      # TypeScript engine
 ```
 
 Run the full suite before you start, to make sure your environment is
@@ -73,7 +73,7 @@ sponsio/
 
 api/                  FastAPI dashboard backend
 web/                  React frontend
-ts-sdk/               TypeScript engine + integrations
+ts/packages/sdk/               TypeScript engine + integrations
 tests/                pytest
 docs/                 user-facing documentation
 ```

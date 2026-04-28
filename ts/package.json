@@ -1,0 +1,19 @@
+{
+  "name": "@sponsio/ts-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Workspace root for Sponsio's TypeScript packages: @sponsio/sdk (runtime) and @sponsio/scan-ts (static scanner). Not published; the two child packages are.",
+  "license": "Apache-2.0",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "clean": "rm -rf packages/*/dist packages/*/node_modules node_modules"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

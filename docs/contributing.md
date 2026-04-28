@@ -12,7 +12,7 @@ Quick pointers for specific tasks:
 - **Adding a deterministic pattern** — [Architecture § Adding a pattern](concepts/architecture.md) and [Pattern catalog § Adding a new pattern](reference/patterns.md#adding-a-new-pattern).
 - **Adding a stochastic atom** — [Sto atom catalog § Writing a custom sto atom](reference/sto-atoms.md#writing-a-custom-sto-atom).
 - **Adding a framework integration** — [CLAUDE.md § Add an integration](../CLAUDE.md). Inherit from `BaseGuard`, keep the framework-specific code thin, register in `sponsio/core.py`.
-- **Python / TypeScript parity** — if you touch the deterministic core, mirror in `ts-sdk/src/`. The parity table is in [CLAUDE.md](../CLAUDE.md).
+- **Python / TypeScript parity** — if you touch the deterministic core, mirror in `ts/packages/sdk/src/`. The parity table is in [CLAUDE.md](../CLAUDE.md).
 - **Security disclosures** — see [SECURITY.md](../SECURITY.md); please do not file public issues for vulnerabilities.
 
 ## Local development

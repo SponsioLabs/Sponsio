@@ -44,7 +44,7 @@ USE_MOCK=0 GOOGLE_API_KEY=... python3 examples/integrations/python/langgraph_gua
 
 ```bash
 # Build the SDK (one time — dist/ is gitignored)
-cd ts-sdk && npm install && npm run build && cd ..
+cd /sdk && npm install && npm run build && cd ..
 
 # Run examples
 node examples/integrations/typescript/vanilla_guard.mjs
