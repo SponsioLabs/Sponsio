@@ -49,7 +49,6 @@ from sponsio.patterns.library import (
     loop_detection,
     rate_limit,
     token_budget,
-    tool_allowlist,
 )
 
 # Extractor tag used in ProposedConstraint.extractor.  Picked so
