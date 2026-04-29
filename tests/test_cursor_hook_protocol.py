@@ -117,9 +117,7 @@ def test_deny_before_shell_execution_emits_permission_deny():
 
 
 def test_deny_before_submit_prompt_emits_continue_false():
-    payload, code = render_cursor_reply(
-        _deny("blocked input"), "beforeSubmitPrompt"
-    )
+    payload, code = render_cursor_reply(_deny("blocked input"), "beforeSubmitPrompt")
     assert code == 2
     obj = json.loads(payload)
     assert obj["continue"] is False
@@ -130,9 +128,7 @@ def test_deny_post_tool_use_surfaces_via_additional_context():
     """Post-* events can't deny (the call already happened).  The
     contract violation surfaces via ``additional_context`` for trace
     visibility, with exit 0 (no actual block)."""
-    payload, code = render_cursor_reply(
-        _deny("post-hoc violation"), "postToolUse"
-    )
+    payload, code = render_cursor_reply(_deny("post-hoc violation"), "postToolUse")
     assert code == 0
     obj = json.loads(payload)
     assert "additional_context" in obj
