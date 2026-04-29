@@ -43,6 +43,14 @@ web/dist/
 ts/node_modules/
 ts/packages/*/node_modules/
 ts/packages/*/dist/
+# Stray top-level ``ts-sdk/`` / ``ts-scanner/`` were the pre-monorepo
+# layout — both source and dist lived directly under the repo root.
+# They've since been migrated into the ``ts/packages/`` workspace,
+# but a misfired ``tsc -p ...`` from an old shell history can still
+# recreate the directories with stale node_modules + dist content.
+# Pre-emptively ignore so they never sneak back into git status.
+ts-sdk/
+ts-scanner/
 plugins/sponsio-openclaw-shield/node_modules/
 plugins/sponsio-openclaw-shield/dist/
 web-reference/
