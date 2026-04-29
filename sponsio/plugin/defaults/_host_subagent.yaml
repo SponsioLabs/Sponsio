@@ -56,6 +56,12 @@ agents:
       # global package installs, no outbound network, no writes
       # outside scratch / project paths.
       - sponsio:capability/subagent
+      # Privilege-escape protection: deny the entire ``~/.sponsio/``
+      # tree (Edit / Write / MultiEdit + Read of host rule lists).
+      # Sub-agents have no legitimate reason to manage Sponsio
+      # configuration — and reading the parent's rule list is
+      # reconnaissance for a targeted bypass.
+      - sponsio:incident/subagent-escape
 
     contracts:
       # Mirror _host.yaml's inline credential-path denies.  These
