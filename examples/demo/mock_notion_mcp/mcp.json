@@ -1,0 +1,12 @@
+{
+  "_comment": "Drop this into ~/.claude/mcp.json (or the project-local equivalent) to plug the mock Notion MCP into Claude Code.  Update SERVER_PATH to the absolute path of server.py.",
+  "mcpServers": {
+    "notion": {
+      "command": "python3",
+      "args": ["SERVER_PATH"],
+      "env": {
+        "LEAK_LOG": "/tmp/sponsio-demo-notion-leaks.log"
+      }
+    }
+  }
+}
