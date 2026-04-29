@@ -116,12 +116,27 @@ class TestStarterContracts:
         assert len(rate) == 1
         assert rate[0].evidence["args"][0] == "send_email"
 
-    def test_tool_allowlist_contains_every_tool(self):
+    def test_no_tool_allowlist_emitted(self):
+        """``tool_allowlist`` is no longer emitted by starter-pack.
+
+        The pattern's LTL encoding ``G(∨ called(tᵢ))`` is FALSE on a
+        partial trace where no tool has been called yet — guaranteed-
+        violation on the first event regardless of whether the call
+        is in the list.  The pattern docstring acknowledged this with
+        "real enforcement is done by the monitor", but for users
+        running the verifier in enforce mode the LTL form blocked
+        the first call unconditionally.
+
+        Until the encoding is repaired, starter-pack stops shipping
+        the rule.  Frameworks already enforce tool registration at
+        the integration boundary, so the LTL-level coverage gap
+        doesn't open a real security hole.
+        """
         names = ["read_doc", "send_email", "delete_user"]
         props = starter_contracts(names)
-        allowlist = next(p for p in props if p.formula.pattern_name == "tool_allowlist")
-        # args shape: [[name1, name2, ...]] — one positional list-arg
-        assert sorted(allowlist.evidence["args"][0]) == sorted(names)
+        assert not any(
+            p.formula.pattern_name == "tool_allowlist" for p in props
+        ), "starter_contracts must not emit tool_allowlist"
 
     def test_every_proposal_has_args_matching_pattern_signature(self):
         """Every proposal's evidence['args'] must splat cleanly into

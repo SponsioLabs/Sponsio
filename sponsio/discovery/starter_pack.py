@@ -237,19 +237,23 @@ def _per_tool_rules(name: str) -> list[ProposedConstraint]:
         )
         high_risk = True
 
-    # SQL tools — bind to the user's actual tool name.  We emit the
-    # ``arg_blacklist`` shape directly (rather than ``dangerous_sql_verbs``)
-    # because the latter *returns* an ``arg_blacklist`` formula whose
-    # ``pattern_name`` is already ``"arg_blacklist"`` — the YAML round-
-    # trip always splats args through the registered pattern name, so
-    # emitting the aliased form would cause a signature mismatch on
-    # reload.
+    # SQL tools — bind to the user's actual tool name.  ``dangerous_sql_verbs``
+    # used to delegate to ``arg_blacklist`` and inherit its
+    # ``pattern_name`` ("arg_blacklist"); the historical comment here
+    # described an emit-as-arg_blacklist workaround dating from that
+    # era.  The pattern function now stamps a dedicated
+    # ``pattern_name="dangerous_sql_verbs"`` and exposes a 2-arg
+    # signature ``(tool, forbidden)`` (see :func:`sponsio.patterns.
+    # library.dangerous_sql_verbs`).  Emit the matching arg shape so
+    # YAML round-trip reconstructs the same formula instead of mis-
+    # interpreting the second arg as a regex string ("query") and the
+    # third as a desc.
     if _matches(name, _SQL_TOKENS):
         forbidden = ["DROP", "TRUNCATE", "ALTER", "DELETE"]
         out.append(
             _proposal(
                 dangerous_sql_verbs(tool=name, forbidden=forbidden),
-                [name, "query", forbidden],
+                [name, forbidden],
                 f"{name} must not use [{', '.join(forbidden)}]",
                 confidence=0.6,
                 heuristic="starter_sql",
@@ -332,19 +336,20 @@ def starter_contracts(
     for name in names:
         proposals.extend(_per_tool_rules(name))
 
-    # Global rules — apply regardless of tool inventory size.
-    if names:
-        # ``tool_allowlist`` is the first-line defence against
-        # prompt-injected tool calls the agent never declared.
-        proposals.append(
-            _proposal(
-                tool_allowlist(names),
-                [names],
-                f"only declared tools may be called ({len(names)} tool(s))",
-                confidence=0.6,
-                heuristic="starter_allowlist",
-            )
-        )
+    # ``tool_allowlist`` used to be auto-emitted here as a "first-line
+    # defence against prompt-injected tool calls the agent never
+    # declared."  Removed because the pattern's LTL encoding —
+    # ``G(∨ called(tᵢ) for tᵢ ∈ allowed)`` — is FALSE at every
+    # timestep where the trace contains a partial state without yet
+    # any tool call (i.e., the very first event).  The pattern's
+    # docstring acknowledges this with "real enforcement is done by
+    # the monitor"; for users running the verifier in enforce mode,
+    # the LTL form turns the rule into a guaranteed-violation that
+    # blocks the FIRST call regardless of whether it's in the list.
+    # Until the encoding is repaired (see issue tracker), starter-
+    # pack stops shipping it — frameworks already enforce
+    # tool-registration at integration time, so the loss of LTL-
+    # level coverage doesn't open a real gap.
 
     if include_token_budget:
         proposals.append(
