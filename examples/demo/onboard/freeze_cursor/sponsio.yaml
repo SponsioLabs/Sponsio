@@ -1,0 +1,272 @@
+# =============================================================================
+# Sponsio contract pack for a Cursor IDE coding agent.
+#
+# Installed at:  ~/.sponsio/plugins/_host/sponsio.yaml
+#
+# Why _host (not cursor)?  Cursor's built-in tools (Shell, Read, Write,
+# Edit, MultiEdit) are mapped to Sponsio's canonical names (Bash, Read,
+# Write, Edit, MultiEdit) by sponsio/integrations/cursor.py.  All of
+# these route to the `_host` plugin id by `derive_plugin_id` —
+# regardless of IDE.  So contracts that govern those tools live in
+# `_host/`, and the same yaml runs unchanged on Claude Code.  The
+# `cursor/` plugin id is reserved for genuinely Cursor-specific tools
+# (Cursor MCP servers etc.).
+#
+# ┌─────────────────────────────────────────────────────────────────────┐
+# │  PROVENANCE — every rule has one of two origins:                     │
+# │                                                                       │
+# │   (A) `include:` packs ─ Sponsio-shipped universal defaults.          │
+# │       Things every agent should never do regardless of org policy:   │
+# │       `rm -rf /`, fork bombs, `curl | bash`, reverse-shell           │
+# │       primitives, line-continuation evasion, dangerous SQL verbs,    │
+# │       writes to ~/.ssh/, ~/.aws/credentials, /etc/shadow, ...        │
+# │       The user does NOT write these.  They come for free with        │
+# │       `include:` and reflect industry-wide bad-action consensus.     │
+# │                                                                       │
+# │   (B) `contracts:` block ─ generated from policy.md (THIS team's     │
+# │       specific rules).  These are the parts of the org's engineering │
+# │       policy that aren't universal — code-freeze handling, prod      │
+# │       database scoping, repo-specific force-push rules, etc.         │
+# │       Each `desc:` traces back to a paragraph in policy.md.          │
+# │                                                                       │
+# │  In a real deployment:                                               │
+# │   * `sponsio scan policy.md` produces the (B) block automatically    │
+# │     from the casual-English policy doc.                              │
+# │   * `sponsio onboard` also adds the (A) bundles based on detected    │
+# │     tools (Shell → capability/shell, etc.).                          │
+# │                                                                       │
+# │  If Cursor had its own built-in defaults the (A) layer could be      │
+# │  thinner.  It doesn't — Cursor 1.7's hooks.json is just the          │
+# │  delivery channel, not a policy library.  So Sponsio carries the     │
+# │  (A) layer as a portable bundle, and the user's `policy.md` adds     │
+# │  the (B) layer on top.                                               │
+# └─────────────────────────────────────────────────────────────────────┘
+# =============================================================================
+
+version: "1"
+
+defaults:
+  mode: enforce  # demo records under enforce so the deny shows in Cursor UI
+
+tools:
+  - name: Bash
+    description: "Cursor's Shell tool (auto-renamed from `Shell` by sponsio cursor)."
+    params: "command: str"
+  - name: Read
+    params: "file_path: str"
+  - name: Write
+    params: "file_path: str, content: str"
+  - name: Edit
+    params: "file_path: str, old_string: str, new_string: str"
+  - name: MultiEdit
+    params: "file_path: str, edits: list"
+
+agents:
+  _host:
+    # Cursor's `Shell` tool is auto-renamed to `Bash` by
+    # sponsio/integrations/cursor.py.  No user-visible tool_rename
+    # needed here for that case.
+
+    # ════════════════════════════════════════════════════════════════
+    # (A) Sponsio-shipped universal defaults — NOT from policy.md.
+    #     Every Cursor user gets these for free; they're not part of
+    #     the team's policy doc because they shouldn't have to be.
+    # ════════════════════════════════════════════════════════════════
+    include:
+      # rm -rf /, fork bombs, curl | bash, reverse-shell primitives,
+      # line-continuation evasion, dangerous bash commands.
+      - sponsio:capability/shell
+
+      # Generic dangerous SQL verbs (DROP / TRUNCATE / GRANT / REVOKE
+      # / unbounded UPDATE), independent of any freeze.  Even outside
+      # a freeze the agent shouldn't `DROP TABLE users` casually.
+      - sponsio:capability/database
+
+      # Secret-shape payloads (KEY=VAL, sk-*, ghp_*, AKIA*) in
+      # Write.content / Edit.new_string get blocked.
+      - sponsio:capability/credentials
+
+      # Block agent-mediated edits to ~/.cursor/hooks.json and the
+      # Sponsio plugin tree — a compromised agent's first move
+      # would be to disable its own enforcement.
+      - sponsio:capability/self-modify
+
+      # Claude-Code-specific secret-bypass family: docker compose
+      # config, op run, env-dump, git history mining.  Same patterns
+      # apply when Cursor agents have shell access.
+      - sponsio:incident/claude-code-secret-bypass
+
+    # ════════════════════════════════════════════════════════════════
+    # (B) Generated from policy.md — THIS team's specific rules.
+    #     Each contract's `desc:` field cites the paragraph it came
+    #     from so a deny can be traced back to the policy clause.
+    #
+    #     Regenerate after editing policy.md:
+    #       sponsio scan . --policy policy.md -o sponsio.yaml.regen
+    #       diff -u sponsio.yaml sponsio.yaml.regen
+    # ════════════════════════════════════════════════════════════════
+    contracts:
+
+      # ─── Sensitive-file Read/Write/Edit/MultiEdit blacklist ────────
+      # Mirrors the default ~/.sponsio/plugins/_host/sponsio.yaml.
+      # Universal — even outside a freeze, an agent shouldn't write
+      # to ~/.ssh, /etc/shadow, etc.  Listed here (rather than in a
+      # bundle) because the file_path arg name is Claude-Code/Cursor-
+      # specific (`file_path`, not the canonical `path`).
+      - desc: "Block writes to dotenv / secrets / SSH keys / cloud creds"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Write
+            - file_path
+            - - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/credentials"
+              - "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[\\w.-]+)?$"
+              - "(^|/)\\.netrc"
+              - "(^|/)\\.pgpass"
+              - "(^|/)\\.kube/config"
+              - "(^|/)\\.gnupg/"
+              - "^/etc/shadow($|/)"
+
+      - desc: "Block edits to dotenv / secrets / SSH keys / cloud creds"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Edit
+            - file_path
+            - - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/credentials"
+              - "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[\\w.-]+)?$"
+              - "(^|/)\\.netrc"
+              - "(^|/)\\.pgpass"
+              - "(^|/)\\.kube/config"
+              - "(^|/)\\.gnupg/"
+              - "^/etc/shadow($|/)"
+
+      - desc: "Block reads of SSH keys / cloud creds / dotenv secrets"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Read
+            - file_path
+            - - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/credentials"
+              - "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[\\w.-]+)?$"
+              - "(^|/)\\.netrc"
+              - "(^|/)\\.pgpass"
+              - "(^|/)\\.kube/config"
+              - "(^|/)\\.gnupg/"
+              - "^/etc/shadow($|/)"
+
+      # ─── R1 ─ from: policy.md § "We're in a code freeze" (¶ 1) ─────
+      # "Don't drop, truncate, or wipe any tables.  Anywhere."
+      # NOTE: capability/database (A-layer) covers DROP/TRUNCATE in
+      # general; this rule is the freeze-specific tightening that
+      # also covers `DELETE FROM` (any form) and `UPDATE WHERE 1=1`.
+      - desc: "Code freeze (policy.md ¶1): no DROP / TRUNCATE / DELETE FROM / UPDATE-WHERE-1=1 in Shell"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Bash
+            - command
+            - - "(?i)\\bDROP\\s+TABLE\\b"
+              - "(?i)\\bTRUNCATE\\s+(TABLE\\s+)?\\w+"
+              - "(?i)\\bDROP\\s+DATABASE\\b"
+              - "(?i)\\bDROP\\s+SCHEMA\\b"
+              # `DELETE FROM <table>` in any form (with or without WHERE).
+              # Freeze period: no DELETE at all on any DB.
+              - "(?i)\\bDELETE\\s+FROM\\s+\\w+"
+              - "(?i)\\bUPDATE\\s+\\w+\\s+SET\\s+.*\\s+WHERE\\s+1\\s*=\\s*1"
+
+      # ─── R2 ─ from: policy.md § "Prod database — read only" ────────
+      # "If you connect to prod ... you can only run reads."
+      # Trace-aware: arms only after a prod-flavoured connect, so
+      # local/staging psql calls aren't affected.
+      - desc: "Prod read-only (policy.md ¶2): after psql/mysql to prod, no DML/DDL"
+        activate_at: first_match
+        A:
+          ltl: 'F(arg_field_has(Bash, command, "(psql|pg_dump|mysql|mongo|redis-cli)\\b.*\\b(prod|production|main_prod)\\b"))'
+        E:
+          ltl: 'G(!arg_field_has(Bash, command, "(?i)\\b(INSERT\\s+INTO|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|GRANT|REVOKE)\\b"))'
+
+      # ─── R3 ─ from: policy.md § "We're in a code freeze" (¶ 2) ─────
+      # "Don't touch anything in `migrations/` or `db/migrate/`."
+      # One rule per file-mutating tool (Cursor's Write/Edit/MultiEdit).
+      - desc: "Freeze (policy.md ¶2): no Write to migrations/ or db/migrate/"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Write
+            - file_path
+            - - "(^|/)migrations(/|$)"
+              - "(^|/)db/migrate(/|\\.|$)"
+              - "(^|/)prisma/schema\\.prisma$"
+              - "/migrations/.*\\.sql$"
+
+      - desc: "Freeze (policy.md ¶2): no Edit to migrations/ or db/migrate/"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Edit
+            - file_path
+            - - "(^|/)migrations(/|$)"
+              - "(^|/)db/migrate(/|\\.|$)"
+              - "(^|/)prisma/schema\\.prisma$"
+              - "/migrations/.*\\.sql$"
+
+      - desc: "Freeze (policy.md ¶2): no MultiEdit to migrations/ or db/migrate/"
+        E:
+          pattern: arg_blacklist
+          args:
+            - MultiEdit
+            - file_path
+            - - "(^|/)migrations(/|$)"
+              - "(^|/)db/migrate(/|\\.|$)"
+              - "(^|/)prisma/schema\\.prisma$"
+              - "/migrations/.*\\.sql$"
+
+      # ─── R4 ─ from: policy.md § "Don't force-push to main" ─────────
+      # "Don't `git push --force` or `git push -f` to main or master.  Ever."
+      - desc: "Never force-push to main/master (policy.md ¶3, sentence 1)"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Bash
+            - command
+            - - "git\\s+push\\s+.*--force(-with-lease)?(\\s+[^|;&]*)?\\s+(origin\\s+)?(main|master)\\b"
+              - "git\\s+push\\s+.*-f\\b.*\\b(main|master)\\b"
+
+      # "And during the freeze, even regular pushes to main are off the table."
+      - desc: "Freeze: no plain git push to main/master either (policy.md ¶3, sentence 3)"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Bash
+            - command
+            - - "git\\s+push\\s+(origin\\s+)?(main|master)(\\b|$)"
+              - "git\\s+push\\s+.*\\bHEAD:(refs/heads/)?(main|master)\\b"
+
+      # ─── R5 ─ from: policy.md § "Don't fake status reports" ────────
+      # "If something already got dropped/deleted, don't then write
+      #  a file saying 'database intact' or 'all systems normal'."
+      # Trace-aware: only fires after a destructive Shell action.
+      - desc: "After destructive Shell, no reassuring-status Write (policy.md ¶4 — coverup)"
+        activate_at: first_match
+        A:
+          ltl: 'F(arg_field_has(Bash, command, "(?i)\\b(DROP\\s+TABLE|TRUNCATE|DELETE\\s+FROM|rm\\s+-rf)\\b"))'
+        E:
+          ltl: 'G(!arg_field_has(Write, content, "(?i)(database\\s+intact|all\\s+systems\\s+(normal|operational)|no\\s+rows\\s+(deleted|affected)|no\\s+changes\\s+applied)"))'
+
+      # ─── R6 ─ from: policy.md § "Hard cap on shell" ────────────────
+      # "If you've fired off 50 shell commands in one conversation, stop."
+      - desc: "Shell rate limit: 50 calls per session (policy.md ¶6)"
+        E:
+          pattern: rate_limit
+          args:
+            - Bash
+            - 50
+
+      # NOTE: policy.md § "Don't touch your own guardrails" is covered
+      # by the (A)-layer `sponsio:capability/self-modify` include
+      # above — already enforced for ~/.cursor/hooks.json and
+      # ~/.sponsio/plugins/.  No (B) rule needed here.
