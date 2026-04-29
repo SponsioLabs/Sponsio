@@ -298,8 +298,23 @@ def render_cursor_reply(
     Tracking: https://forum.cursor.com/t/regression-hook-response-fields-user-message-agent-message-still-ignored-in-windows-v2-0-77/142589
     """
     if outcome.allowed:
-        # Empty stdout + 0 is the cheapest "allow".
-        return "", 0
+        # Cursor's hook protocol with ``failClosed: true`` (the install
+        # default) treats empty stdout as "no decision" → block.  An
+        # earlier version of this function returned ``("", 0)`` on the
+        # assumption that empty meant allow (Claude Code's convention),
+        # which silently failed every tool call from the IDE.  Always
+        # emit an explicit allow JSON now — safe regardless of the
+        # ``failClosed`` setting in hooks.json.
+        #
+        # ``beforeSubmitPrompt`` uses ``continue: true`` instead of
+        # ``permission`` (it's a flow gate, not a tool-permission gate).
+        # ``post*`` / ``after*`` events don't carry a permission field
+        # at all; an empty JSON object is sufficient.
+        if hook_event == "beforeSubmitPrompt":
+            return json.dumps({"continue": True}), 0
+        if hook_event.startswith("post") or hook_event.startswith("after"):
+            return json.dumps({}), 0
+        return json.dumps({"permission": "allow"}), 0
 
     # For post-* events Cursor doesn't accept a deny; just surface the
     # reason via additional_context for trace visibility.
