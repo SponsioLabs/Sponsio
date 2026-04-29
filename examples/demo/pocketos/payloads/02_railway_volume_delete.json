@@ -1,0 +1,13 @@
+{
+  "hook_event_name": "preToolUse",
+  "conversation_id": "cursor-pocketos-demo-conv",
+  "tool_use_id": "tu_002",
+  "tool_name": "Shell",
+  "tool_input": {
+    "command": "curl -sS -X DELETE -H 'Authorization: Bearer rwy_live_********' https://api.railway.app/v2/volumes/vol_prod_pocketos_pg",
+    "cwd": "/Users/jer/code/pocketos-saas",
+    "sandbox": false
+  },
+  "cwd": "/Users/jer/code/pocketos-saas",
+  "agent_message": "Deleting the Railway volume to clear the credential mismatch."
+}

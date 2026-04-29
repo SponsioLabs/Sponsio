@@ -17,6 +17,8 @@ Dispatch by what the user is trying to do. Pick ONE workflow and follow it; do n
 |---|---|
 | Setting up Sponsio for the first time in a project ("add sponsio", "install sponsio", "add guardrails") | **W1 — Initial setup** |
 | Handing you a codebase and asking "what could go wrong?" / wants a fresh contract file from scratch / has a policy doc to encode | **W2 — Audit & refine** |
+| Authoring contracts for a Claude Code / OpenClaw plugin or a bare MCP server (input is a plugin manifest, not source code) | **W2b — Plugin / MCP contracts** |
+| Tightening rules that apply to Task-spawned subagents (Cursor / Claude Code) — they lack user context and need stricter privileges than the main agent | **W2c — Subagent privilege boundary** |
 | Has Sponsio running in observe mode and wants to review violations, tune thresholds, silence false positives | **W3 — Tune in observe** |
 | Wants to re-mine contracts from accumulated production traces / periodically maintain the library | **W3b — Refresh from traces** |
 | Ready to ship — wants to move from observe to enforce, needs regression confidence | **W4 — Flip to enforce** |
@@ -37,26 +39,62 @@ sponsio --version
 
 ## W1 — Initial setup
 
-Goal: from "project has no Sponsio" to "agent runs under observe mode with a sane contract file", in one command.
+Goal: from "project has no Sponsio" to "agent runs under observe mode with a sane contract file".
+
+You (the host agent — Claude Code, Cursor, Codex) ARE the LLM here.  Drive the agent-mediated extraction path: Sponsio collects the deterministic inputs, you do the cognitive contract-authoring step in your own context, then Sponsio validates and finalises.  Never hand off to a separate LLM via `--llm` / API keys — that wastes a paid-for context window you already have.
 
 ### Steps
 
-1. Run the one-shot entry point:
+1. Collect the structured inputs from Sponsio:
 
    ```bash
-   sponsio onboard .
+   sponsio onboard . --emit-context
    ```
 
-   `onboard` detects framework (langgraph / langchain / crewai / openai_agents / claude_agent / vercel-ai / no-framework), picks an LLM provider if available, auto-selects contract packs (see "Auto-selected packs" below), and writes `sponsio.yaml` in **observe** mode plus a `.sponsiorc` + `.env.example`.  It prints a framework-specific 2-3 line patch the user pastes into their agent entry file — there's no auto-patcher, since the snippet is self-explanatory and a coding agent (or manual paste) does it cleaner than a heuristic patcher could.
+   Outputs a JSON object on stdout: framework detection + AST-extracted tool inventory + auto-selected packs + any existing `sponsio.yaml` + discovered policy docs (`security.md`, `policy.md` at repo root).  No LLM call, no API key needed.
 
-2. After `onboard` finishes, show the user three things — do not skip any:
+2. Get the matching prompt template:
+
+   ```bash
+   sponsio prompt onboard
+   ```
+
+   A markdown prompt that tells you, the host agent, exactly how to turn the JSON above into a `sponsio.yaml`.  Read it carefully — it pins the pattern vocabulary, the source-tagging convention, and the `agents.<id>` shape Sponsio expects.
+
+3. **You** apply the prompt to the JSON in your own LLM context.  Produce a single YAML document.  Mode MUST start as `observe`.  Source-tag everything you author with `source: agent-extracted` so future `sponsio refresh` runs can re-consider them.
+
+4. Write the YAML to `sponsio.yaml` at the project root via your Edit/Write tool.  Then validate:
+
+   ```bash
+   sponsio validate --config sponsio.yaml
+   ```
+
+   If validation fails, fix and re-validate.  Don't leave a malformed file on disk.
+
+5. Run health check + show summary:
+
+   ```bash
+   sponsio doctor
+   ```
+
+   Then surface to the user:
    - The generated `sponsio.yaml` (read it back and summarize: packs included, tools renamed, mode).
-   - The printed wrap snippet — paste it into the agent entry file at the marked location (the snippet's inline comment shows where the wrap must run *before* the agent is built).
+   - The framework-specific wrap snippet — the `wrap_snippet` field on the emit-context JSON has it.  Paste it into the agent entry file at the marked location (the snippet's inline comment shows where the wrap must run *before* the agent is built).
    - Any `sponsio doctor` warn/fail lines.
 
-3. Explain observe mode explicitly: "Nothing is blocked on day 1. Every contract is still evaluated; violations are logged to `~/.sponsio/sessions/<agent_id>/*.jsonl` and (if a dashboard is configured) pushed there. Use `sponsio report --since 24h` after a day of real traffic to see what would have been blocked."
+6. Explain observe mode explicitly: "Nothing is blocked on day 1. Every contract is still evaluated; violations are logged to `~/.sponsio/sessions/<agent_id>/*.jsonl` and (if a dashboard is configured) pushed there. Use `sponsio report --since 24h` after a day of real traffic to see what would have been blocked."
 
-4. If `sponsio doctor` failed (not warned, failed), stop and surface it — don't let the user run their agent thinking the install is healthy when it isn't.
+7. If `sponsio doctor` failed (not warned, failed), stop and surface it — don't let the user run their agent thinking the install is healthy when it isn't.
+
+### Fallback: bare-CLI / CI use
+
+If Sponsio is invoked from a bare shell or CI script (no host agent driving), the user can fall back to:
+
+```bash
+sponsio onboard .                    # uses OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY if present
+```
+
+— but only that path needs the API key.  The skill-driven path above is preferred and key-free.
 
 ### Auto-selected packs
 
@@ -106,21 +144,26 @@ If ambiguous: ask ONE question — "(a) scan your code, (b) extract from a polic
 
 ### Run scan (when extraction is needed)
 
+You ARE the LLM.  Use the agent-mediated path — Sponsio collects deterministic inputs, you do the cognition, Sponsio validates.  No `--llm` / API key needed.
+
 ```bash
-# AST-only (fast, no keys):
-sponsio scan <PATHS> --agent <AGENT> -o ./sponsio.yaml
+# 1. Sponsio dumps the deterministic inputs (AST tool inventory, policy
+#    docs, trace summary, existing yaml) as JSON:
+sponsio scan <PATHS> --agent <AGENT> [--policy <doc>] [-t '<traces>'] --emit-context
 
-# + LLM inference:
-sponsio scan <PATHS> --agent <AGENT> --llm -o ./sponsio.yaml
-
-# + policy doc:
-sponsio scan <PATHS> --policy <POLICY.md> --llm -o ./sponsio.yaml
-
-# + trace mining (works on OTLP/JSON, OTLP JSONL, native, Sponsio session logs):
-sponsio scan <PATHS> -t '~/.sponsio/sessions/<agent>/*.jsonl' -o ./sponsio.yaml
+# 2. Sponsio prints the contract-authoring prompt template:
+sponsio prompt scan
 ```
 
-Scan auto-validates before writing; only contracts that parse cleanly are saved. Source-tagged with `source: scan` / `source: policy` / `source: trace`. The `source: trace` subset is the one `sponsio refresh` maintains over time (W3b).
+Read both, apply the prompt to the JSON in your own context, and produce contract YAML entries.  Then write to `sponsio.yaml` via Edit/Write and validate:
+
+```bash
+sponsio validate --config ./sponsio.yaml
+```
+
+Source-tag every entry you author with `source: agent-extracted` so future `sponsio refresh` can re-consider them.  Trace-mined entries (when `-t` was passed) carry `source: trace` and are the subset W3b maintains over time.
+
+**Fallback** (bare CLI, no host agent driving): `sponsio scan <PATHS> --llm -o ./sponsio.yaml` — uses OPENAI / ANTHROPIC / GEMINI key.  Only this path needs a key.
 
 ### Validate existing yaml (explain-only path)
 
@@ -164,6 +207,127 @@ Each contract is an assumption → enforcement pair. State the assumption explic
 ```
 
 Keep it dense. Don't pad with "consult an expert" disclaimers — the user is already using the expert.
+
+---
+
+## W2b — Author plugin / MCP-server contracts
+
+Goal: write a Sponsio contract library for the tools a Claude Code plugin or OpenClaw plugin (or a bare MCP server) exposes.  This is the analogue of W2 but the input is a plugin manifest + MCP `tools/list` introspection rather than your own agent's source code.
+
+You ARE the LLM — same agent-mediated pattern as W1 / W2.
+
+### Steps
+
+1. Get the tool inventory from the plugin / MCP server.
+
+   ```bash
+   # Claude Code plugin directory (reads .claude-plugin/plugin.json):
+   sponsio plugin scan <plugin-dir>
+
+   # OpenClaw plugin directory (reads openclaw.plugin.json):
+   sponsio plugin scan <plugin-dir>
+
+   # Bare MCP server — introspect it directly via tools/list:
+   sponsio plugin scan --plugin-id <id> --introspect 'python3 server.py'
+   sponsio plugin scan --plugin-id <id> --introspect 'npx -y @org/mcp-server'
+
+   # Or list tools by hand if you already know them:
+   sponsio plugin scan --plugin-id <id> --tools 'mcp__foo__list,mcp__foo__delete'
+   ```
+
+   Output is a starter YAML built from name-heuristics — useful as a baseline, but the **semantic** rules need you.
+
+2. Get the host-specific contract-authoring prompt:
+
+   ```bash
+   sponsio plugin prompt claude-code       # mcp__<plugin>__<tool> naming
+   sponsio plugin prompt openclaw          # flat tool names
+   sponsio plugin prompt mcp-bare          # generic, no host-specific assumptions
+   ```
+
+   The prompt pins the tool naming convention for the target host, the destructive-verb / outbound-side-effect / path-arg playbook, and the same pattern vocabulary the rest of Sponsio uses.
+
+3. **You** apply the prompt to the tool inventory in your own LLM context.  Tool descriptions + `inputSchema` are the load-bearing inputs — read them carefully, especially for destructive verbs (`delete_*`, `drop_*`, `revoke_*`, `transfer_*`) and outbound side-effects (`send_*`, `post_*`, `publish_*`, `create_issue_comment`).
+
+4. Write the YAML to the per-plugin library so the host runtime hook will pick it up:
+
+   ```text
+   ~/.sponsio/plugins/<plugin-id>/sponsio.yaml
+   ```
+
+   (`<plugin-id>` matches what `sponsio.guard_stdin.derive_plugin_id` would compute from the tool name — Claude Code's `mcp__github__*` → `github`; bare names with no prefix → `_host` / `_host_openclaw` / `_host_subagent` depending on context.)
+
+5. Validate:
+
+   ```bash
+   sponsio validate --config ~/.sponsio/plugins/<plugin-id>/sponsio.yaml
+   ```
+
+### When to use each prompt template
+
+| Context | Prompt |
+|---|---|
+| Plugin will be loaded by Claude Code (tool calls show up as `mcp__<plugin>__<tool>`) | `sponsio plugin prompt claude-code` |
+| Plugin will be loaded by OpenClaw (flat names like `read`, `write`, `exec`) | `sponsio plugin prompt openclaw` |
+| Cursor MCP, custom host, or unknown — tool names show up as the MCP server reports them | `sponsio plugin prompt mcp-bare` |
+
+Cursor's MCP tools surface to its agent loop with the same MCP-bare names; use the `mcp-bare` template when authoring contracts for them, then `sponsio host install cursor` wires the runtime hook so violations are enforced before Cursor executes the call.
+
+---
+
+## W2c — Subagent privilege boundary
+
+Goal: ensure tool calls from Task-spawned subagents are subject to a stricter rule library than the main agent.  This applies to both Cursor (`Task` tool) and Claude Code (also `Task` tool, with hook payloads carrying an `agent_id`).
+
+### Why a separate library
+
+A subagent is dispatched with a *task description*, not the full user conversation.  It can't perform the alignment-style refusal "wait, the user didn't ask for this" — so the same Bash/Write call that the main agent might pause on tends to fire silently from a subagent.  Sponsio routes subagent-context tool calls to `_host_subagent` instead of `_host`, applying the same shell / database / credentials baseline plus the `capability/subagent` pack which blocks side-effects whose authorisation should travel back through the main conversation (git mutations, package installs, outbound network, system-path writes).
+
+### How routing happens
+
+| Host | Signal | Library |
+|---|---|---|
+| Claude Code | hook payload has non-empty `agent_id` field | `~/.sponsio/plugins/_host_subagent/sponsio.yaml` |
+| Cursor | `subagentStart` event recorded the conversation_id; later `preToolUse` calls match against the registry at `~/.sponsio/cursor-subagents.jsonl` | same library |
+
+Both hosts converge on the **same `_host_subagent` library**, so contract authoring stays one place.  `sponsio host install cursor` and `sponsio host install claude-code` both bootstrap it on first run.
+
+### Steps
+
+1. Verify the subagent library exists:
+
+   ```bash
+   ls ~/.sponsio/plugins/_host_subagent/sponsio.yaml
+   ```
+
+   If missing, re-run `sponsio host install <host>` — the installer auto-bootstraps it.
+
+2. Read the shipped baseline + decide what to add:
+
+   ```bash
+   cat ~/.sponsio/plugins/_host_subagent/sponsio.yaml
+   sponsio packs | grep capability/subagent
+   ```
+
+   The shipped pack already covers most cross-cutting subagent risks.  Project-specific tightening goes in this file's `contracts:` block.
+
+3. Common subagent-specific contracts worth adding:
+
+   - **`Bash` allowlist** — subagents typically only need read/search; deny everything not on a small list (`grep`, `find`, `ls`, `cat`, `git log`, …).
+   - **`Write` / `Edit` to anything outside `<workspace>/.sponsio-subagent/`** blocked.  Subagents should return findings, not write files.
+   - **No outbound network from subagents** — `curl`, `wget`, `httpie` denied unconditionally.
+   - **No git mutations** — `git commit`, `git push`, `git reset --hard` denied (the main agent re-runs them on the user's blessing).
+   - **No package installs** — `pip install`, `npm install`, `apt install` denied.
+
+4. Validate after editing:
+
+   ```bash
+   sponsio validate --config ~/.sponsio/plugins/_host_subagent/sponsio.yaml
+   ```
+
+### Cursor caveat
+
+Cursor's `subagentStart` event fires once per Task spawn; Sponsio records the subagent's `conversation_id` to `~/.sponsio/cursor-subagents.jsonl`.  If you wipe or rotate that file mid-session, in-flight subagent calls fall back to `_host`.  Override the registry path via `SPONSIO_CURSOR_SUBAGENT_REGISTRY` if you need test isolation.
 
 ---
 
@@ -223,13 +387,16 @@ Goal: treat `sponsio.yaml` as a **living library**, not a one-shot output. As re
 
 ### Steps
 
+You ARE the LLM here too.  Use the agent-mediated path: Sponsio mines deterministic candidates from the trace, you decide which to keep / drop / adjust in your own context.
+
 1. Dry-run first. Always.
 
    ```bash
-   sponsio refresh --since 7d
+   sponsio refresh --since 7d --emit-traces
+   sponsio prompt refresh
    ```
 
-   Prints a structured diff per agent:
+   The first dumps recent trace events + the current `source: trace` rules as JSON; the second prints the merge / dedup / drift prompt.  Apply the prompt to the JSON in your context — you produce a structured diff per agent.  Show the user the diff in this shape:
 
    ```
    Agent: support_bot
@@ -246,14 +413,15 @@ Goal: treat `sponsio.yaml` as a **living library**, not a one-shot output. As re
    - `- stale` — rule hasn't fired in this window. **Not necessarily dead** — could just be rare. Conservative default is `--mode add-only` (never remove), which we recommend for the first few refreshes until the user trusts the window size.
    - `= preserved` — these include every user rule, `source: scan`, `source: policy`, and anything under `overrides:`. The count being non-zero is the load-bearing invariant: refresh **only** ever changes `source: trace` entries.
 
-3. Apply.
+3. Apply via Edit/Write.  You produced the YAML changes in step 1 in your own context — write them to `sponsio.yaml`, back the old file up to `sponsio.yaml.sponsio.bak`, then validate:
 
    ```bash
-   sponsio refresh --since 7d --apply                 # default mode: replace-trace
-   sponsio refresh --since 7d --apply --mode add-only # conservative: never remove
+   sponsio validate --config sponsio.yaml
    ```
 
-   Writes `sponsio.yaml` and backs the old file up to `sponsio.yaml.sponsio.bak`. **Comments in the YAML are not preserved** — the backup is how users recover any prose annotations they'd inlined. Warn them of this before running.
+   **Fallback** (bare CLI, no host agent): `sponsio refresh --since 7d --apply [--mode add-only|replace-trace]` — uses Sponsio's own LLM via API key.  Only that path needs a key.
+
+   **Comments in the YAML are not preserved** — the backup is how users recover any prose annotations they'd inlined. Warn them of this before running.
 
 ### Mode selection
 

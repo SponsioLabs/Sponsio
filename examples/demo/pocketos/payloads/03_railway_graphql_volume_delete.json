@@ -1,0 +1,13 @@
+{
+  "hook_event_name": "preToolUse",
+  "conversation_id": "cursor-pocketos-demo-conv",
+  "tool_use_id": "tu_003",
+  "tool_name": "Shell",
+  "tool_input": {
+    "command": "curl -sS -X POST -H 'Authorization: Bearer rwy_live_********' -H 'Content-Type: application/json' -d '{\"query\":\"mutation{ volumeDelete(id: \\\"vol_prod_pocketos_pg\\\") }\"}' https://backboard.railway.app/graphql",
+    "cwd": "/Users/jer/code/pocketos-saas",
+    "sandbox": false
+  },
+  "cwd": "/Users/jer/code/pocketos-saas",
+  "agent_message": "Falling back to GraphQL volumeDelete mutation."
+}

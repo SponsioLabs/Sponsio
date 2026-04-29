@@ -8,6 +8,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -1944,6 +1945,20 @@ def serve(host: str, port: int, dev: bool):
         "still win over YAML values."
     ),
 )
+@click.option(
+    "--emit-context",
+    "emit_context",
+    is_flag=True,
+    default=False,
+    help=(
+        "Skip the LLM step and instead emit the structured inputs "
+        "(framework / tool inventory / scanned code excerpts / policy "
+        "docs / trace summaries) as JSON to stdout.  Used by the host "
+        "agent driving the ``sponsio`` skill: pair with "
+        "``sponsio prompt scan`` and apply in the agent's own LLM "
+        "context — no UnifiedExtractor call, no extra API key."
+    ),
+)
 def scan(
     paths: tuple[str, ...],
     agent: str,
@@ -1960,6 +1975,7 @@ def scan(
     push: bool,
     push_url: str,
     config_path: str | None,
+    emit_context: bool,
 ):
     """Scan source code, policy docs, and traces to propose contracts.
 
@@ -1986,7 +2002,83 @@ def scan(
     # Route progress messages to stderr with light styling so the YAML
     # body on stdout is still pipeable to a file or another command.
     def _scan_progress(msg: str) -> None:
+        if emit_context:
+            return
         click.echo(click.style("· ", fg="cyan", dim=True) + msg, err=True)
+
+    # ---- agent-driven path: dump inputs, skip LLM step ------------------
+    # ``--emit-context`` runs the deterministic scan stages (AST tool
+    # inventory, policy doc collection, trace summary) and stops short
+    # of the LLM contract-mining inside ``CodeAnalyzer.generate_yaml``.
+    # The host agent picks up using ``sponsio prompt scan``.
+    if emit_context:
+        analyzer = CodeAnalyzer(use_llm=False)
+        source_paths = list(paths)
+        tool_inventory = analyzer.get_tool_inventory(source_paths) or []
+
+        policy_docs: list[dict] = []
+        for p in policy:
+            try:
+                policy_docs.append(
+                    {
+                        "path": str(p),
+                        "content": Path(p).read_text(encoding="utf-8"),
+                    }
+                )
+            except OSError:
+                continue
+
+        # Lightweight trace summary: how many traces / events, no full
+        # event dump (the agent doesn't need every event to write
+        # sequence-shape contracts; per-pair counts are enough).
+        trace_summary: dict = {"files": [], "total_events": 0}
+        if traces:
+            from sponsio.discovery.trace_replay import (  # noqa: F401
+                load_traces_from_paths,
+            )
+
+            try:
+                loaded = load_traces_from_paths(list(traces))
+                trace_summary["files"] = sorted(
+                    {str(t.source_path) for t in loaded if hasattr(t, "source_path")}
+                )
+                trace_summary["total_events"] = sum(
+                    len(t.events) for t in loaded if hasattr(t, "events")
+                )
+            except Exception as e:  # pragma: no cover — best-effort
+                trace_summary["error"] = str(e)
+
+        existing_yaml_text = ""
+        out_path = Path(out) if out and out != "-" else Path("sponsio.yaml")
+        if out_path.exists():
+            try:
+                existing_yaml_text = out_path.read_text(encoding="utf-8")
+            except OSError:
+                pass
+
+        click.echo(
+            json.dumps(
+                {
+                    "agent_id": agent,
+                    "source_paths": source_paths,
+                    "tool_inventory": tool_inventory,
+                    "policy_docs": policy_docs,
+                    "trace_summary": trace_summary,
+                    "existing_yaml": existing_yaml_text,
+                    "out_path": str(out_path),
+                    "next_steps_hint": (
+                        "Run ``sponsio prompt scan`` to get the prompt "
+                        "template, apply it to this JSON in your own LLM "
+                        f"context, then write the resulting YAML to {out_path} "
+                        "via Edit/Write.  Validate with "
+                        f"``sponsio validate --config {out_path}``."
+                    ),
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return
 
     # Pull provider/model/key/base_url from the YAML's ``extractor:``
     # section if --config was given.  CLI flags retain the highest
@@ -4056,6 +4148,19 @@ def onboard(
             except OSError:
                 pass
 
+        # Pull the framework-specific wrap snippet (the 2-3 line patch
+        # the user pastes into their agent entry file).  The skill's
+        # W1 step 5 references this field; emitting it here lets the
+        # agent surface the wiring instructions in the same turn it
+        # writes the YAML.
+        wrap_snippet_text = ""
+        try:
+            from sponsio.onboard import _wrap_snippet  # type: ignore[attr-defined]
+
+            wrap_snippet_text = _wrap_snippet(framework.framework, agent_id) or ""
+        except Exception:  # pragma: no cover — best-effort
+            pass
+
         click.echo(
             json.dumps(
                 {
@@ -4069,6 +4174,8 @@ def onboard(
                     "needs_workspace": pack_selection.needs_workspace,
                     "existing_yaml": existing_yaml_text,
                     "policy_docs": policy_docs,
+                    "wrap_snippet": wrap_snippet_text,
+                    "out_path": str(existing_yaml_path),
                     "next_steps_hint": (
                         "Run ``sponsio prompt onboard`` to get the prompt "
                         "template, apply it to this JSON in your own LLM "
@@ -4357,20 +4464,25 @@ def onboard(
 @cli.command(name="prompt")
 @click.argument(
     "flow",
-    type=click.Choice(["onboard", "refresh"]),
+    type=click.Choice(["onboard", "refresh", "scan"]),
 )
 def cmd_prompt(flow: str):
     """Print the agent-facing prompt template for a sponsio workflow.
 
-    Used by the ``sponsio`` skill (``W1`` — initial setup, ``W3b`` —
-    refresh from traces) to drive the host agent through contract
-    authoring without burning a separate LLM API call.
+    Used by the ``sponsio`` skill (``W1`` — initial setup, ``W2`` —
+    audit & refine, ``W3b`` — refresh from traces) to drive the host
+    agent through contract authoring without burning a separate LLM
+    API call.
 
     Pair with the corresponding ``--emit-*`` flag:
 
     \b
         sponsio onboard . --emit-context     # structured input for prompt
         sponsio prompt onboard               # the prompt itself
+
+    \b
+        sponsio scan src/ --emit-context
+        sponsio prompt scan
 
     \b
         sponsio refresh sponsio.yaml --emit-traces
@@ -4638,7 +4750,9 @@ def plugin_install(
         # Fallback host libraries (``_host`` for Claude Code,
         # ``_host_openclaw`` for OpenClaw) are owned by ``plugin init``
         # and have their own smoke-test path; don't double-write here.
-        names = tuple(n for n in bundled if n not in {"_host", "_host_subagent", "_host_openclaw"})
+        names = tuple(
+            n for n in bundled if n not in {"_host", "_host_subagent", "_host_openclaw"}
+        )
 
     if not names:
         click.secho(
@@ -5019,6 +5133,595 @@ def plugin_prompt(target_host: str):
         click.echo(main)
         click.echo("")
         click.echo(vocab)
+
+
+# ---------------------------------------------------------------------------
+# Unified host integration — `sponsio host install/guard/list/uninstall`
+#
+# Wraps the per-host ``HookHost`` registry in :mod:`sponsio.integrations.hosts`
+# behind one CLI surface.  Coexists with the legacy per-host commands
+# (``sponsio cursor ...``, ``sponsio plugin guard ...``); the ``host``
+# group is the recommended entry point going forward.
+# ---------------------------------------------------------------------------
+
+
+@cli.group()
+def host():
+    """Install, run, and inspect Sponsio host integrations.
+
+    A *host* is an IDE or agent runtime Sponsio plugs into via shell
+    hooks (Cursor, Claude Code, OpenClaw, …).  The framework-side
+    onboarding (``sponsio onboard``) is for in-process wrap of agent
+    code you own — separate axis, separate command.
+
+    Subcommands:
+
+    * ``sponsio host list`` — show registered hosts and their install state.
+    * ``sponsio host install <name>`` — wire Sponsio into the host's hook
+      config; ``auto`` / ``all`` install for every detected / known host.
+    * ``sponsio host uninstall <name>`` — remove Sponsio's entries, leave
+      any user-authored hooks untouched.
+    * ``sponsio host guard <name>`` — runtime hook handler.  Called by
+      the host's hook subprocess; users rarely invoke directly.
+    """
+
+
+@host.command(name="list")
+def host_list():
+    """Show registered hosts and which have configs on disk."""
+    from sponsio.integrations import hosts as _hosts_mod
+
+    # Force registration side-effects.
+    _ = _hosts_mod.available()
+
+    rows: list[tuple[str, str, str]] = []
+    for h in _hosts_mod.available():
+        user_path = h.config_path_user
+        if user_path.exists():
+            state = "✓ installed"
+            path_str = str(user_path)
+        elif any(p.exists() for p in h.detect_paths):
+            state = "○ host present, sponsio not installed"
+            path_str = str(user_path)
+        else:
+            state = "─ host not detected"
+            path_str = str(user_path)
+        rows.append((h.name, state, path_str))
+
+    width_name = max(len(r[0]) for r in rows)
+    width_state = max(len(r[1]) for r in rows)
+    for name, state, path_str in rows:
+        click.echo(f"  {name:<{width_name}}  {state:<{width_state}}  {path_str}")
+
+
+def _resolve_host_targets(name_or_set: str) -> list[str]:
+    """Map a CLI ``<name>`` token into a list of registered host ids.
+
+    Supports ``auto`` (only hosts whose detect_paths match) and ``all``
+    (every registered host).  Comma-separated lists also accepted:
+    ``cursor,claude-code``.
+    """
+    from sponsio.integrations import hosts as _hosts_mod
+
+    token = name_or_set.strip()
+    if token == "all":
+        return [h.name for h in _hosts_mod.available()]
+    if token == "auto":
+        detected = _hosts_mod.detect_installed()
+        if not detected:
+            return [h.name for h in _hosts_mod.available()]
+        return [h.name for h in detected]
+    if "," in token:
+        return [t.strip() for t in token.split(",") if t.strip()]
+    return [token]
+
+
+# Per-host skill discovery roots, used by `sponsio host install --with-skill`.
+# Each entry maps host name → (user-scope skill parent dir, project-scope skill
+# parent dir | None).
+#
+# Cursor 2.4+, Claude Code, and Codex all consume the same Agent Skills open
+# standard.  OpenClaw doesn't ship a documented skill discovery path today;
+# we install to ``~/.openclaw/skills/`` by convention so the skill is
+# materialised somewhere predictable, even if OpenClaw itself doesn't yet
+# auto-discover it — the user (or a future OpenClaw release) can wire it in.
+_HOST_SKILL_DIRS: dict[str, tuple[Path, Path | None]] = {
+    "cursor": (
+        Path.home() / ".cursor" / "skills",
+        Path(".cursor") / "skills",
+    ),
+    "claude-code": (
+        Path.home() / ".claude" / "skills",
+        Path(".claude") / "skills",
+    ),
+    "openclaw": (
+        Path.home() / ".openclaw" / "skills",
+        Path(".openclaw") / "skills",
+    ),
+}
+
+
+def _install_skill_for_host(
+    host_name: str, *, scope: str, force: bool
+) -> tuple[bool, str]:
+    """Copy the bundled Sponsio skill into the host's skill directory.
+
+    Returns ``(written, note)``.  ``written=False`` is informational
+    (already present, host has no skill standard, etc.) — not a hard
+    error.
+    """
+    if host_name not in _HOST_SKILL_DIRS:
+        return False, f"{host_name}: no skill discovery path standard — skipped"
+
+    user_parent, project_parent = _HOST_SKILL_DIRS[host_name]
+    parent = project_parent if scope == "project" and project_parent else user_parent
+    target = parent / "sponsio"
+
+    src = _packaged_skill_source()
+
+    parent.mkdir(parents=True, exist_ok=True)
+
+    if target.exists() or target.is_symlink():
+        if not force:
+            return False, f"skill already at {target} — pass --force to replace"
+        if target.is_symlink() or target.is_file():
+            target.unlink()
+        else:
+            shutil.rmtree(target)
+
+    shutil.copytree(src, target)
+    return True, f"wrote skill to {target}"
+
+
+@host.command(name="install")
+@click.argument("names", nargs=-1, required=True)
+@click.option(
+    "--scope",
+    type=click.Choice(["user", "project"]),
+    default="user",
+    show_default=True,
+    help=(
+        "``user`` writes to the host's user-level config "
+        "(e.g. ``~/.cursor/hooks.json``).  ``project`` writes to a "
+        "repo-local file (e.g. ``./.cursor/hooks.json``)."
+    ),
+)
+@click.option(
+    "--fail-closed/--fail-open",
+    default=True,
+    show_default=True,
+    help=(
+        "When the hook script itself fails, should the host block the "
+        "tool call?  Default fail-closed prefers safety; ``--fail-open`` "
+        "prefers availability.  Honoured by hosts that distinguish."
+    ),
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help=(
+        "Overwrite the host's existing config (and skill if "
+        "``--with-skill``).  Default merges Sponsio's entries in place "
+        "for hooks; skill install is no-op when target exists."
+    ),
+)
+@click.option(
+    "--binary",
+    "binary_override",
+    type=str,
+    default=None,
+    help=(
+        "Absolute path to the ``sponsio`` binary the hook should invoke.  "
+        "Default is the binary backing the current process — always an "
+        "absolute path, since hosts launch hook subprocesses from a "
+        "minimal PATH that often misses venvs and ``~/.local/bin``."
+    ),
+)
+@click.option(
+    "--with-skill/--no-skill",
+    default=False,
+    show_default=True,
+    help=(
+        "Also copy the bundled Sponsio Agent Skill into the host's skill "
+        "directory (Cursor 2.4+ and Claude Code).  Skill teaches the "
+        "agent to drive Sponsio's CLI for setup / scan / report; hook "
+        "enforces contracts at the action boundary.  Skills + hooks "
+        "are complementary and recommended together — opt-in for now "
+        "to keep the default install minimal."
+    ),
+)
+def host_install(
+    names: tuple[str, ...],
+    scope: str,
+    fail_closed: bool,
+    force: bool,
+    binary_override: str | None,
+    with_skill: bool,
+):
+    """Install Sponsio as a hook handler for one or more hosts.
+
+    \b
+    Examples:
+      sponsio host install cursor
+      sponsio host install cursor claude-code
+      sponsio host install all
+      sponsio host install auto              # only hosts detected on this machine
+      sponsio host install cursor --scope project
+    """
+    from sponsio.integrations import hosts as _hosts_mod
+
+    targets: list[str] = []
+    for token in names:
+        targets.extend(_resolve_host_targets(token))
+    # Dedup while preserving order.
+    seen: set[str] = set()
+    targets = [t for t in targets if not (t in seen or seen.add(t))]
+
+    any_failed = False
+    for name in targets:
+        try:
+            host_spec = _hosts_mod.get(name)
+        except KeyError as e:
+            click.secho(f"✘  {e}", fg="red", err=True)
+            any_failed = True
+            continue
+        result = host_spec.install_fn(
+            host_spec,
+            scope=scope,
+            fail_closed=fail_closed,
+            force=force,
+            binary=binary_override,
+        )
+        glyph = "✔" if result.written else "○"
+        colour = "green" if result.written else "yellow"
+        click.secho(
+            f"{glyph}  {result.host}: {result.note}",
+            fg=colour,
+        )
+        click.echo(f"     {result.config_path}")
+        if not result.written:
+            # Existing-but-not-overwritten is informational, not a failure.
+            pass
+
+        if with_skill:
+            written, note = _install_skill_for_host(name, scope=scope, force=force)
+            glyph = "✔" if written else "○"
+            colour = "green" if written else "yellow"
+            click.secho(f"{glyph}  {name} skill: {note}", fg=colour)
+
+    if any_failed:
+        sys.exit(1)
+
+
+@host.command(name="uninstall")
+@click.argument("names", nargs=-1, required=True)
+@click.option(
+    "--scope",
+    type=click.Choice(["user", "project"]),
+    default="user",
+    show_default=True,
+)
+def host_uninstall(names: tuple[str, ...], scope: str):
+    """Remove Sponsio's entries from one or more host configs.
+
+    Leaves any non-Sponsio hooks untouched.  Use ``all`` to clean
+    every registered host.
+    """
+    from sponsio.integrations import hosts as _hosts_mod
+
+    targets: list[str] = []
+    for token in names:
+        targets.extend(_resolve_host_targets(token))
+    seen: set[str] = set()
+    targets = [t for t in targets if not (t in seen or seen.add(t))]
+
+    any_failed = False
+    for name in targets:
+        try:
+            host_spec = _hosts_mod.get(name)
+        except KeyError as e:
+            click.secho(f"✘  {e}", fg="red", err=True)
+            any_failed = True
+            continue
+        result = host_spec.uninstall_fn(host_spec, scope=scope)
+        click.secho(f"○  {result.host}: {result.note}", fg="yellow")
+        click.echo(f"     {result.config_path}")
+    if any_failed:
+        sys.exit(1)
+
+
+@host.command(name="guard")
+@click.argument("name")
+@click.option(
+    "--event",
+    "hook_event",
+    type=str,
+    default=None,
+    help=(
+        "For hosts with a multi-event protocol (Cursor: ``preToolUse``, "
+        "``beforeShellExecution``, …), the event being handled.  Hosts "
+        "with a single-event protocol (Claude Code, OpenClaw) ignore "
+        "this — the event name lives in the JSON body."
+    ),
+)
+@click.option(
+    "--stdin",
+    "use_stdin",
+    is_flag=True,
+    default=True,
+    help="(default) Read one hook event as JSON from stdin.",
+)
+def host_guard(name: str, hook_event: str | None, use_stdin: bool):
+    """Runtime hook handler — called by the host's hook subprocess.
+
+    Reads a JSON payload from stdin, evaluates it against the matching
+    Sponsio contract library, and writes the host-shaped reply.  Exits
+    cleanly on internal errors so a Sponsio bug never wedges a real
+    tool call.
+    """
+    from sponsio.integrations import hosts as _hosts_mod
+
+    try:
+        host_spec = _hosts_mod.get(name)
+    except KeyError as e:
+        sys.stderr.write(f"sponsio host guard: {e}\n")
+        sys.exit(0)
+
+    code = host_spec.runtime_fn(host_spec, hook_event, None)
+    sys.exit(code)
+
+
+# ---------------------------------------------------------------------------
+# Cursor IDE hook integration
+# ---------------------------------------------------------------------------
+
+
+@cli.group()
+def cursor():
+    """Cursor IDE integration — install hooks, run as a hook handler.
+
+    Cursor 1.7+ ships a deny-capable hook system (``hooks.json``).
+    Sponsio plugs in as the command for the relevant pre-* events, so
+    every Shell/Read/Write/MCP call gets evaluated against the
+    Sponsio contract library before Cursor executes it.
+
+    Two subcommands:
+
+    * ``sponsio cursor install-hooks`` — one-time setup that writes
+      ``~/.cursor/hooks.json`` (or project-scoped ``.cursor/hooks.json``)
+      so Cursor calls back into ``sponsio cursor guard`` per tool call.
+
+    * ``sponsio cursor guard --event <name>`` — runtime hook handler.
+      Reads a Cursor hook payload from stdin, evaluates it, writes the
+      Cursor-shaped JSON decision and signals deny via exit code 2.
+    """
+
+
+_CURSOR_HOOK_EVENTS = (
+    "preToolUse",
+    "beforeShellExecution",
+    "beforeMCPExecution",
+    "beforeReadFile",
+    "beforeTabFileRead",
+    "beforeSubmitPrompt",
+    "postToolUse",
+    "afterShellExecution",
+    "afterMCPExecution",
+    "afterFileEdit",
+    "subagentStart",
+    "subagentStop",
+)
+
+
+@cursor.command(name="guard")
+@click.option(
+    "--event",
+    "hook_event",
+    type=click.Choice(_CURSOR_HOOK_EVENTS),
+    default="preToolUse",
+    show_default=True,
+    help="Which Cursor hook event this invocation is handling.",
+)
+def cursor_guard(hook_event: str):
+    """Cursor hook handler — evaluates one Cursor hook payload.
+
+    Wired into ``hooks.json`` per Cursor's command-based hook protocol::
+
+        {
+          "version": 1,
+          "hooks": {
+            "preToolUse": [{"command": "sponsio cursor guard --event preToolUse",
+                             "failClosed": true}]
+          }
+        }
+
+    Reads the Cursor JSON payload from stdin, normalises it to
+    Sponsio's plugin-id routing scheme, runs the per-plugin contract
+    library, and writes the Cursor-shaped reply
+    (``{"permission":"deny","user_message":..., "agent_message":...}``
+    + exit 2) on a violation.
+
+    Exits 0 on every internal error so a Sponsio bug never wedges a
+    real tool call.
+    """
+    from sponsio.integrations.cursor import run_cursor_stdin
+
+    sys.exit(run_cursor_stdin(hook_event))
+
+
+@cursor.command(name="install-hooks")
+@click.option(
+    "--scope",
+    type=click.Choice(["user", "project"]),
+    default="user",
+    show_default=True,
+    help=(
+        "``user`` → ``~/.cursor/hooks.json`` (covers every Cursor "
+        "session for this user).  ``project`` → ``./.cursor/hooks.json`` "
+        "(covers only this repo, follows committed config)."
+    ),
+)
+@click.option(
+    "--fail-closed/--fail-open",
+    default=True,
+    show_default=True,
+    help=(
+        "When the hook script itself fails (Sponsio crashes, missing "
+        "library, …), should Cursor block the tool call?  Default is "
+        "fail-closed: Sponsio failure → tool call blocked, surface a "
+        "user message.  Set ``--fail-open`` to prefer availability "
+        "over enforcement."
+    ),
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help=(
+        "Overwrite the entire ``hooks.json``.  Default behaviour merges "
+        "Sponsio's hook entries into the existing file — leaves any "
+        "user-authored hooks untouched."
+    ),
+)
+@click.option(
+    "--binary",
+    "binary_override",
+    type=str,
+    default=None,
+    help=(
+        "Absolute path to the ``sponsio`` binary to invoke from the "
+        "hook.  Defaults to the binary backing the current process — "
+        "always an absolute path, since Cursor launches hook "
+        "subprocesses from launchd's bare PATH which excludes venvs "
+        "and ``~/.local/bin``.  Pass ``--binary sponsio`` to fall "
+        "back to bare-name lookup at hook fire time."
+    ),
+)
+def cursor_install_hooks(
+    scope: str, fail_closed: bool, force: bool, binary_override: str | None
+):
+    """Install Sponsio as a Cursor hook handler.
+
+    Writes (or merges into) Cursor's ``hooks.json`` so Cursor invokes
+    ``sponsio cursor guard --event <name>`` for the events Sponsio
+    cares about (``preToolUse``, ``beforeShellExecution``,
+    ``beforeMCPExecution``, ``beforeReadFile``, ``beforeSubmitPrompt``,
+    ``postToolUse``).
+
+    After installing, restart Cursor so the new ``hooks.json`` is
+    picked up.  Run ``sponsio doctor`` to verify the install.
+    """
+    target = (
+        Path.cwd() / ".cursor" / "hooks.json"
+        if scope == "project"
+        else Path.home() / ".cursor" / "hooks.json"
+    )
+
+    # Cursor launches hook subprocesses from launchd's bare PATH —
+    # ``.zshrc`` / venv activate scripts are NOT sourced.  A bare
+    # ``sponsio`` will resolve via that minimal PATH, which on macOS
+    # commonly hits a stale user-pip install at
+    # ``~/Library/Python/3.x/bin/sponsio`` instead of the active venv.
+    # Default to the absolute path of the binary backing the current
+    # process so the hook always invokes the *same* sponsio the user
+    # ran ``install-hooks`` from.
+    if binary_override:
+        bin_cmd = binary_override
+    else:
+        import shutil
+
+        # ``sys.argv[0]`` is the cleanest pointer to the running
+        # console-script when invoked via the entry-point shim;
+        # fall back to ``shutil.which`` if for some reason it's
+        # relative (e.g. test harness invocation).
+        candidate = Path(sys.argv[0]) if sys.argv and sys.argv[0] else None
+        if candidate and candidate.is_absolute() and candidate.exists():
+            bin_cmd = str(candidate)
+        else:
+            resolved = shutil.which("sponsio")
+            bin_cmd = resolved or "sponsio"
+
+    sponsio_hooks: dict[str, list[dict]] = {
+        "preToolUse": [
+            {
+                "command": f"{bin_cmd} cursor guard --event preToolUse",
+                "failClosed": fail_closed,
+            }
+        ],
+        "beforeShellExecution": [
+            {
+                "command": f"{bin_cmd} cursor guard --event beforeShellExecution",
+                "failClosed": fail_closed,
+            }
+        ],
+        "beforeMCPExecution": [
+            {
+                "command": f"{bin_cmd} cursor guard --event beforeMCPExecution",
+                "failClosed": fail_closed,
+            }
+        ],
+        "beforeReadFile": [
+            {
+                "command": f"{bin_cmd} cursor guard --event beforeReadFile",
+                "failClosed": fail_closed,
+            }
+        ],
+        "beforeSubmitPrompt": [
+            {
+                "command": f"{bin_cmd} cursor guard --event beforeSubmitPrompt",
+            }
+        ],
+        "postToolUse": [
+            {
+                "command": f"{bin_cmd} cursor guard --event postToolUse",
+            }
+        ],
+    }
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    if target.exists() and not force:
+        try:
+            existing = json.loads(target.read_text(encoding="utf-8"))
+            if not isinstance(existing, dict):
+                existing = {}
+        except json.JSONDecodeError:
+            click.echo(
+                f"⚠  {target} exists but is not valid JSON — refusing to "
+                "merge.  Re-run with --force to overwrite, or fix the "
+                "file by hand.",
+                err=True,
+            )
+            sys.exit(1)
+        merged = dict(existing)
+        merged.setdefault("version", 1)
+        existing_hooks = (
+            merged.get("hooks") if isinstance(merged.get("hooks"), dict) else {}
+        )
+        for event_name, entries in sponsio_hooks.items():
+            keep: list[dict] = []
+            for prior in existing_hooks.get(event_name, []) or []:
+                # Keep non-Sponsio entries verbatim; replace any prior
+                # Sponsio entry so version drift gets cleaned up.
+                if (
+                    isinstance(prior, dict)
+                    and isinstance(prior.get("command"), str)
+                    and "cursor guard --event" in prior["command"]
+                ):
+                    continue
+                keep.append(prior)
+            existing_hooks[event_name] = keep + entries
+        merged["hooks"] = existing_hooks
+        out = merged
+    else:
+        out = {"version": 1, "hooks": sponsio_hooks}
+
+    target.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    click.echo(f"✔  Wrote Cursor hooks to {target}")
+    click.echo(
+        "   Restart Cursor (or open a new composer session) so the new "
+        "hooks.json is picked up."
+    )
+    click.echo("   Verify with: cat " + str(target) + " | jq '.hooks | keys'")
 
 
 @plugin.command(name="guard")

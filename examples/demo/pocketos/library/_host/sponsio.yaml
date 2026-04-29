@@ -1,0 +1,17 @@
+# Demo `_host` library used by examples/demo/pocketos/run.sh.
+#
+# This is what would land at `~/.sponsio/plugins/_host/sponsio.yaml`
+# in a real install.  The demo points $SPONSIO_PLUGIN_ROOT at the
+# parent directory so it doesn't touch your real Cursor config.
+
+version: "1"
+
+agents:
+  _host:
+    # Cursor sends `Shell` for terminal calls; the cursor adapter
+    # rewrites to `Bash` so existing `_host`-shaped rules apply.
+    tool_rename:
+      exec: Bash
+
+    include:
+      - sponsio:incident/cursor-railway-wipe
