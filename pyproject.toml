@@ -103,6 +103,17 @@ sponsio = [
     # for source-checkout users; ``tests/test_plugin_defaults_sync.py``
     # keeps the two trees identical.
     "plugin/defaults/*.yaml",
+    # Pre-built sponsio-openclaw plugin — bundled so
+    # ``sponsio host install openclaw`` can deploy the OpenClaw
+    # extension without requiring node/npm/tsc on the user's
+    # machine.  Canonical source: ``plugins/sponsio-openclaw/`` in
+    # the repo; ``scripts/sync_openclaw_artifact.py`` mirrors the
+    # built artifact here, and ``tests/test_openclaw_artifact_sync.py``
+    # fails the build if the two trees drift.
+    "plugin/openclaw_artifact/*.json",
+    "plugin/openclaw_artifact/*.md",
+    "plugin/openclaw_artifact/dist/*.js",
+    "plugin/openclaw_artifact/dist/*.d.ts",
     # Contract-extraction prompt templates (one per target host).
     # ``sponsio plugin prompt <host>`` reads these and prints them so
     # the host agent driving ``sponsio plugin scan --introspect`` can
