@@ -113,37 +113,46 @@ def run_without_guard() -> None:
 
 
 def run_with_guard() -> None:
-    slow_print(f"{BOLD}== SRE Cost-Optimizer Agent (with Sponsio) =={RESET}")
+    slow_print(f"{BOLD}== SRE Cost-Optimizer Agent =={RESET}")
 
-    # ─── Onboard patch — applied by `sponsio onboard sre_optimizer.py` ──
-    # Two lines below are the entire Sponsio integration. Contracts +
-    # tool inventory live in `sponsio.yaml` next to this file.
-    from sponsio.langgraph import Sponsio, ToolCallBlocked
+    # Default: tools fire raw.  The ``sponsio onboard`` block below
+    # rebinds ``tools_by_name`` to the wrapped variant — so even if a
+    # reader strips the patch back out, the trajectory still runs (it
+    # just won't block).  ``except Exception`` covers ``ToolCallBlocked``
+    # (an Exception subclass) without needing the import in the strip
+    # case.
+    tools_by_name = {t.name: t for t in TOOLS}
+    # ─── sponsio onboard patch ─────────────────────────────────────
+    from sponsio.langgraph import Sponsio
+    guard = Sponsio(config=str(Path(__file__).parent / "sponsio.yaml"), agent_id="agent")
+    tools_by_name = guard.wrap(TOOLS).tools_by_name
+    # ─── /sponsio onboard patch ────────────────────────────────────
 
-    config_path = str(Path(__file__).parent / "sponsio.yaml")
-    guard = Sponsio(config=config_path, agent_id="sre_optimizer", mode="enforce")
-    wrapped_tools = guard.wrap(TOOLS)
-    # ────────────────────────────────────────────────────────────────────
-    #
-    # In a real LangGraph app the next line would be:
-    #
-    #     agent = create_react_agent(model, wrapped_tools)
-    #     agent.invoke({"messages": [("user", "cut storage bill 20%")]})
-    #
-    # We skip the LLM loop and replay the recorded trajectory through the
-    # same wrapped tools so the output shape matches a real run.
 
+    blocked = False
     for name, args in TRAJECTORY:
         slow_print(f"  {DIM}→ {name}({_fmt_args(args)}){RESET}")
         try:
-            wrapped_tools.tools_by_name[name].invoke(args)
-        except ToolCallBlocked:
+            tools_by_name[name].invoke(args)
+        except Exception:  # noqa: BLE001 — ToolCallBlocked is the catch
+            blocked = True
             break
 
-    slow_print(
-        f"\n{GREEN}{BOLD}✓ Outcome: prod snapshots untouched. "
-        f"Agent can only act inside the 30-day dev/staging window.{RESET}"
-    )
+    if blocked:
+        slow_print(
+            f"\n{GREEN}{BOLD}✓ Outcome: prod snapshots untouched. "
+            f"Agent can only act inside the 30-day dev/staging window.{RESET}"
+        )
+    else:
+        # Loop ran to completion → no contract fired.  Common causes:
+        # the wrap patch was stripped, sponsio.yaml is in observe mode,
+        # or sponsio isn't installed.  Don't pretend the trajectory
+        # was safe — say what actually happened.
+        slow_print(
+            f"\n{RED}{BOLD}✗ Sponsio did not block — full breach trajectory ran. "
+            f"Check that the wrap patch is in place and `mode: enforce` "
+            f"is set in sponsio.yaml.{RESET}"
+        )
 
 
 def main() -> None:

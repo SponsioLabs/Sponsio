@@ -161,16 +161,21 @@ class TestBatchApprovalDocumented:
 
 
 # ---------------------------------------------------------------------------
-# G — beta rationale comments in core/universal.yaml
+# G — beta rationale comments in core/llm_safety.yaml
 # ---------------------------------------------------------------------------
 
 
-class TestUniversalBetaRationale:
-    """Every stochastic contract in universal.yaml gets a one-line
+class TestLlmSafetyBetaRationale:
+    """Every stochastic contract in llm_safety.yaml gets a one-line
     rationale comment for its beta value.  The test asserts the
     aggregate (not each line individually) so future re-tuning
     can change values without rewriting the test, as long as the
-    rationale stays present."""
+    rationale stays present.
+
+    History: this used to live in ``core/universal.yaml`` but the
+    five sto contracts moved to ``core/llm_safety.yaml`` so the
+    universal pack stops auto-pulling judge-LLM evaluations for
+    tool-call-only agents."""
 
     def test_each_beta_has_a_neighbouring_comment(self):
         """Walk the file, every `beta:` line must have a
@@ -179,13 +184,13 @@ class TestUniversalBetaRationale:
         between rationale and beta thanks to the multi-line `args:`
         block) while still being tight enough that an unrelated
         upstream comment can't satisfy the assertion."""
-        lines = _read_pack("core/universal.yaml").splitlines()
+        lines = _read_pack("core/llm_safety.yaml").splitlines()
         beta_lines = [
             i
             for i, ln in enumerate(lines)
             if "beta:" in ln and not ln.lstrip().startswith("#")
         ]
-        assert beta_lines, "expected universal.yaml to have beta: entries"
+        assert beta_lines, "expected llm_safety.yaml to have beta: entries"
 
         for idx in beta_lines:
             # Look back for a comment line carrying one of the
@@ -220,10 +225,34 @@ class TestUniversalBetaRationale:
         beta means.  Without this, the per-rule rationales lack
         context — readers see "0.95" without knowing that higher =
         more aggressive."""
-        text = _read_pack("core/universal.yaml")
+        text = _read_pack("core/llm_safety.yaml")
         assert "weights the cost" in text or "missed violation" in text, (
-            "universal.yaml § Adversarial missing the prose explaining what "
+            "llm_safety.yaml § Adversarial missing the prose explaining what "
             "beta does — the per-rule comments need that context"
+        )
+
+
+class TestUniversalEmpty:
+    """``core/universal`` is now an empty stub — see
+    ``sponsio/contracts/core/universal.yaml`` for the rationale.  Pin
+    the emptiness so a regression that shoves contracts back in there
+    surfaces immediately (rather than silently re-introducing the
+    judge-LLM-on-every-step behaviour we just removed)."""
+
+    def test_universal_pack_is_empty(self, tmp_path):
+        # Round-trip through the include path: the only legal way to
+        # activate the ``*`` template is through ``include:``, so we
+        # write a tiny config that pulls in core/universal and assert
+        # the resolved agent has no contracts.
+        cfg_path = tmp_path / "sponsio.yaml"
+        cfg_path.write_text(
+            "agents:\n  bot:\n    include: ['sponsio:core/universal']\n"
+        )
+        cfg = load_config(cfg_path)
+        assert cfg.agents["bot"].contracts == [], (
+            "core/universal.yaml must remain an empty stub — sto contracts "
+            "moved to core/llm_safety.yaml so the pack can be auto-included "
+            "without forcing judge-LLM calls on tool-call-only agents."
         )
 
 
@@ -237,19 +266,23 @@ class TestPacksStillLoadAfterFixes:
     each pack through the include/load path with the minimum
     surrounding config (just `workspace:` for the fs pack)."""
 
-    # All five shipped packs must round-trip through include + load.
-    # openclaw was historically excluded (it used a hard-coded agent
-    # id `openclaw_local` instead of the `*` template), but is now
-    # template-shaped like the others and uses `<agent>` for the
-    # one LTL atom that needs to reference the running agent.
-    # ``sponsio:core/runaway`` is excluded from this set on purpose —
-    # the pack is intentionally empty (its old hard-coded budget
-    # defaults were arbitrary) so a "non-zero contracts" assertion
-    # would mis-classify "intentionally empty" as "broken parsing".
+    # All shipped packs that contribute rules must round-trip through
+    # include + load.  openclaw was historically excluded (it used a
+    # hard-coded agent id ``openclaw_local`` instead of the ``*``
+    # template), but is now template-shaped like the others and uses
+    # ``<agent>`` for the one LTL atom that needs to reference the
+    # running agent.
+    #
+    # Two packs are excluded from this nonzero-contracts set on purpose:
+    #   * ``sponsio:core/runaway`` — intentionally empty (old hard-coded
+    #     budget defaults were arbitrary).
+    #   * ``sponsio:core/universal`` — also intentionally empty after
+    #     the sto contracts moved to ``core/llm_safety``.  Both have
+    #     dedicated empty-load tests below.
     @pytest.mark.parametrize(
         "spec,needs_workspace",
         [
-            ("sponsio:core/universal", False),
+            ("sponsio:core/llm_safety", False),
             ("sponsio:capability/shell", False),
             ("sponsio:capability/filesystem", True),
             ("sponsio:incident/openclaw", True),
@@ -273,6 +306,19 @@ class TestPacksStillLoadAfterFixes:
         parses + agents block compiles, even with an empty list."""
         cfg_path = tmp_path / "sponsio.yaml"
         cfg_path.write_text("agents:\n  bot:\n    include: ['sponsio:core/runaway']\n")
+        cfg = load_config(cfg_path)
+        assert cfg.agents["bot"].contracts == []
+
+    def test_universal_pack_loads_empty_without_error(self, tmp_path):
+        """``core/universal`` is intentionally empty — the sto
+        contracts that used to live here moved to ``core/llm_safety``.
+        Existing user configs that ``include: sponsio:core/universal``
+        must keep loading (zero contracts contributed), not error out
+        on a missing pack."""
+        cfg_path = tmp_path / "sponsio.yaml"
+        cfg_path.write_text(
+            "agents:\n  bot:\n    include: ['sponsio:core/universal']\n"
+        )
         cfg = load_config(cfg_path)
         assert cfg.agents["bot"].contracts == []
 
@@ -377,11 +423,15 @@ class TestUsabilityTuning:
                 "false positives."
             )
 
-    def test_universal_does_not_ship_scope_respect_as_default(self):
+    def test_llm_safety_does_not_ship_scope_respect_as_default(self):
         """``scope_respect`` is opt-in — a generic default scope string is
         judge-noise.  The pack may mention it in a recipe comment, but
-        must not emit a contract entry using the pattern."""
-        text = _read_pack("core/universal.yaml")
+        must not emit a contract entry using the pattern.
+
+        History: this assertion used to target ``core/universal.yaml``;
+        the sto contracts have since moved to ``core/llm_safety.yaml``
+        and so does this test."""
+        text = _read_pack("core/llm_safety.yaml")
         # Pattern token must only appear in comment lines (after #) or
         # in the recipe block.  A real rule would have it on a YAML
         # data line (no leading #).
@@ -390,7 +440,7 @@ class TestUsabilityTuning:
             if not stripped or stripped.startswith("#"):
                 continue
             assert "pattern: scope_respect" not in stripped, (
-                "core/universal.yaml must not ship scope_respect as a "
+                "core/llm_safety.yaml must not ship scope_respect as a "
                 "default contract — the generic scope string makes it "
                 "noise on day 1.  Keep it in the commented recipe only."
             )
@@ -457,10 +507,16 @@ class TestUsabilityTuning:
 
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "sponsio.yaml"
+            # The read-scope rule lives in `filesystem-strict` (split
+            # off in 2026-04 to keep the base `filesystem` pack
+            # workspace-free).  Include both — the strict pack carries
+            # the rule under test.
             p.write_text(
                 "agents:\n  bot:\n"
                 '    workspace: "/proj"\n'
-                "    include: ['sponsio:capability/filesystem']\n"
+                "    include:\n"
+                "      - sponsio:capability/filesystem\n"
+                "      - sponsio:capability/filesystem-strict\n"
             )
             cfg = load_config(p)
 

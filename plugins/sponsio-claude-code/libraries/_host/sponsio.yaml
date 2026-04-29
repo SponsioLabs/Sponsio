@@ -41,6 +41,12 @@ agents:
       - sponsio:capability/database
       - sponsio:capability/credentials
       - sponsio:incident/claude-code-secret-bypass
+      # Self-modification protection — block agent-mediated edits to
+      # ``~/.sponsio/plugins/_host/sponsio.yaml`` so the agent under
+      # guard cannot weaken or disable the rule about to fire.  The
+      # pack only locks the agent's OWN file; managing sub-agent or
+      # per-plugin libraries stays open (legitimate parental control).
+      - sponsio:capability/self-modify
 
     contracts:
       # ---------- Sensitive-file blocks for Write / Edit / MultiEdit ----------

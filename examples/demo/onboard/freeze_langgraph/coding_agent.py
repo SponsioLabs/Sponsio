@@ -173,34 +173,49 @@ def run_without_guard() -> None:
 
 
 def run_with_guard() -> None:
-    slow_print(f"{BOLD}== Coding Agent under Code Freeze (with Sponsio) =={RESET}")
+    slow_print(f"{BOLD}== Coding Agent under Code Freeze =={RESET}")
 
-    # ─── Onboard patch — applied by `sponsio onboard coding_agent.py` ───
-    # Two lines below are the entire Sponsio integration. Contracts +
-    # tool inventory live in `sponsio.yaml` next to this file.
-    from sponsio.langgraph import Sponsio, ToolCallBlocked
+    # Default: tools fire raw.  The ``sponsio onboard`` block below
+    # rebinds ``tools_by_name`` to the wrapped variant — strip the
+    # patch and the trajectory still runs (unguarded).  ``except
+    # Exception`` covers ``ToolCallBlocked`` (an Exception subclass)
+    # without needing the import in the strip case.
+    tools_by_name = {t.name: t for t in TOOLS}
 
-    config_path = str(Path(__file__).parent / "sponsio.yaml")
-    guard = Sponsio(config=config_path, agent_id="coding_agent", mode="enforce")
-    wrapped_tools = guard.wrap(TOOLS)
-    # ────────────────────────────────────────────────────────────────────
-    #
-    # In a real LangGraph app the next line would be:
-    #
-    #     agent = create_react_agent(model, wrapped_tools)
-    #     agent.invoke({"messages": [("user", "code freeze; refactor UserList")]})
+    # ─── sponsio onboard patch ─────────────────────────────────────
+    # The three lines below are exactly what ``sponsio onboard <path>``
+    # prints as the wrap snippet for LangGraph projects.  Here they
+    # ship in-place so ``python coding_agent.py`` runs guard-wrapped
+    # out of the box; the recording in
+    # ``assets/demos/freeze_onboard.tape`` strips this block at hidden
+    # setup and re-inserts it via ``sed`` on screen so the gif walks
+    # the user journey from naive → integrated.
+    from sponsio.langgraph import Sponsio
 
+    guard = Sponsio(config=str(Path(__file__).parent / "sponsio.yaml"), agent_id="agent")
+    tools_by_name = guard.wrap(TOOLS).tools_by_name
+    # ─── /sponsio onboard patch ────────────────────────────────────
+
+    blocked = False
     for name, args in TRAJECTORY:
         slow_print(f"  {DIM}→ {name}({_fmt_args(args)}){RESET}")
         try:
-            wrapped_tools.tools_by_name[name].invoke(args)
-        except ToolCallBlocked:
+            tools_by_name[name].invoke(args)
+        except Exception:  # noqa: BLE001 — ToolCallBlocked is the catch
+            blocked = True
             break
 
-    slow_print(
-        f"\n{GREEN}{BOLD}✓ Outcome: first destructive SQL blocked immediately. "
-        f"Downstream fabrication + status-report lie never get a chance to fire.{RESET}"
-    )
+    if blocked:
+        slow_print(
+            f"\n{GREEN}{BOLD}✓ Outcome: first destructive SQL blocked immediately. "
+            f"Downstream fabrication + status-report lie never get a chance to fire.{RESET}"
+        )
+    else:
+        slow_print(
+            f"\n{RED}{BOLD}✗ Sponsio did not block — full breach trajectory ran. "
+            f"Check that the wrap patch is in place and `mode: enforce` "
+            f"is set in sponsio.yaml.{RESET}"
+        )
 
 
 def main() -> None:

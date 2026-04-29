@@ -1,0 +1,50 @@
+# Hand-authored guardrails for the wire-transfer demo.
+#
+# Why a separate "curated" file: ``sponsio onboard`` runs LLM
+# extraction against the project's tool inventory, but the cheap
+# default model (``gemini-2.5-flash-lite``) inconsistently misses
+# the contract that's the whole point of this demo — the
+# ``arg_numeric(wire_transfer, amount) <= 50000`` cap.  The bigger
+# ``gemini-2.5-flash`` finds it reliably but takes ~16s vs ~3s on
+# lite, and even then occasionally tags the rule with an over-
+# restrictive ``A:`` assumption that delays activation past the
+# violating call.
+#
+# Real users would either (a) keep regenerating until they're
+# happy with onboard's output, (b) author the rules they care about
+# by hand, or (c) bump to flash + audit.  This file represents (b)
+# so the demo's recording can land a deterministic block; the
+# tape's visible ``cp curated.yaml sponsio.yaml`` step stands in for
+# "now write the rule you actually care about".
+
+version: 1
+
+extractor:
+  provider: gemini
+  model: gemini-2.5-flash-lite
+  api_key: ${GOOGLE_API_KEY}
+
+judge:
+  provider: gemini
+  model: gemini-2.5-flash-lite
+  api_key: ${GOOGLE_API_KEY}
+  fallback_mode: allow
+  circuit_breaker: true
+
+defaults:
+  mode: observe  # observe|enforce — observe = shadow (safe default)
+
+agents:
+  agent:
+    contracts:
+      # ─── hand-authored AP guardrails ──────────────────────────────
+      - desc: "wire_transfer amount must not exceed $50,000"
+        E:
+          ltl: "G((called('wire_transfer') -> (Var('arg_numeric', 'wire_transfer', 'amount') <= 50000)))"
+      - desc: "check_vendor_history must precede every wire_transfer"
+        E:
+          ltl: "((!(called('wire_transfer')) U called('check_vendor_history')) | G(!(called('wire_transfer'))))"
+      - desc: "wire_transfer at most once per session (idempotent)"
+        E:
+          pattern: idempotent
+          args: [wire_transfer]

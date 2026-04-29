@@ -1,0 +1,101 @@
+# =============================================================================
+# sponsio/contracts/capability/filesystem-strict.yaml
+#
+# Capability pack — strict workspace scoping for filesystem tools.  Add
+# alongside ``sponsio:capability/filesystem`` when you want every
+# read/write/edit/apply_patch confined to an explicit workspace
+# prefix.
+#
+# Why this pack is opt-in (not part of the base ``capability/filesystem``):
+#
+#   - These rules require an absolute ``<workspace>/`` placeholder
+#     resolved at load time.  Configs without a ``workspace:`` field
+#     can't satisfy them and produce silent "no path matched"
+#     evaluations on every call.
+#   - Recorded-trajectory demos and replay test fixtures often use
+#     RELATIVE paths (``src/components/UserList.tsx``).  ``scope_limit``
+#     interprets these as outside the workspace, which generates
+#     "WOULD-BLOCK" noise on every benign read in observe mode and
+#     wedges the agent at step 1 in enforce mode.
+#   - For agents whose actual filesystem footprint is broad
+#     (CI/CD pipelines, system-administration assistants, monorepo
+#     refactor tools), workspace scope is wrong-by-design — they
+#     legitimately operate across many directories.
+#
+# In short: the sensitive-path blacklists in the base pack are the
+# universal "every agent needs this" rules.  Workspace scoping is
+# the opinionated "I know my agent stays in one tree" addition.
+# Include this pack when (a) your agent does stay in one tree AND
+# (b) your traces use absolute paths under that tree.
+#
+# Include via:
+#   include:
+#     - sponsio:capability/filesystem        # base — credential blacklists
+#     - sponsio:capability/filesystem-strict # this pack — workspace scope
+#
+# Source tag convention:
+#   library:tier1.filesystem-strict
+# =============================================================================
+
+version: "1"
+
+agents:
+  "*":
+    contracts:
+
+      # =================================================================
+      # Workspace scoping — writes / edits / apply_patch.
+      #
+      # ``<workspace>/`` is a literal placeholder.  The integration
+      # layer (or a hand-edited config) substitutes the actual root
+      # before load.  Without resolution, scope_limit on relative
+      # paths is a silent always-pass.
+      # =================================================================
+
+      - desc: "Writes restricted to workspace"
+        E:
+          pattern: scope_limit
+          args:
+            - write
+            - ["<workspace>/"]
+          source: "library:tier1.filesystem-strict"
+
+      - desc: "In-place edits restricted to workspace"
+        E:
+          pattern: scope_limit
+          args:
+            - edit
+            - ["<workspace>/"]
+          source: "library:tier1.filesystem-strict"
+
+      - desc: "Patch application restricted to workspace"
+        E:
+          pattern: scope_limit
+          args:
+            - apply_patch
+            - ["<workspace>/"]
+          source: "library:tier1.filesystem-strict"
+
+      # Read scope is broader than write scope: agents legitimately
+      # inspect system state (/etc/hosts, /var/log/*), link headers
+      # (/usr/include/), and read stdlib for grounding.  The
+      # sensitive-path blacklist in the base ``filesystem`` pack
+      # keeps secrets hard-denied under any of these roots.
+      - desc: "Reads restricted to workspace, /tmp, and read-only system paths"
+        E:
+          pattern: scope_limit
+          args:
+            - read
+            - - "<workspace>/"
+              - "/tmp/"
+              - "/etc/"
+              - "/var/log/"
+              - "/usr/include/"
+              - "/usr/local/include/"
+              - "/usr/lib/"
+              - "/usr/local/lib/"
+              - "/usr/share/"
+              - "/opt/"
+              - "/proc/"
+              - "/sys/"
+          source: "library:tier1.filesystem-strict"

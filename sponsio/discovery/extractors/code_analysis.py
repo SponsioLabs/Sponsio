@@ -138,6 +138,19 @@ _DATA_SOURCE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Anchored at the start of the tool name — used to gate the
+# ``idempotent`` heuristics so a read-shaped tool whose name happens to
+# contain a financial / destructive noun (``read_invoice``,
+# ``list_transfers``) doesn't get an at-most-once-per-session cap that
+# would block the user from listing the same data twice.  A read on a
+# financial entity is not the action the heuristic is trying to bound;
+# the corresponding *write* is.
+_NAME_LEADING_READ_RE = re.compile(
+    r"^(?:get|fetch|read|query|list|describe|select|lookup|search|"
+    r"load|export|view|show|find|count|check|inspect|preview|pull|peek)",
+    re.IGNORECASE,
+)
+
 
 _CAMEL_SPLIT_RE = re.compile(
     # Insert a space between:
@@ -186,6 +199,11 @@ def _is_destructive(tool: "ToolInfo") -> bool:
 
 def _is_financial(tool: "ToolInfo") -> bool:
     return bool(_FINANCIAL_RE.search(_tool_text(tool)))
+
+
+def _name_is_data_source(name: str) -> bool:
+    """True iff the tool name leads with a read-shaped verb token."""
+    return bool(_NAME_LEADING_READ_RE.match(name))
 
 
 def _is_confirm(tool: "ToolInfo") -> bool:
@@ -1278,6 +1296,12 @@ class CodeAnalyzer:
         for tool in tools:
             if not _is_financial(tool):
                 continue
+            # ``read_invoice`` / ``list_transfers`` etc. — the financial
+            # noun is in the name but the verb is a read.  Idempotency is
+            # the wrong cap for reads; the corresponding write tool gets
+            # this rule via _gen_destructive_idempotent if it exists.
+            if _name_is_data_source(tool.name):
+                continue
             results.append(
                 ProposedConstraint(
                     formula=idempotent(tool.name),
@@ -1326,6 +1350,10 @@ class CodeAnalyzer:
                 # Let ``_gen_financial_idempotent`` own the contract for
                 # verbs like ``transfer`` / ``chargeback`` that sit in
                 # both sets — its nl_description is more informative.
+                continue
+            # Skip read-shaped names that happen to contain a destructive
+            # noun (``list_deletions``, ``view_dropped_tables``).
+            if _name_is_data_source(tool.name):
                 continue
             results.append(
                 ProposedConstraint(
@@ -1777,12 +1805,39 @@ class CodeAnalyzer:
             )
         else:
             lines.append("    contracts:")
-            for p in sorted(proposals, key=lambda x: -x.confidence):
-                confidence_tag = ""
-                if p.confidence < 0.9:
+
+            # Stable sort key: confidence (desc) → pattern name → arg
+            # signature.  Keeps the YAML diff-friendly across re-runs of
+            # the same input — without the secondary keys, two
+            # 0.50-confidence proposals could swap places between runs
+            # purely on dict-iteration order, polluting code review.
+            def _sort_key(p):
+                pat = p.formula.pattern_name if p.formula else ""
+                args = (
+                    p.evidence.get("args", []) if isinstance(p.evidence, dict) else []
+                )
+                arg_str = (
+                    "|".join(str(a) for a in args)
+                    if isinstance(args, list)
+                    else str(args)
+                )
+                return (-p.confidence, pat, arg_str)
+
+            for p in sorted(proposals, key=_sort_key):
+                # Confidence-tag policy: hide the bare number for
+                # everything below 0.6 (it's just visual noise — every
+                # starter-pack rule lands at 0.50) and replace it with a
+                # ``# review`` flag that signals the rule is a candidate
+                # for trimming, not a calibrated probability.  Mid-range
+                # rules (0.6 – 0.89) keep the number because the gap
+                # between 0.6 and 0.89 carries actual signal.  High-
+                # confidence rules (>= 0.9) get no tag at all.
+                if p.confidence >= 0.9:
+                    confidence_tag = ""
+                elif p.confidence >= 0.6:
                     confidence_tag = f"  # confidence: {p.confidence:.2f}"
-                if p.confidence < 0.5:
-                    confidence_tag += " — review recommended"
+                else:
+                    confidence_tag = "  # review"
 
                 src_label = ""
                 if p.extractor:

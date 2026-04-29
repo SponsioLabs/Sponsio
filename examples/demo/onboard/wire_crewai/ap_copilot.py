@@ -127,36 +127,54 @@ def run_without_guard() -> None:
 
 
 def run_with_guard() -> None:
-    slow_print(f"{BOLD}== AP (Accounts Payable) Copilot (with Sponsio) =={RESET}")
+    slow_print(f"{BOLD}== AP (Accounts Payable) Copilot =={RESET}")
 
-    # ─── Onboard patch — applied by `sponsio onboard ap_copilot.py` ─────
-    # Two lines below are the entire Sponsio integration. Contracts +
-    # tool inventory live in `sponsio.yaml` next to this file.
+    # Default: tools fire raw.  ``TOOLS`` is a list of plain Python
+    # functions (not CrewAI BaseTool yet), so we wrap each in a tiny
+    # shim that exposes ``._run(**kwargs)`` — same call shape the
+    # crewai-wrapped variant has, so the trajectory loop below can
+    # invoke either form without branching.
+    from types import SimpleNamespace as _NS
+
+    tools_by_name = {f.__name__: _NS(name=f.__name__, _run=f) for f in TOOLS}
+
+    # ─── sponsio onboard patch ─────────────────────────────────────
+    # The three lines below are what ``sponsio onboard <path>`` prints
+    # as the wrap snippet for CrewAI projects (real apps would do
+    # ``crew = guard.wrap(crew)``; we adapt to the trajectory-replay
+    # shape by indexing the wrapped tools by name).  The recording in
+    # ``assets/demos/wire_onboard.tape`` strips this block at hidden
+    # setup and re-inserts it via ``sed`` on screen.
     from sponsio.crewai import Sponsio
 
-    config_path = str(Path(__file__).parent / "sponsio.yaml")
-    guard = Sponsio(config=config_path, agent_id="ap_copilot", mode="enforce")
-    wrapped_tools = {t.name: t for t in guard.wrap(TOOLS)}
-    # ────────────────────────────────────────────────────────────────────
-    #
-    # In a real CrewAI app the next line would be:
-    #
-    #     ap_agent = Agent(role="AP Copilot", tools=list(wrapped_tools.values()), ...)
-    #     Crew(agents=[ap_agent], tasks=[...]).kickoff()
-    #
-    # We skip the LLM-driven Crew loop and replay the recorded trajectory
-    # through the same wrapped tools.
+    guard = Sponsio(config=str(Path(__file__).parent / "sponsio.yaml"), agent_id="agent")
+    tools_by_name = {t.name: t for t in guard.wrap(TOOLS)}
+    # ─── /sponsio onboard patch ────────────────────────────────────
 
+    blocked = False
     for name, args in TRAJECTORY:
         slow_print(f"  {DIM}→ {name}({_fmt_args(args)}){RESET}")
-        result = wrapped_tools[name]._run(**args)
+        # CrewAI's BaseTool calls ``_run`` for the inner invocation
+        # path.  The Sponsio wrapper returns "BLOCKED by contract: …"
+        # on a contract violation rather than raising, so we sniff
+        # the return value to short-circuit (this is the crewai
+        # adapter's documented blocking behaviour, not a demo hack).
+        result = tools_by_name[name]._run(**args)
         if isinstance(result, str) and result.startswith("BLOCKED by contract"):
+            blocked = True
             break
 
-    slow_print(
-        f"\n{GREEN}{BOLD}✓ Outcome: wire blocked on multiple fronts — "
-        f"exceeds $50k cap, no compliance_approve, no confirm_wire_transfer.{RESET}"
-    )
+    if blocked:
+        slow_print(
+            f"\n{GREEN}{BOLD}✓ Outcome: wire blocked on multiple fronts — "
+            f"exceeds $50k cap, no compliance_approve, no confirm_wire_transfer.{RESET}"
+        )
+    else:
+        slow_print(
+            f"\n{RED}{BOLD}✗ Sponsio did not block — full breach trajectory ran. "
+            f"Check that the wrap patch is in place and `mode: enforce` "
+            f"is set in sponsio.yaml.{RESET}"
+        )
 
 
 def main() -> None:

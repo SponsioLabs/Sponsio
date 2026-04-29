@@ -8,17 +8,16 @@ extractor:
   api_key: ${GOOGLE_API_KEY}
 
 # Runtime sto-judge (evaluates stochastic atoms like `injection_free`)
-# on the agent's hot path.  Favour cheap+fast model; fault tolerance
-# matters because LLM outages must NOT cascade into agent outages.
+# on the agent's hot path.
 judge:
   provider: gemini
   model: gemini-2.5-flash
   api_key: ${GOOGLE_API_KEY}
-  fallback_mode: allow  # allow|deny|skip on judge failure
+  fallback_mode: allow
   circuit_breaker: true
 
 defaults:
-  mode: observe  # observe|enforce — observe = shadow (safe default)
+  mode: enforce  # observe|enforce — observe = shadow (safe default)
 
 tools:
   - name: list_invoices
@@ -38,38 +37,33 @@ tools:
     params: "output_path: str"
 
 agents:
-  ap_copilot:
-    # Auto-selected contract packs.  Each pack ships a curated set
-    # of rules; use `overrides:` below to disable individual ones
-    # without forking the pack.
-    include:
-      - sponsio:core/universal  # universal: applies to every LLM agent
-
+  agent:
     contracts:
-      - A:  # confidence: 0.80
-          ltl: "called('wire_transfer')"
+      # Four rules lifted from policy.md.  The amount cap is the
+      # primary block point on the recorded breach trajectory
+      # ($847k ≫ $50k); the must-precede + idempotent + rate-limit
+      # rules form the secondary safety net.
+
+      - desc: "wire_transfer.amount must not exceed $50,000 USD"
         E:
-          ltl: "((!(called('wire_transfer')) U called('read_invoice')) | G(!(called('wire_transfer'))))"
-          source: scan
-      - A:  # confidence: 0.80
-          ltl: "called('wire_transfer')"
+          pattern: arg_value_range
+          args: [wire_transfer, amount, 0, 50000]
+        source: agent-extracted
+
+      - desc: "check_vendor_history must precede every wire_transfer"
         E:
-          ltl: "((!(called('wire_transfer')) U called('check_vendor_history')) | G(!(called('wire_transfer'))))"
-          source: scan
-      - E:  # confidence: 0.50
-          pattern: idempotent
-          args: [read_invoice]
-          source: scan
-      - E:  # confidence: 0.50
+          pattern: must_precede
+          args: [check_vendor_history, wire_transfer]
+        source: agent-extracted
+
+      - desc: "wire_transfer at most once per session (idempotent disbursement)"
+        E:
           pattern: idempotent
           args: [wire_transfer]
-          source: scan
-      - E:  # confidence: 0.50
-          ltl: "G((called('wire_transfer') -> ((0 <= Var('arg_numeric', 'wire_transfer', 'amount')) & (Var('arg_numeric', 'wire_transfer', 'amount') <= 50000))))"
-          source: scan
-      - E:  # confidence: 0.50
-          ltl: "G((Var('count', 'wire_transfer') <= 5))"
-          source: scan
-      - E:  # confidence: 0.50
-          ltl: "G((called('generate_report') -> arg_paths_within('generate_report', '/reports/')))"
-          source: scan
+        source: agent-extracted
+
+      - desc: "wire_transfer rate-limited to 5 calls per session"
+        E:
+          pattern: rate_limit
+          args: [wire_transfer, 5]
+        source: agent-extracted

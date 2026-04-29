@@ -1979,6 +1979,13 @@ def scan(
 ):
     """Scan source code, policy docs, and traces to propose contracts.
 
+    For first-time setup, prefer ``sponsio onboard`` — it composes
+    framework detection + scan + ``init``-style provider config +
+    ``doctor`` health checks into a single command.  ``scan`` is the
+    library-maintenance tool you reach for *after* you have a
+    ``sponsio.yaml``: re-mine contracts from new code, append from
+    a policy doc, or pull in trace-derived ordering rules.
+
     Analyzes tool definitions, decorators, and call patterns to infer
     safety constraints. Optionally extracts constraints from policy
     documents (.md/.txt) using the discovered tool inventory as context,
@@ -4062,6 +4069,20 @@ def onboard(
     from sponsio.onboard import OnboardReport, run_onboard
     from sponsio.runtime.spinner import Spinner
 
+    # Branded header — same `━━━ ◒◓ sponsio ━━━` shape the runtime
+    # contract banner uses (sponsio/runtime/terminal.py), so users
+    # see the product wordmark from the moment onboard starts.
+    # Skipped on the non-interactive structured-output paths (--json,
+    # --emit-context) so consumers parsing stdout don't have to sed
+    # past it.
+    if not as_json and not emit_context:
+        click.secho(
+            "\n  ━━━ ◒◓ sponsio onboard "
+            + "━" * 28,
+            dim=True,
+            err=True,
+        )
+
     # One spinner per command — long-wait emits (``…``-suffixed) start
     # it, the next emit (or the final ``stop()`` after run_onboard)
     # cleans up.  Skipped silently when stderr isn't a TTY, so CI / pipe
@@ -4365,6 +4386,42 @@ def onboard(
             "  framework + LLM config — edit this file to change "
             "framework / model / api_key_env"
         )
+        # Best-effort .gitignore hint: only fire when sponsiorc is in
+        # a git repo AND `.sponsiorc` isn't already covered by the
+        # existing rules.  Avoids nagging users who already gitignore'd
+        # it (or who deliberately track it for team-wide config).
+        try:
+            rc_dir = sponsiorc_path.parent
+            git_root = rc_dir
+            for _ in range(8):  # walk up to 8 levels — plenty for a repo
+                if (git_root / ".git").exists():
+                    break
+                if git_root.parent == git_root:
+                    git_root = None  # type: ignore[assignment]
+                    break
+                git_root = git_root.parent
+            else:
+                git_root = None
+            if git_root is not None:
+                gitignore = git_root / ".gitignore"
+                already_ignored = False
+                if gitignore.is_file():
+                    ignore_text = gitignore.read_text(encoding="utf-8")
+                    for line in ignore_text.splitlines():
+                        s = line.strip()
+                        if s and not s.startswith("#"):
+                            if s in {".sponsiorc", "**/.sponsiorc", "*.sponsiorc"}:
+                                already_ignored = True
+                                break
+                if not already_ignored:
+                    click.secho(
+                        "  tip: add `.sponsiorc` to .gitignore "
+                        "(holds local model / api_key_env hints)",
+                        fg="cyan",
+                        dim=True,
+                    )
+        except OSError:
+            pass
     # No-key warning — fires when the user picked a provider that
     # needs a key but the env var isn't actually set, or when
     # provider==none (so onboard fell back to the name-heuristic
@@ -4438,11 +4495,69 @@ def onboard(
                 source_paths=[str(target)],
             )
 
+    # Optional immediate flip-to-enforce prompt.  Onboard always
+    # writes ``mode: observe`` by default — that's the safe path for
+    # teams who want a soak period.  But some users (CI hardening
+    # workflows, demo recordings, "I already ran the agent and know
+    # the contracts are right") want enforce on day 1.  Asking here
+    # turns "remember to sed the yaml later" into one keystroke.
+    #
+    # Skipped when:
+    #   - non-interactive (no TTY / --no-interactive / --json /
+    #     --emit-context — prompts would corrupt structured output)
+    #   - the user already chose ``--mode enforce`` (no point asking
+    #     a question they answered on the command line)
+    #   - run_onboard didn't actually produce a report (early-exit
+    #     paths above)
+    if (
+        report is not None
+        and is_interactive
+        and not as_json
+        and not emit_context
+        and report.mode == "observe"
+    ):
+        click.echo()
+        flip = click.confirm(
+            click.style(
+                "Mode is `observe` (shadow). Flip to `enforce` now?",
+                bold=True,
+            ),
+            default=False,
+            show_default=True,
+        )
+        if flip:
+            try:
+                yaml_text = report.out_path.read_text(encoding="utf-8")
+                # Match only the canonical ``defaults.mode:`` line we
+                # write — never touch ``mode:`` strings inside contract
+                # descriptions or comments.
+                new_yaml, n = re.subn(
+                    r"^(\s*mode:\s*)observe(\s*(?:#.*)?)$",
+                    r"\1enforce\2",
+                    yaml_text,
+                    count=1,
+                    flags=re.MULTILINE,
+                )
+                if n > 0:
+                    report.out_path.write_text(new_yaml, encoding="utf-8")
+                    click.secho(
+                        f"  ✓ flipped {report.out_path} → mode: enforce",
+                        fg="green",
+                    )
+                else:
+                    click.secho(
+                        "  ✗ couldn't locate `mode:` line — leave observe "
+                        "and edit by hand",
+                        fg="yellow",
+                    )
+            except OSError as e:
+                click.secho(f"  ✗ could not rewrite {report.out_path}: {e}", fg="red")
+
     click.echo()
     click.echo("Next:")
     click.echo("  sponsio report --since 24h            # what would have been blocked")
     click.echo(
-        "  # after a day or two of real traffic, flip `mode: enforce` in sponsio.yaml"
+        "  sponsio mode enforce                  # one-shot flip when you're ready"
     )
     click.echo()
 
@@ -4459,6 +4574,66 @@ def onboard(
 # host agent (Claude Code, Cursor, Codex) can apply the prompt in its own
 # LLM context against the JSON emitted by ``sponsio onboard --emit-context``
 # or ``sponsio refresh --emit-traces``.
+
+
+@cli.command(name="mode")
+@click.argument(
+    "target_mode",
+    metavar="MODE",
+    type=click.Choice(["observe", "enforce"]),
+)
+@click.option(
+    "--config",
+    "-c",
+    "config_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=Path("sponsio.yaml"),
+    show_default=True,
+    help="Path to the sponsio.yaml whose mode should be flipped.",
+)
+def cmd_mode(target_mode: str, config_path: Path):
+    """Flip a sponsio.yaml between `observe` and `enforce` in one shot.
+
+    The expected workflow is:
+
+    \b
+        sponsio onboard .            # writes sponsio.yaml in observe
+        # ...soak in observe for a day or two, watch `sponsio report`...
+        sponsio mode enforce         # one-line flip when you're ready
+
+    Edits the ``defaults.mode:`` line in place; comments around it
+    survive untouched.  If the line isn't found, exits non-zero so
+    CI scripts catch a malformed config rather than silently no-op.
+    """
+    text = config_path.read_text(encoding="utf-8")
+    new_text, n = re.subn(
+        r"^(\s*mode:\s*)(observe|enforce)(\s*(?:#.*)?)$",
+        lambda m: f"{m.group(1)}{target_mode}{m.group(3)}",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if n == 0:
+        click.echo(
+            click.style(
+                f"✗ no `mode:` line found in {config_path} — edit by hand or "
+                "re-run `sponsio onboard --force`",
+                fg="red",
+            ),
+            err=True,
+        )
+        raise SystemExit(1)
+    if new_text == text:
+        click.echo(
+            click.style(
+                f"✓ {config_path} is already `mode: {target_mode}` (no change)",
+                fg="green",
+                dim=True,
+            )
+        )
+        return
+    config_path.write_text(new_text, encoding="utf-8")
+    click.echo(click.style("✓ ", fg="green") + f"{config_path} → mode: {target_mode}")
 
 
 @cli.command(name="prompt")

@@ -1,0 +1,124 @@
+# =============================================================================
+# sponsio/contracts/capability/self-modify.yaml
+#
+# Capability pack — self-modification protection for the host agent.
+# Include in your host library (default ``_host``) so the agent
+# under guard cannot weaken or disable the very contracts about to
+# block its next call.
+#
+# Threat model:
+#
+# An agent that can edit its own ``~/.sponsio/plugins/_host/sponsio.yaml``
+# can append an ``overrides:`` block to disable the rule about to
+# fire against it.  This is privilege escalation by self-rewriting:
+# the safety mechanism becomes the agent's own debuggable resource.
+# Observed in the wild during the development of this very pack —
+# the host agent (Claude Code in auto mode) attempted to add an
+# ``overrides`` block to disable a Bash rate_limit that had just
+# blocked it.  Caught by Claude Code's harness-level meta-deny that
+# time, but a sponsio-native rule is the right defense — it travels
+# with the user's config to any host (Cursor, Codex, custom MCP).
+#
+# What this pack denies:
+#   - Edit / Write / MultiEdit on the host's OWN guard config:
+#     ``~/.sponsio/plugins/_host/sponsio.yaml``
+#
+# What this pack does NOT deny:
+#   - Edits to sub-agent libraries (``_host_subagent/``,
+#     ``_host_openclaw/``).  The host SHOULD be able to manage its
+#     children's policy — that's a legitimate parental relationship,
+#     not self-modification.
+#   - Edits to per-plugin libraries (``<plugin-id>/sponsio.yaml``).
+#     The host installing or tuning a plugin's contracts is normal
+#     ``sponsio plugin scan`` workflow.
+#   - Edits to the project's own ``sponsio.yaml`` (the one
+#     ``sponsio onboard`` writes into the user's repo).  That file
+#     IS supposed to evolve — onboard / scan / refresh all rewrite
+#     it.  Locking it would break the core happy path.
+#   - Direct edits via the user's IDE, terminal, or
+#     ``sponsio plugin init`` CLI — those don't go through the
+#     ``Edit`` / ``Write`` tool surface that this pack inspects.
+#     The legitimate path for "I really do want to change this"
+#     stays open; only the agent-mediated path is closed.
+#
+# Pair with: ``sponsio:incident/subagent-escape`` for the matching
+# subagent-side rule (sub-agents can't reach UP into the parent's
+# config tree at all).
+#
+# Include via:
+#   include:
+#     - sponsio:capability/self-modify
+#
+# Source tag convention:
+#   library:tier1.self-modify
+# =============================================================================
+
+version: "1"
+
+agents:
+  "*":
+    contracts:
+
+      # =================================================================
+      # § 1 — No agent-mediated Edit of own host guard config
+      # =================================================================
+
+      - desc: "Host agent must not edit its own sponsio guard config"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Edit
+            - file_path
+            # Anchored on the literal ``_host/sponsio.yaml`` slot; the
+            # leading ``(^|/)`` lets relative paths match too in case
+            # the agent CWD has wandered.  Sibling slots
+            # (``_host_subagent``, ``_host_openclaw``,
+            # ``<plugin-id>``) deliberately don't match.
+            - - "(^|/)\\.sponsio/plugins/_host/sponsio\\.yaml$"
+          source: "library:tier1.self-modify"
+
+      # =================================================================
+      # § 2 — No agent-mediated Write of own host guard config
+      # =================================================================
+      #
+      # ``Write`` is the "create or overwrite whole file" tool —
+      # blocking it shuts the "delete the file then re-create with
+      # rules removed" workaround a pure ``Edit`` block would leave
+      # open.
+
+      - desc: "Host agent must not overwrite its own sponsio guard config"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Write
+            - file_path
+            - - "(^|/)\\.sponsio/plugins/_host/sponsio\\.yaml$"
+          source: "library:tier1.self-modify"
+
+      # =================================================================
+      # § 3 — No agent-mediated MultiEdit of own host guard config
+      # =================================================================
+
+      - desc: "Host agent must not multi-edit its own sponsio guard config"
+        E:
+          pattern: arg_blacklist
+          args:
+            - MultiEdit
+            - file_path
+            - - "(^|/)\\.sponsio/plugins/_host/sponsio\\.yaml$"
+          source: "library:tier1.self-modify"
+
+# -----------------------------------------------------------------------------
+# Integration requirements
+# -----------------------------------------------------------------------------
+#
+# - Path matching is regex on the file_path arg.  Hosts whose Edit /
+#   Write / MultiEdit tool uses a different param name will need a
+#   per-host adjustment (Claude Code uses ``file_path`` — handled).
+#
+# - The ``"*"`` agent scope means these rules apply to every agent
+#   in any library that includes this pack.  In practice the only
+#   include site is ``_host`` (the main session) — a sub-agent
+#   trying to touch this same file is covered by the broader
+#   ``sponsio:incident/subagent-escape`` pack, which denies the
+#   ENTIRE ``~/.sponsio/`` tree to sub-agents.

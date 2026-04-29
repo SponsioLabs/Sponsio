@@ -8,17 +8,16 @@ extractor:
   api_key: ${GOOGLE_API_KEY}
 
 # Runtime sto-judge (evaluates stochastic atoms like `injection_free`)
-# on the agent's hot path.  Favour cheap+fast model; fault tolerance
-# matters because LLM outages must NOT cascade into agent outages.
+# on the agent's hot path.
 judge:
   provider: gemini
   model: gemini-2.5-flash
   api_key: ${GOOGLE_API_KEY}
-  fallback_mode: allow  # allow|deny|skip on judge failure
+  fallback_mode: allow
   circuit_breaker: true
 
 defaults:
-  mode: observe  # observe|enforce — observe = shadow (safe default)
+  mode: enforce  # observe|enforce — observe = shadow (safe default)
 
 tools:
   - name: user_instruction
@@ -47,74 +46,45 @@ tools:
     params: "summary: str"
 
 agents:
-  coding_agent:
-    # Project root — resolves the `<workspace>/` placeholder
-    # used by the filesystem pack rules below.  Edit if your
-    # agent runs from a different directory at deploy time.
-    workspace: "/Users/yifengxiao/Documents/Sponsio/examples/demo/onboard/freeze_langgraph"
-
-    # Maps the packs' canonical tool names onto the names your
-    # codebase actually uses.  Pre-populated from the scanned
-    # tool inventory; remove an entry if it's wrong.
-    tool_rename:
-      read: read_file
-      edit: edit_file
-
-    # Auto-selected contract packs.  Each pack ships a curated set
-    # of rules; use `overrides:` below to disable individual ones
-    # without forking the pack.
-    include:
-      - sponsio:core/universal  # universal: applies to every LLM agent
-      # capability/filesystem auto-included by onboard removed for demo —
-      # its workspace-scope rule blocks the trajectory at step 3
-      # (`read_file('src/...')`) before reaching the scenario's
-      # destructive-SQL block at step 7.  Re-enable for production.
-
+  agent:
     contracts:
-      - A:
-          ltl: "F(arg_field_has('user_instruction', 'message', \"freeze|don''t\\\\s+touch|no\\\\s+changes|do\\\\s+not\\\\s+modify\"))"
+      # Five rules lifted from policy.md.  Four are assume/guarantee
+      # pairs — they activate only when their precondition holds, so
+      # benign agents that never declare a freeze / never connect to
+      # prod don't trip them.  The simpler rate-limit rule is
+      # unconditional.
+
+      - desc: "code freeze: no destructive SQL"
+        A:
+          ltl: 'F(arg_field_has(user_instruction, message, "freeze|don.t\\s+touch|no\\s+changes|do\\s+not\\s+modify"))'
         E:
-          ltl: "G(!(arg_field_has('execute_sql', 'query', '\\\\b(DROP|DELETE|TRUNCATE|ALTER)\\\\b')))"
-          source: scan
-      - A:
-          ltl: "F(arg_field_has('execute_sql', 'query', '\\\\b(DROP|DELETE|TRUNCATE)\\\\b'))"
+          ltl: 'G(!arg_field_has(execute_sql, query, "\\b(DROP|DELETE|TRUNCATE|ALTER)\\b"))'
+        source: agent-extracted
+
+      - desc: "after destructive SQL, escalate to a human before any status report"
+        A:
+          ltl: 'F(arg_field_has(execute_sql, query, "\\b(DROP|DELETE|TRUNCATE)\\b"))'
         E:
-          ltl: "((!(called('generate_status_report')) U called('escalate_to_human')) | G(!(called('generate_status_report'))))"
-          source: scan
-      - A:
-          ltl: "F(arg_field_has('execute_sql', 'query', '\\\\b(DELETE|DROP|TRUNCATE)\\\\b'))"
+          pattern: must_precede
+          args: [escalate_to_human, generate_status_report]
+        source: agent-extracted
+
+      - desc: "no INSERT after a destructive op (blocks silent reconstruction from memory)"
+        A:
+          ltl: 'F(arg_field_has(execute_sql, query, "\\b(DELETE|DROP|TRUNCATE)\\b"))'
         E:
-          ltl: "G(!(arg_field_has('execute_sql', 'query', '\\\\bINSERT\\\\b')))"
-          source: scan
-      - A:
-          ltl: "F(arg_field_has('connect_db', 'database', 'production|prod|main_prod'))"
+          ltl: 'G(!arg_field_has(execute_sql, query, "\\bINSERT\\b"))'
+        source: agent-extracted
+
+      - desc: "prod-scoped SQL must be read-only (SELECT / EXPLAIN / SHOW / DESCRIBE)"
+        A:
+          ltl: 'F(arg_field_has(connect_db, database, "production|prod|main_prod"))'
         E:
-          ltl: "G((called('execute_sql') -> arg_field_has('execute_sql', 'query', '^\\\\s*(SELECT|EXPLAIN|SHOW|DESCRIBE)\\\\b')))"
-          source: scan
-      - E:
-          ltl: "G((Var('count', 'execute_sql') <= 50))"
-          source: scan
-      - E:  # confidence: 0.50
-          pattern: arg_blacklist
-          args: [read_file, path, ["\\.\\./", "~/\\.ssh/", "^/etc/(?:passwd|shadow|sudoers)", "^/proc/", "^/sys/", "\\.aws/credentials"]]
-          source: scan
-      - E:  # confidence: 0.50
-          pattern: arg_blacklist
-          args: [edit_file, path, ["\\.\\./", "~/\\.ssh/", "^/etc/(?:passwd|shadow|sudoers)", "^/proc/", "^/sys/", "\\.aws/credentials"]]
-          source: scan
-      - E:  # confidence: 0.45 — review recommended
-          pattern: arg_length_limit
-          args: [user_instruction, message, 100000]
-          source: scan
-      - E:  # confidence: 0.45 — review recommended
-          pattern: arg_length_limit
-          args: [execute_sql, query, 1000]
-          source: scan
-      - E:  # confidence: 0.45 — review recommended
-          pattern: arg_length_limit
-          args: [escalate_to_human, summary, 5000]
-          source: scan
-      - E:  # confidence: 0.45 — review recommended
-          pattern: arg_length_limit
-          args: [generate_status_report, summary, 5000]
-          source: scan
+          ltl: 'G(called(execute_sql) -> arg_field_has(execute_sql, query, "^\\s*(SELECT|EXPLAIN|SHOW|DESCRIBE)\\b"))'
+        source: agent-extracted
+
+      - desc: "execute_sql limited to 50 invocations (no SQL flood)"
+        E:
+          pattern: rate_limit
+          args: [execute_sql, 50]
+        source: agent-extracted
