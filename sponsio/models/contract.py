@@ -306,7 +306,16 @@ class Contract:
                 return None
             if not nl:
                 return None
+            # ``desc`` is normally a string but YAML round-trips can
+            # surface a list (e.g. ``args: [...]`` mis-parsed as desc on
+            # malformed entries) — coerce so the dedup against ``nl``
+            # below doesn't crash with `'list' object has no attribute
+            # 'strip'`.  Best-effort: stringify, falling back to "".
             desc = getattr(item, "desc", "") or ""
+            if isinstance(desc, list):
+                desc = " ".join(str(x) for x in desc)
+            elif not isinstance(desc, str):
+                desc = str(desc)
             if nl == desc.strip():
                 return None
             return f"{bar} {blank}{_ansi(_DIM, f'compiled: {nl}', colorize)}"

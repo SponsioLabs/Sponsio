@@ -142,13 +142,20 @@ class TestSelectPacks:
         if tool_name != expected_canonical:
             assert sel.tool_rename[expected_canonical] == tool_name
 
-    def test_fs_pack_sets_needs_workspace(self):
-        """Filesystem pack uses ``<workspace>/`` placeholders, so the
-        host config must set ``workspace:``.  Bundling the signal with
-        the pack pick saves the caller from reasoning about which
-        packs touch which features."""
+    def test_fs_pack_does_not_set_needs_workspace(self):
+        """Auto-include of the base ``capability/filesystem`` pack does
+        NOT require a workspace.  The workspace-using rules (which had
+        ``<workspace>/`` placeholders) were split into the opt-in
+        ``capability/filesystem-strict`` pack — auto-include stays
+        with credential blacklists + ordering rules that don't need
+        a workspace.  This pin protects against re-auto-including the
+        strict pack and re-introducing the false-positive trace
+        noise on relative-path agent traces.
+        """
         sel = select_packs("openai", _t("read_file"))
-        assert sel.needs_workspace is True
+        assert "sponsio:capability/filesystem" in sel.packs
+        assert "sponsio:capability/filesystem-strict" not in sel.packs
+        assert sel.needs_workspace is False
 
     def test_combined_shell_and_fs(self):
         """A typical coding-agent project has both shell and fs tools
@@ -373,45 +380,42 @@ class TestRunOnboardAutoSelect:
         # loop_detection / global token_budget defaults).
         assert len(cfg.agents["agent"].contracts) >= 25
 
-    def test_workspace_resolves_in_emitted_yaml(
+    def test_filesystem_pack_auto_included_without_workspace(
         self, langgraph_project_with_capabilities
     ):
-        """The workspace placeholder gets resolved in pulled-in
-        contracts at load time — the proof that the
-        ``workspace: ...`` we emit is the right path."""
+        """Auto-onboarding pulls in the base ``capability/filesystem``
+        pack when fs-shaped tools are present — but does NOT
+        auto-include ``capability/filesystem-strict``.
+
+        The strict pack carries the workspace-using ``scope_limit``
+        rules, which (a) require an absolute workspace prefix and
+        (b) false-positive on relative-path agent traces.  Users who
+        want strict workspace bounding opt in by hand; the auto-
+        select stays with the universal credential-blacklist rules
+        in the base pack.
+
+        This test pins the split: base pack auto-included, strict
+        pack not.
+        """
         out = run_onboard(
             langgraph_project_with_capabilities,
             probe_ollama=False,
             run_doctor=False,
             force=True,
         )
-        assert out.pack_selection.needs_workspace
+        assert "sponsio:capability/filesystem" in out.pack_selection.packs
+        assert (
+            "sponsio:capability/filesystem-strict" not in out.pack_selection.packs
+        ), "strict pack must remain opt-in"
         cfg = load_config(langgraph_project_with_capabilities / "sponsio.yaml")
-        # Find any contract from the filesystem pack with a path arg
-        # and confirm <workspace>/ was substituted.
+        # Base fs pack still contributed contracts (credential
+        # blacklists, must_precede, etc.).
         fs_contracts = [
             c
             for c in cfg.agents["agent"].contracts
             if c.pack_source == "sponsio:capability/filesystem"
         ]
-        assert fs_contracts, "filesystem pack should have contributed contracts"
-        # At least one fs contract has args mentioning the resolved root
-        ws = str(langgraph_project_with_capabilities.resolve())
-        any_resolved = False
-        for c in fs_contracts:
-            e = (
-                c.enforcement
-                if not isinstance(c.enforcement, list)
-                else c.enforcement[0]
-            )
-            for a in e.args or []:
-                if isinstance(a, list):
-                    for s in a:
-                        if isinstance(s, str) and s.startswith(ws):
-                            any_resolved = True
-        assert any_resolved, (
-            "expected at least one fs contract arg to start with the resolved workspace path"
-        )
+        assert fs_contracts, "base filesystem pack should have contributed contracts"
 
     def test_to_dict_includes_packs_section(self, langgraph_project_with_capabilities):
         """``--json`` shape: callers reading the JSON output (CI
@@ -425,6 +429,10 @@ class TestRunOnboardAutoSelect:
         )
         d = out.to_dict()
         assert "packs" in d
-        assert d["packs"]["needs_workspace"] is True
+        # Base ``capability/filesystem`` no longer carries
+        # ``<workspace>/`` placeholders, so auto-onboarding doesn't
+        # demand a workspace.  Users opt into ``filesystem-strict``
+        # (which does need workspace) by hand.
+        assert d["packs"]["needs_workspace"] is False
         assert "sponsio:core/universal" in d["packs"]["selected"]
         assert d["packs"]["tool_rename"]["exec"] == "bash"

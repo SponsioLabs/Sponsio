@@ -142,69 +142,23 @@ agents:
           source: "library:tier1.filesystem"
 
       # =================================================================
-      # § 2 — Workspace scoping
+      # § 2 — Workspace scoping (moved to filesystem-strict)
       #
-      # Writes are confined to an explicit workspace.  Reads get a more
-      # permissive scope (workspace + tmp + explicit project dirs) since
-      # many agents legitimately need to read system headers, stdlib,
-      # etc.
+      # The four ``scope_limit`` rules that used to live here
+      # (Writes / Edits / Patch / Reads restricted to workspace +
+      # system-read paths) are now in
+      # ``sponsio:capability/filesystem-strict``.  Reason: they
+      # require an absolute workspace prefix that many real agents
+      # don't have, and they false-positive on relative-path traces
+      # (e.g. ``src/components/UserList.tsx``).
       #
-      # `<workspace>/` is a literal string here — users should replace
-      # it with their actual workspace root before loading, or integrate
-      # with an integration-side resolver that does the substitution.
+      # Add the strict pack alongside this one when you actually
+      # want workspace bounding:
+      #
+      #     include:
+      #       - sponsio:capability/filesystem
+      #       - sponsio:capability/filesystem-strict
       # =================================================================
-
-      - desc: "Writes restricted to workspace"
-        E:
-          pattern: scope_limit
-          args:
-            - write
-            - ["<workspace>/"]
-          source: "library:tier1.filesystem"
-
-      - desc: "In-place edits restricted to workspace"
-        E:
-          pattern: scope_limit
-          args:
-            - edit
-            - ["<workspace>/"]
-          source: "library:tier1.filesystem"
-
-      - desc: "Patch application restricted to workspace"
-        E:
-          pattern: scope_limit
-          args:
-            - apply_patch
-            - ["<workspace>/"]
-          source: "library:tier1.filesystem"
-
-      # Read scope is deliberately broader than write/edit/apply_patch
-      # scope: many legitimate agent workflows involve inspecting
-      # system state for diagnostics (/etc/hosts, /var/log/*), linking
-      # against system headers (/usr/include/, /usr/local/include/),
-      # or reading stdlib / installed-tool source for understanding
-      # (/usr/lib/, /opt/).  The sensitive-path blacklist in §1 keeps
-      # secrets under those roots (shadow, sudoers, ssh host keys)
-      # hard-denied, so broad read scope + narrow blacklist gives the
-      # right coverage/flexibility trade.
-      - desc: "Reads restricted to workspace, /tmp, and read-only system paths"
-        E:
-          pattern: scope_limit
-          args:
-            - read
-            - - "<workspace>/"
-              - "/tmp/"
-              - "/etc/"
-              - "/var/log/"
-              - "/usr/include/"
-              - "/usr/local/include/"
-              - "/usr/lib/"
-              - "/usr/local/lib/"
-              - "/usr/share/"
-              - "/opt/"
-              - "/proc/"
-              - "/sys/"
-          source: "library:tier1.filesystem"
 
       # =================================================================
       # § 3 — Operational hygiene

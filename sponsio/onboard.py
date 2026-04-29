@@ -480,9 +480,12 @@ class PackSelection:
         tool_rename: mapping from pack-canonical name (``exec``,
             ``read``, …) to the host's actual tool name.  Empty when
             the host happens to use the same names the packs use.
-        needs_workspace: True iff the filesystem pack is included.
-            Triggers a ``workspace: <best-guess>`` line in the YAML
-            so the load-time placeholder check passes.
+        needs_workspace: True iff a pack with ``<workspace>/``
+            placeholders is included.  No longer set by the
+            auto-included ``capability/filesystem`` pack (workspace
+            rules now live in opt-in ``capability/filesystem-strict``).
+            Kept for forward-compat with future packs that need
+            workspace resolution + for explicit-include callers.
         evidence: list of human-readable reasons, one per pack —
             displayed in the onboard banner so users can see *why*
             each pack was selected.
@@ -574,7 +577,14 @@ def select_packs(
         sel.packs.append("sponsio:capability/filesystem")
         matched = ", ".join(f"{k}->{v}" for k, v in fs_renames.items())
         sel.evidence.append(f"filesystem: tools resemble file IO ({matched})")
-        sel.needs_workspace = True
+        # Auto-include is the BASE ``capability/filesystem`` pack only,
+        # which carries credential-shape blacklists + ordering rules
+        # (no <workspace>/ placeholders).  ``capability/filesystem-strict``
+        # — the workspace-bounding scope_limit rules — is opt-in: users
+        # who actually want strict workspace bounding add it by hand
+        # along with a ``workspace:`` line.  This avoids the false-
+        # positive trace noise and load-time error users hit when
+        # auto-include pulled in workspace rules without a workspace.
         for k, v in fs_renames.items():
             if k != v:
                 sel.tool_rename[k] = v

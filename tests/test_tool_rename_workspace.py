@@ -258,10 +258,16 @@ def _write_yaml(tmp_path: Path, name: str, body: str) -> Path:
 
 class TestEndToEnd:
     def test_workspace_resolves_in_filesystem_pack(self, tmp_path):
-        """The full UX: include filesystem pack, set workspace, every
-        ``<workspace>/`` placeholder becomes the user's actual root.
-        Picks the ``Writes restricted to workspace`` rule because it
-        has the simplest args shape to assert against."""
+        """The full UX: include filesystem-strict pack, set workspace,
+        every ``<workspace>/`` placeholder becomes the user's actual
+        root.  Picks the ``Writes restricted to workspace`` rule
+        because it has the simplest args shape to assert against.
+
+        ``filesystem-strict`` (not the base ``filesystem``) carries
+        the workspace-using rules — they were split off because they
+        false-positive on relative-path traces and require an
+        absolute workspace to be useful.
+        """
         cfg_path = _write_yaml(
             tmp_path,
             "sponsio.yaml",
@@ -269,7 +275,7 @@ class TestEndToEnd:
             agents:
               bot:
                 workspace: "/Users/me/proj"
-                include: [sponsio:capability/filesystem]
+                include: [sponsio:capability/filesystem-strict]
             """,
         )
         cfg = load_config(cfg_path)
@@ -309,16 +315,16 @@ class TestEndToEnd:
 
     def test_missing_workspace_with_placeholder_pack_errors(self, tmp_path):
         """The smoothness pin: forgetting ``workspace:`` while
-        including the filesystem pack must fail at load time, not
-        runtime.  The error must name what's missing and give a copy-
-        pasteable fix."""
+        including the filesystem-strict pack must fail at load time,
+        not runtime.  The error must name what's missing and give a
+        copy-pasteable fix."""
         cfg_path = _write_yaml(
             tmp_path,
             "sponsio.yaml",
             """
             agents:
               bot:
-                include: [sponsio:capability/filesystem]
+                include: [sponsio:capability/filesystem-strict]
             """,
         )
         with pytest.raises(ConfigError) as excinfo:

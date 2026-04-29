@@ -4069,6 +4069,20 @@ def onboard(
     from sponsio.onboard import OnboardReport, run_onboard
     from sponsio.runtime.spinner import Spinner
 
+    # Branded header — same `━━━ ◒◓ sponsio ━━━` shape the runtime
+    # contract banner uses (sponsio/runtime/terminal.py), so users
+    # see the product wordmark from the moment onboard starts.
+    # Skipped on the non-interactive structured-output paths (--json,
+    # --emit-context) so consumers parsing stdout don't have to sed
+    # past it.
+    if not as_json and not emit_context:
+        click.secho(
+            "\n  ━━━ ◒◓ sponsio onboard "
+            + "━" * 28,
+            dim=True,
+            err=True,
+        )
+
     # One spinner per command — long-wait emits (``…``-suffixed) start
     # it, the next emit (or the final ``stop()`` after run_onboard)
     # cleans up.  Skipped silently when stderr isn't a TTY, so CI / pipe

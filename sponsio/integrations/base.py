@@ -350,6 +350,7 @@ class BaseGuard:
         otel_exporter: Any | None = None,
         verbose: bool = True,
         verbosity: int = 1,
+        auto_summary: bool = True,
         mode: str | None = None,
         session_log_dir: str | Path | None = None,
         tag_outputs: bool = True,
@@ -459,11 +460,23 @@ class BaseGuard:
                 for e in contract.enforcements:
                     if not hasattr(e, "desc"):
                         continue
-                    action = self._violation_actions.get(e.desc, "block")
+                    # Normalise desc to a string so dict-keying works
+                    # even when an upstream emitter / parser hands us a
+                    # list (observed on starter-pack contracts whose
+                    # nl_description was a multi-line list before
+                    # serialisation).  Falling through with a list key
+                    # raised ``TypeError: unhashable type: 'list'`` at
+                    # guard construction.
+                    desc_key = e.desc
+                    if isinstance(desc_key, list):
+                        desc_key = " ".join(str(x) for x in desc_key)
+                    elif desc_key is None:
+                        desc_key = ""
+                    action = self._violation_actions.get(desc_key, "block")
                     if action in ("warn", "log"):
-                        self._policy[e.desc] = WarnOnly()
+                        self._policy[desc_key] = WarnOnly()
                     else:
-                        self._policy[e.desc] = DetBlock()
+                        self._policy[desc_key] = DetBlock()
 
         # --- Create monitor ---
         self._monitor = RuntimeMonitor(
@@ -533,9 +546,12 @@ class BaseGuard:
         # exit so users always get feedback even when they don't call
         # ``guard.print_summary()`` manually. Idempotent via
         # ``_summary_printed`` flag. Disable with ``auto_summary=False``
-        # in subclasses or by calling ``guard.disable_auto_summary()``.
+        # at construction time (or via ``defaults.auto_summary: false``
+        # in yaml), or by calling ``guard.disable_auto_summary()`` after
+        # the fact.  All three paths land on the same ``_auto_summary``
+        # flag.
         self._summary_printed: bool = False
-        self._auto_summary: bool = True
+        self._auto_summary: bool = auto_summary
         atexit.register(self._auto_print_summary)
 
     # -----------------------------------------------------------------
@@ -1981,6 +1997,15 @@ class BaseGuard:
     def _auto_print_summary(self) -> None:
         """atexit hook — print the session summary exactly once if enabled."""
         if not self._auto_summary or self._summary_printed:
+            return
+        # ``verbose=False`` means "stay silent" — the contract banner
+        # at init is the one exception (a deliberate "Sponsio is loaded"
+        # signal), but any later auto-emit including the session summary
+        # MUST honour it.  Without this, doctor's internal smoke-test
+        # guard (verbose=False) leaks a "Sponsio Session Summary
+        # (doctor)" line at process exit even though stderr was
+        # redirected during the smoke cycle itself.
+        if not self._verbose:
             return
         # Only auto-print to an interactive terminal. Under pytest / CI /
         # redirected stderr we stay silent so we don't clutter test output
