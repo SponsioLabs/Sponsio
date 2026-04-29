@@ -51,8 +51,8 @@ ts/packages/*/dist/
 # Pre-emptively ignore so they never sneak back into git status.
 ts-sdk/
 ts-scanner/
-plugins/sponsio-openclaw-shield/node_modules/
-plugins/sponsio-openclaw-shield/dist/
+plugins/sponsio-openclaw/node_modules/
+plugins/sponsio-openclaw/dist/
 web-reference/
 
 # Local scratch/workspace copies
@@ -66,6 +66,7 @@ data/*
 
 # Internal docs — do not push to GitHub
 agent_docs/
+internal/
 PLAN.md
 STATUS.md
 LAUNCH_HANDOFF.md
