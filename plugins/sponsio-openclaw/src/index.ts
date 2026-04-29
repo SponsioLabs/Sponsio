@@ -7,7 +7,7 @@
  *
  *   sponsio-claude-code (Mode A)           sponsio-openclaw (this file)
  *   ──────────────────────────────         ─────────────────────────────
- *   PreToolUse hook fires        →         api.registerHook({name: "before_tool_call", …})
+ *   PreToolUse hook fires        →         api.registerHook("before_tool_call", h, …)
  *   shell command sponsio guard  →         child_process spawn() of same
  *   stdin: PreToolUse JSON       →         same payload, manually built
  *   stdout: deny JSON / silent   →         parsed → BeforeToolCallResult
@@ -29,58 +29,68 @@
  *
  * Type definitions are local — we don't depend on the ``openclaw``
  * npm package at compile time so this plugin builds and tests
- * standalone. The shapes track:
- *   - https://docs.openclaw.ai/plugins/hooks.md (event + return shapes)
- *   - https://docs.openclaw.ai/plugins/sdk-entrypoints.md (registerHook signature)
- *   - https://docs.openclaw.ai/plugins/manifest.md (manifest contract)
+ * standalone. The shapes track the real OpenClaw runtime as observed
+ * in the 2026.4.14 image:
  *
- * Verified against docs as of 2026-04-26. If OpenClaw's runtime
- * disagrees in a real session, update these types — the subprocess
- * transport itself doesn't care.
+ *   - registerHook signature is (events, handler, opts) — three
+ *     positional args, NOT a single spec object.
+ *   - The handler is invoked as handler(event, ctx) — ctx arrives as
+ *     the second argument; it is NOT a field on event.
+ *   - opts.name is the hook's unique identifier (NOT the event
+ *     name); priority lives in opts.priority.
+ *
+ * If a future OpenClaw release changes these shapes, update them
+ * here — the subprocess transport itself doesn't care.
  */
 
 import { spawn } from "node:child_process";
 
 // ----------------------------------------------------------------------------
 // OpenClaw plugin SDK shape — narrow subset we consume.
-// Mirrors the public docs at docs.openclaw.ai/plugins/* ; intentionally
-// excludes the wider hook surface (channel hooks, message hooks, …) we
-// don't register for.
 // ----------------------------------------------------------------------------
 
 /** Event payload OpenClaw passes to a ``before_tool_call`` handler.
  *
- * Field shape pinned to https://docs.openclaw.ai/plugins/hooks.md
- * (``before_tool_call`` section). ``runId`` / ``toolCallId`` are
- * optional in the docs but always present in practice. ``ctx``
- * carries the per-session correlation; we forward ``agentId`` /
- * ``sessionId`` so multi-session daemon mode (Stage 3) can demux.
+ * Pinned to ``hookRunner.runBeforeToolCall(event, ctx)`` in the
+ * runtime's hook-runner. ``runId`` / ``toolCallId`` are present
+ * whenever the runtime has them; both can be absent for early /
+ * synthetic calls.
  */
 export interface BeforeToolCallEvent {
   toolName: string;
   params: Record<string, unknown>;
   runId?: string;
   toolCallId?: string;
-  ctx: {
-    agentId: string;
-    sessionKey: string;
-    sessionId: string;
-    trace: unknown;
-  };
+}
+
+/** Per-call context — passed as the SECOND argument to the handler.
+ *
+ * The runtime builds this in ``pi-tools.before-tool-call`` from the
+ * agent's session state, then forwards it to every registered
+ * handler. We only read ``agentId`` / ``sessionId`` (forwarded to
+ * the guard so a future daemon-mode backend can demux), but the full
+ * shape is documented for completeness.
+ */
+export interface BeforeToolCallContext {
+  toolName: string;
+  agentId?: string;
+  sessionKey?: string;
+  sessionId?: string;
+  runId?: string;
+  toolCallId?: string;
 }
 
 /** Decision object returned from a ``before_tool_call`` handler.
  *
- * Per the docs:
- *   - ``{block: true, blockReason}`` — terminal; lower-priority hooks skip.
- *   - ``{block: false}`` — no decision, chain continues.
+ * Per the runtime's merge policy in ``runBeforeToolCall``:
+ *   - ``{block: true, blockReason}`` — terminal; merger short-circuits.
+ *   - ``{block: false}`` / ``undefined`` — no decision, chain continues.
  *   - ``{params: ...}`` — rewrite tool args before execution.
  *   - ``{requireApproval: ...}`` — pause and prompt the user (we
  *     don't use this today; reserved for ``must_confirm``-style
  *     contracts in a future iteration).
  *
- * Returning ``undefined`` is treated as ``{block: false}`` — the
- * default no-decision path.
+ * Returning ``undefined`` is treated as the no-decision path.
  */
 export interface BeforeToolCallResult {
   params?: Record<string, unknown>;
@@ -104,17 +114,50 @@ export interface BeforeToolCallResult {
   };
 }
 
-/** OpenClaw plugin SDK API — narrowed to what we register. */
+/** Options OpenClaw accepts on ``registerHook``. */
+export interface RegisterHookOptions {
+  /** Unique hook identifier within the plugin. Required by the
+   * runtime — registrations without a name are dropped with a
+   * "hook registration missing name" diagnostic. */
+  name: string;
+  /** Human-readable description; surfaced in the hooks CLI. */
+  description?: string;
+  /** Higher = earlier in the sequential hook chain. The runtime
+   * orders ``before_tool_call`` handlers by this value when merging
+   * results. */
+  priority?: number;
+}
+
+/** OpenClaw plugin SDK API — narrowed to what we register.
+ *
+ * Tracks ``createApi(...)`` in the runtime's loader.  Two surfaces
+ * matter for us:
+ *
+ *   * ``api.on(hookName, handler, opts)`` — registers a *typed*
+ *     hook that ``hookRunner.runBeforeToolCall`` actually consults.
+ *     This is what we need for ``before_tool_call``.
+ *
+ *   * ``api.registerHook(events, handler, opts)`` — registers an
+ *     *internal* hook (event types like ``command``, ``gateway:startup``,
+ *     ``message:received``).  Surfaces in ``openclaw hooks list`` and
+ *     gets dispatched via ``triggerInternalHook(event)``.  NOT what
+ *     fires for tool calls.
+ *
+ * Verified against ``memory-lancedb``'s registrations (``api.on
+ * ("before_agent_start", …)`` / ``api.on("agent_end", …)``) and by
+ * tracing ``getHooksForName(registry, "before_tool_call")`` in the
+ * 2026.4.14 image — it reads ``registry.typedHooks``, which only
+ * ``api.on`` writes to.
+ */
 export interface OpenClawPluginApi {
-  registerHook(spec: {
-    name: "before_tool_call";
+  on(
+    hookName: "before_tool_call" | string,
     handler: (
       event: BeforeToolCallEvent,
-    ) => Promise<BeforeToolCallResult | undefined>;
-    /** Higher = earlier. Sponsio runs at high priority so a deny
-     * short-circuits the rest of the hook chain. */
-    priority?: number;
-  }): void;
+      ctx: BeforeToolCallContext,
+    ) => Promise<BeforeToolCallResult | undefined>,
+    opts?: RegisterHookOptions,
+  ): void;
   logger?: {
     debug(msg: string, ...rest: unknown[]): void;
     info(msg: string, ...rest: unknown[]): void;
@@ -124,7 +167,8 @@ export interface OpenClawPluginApi {
 }
 
 /** Plugin entry shape consumed by ``definePluginEntry`` (or directly by
- * the runtime for plugins that don't use the helper). */
+ * the runtime — the loader accepts the raw object as long as the
+ * required fields are present). */
 export interface SponsioOpenClawPlugin {
   id: string;
   name: string;
@@ -136,10 +180,15 @@ export interface SponsioOpenClawPlugin {
 // Public entry point — what OpenClaw loads.
 // ----------------------------------------------------------------------------
 
-/** Priority chosen so Sponsio's deny short-circuits any other hook
- * chain a user has installed. 1000 is well above any documented
- * default; lower it to integrate with ordering-sensitive setups. */
+/** Higher = earlier in the merge chain. 1000 is well above any
+ * documented default; lower it to integrate with ordering-sensitive
+ * setups. */
 const PLUGIN_HOOK_PRIORITY = 1000;
+
+/** Hook identifier — globally unique within OpenClaw's hook
+ * registry. Distinct from the event name (``before_tool_call``)
+ * which can have many handlers. */
+const HOOK_NAME = "sponsio-openclaw-before-tool-call";
 
 /** The plugin object the OpenClaw runtime expects.
  *
@@ -155,10 +204,9 @@ export const sponsioOpenClawPlugin: SponsioOpenClawPlugin = {
     "Runtime contract guardrails for every tool call — backed by " +
     "per-plugin contract libraries under ~/.sponsio/plugins/.",
   register(api) {
-    api.registerHook({
-      name: "before_tool_call",
-      priority: PLUGIN_HOOK_PRIORITY,
-      handler: async (event) => {
+    api.on(
+      "before_tool_call",
+      async (event, ctx) => {
         let reply: GuardReply | null;
         try {
           reply = await callGuard({
@@ -166,7 +214,7 @@ export const sponsioOpenClawPlugin: SponsioOpenClawPlugin = {
             // same backend, routing, and library files work for
             // both transports. The OpenClaw event names differ
             // (``toolName`` / ``params``) but the JSON we send the
-            // guard payload is normalised to PreToolUse.
+            // guard is normalised to PreToolUse.
             hook_event_name: "PreToolUse",
             tool_name: event?.toolName ?? "",
             tool_input: event?.params ?? {},
@@ -178,10 +226,11 @@ export const sponsioOpenClawPlugin: SponsioOpenClawPlugin = {
             host: "openclaw",
             // Pass session metadata so a future daemon-mode runtime
             // can correlate calls; today's stateless backend just
-            // ignores these fields.
-            session_id: event?.ctx?.sessionId,
-            agent_id: event?.ctx?.agentId,
-            tool_use_id: event?.toolCallId,
+            // ignores these fields. ``ctx`` is the second handler
+            // arg in the OpenClaw runtime — NOT a field on event.
+            session_id: ctx?.sessionId,
+            agent_id: ctx?.agentId,
+            tool_use_id: event?.toolCallId ?? ctx?.toolCallId,
           });
         } catch (err) {
           // Never wedge a tool call on a Sponsio bug. Same fail-open
@@ -203,7 +252,14 @@ export const sponsioOpenClawPlugin: SponsioOpenClawPlugin = {
         }
         return undefined;
       },
-    });
+      {
+        name: HOOK_NAME,
+        description:
+          "Sponsio runtime contract guard — denies tool calls that " +
+          "violate per-plugin libraries under ~/.sponsio/plugins/.",
+        priority: PLUGIN_HOOK_PRIORITY,
+      },
+    );
   },
 };
 
@@ -223,7 +279,7 @@ interface GuardReply {
  * parse the reply.
  *
  * Returns the decoded ``hookSpecificOutput`` block (or null if the
- * the guard emitted nothing — meaning ``allow``). Errors propagate so
+ * guard emitted nothing — meaning ``allow``). Errors propagate so
  * the caller can decide whether to fail-open or fail-closed; the
  * default ``register`` above fails open.
  *
