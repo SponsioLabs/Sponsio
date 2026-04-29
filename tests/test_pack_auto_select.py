@@ -404,9 +404,9 @@ class TestRunOnboardAutoSelect:
             force=True,
         )
         assert "sponsio:capability/filesystem" in out.pack_selection.packs
-        assert (
-            "sponsio:capability/filesystem-strict" not in out.pack_selection.packs
-        ), "strict pack must remain opt-in"
+        assert "sponsio:capability/filesystem-strict" not in out.pack_selection.packs, (
+            "strict pack must remain opt-in"
+        )
         cfg = load_config(langgraph_project_with_capabilities / "sponsio.yaml")
         # Base fs pack still contributed contracts (credential
         # blacklists, must_precede, etc.).

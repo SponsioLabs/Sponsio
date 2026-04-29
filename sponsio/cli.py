@@ -4077,8 +4077,7 @@ def onboard(
     # past it.
     if not as_json and not emit_context:
         click.secho(
-            "\n  ━━━ ◒◓ sponsio onboard "
-            + "━" * 28,
+            "\n  ━━━ ◒◓ sponsio onboard " + "━" * 28,
             dim=True,
             err=True,
         )
