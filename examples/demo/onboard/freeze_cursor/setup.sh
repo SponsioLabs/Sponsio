@@ -135,13 +135,20 @@ fi
 
 (
   cd "$PROJECT"
-  "$SPONSIO_BIN" host install cursor --scope project 2>&1 | grep -E '✔|wrote|→' | head -3 || true
+  # --with-skill installs the Sponsio Agent Skill alongside the
+  # hooks in one shot.  Cursor's IDE agent reads .cursor/skills/
+  # automatically on session start; the skill teaches it to drive
+  # the W1 onboard workflow when the user types setup phrases in
+  # Composer.
+  "$SPONSIO_BIN" host install cursor --with-skill --scope project 2>&1 \
+    | grep -E '✔|wrote|→' | head -4 || true
 )
-if [[ -f "$PROJECT/.cursor/hooks.json" ]]; then
-  echo "✓ installed Cursor hooks at $PROJECT/.cursor/hooks.json"
+if [[ -f "$PROJECT/.cursor/hooks.json" ]] && [[ -f "$PROJECT/.cursor/skills/sponsio/SKILL.md" ]]; then
+  echo "✓ installed Cursor hooks    $PROJECT/.cursor/hooks.json"
+  echo "✓ installed Sponsio skill   $PROJECT/.cursor/skills/sponsio/SKILL.md"
 else
-  echo "✗ Cursor hooks NOT installed — try manually:"
-  echo "    cd $PROJECT && sponsio host install cursor --scope project"
+  echo "✗ Cursor hooks/skill NOT installed — try manually:"
+  echo "    cd $PROJECT && sponsio host install cursor --with-skill --scope project"
 fi
 
 # ─── 4. Sponsio _host plugin library — generated from policy.md ──────

@@ -16,32 +16,31 @@ No commit-time policy doc, no scan, no manual yaml authoring.
 
 ---
 
-## Phase 0 — Install (3 commands, terminal)
+## Phase 0 — Install (2 commands, terminal)
 
 ```bash
 # 1. Install Sponsio
 pip install sponsio
 
-# 2. Install the Sponsio Agent Skill into Cursor's skills directory.
-#    Writes ~/.cursor/skills/sponsio/SKILL.md.  Cursor's agent will
-#    auto-trigger this skill when the user mentions setup phrases.
-sponsio skill install --tool cursor
-
-# 3. Install Sponsio's Cursor hooks at user scope OR project scope.
-#    User scope (~/.cursor/hooks.json) covers every Cursor session;
-#    project scope writes ./.cursor/hooks.json.  Demo uses project.
-sponsio host install cursor --scope project
+# 2. Install hooks + the Sponsio Agent Skill into Cursor in one shot.
+#    --with-skill puts the SKILL.md into Cursor's skills directory
+#    so the IDE agent auto-triggers it on setup phrases.
+#    --scope project keeps everything inside the project's .cursor/
+#    so this demo doesn't touch your real ~/.cursor.
+#    (Drop --scope project for the more common "every Cursor
+#    session for this user" install.)
+sponsio host install cursor --with-skill --scope project
 
 # (sanity check — should report cursor as ✓ installed)
 sponsio host list
 ```
 
-Restart Cursor once after step 3 so it picks up `hooks.json`.
+Restart Cursor once after step 2 so it picks up `hooks.json`.
 
-The setup script `./setup.sh` does steps 2 and 3 + builds a fake
-`myapp/` to demo against.  In a real launch video you'd want to
-SHOW these three terminal commands in a 5-second cue card to
-establish provenance, then jump to Cursor.
+The setup script `./setup.sh` does step 2 + builds a fake `myapp/`
+to demo against.  In a real launch video you'd want to SHOW step 2
+in a 3-second cue card to establish provenance, then jump to
+Cursor.
 
 ---
 
