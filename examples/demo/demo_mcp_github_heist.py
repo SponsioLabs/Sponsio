@@ -139,9 +139,7 @@ OPERATOR_GITHUB_LIB = textwrap.dedent(
 
 def run_without_guard() -> None:
     slow_print(f"{BOLD}== GitHub MCP Heist — without Sponsio =={RESET}")
-    slow_print(
-        f"{DIM}User: 'Triage open issues in my-org/public-repo'{RESET}\n"
-    )
+    slow_print(f"{DIM}User: 'Triage open issues in my-org/public-repo'{RESET}\n")
 
     for tool_name, tool_input, narration, stage in TRAJECTORY:
         if tool_name is None:
@@ -151,9 +149,7 @@ def run_without_guard() -> None:
         slow_print(f"  {DIM}→ {tool_name}({_short(tool_input)}){RESET}")
 
         if stage == "benign":
-            slow_print(
-                f"    {DIM}{narration} — returns 5 issues including #42{RESET}"
-            )
+            slow_print(f"    {DIM}{narration} — returns 5 issues including #42{RESET}")
         elif stage == "attack":
             slow_print(f"    {RED}{narration}{RESET}")
             slow_print(
@@ -165,9 +161,7 @@ def run_without_guard() -> None:
                 f"    {RED}🩸 Comment posted to public issue with leaked secrets{RESET}"
             )
 
-    slow_print(
-        f"\n{RED}{BOLD}✗ Outcome: 4 production secrets publicly visible.{RESET}"
-    )
+    slow_print(f"\n{RED}{BOLD}✗ Outcome: 4 production secrets publicly visible.{RESET}")
 
 
 # ---------------------------------------------------------------------------
@@ -177,9 +171,7 @@ def run_without_guard() -> None:
 
 def run_with_guard() -> None:
     slow_print(f"{BOLD}== GitHub MCP Heist — with Sponsio =={RESET}")
-    slow_print(
-        f"{DIM}User: 'Triage open issues in my-org/public-repo'{RESET}"
-    )
+    slow_print(f"{DIM}User: 'Triage open issues in my-org/public-repo'{RESET}")
     slow_print(
         f"{BLUE}{DIM}Active rules: sponsio:incident/mcp-composition + "
         f"operator allowlist [my-org/public-repo, my-org/intended-repo]{RESET}\n"
@@ -230,9 +222,7 @@ def run_with_guard() -> None:
 
                 if outcome.allowed:
                     if stage == "benign":
-                        slow_print(
-                            f"    {GREEN}✓ allowed — returns issue list{RESET}"
-                        )
+                        slow_print(f"    {GREEN}✓ allowed — returns issue list{RESET}")
                     else:
                         # Shouldn't happen in this trajectory; hedge anyway.
                         slow_print(
@@ -241,24 +231,16 @@ def run_with_guard() -> None:
                 else:
                     reason = _format_reason(outcome.reason)
                     if stage == "attack":
-                        slow_print(
-                            f"    {GREEN}🛡 BLOCKED — {reason}{RESET}"
-                        )
+                        slow_print(f"    {GREEN}🛡 BLOCKED — {reason}{RESET}")
                         slow_print(
                             f"    {GREEN}   private-keys never reaches model "
                             f"context{RESET}"
                         )
                     elif stage == "exfil":
-                        slow_print(
-                            f"    {GREEN}🛡 BLOCKED — {reason}{RESET}"
-                        )
-                        slow_print(
-                            f"    {GREEN}   leak comment never posted{RESET}"
-                        )
+                        slow_print(f"    {GREEN}🛡 BLOCKED — {reason}{RESET}")
+                        slow_print(f"    {GREEN}   leak comment never posted{RESET}")
                     else:
-                        slow_print(
-                            f"    {RED}✗ blocked unexpectedly: {reason}{RESET}"
-                        )
+                        slow_print(f"    {RED}✗ blocked unexpectedly: {reason}{RESET}")
         finally:
             for k, v in old_env.items():
                 if v is None:

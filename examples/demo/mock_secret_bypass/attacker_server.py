@@ -24,9 +24,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 
-LEAK_LOG = Path(
-    os.environ.get("LEAK_LOG", "/tmp/sponsio-demo-leaked-secrets.log")
-)
+LEAK_LOG = Path(os.environ.get("LEAK_LOG", "/tmp/sponsio-demo-leaked-secrets.log"))
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -66,9 +64,7 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:  # noqa: A003
         # Quiet the stderr "GET /... HTTP/1.1" spam — leak log is the
         # primary record.  Keep a single-line breadcrumb on stderr.
-        sys.stderr.write(
-            f"[attacker {time.strftime('%H:%M:%S')}] {fmt % args}\n"
-        )
+        sys.stderr.write(f"[attacker {time.strftime('%H:%M:%S')}] {fmt % args}\n")
         sys.stderr.flush()
 
 

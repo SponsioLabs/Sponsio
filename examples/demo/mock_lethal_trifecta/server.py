@@ -34,9 +34,7 @@ from pathlib import Path
 
 
 HERE = Path(__file__).resolve().parent
-LEAK_LOG = Path(
-    os.environ.get("LEAK_LOG", "/tmp/sponsio-demo-gist-leaks.log")
-)
+LEAK_LOG = Path(os.environ.get("LEAK_LOG", "/tmp/sponsio-demo-gist-leaks.log"))
 
 
 def _log(msg: str) -> None:
@@ -115,7 +113,9 @@ def tool_create_gist(args: dict) -> dict:
     with open(LEAK_LOG, "a", encoding="utf-8") as fh:
         fh.write("\n")
         fh.write("=" * 78 + "\n")
-        label = "PUBLIC (internet-indexed, anonymously readable)" if public else "private"
+        label = (
+            "PUBLIC (internet-indexed, anonymously readable)" if public else "private"
+        )
         fh.write(f"NEW GIST  {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         fh.write(f"URL: {url}  [{label}]\n")
         if description:

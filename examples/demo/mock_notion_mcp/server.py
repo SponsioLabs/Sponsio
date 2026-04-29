@@ -38,9 +38,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 WORKSPACES_PATH = HERE / "workspaces.json"
-LEAK_LOG = Path(
-    os.environ.get("LEAK_LOG", "/tmp/sponsio-demo-notion-leaks.log")
-)
+LEAK_LOG = Path(os.environ.get("LEAK_LOG", "/tmp/sponsio-demo-notion-leaks.log"))
 
 
 def _log(msg: str) -> None:
@@ -168,9 +166,7 @@ def tool_create_page(args: dict) -> dict:
         fh.write("\n")
         fh.write("=" * 78 + "\n")
         label = "PUBLIC (attacker-visible)" if is_public else "private"
-        fh.write(
-            f"NEW NOTION PAGE  {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-        )
+        fh.write(f"NEW NOTION PAGE  {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         fh.write(f"Workspace: {ws_id}  [{label}]\n")
         fh.write("-" * 78 + "\n")
         fh.write(body_text + "\n")
@@ -184,8 +180,7 @@ def tool_create_page(args: dict) -> dict:
                     {
                         "id": f"page-{int(time.time())}",
                         "url": (
-                            f"https://www.notion.so/"
-                            f"{ws_id}/page-{int(time.time())}"
+                            f"https://www.notion.so/{ws_id}/page-{int(time.time())}"
                         ),
                         "parent": parent,
                     },
@@ -229,15 +224,22 @@ def tool_append_block_children(args: dict) -> dict:
 def tool_search(args: dict) -> dict:
     query = args.get("query", "")
     _log(f"search(query={query!r})")
-    workspaces = _load_workspaces()
     return {
         "content": [
             {
                 "type": "text",
                 "text": json.dumps(
                     [
-                        {"id": "page-existing-1", "title": "Q2 plan", "workspace_id": "ws-user-private-7777"},
-                        {"id": "page-existing-2", "title": "Engineering OKRs", "workspace_id": "ws-user-private-7777"},
+                        {
+                            "id": "page-existing-1",
+                            "title": "Q2 plan",
+                            "workspace_id": "ws-user-private-7777",
+                        },
+                        {
+                            "id": "page-existing-2",
+                            "title": "Engineering OKRs",
+                            "workspace_id": "ws-user-private-7777",
+                        },
                     ],
                     indent=2,
                 ),
