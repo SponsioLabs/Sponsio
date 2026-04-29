@@ -41,9 +41,27 @@ const PACKS: Pack[] = [
   },
   {
     name: "sponsio:capability/filesystem",
-    rules: 13,
+    rules: 9,
     ruleType: "det",
-    description: "Any tool reading/writing files. Needs workspace:. Guards path scope + destructive ops.",
+    description: "Any tool reading/writing files. Credential-path blacklist + read-before-edit + bootstrap-confirm + no_data_leak. (Workspace scoping moved to filesystem-strict.)",
+  },
+  {
+    name: "sponsio:capability/filesystem-strict",
+    rules: 4,
+    ruleType: "det",
+    description: "Opt-in. Workspace scope_limit on read/write/edit/apply_patch. Needs workspace:.  Add alongside filesystem when traces use absolute paths under one tree.",
+  },
+  {
+    name: "sponsio:capability/self-modify",
+    rules: 3,
+    ruleType: "det",
+    description: "Block agent-mediated Edit/Write/MultiEdit on the host's own ~/.sponsio/plugins/_host/sponsio.yaml. Stops self-modification of guard rules.",
+  },
+  {
+    name: "sponsio:incident/subagent-escape",
+    rules: 4,
+    ruleType: "det",
+    description: "Sub-agent reach-up defence. Denies Edit/Write/MultiEdit on ~/.sponsio/, project sponsio.yaml, .sponsiorc + Read on host rule lists (recon defence).",
   },
   {
     name: "sponsio:incident/openclaw",

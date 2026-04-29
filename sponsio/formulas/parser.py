@@ -554,7 +554,13 @@ def _parse_repr_unary(peek, consume, parse_expr):
         while peek() != ")":
             if peek() == ",":
                 consume(",")
-            args.append(consume().strip("'\""))
+            # ``_unescape_str_token`` (not just ``.strip("'\\"")``) so a
+            # regex argument like ``rm\s+\.env`` survives the
+            # ``repr() → yaml emit → yaml load → parse_repr``
+            # round-trip.  Bare strip would leave the backslashes
+            # doubled, and runtime ``re.search`` would never match a
+            # real command.
+            args.append(_unescape_str_token(consume()))
         consume(")")
         return Var(args[0], *args[1:])
     elif t == "Atom":
@@ -564,7 +570,7 @@ def _parse_repr_unary(peek, consume, parse_expr):
         while peek() != ")":
             if peek() == ",":
                 consume(",")
-            args.append(consume().strip("'\""))
+            args.append(_unescape_str_token(consume()))
         consume(")")
         return Atom(args[0], *args[1:])
     elif t == "Not":

@@ -588,7 +588,9 @@ _DEMO_FILLER = "DEMOFAKEXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
         ("openclaw", "write", "hello world", False),
     ],
 )
-def test_credentials_pack_blocks_secret_writes(tmp_path, monkeypatch, host, tool, content, expect_deny):
+def test_credentials_pack_blocks_secret_writes(
+    tmp_path, monkeypatch, host, tool, content, expect_deny
+):
     """Pin the capability/credentials pack against representative
     secret shapes from the major providers, plus negatives that look
     similar in prose.  Same dual-host coverage as the database pack
@@ -645,36 +647,33 @@ def test_credentials_pack_blocks_secret_writes(tmp_path, monkeypatch, host, tool
         # ----- Main agent (no agent_id) — expanded privileges -------------
         # Side-effects allowed: main agent has user-conversation context
         # to confirm intent; user sees every action.
-        (None, "Bash", "git commit -m fix",                False, "_host"),
-        (None, "Bash", "git push origin main",             False, "_host"),
-        (None, "Bash", "npm install -g typescript",        False, "_host"),
-        (None, "Bash", "curl https://example.com",         False, "_host"),
-        (None, "Bash", "brew install jq",                  False, "_host"),
+        (None, "Bash", "git commit -m fix", False, "_host"),
+        (None, "Bash", "git push origin main", False, "_host"),
+        (None, "Bash", "npm install -g typescript", False, "_host"),
+        (None, "Bash", "curl https://example.com", False, "_host"),
+        (None, "Bash", "brew install jq", False, "_host"),
         # ... but baseline destructive ops still deny for main:
-        (None, "Bash", "rm -rf /",                          True, "_host"),
-        (None, "Bash", 'psql -c "DROP DATABASE prod"',      True, "_host"),
-
+        (None, "Bash", "rm -rf /", True, "_host"),
+        (None, "Bash", 'psql -c "DROP DATABASE prod"', True, "_host"),
         # ----- Sub-agent (agent_id present) — same call, deny ------------
         # No user-conversation context to confirm intent → side-effects
         # blocked; sub-agent must report findings back through main agent.
-        ("agt_42", "Bash", "git commit -m fix",             True, "_host_subagent"),
-        ("agt_42", "Bash", "git push --force origin main",  True, "_host_subagent"),
-        ("agt_42", "Bash", "npm install -g typescript",     True, "_host_subagent"),
-        ("agt_42", "Bash", "curl https://example.com",      True, "_host_subagent"),
-        ("agt_42", "Bash", "brew install jq",               True, "_host_subagent"),
-        ("agt_42", "Bash", "sudo systemctl restart pg",     True, "_host_subagent"),
-
+        ("agt_42", "Bash", "git commit -m fix", True, "_host_subagent"),
+        ("agt_42", "Bash", "git push --force origin main", True, "_host_subagent"),
+        ("agt_42", "Bash", "npm install -g typescript", True, "_host_subagent"),
+        ("agt_42", "Bash", "curl https://example.com", True, "_host_subagent"),
+        ("agt_42", "Bash", "brew install jq", True, "_host_subagent"),
+        ("agt_42", "Bash", "sudo systemctl restart pg", True, "_host_subagent"),
         # Sub-agent: read-only / scoped ops still allowed — sub-agents
         # can do useful research / verify-shape work.
-        ("agt_42", "Bash", "ls -la",                       False, "_host_subagent"),
-        ("agt_42", "Bash", "pytest tests/",                False, "_host_subagent"),
-        ("agt_42", "Bash", "npm install",                  False, "_host_subagent"),
-        ("agt_42", "Bash", "git status",                   False, "_host_subagent"),
-
+        ("agt_42", "Bash", "ls -la", False, "_host_subagent"),
+        ("agt_42", "Bash", "pytest tests/", False, "_host_subagent"),
+        ("agt_42", "Bash", "npm install", False, "_host_subagent"),
+        ("agt_42", "Bash", "git status", False, "_host_subagent"),
         # Sub-agent: same destructive baseline as main (inherited via
         # capability/database, capability/shell).
-        ("agt_42", "Bash", "rm -rf /",                      True, "_host_subagent"),
-        ("agt_42", "Bash", 'psql -c "DROP DATABASE prod"',  True, "_host_subagent"),
+        ("agt_42", "Bash", "rm -rf /", True, "_host_subagent"),
+        ("agt_42", "Bash", 'psql -c "DROP DATABASE prod"', True, "_host_subagent"),
     ],
 )
 def test_subagent_routing_and_restrictions(

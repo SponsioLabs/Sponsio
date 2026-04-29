@@ -1757,6 +1757,13 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
         kwargs["verbose"] = config.defaults["verbose"]
     if config.defaults.get("verbosity") is not None:
         kwargs["verbosity"] = config.defaults["verbosity"]
+    # ``defaults.auto_summary: false`` stops the atexit ``Sponsio
+    # Session Summary`` block from printing — useful in scripted
+    # replays / demo gifs / tests where the framework's own narration
+    # is meant to be the last visible output, and in production
+    # services where the summary on shutdown is just noise in stderr.
+    if config.defaults.get("auto_summary") is not None:
+        kwargs["auto_summary"] = config.defaults["auto_summary"]
 
     return kwargs
 

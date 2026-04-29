@@ -56,7 +56,7 @@ def _is_non_interactive() -> bool:
 _PROVIDER_DEFAULTS: dict[str, tuple[str, str | None]] = {
     "openai": ("gpt-4o-mini", "OPENAI_API_KEY"),
     "anthropic": ("claude-3-5-sonnet-20241022", "ANTHROPIC_API_KEY"),
-    "gemini": ("gemini-2.5-flash", "GOOGLE_API_KEY"),
+    "gemini": ("gemini-2.5-flash-lite", "GOOGLE_API_KEY"),
     "bedrock": ("anthropic.claude-3-5-sonnet-20241022-v2:0", None),
 }
 

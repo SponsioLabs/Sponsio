@@ -327,7 +327,7 @@ class TestLoadConfigOverrides:
     def test_pack_source_disable_drops_all_shell_rules(self, tmp_path):
         """Disabling by pack_source removes *every* contract from
         that pack — useful when including the pack for one team but
-        wanting only the universal pack's rules to apply for
+        wanting only the llm_safety pack's rules to apply for
         another agent."""
         cfg = load_config(
             _write(
@@ -337,7 +337,7 @@ class TestLoadConfigOverrides:
               bot:
                 workspace: "/proj"
                 include:
-                  - sponsio:core/universal
+                  - sponsio:core/llm_safety
                   - sponsio:capability/shell
                 overrides:
                   - match: {pack_source: "sponsio:capability/shell"}
@@ -347,7 +347,7 @@ class TestLoadConfigOverrides:
         )
         sources = {c.pack_source for c in cfg.agents["bot"].contracts}
         assert "sponsio:capability/shell" not in sources
-        assert "sponsio:core/universal" in sources
+        assert "sponsio:core/llm_safety" in sources
 
     def test_threshold_override_on_pattern(self, tmp_path):
         """Loosen the rate_limit threshold across the shell pack.

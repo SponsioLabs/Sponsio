@@ -947,7 +947,7 @@ class UnifiedExtractor:
         self._base_url = base_url
 
         if provider == "gemini":
-            self._model = model or "gemini-2.5-flash"
+            self._model = model or "gemini-2.5-flash-lite"
             self._api_key = (
                 api_key
                 or os.environ.get("GOOGLE_API_KEY")
@@ -1072,6 +1072,12 @@ class UnifiedExtractor:
             ) from exc
 
         client = genai.Client(api_key=self._api_key)
+        # ``max_output_tokens`` cap stops the runaway 200KB-and-still-going
+        # output we see on flash-lite occasionally — without a cap the API
+        # round trip can sit at 2+ minutes streaming garbage that fails
+        # JSON parse anyway.  4096 is enough for the largest legitimate
+        # contract list we've ever seen (the cleanup demo's 7-rule
+        # output is ~2KB) with comfortable headroom.
         response = client.models.generate_content(
             model=self._model,
             contents=user_content,
@@ -1079,6 +1085,7 @@ class UnifiedExtractor:
                 system_instruction=system_prompt,
                 temperature=0.0,
                 response_mime_type="application/json",
+                max_output_tokens=4096,
             ),
         )
         return response.text or "{}"

@@ -374,9 +374,18 @@ def Sponsio(  # noqa: N802 — branded factory function
     # ``_resolve_mode`` inside BaseGuard still re-checks the env var so
     # the env keeps winning even if we substitute a yaml value here;
     # what changes is the *fallback* when neither arg nor env is set.
-    if mode is None and parsed is not None and parsed.runtime.mode:
-        if "SPONSIO_MODE" not in os.environ:
-            mode = parsed.runtime.mode
+    #
+    # Yaml lookup order: ``runtime.mode`` first (typed section, parsed
+    # by :func:`_parse_runtime_section`), then ``defaults.mode`` —
+    # which is what ``sponsio onboard`` / ``sponsio init`` actually
+    # write today.  Without the second branch, flipping ``defaults.mode:
+    # observe → enforce`` was a silent no-op (the canonical onboard
+    # workflow), and users had to learn the undocumented ``runtime:``
+    # alternative to make the yaml authoritative.
+    if mode is None and parsed is not None and "SPONSIO_MODE" not in os.environ:
+        yaml_mode = parsed.runtime.mode or parsed.defaults.get("mode")
+        if yaml_mode:
+            mode = yaml_mode
 
     # --- Resolve dashboard (ctor arg > SPONSIO_DASHBOARD env > yaml > default).
     # Unlike mode, dashboard has no env-read inside BaseGuard, so we

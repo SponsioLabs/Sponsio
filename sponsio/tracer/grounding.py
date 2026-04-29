@@ -323,6 +323,12 @@ def ground_event(
         )
     if event.event_type == "tool_call" and event.tool:
         v[pred_key("called", event.tool)] = True
+        # ``called_any`` — true at any timestep where SOME tool fires,
+        # regardless of which.  Used by ``tool_allowlist`` to gate
+        # ``G(called_any -> Or(called(t₁)..called(tₙ)))`` so the rule
+        # is vacuously satisfied at empty / non-tool-call timesteps.
+        # (Matches ``Atom("called_any")`` in TS grounding.)
+        v[pred_key("called_any")] = True
 
         # L1.4: consecutive_count — track how many times the same tool
         # has been called in an unbroken run. Resets when a different

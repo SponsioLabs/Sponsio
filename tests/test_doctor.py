@@ -598,10 +598,15 @@ class TestCheckSkillInstalled:
         assert "cursor" in r.detail
         assert "copy" in r.detail
 
-    def test_warn_when_installed_copy_drifts_from_packaged(self, tmp_path, monkeypatch):
+    def test_drift_demoted_to_skip(self, tmp_path, monkeypatch):
         """If the installed SKILL.md no longer matches the packaged
-        one (classic ``pip install -U`` footgun), the check must
-        warn — loudly enough that users know to re-install."""
+        one (classic ``pip install -U`` footgun), the check used to
+        ``warn`` and push users at ``sponsio skill install --force``.
+        That nag is now demoted to ``skip``: skill management has a
+        dedicated ``sponsio skill`` subcommand, and surfacing the
+        same hint from every ``onboard`` / ``doctor`` run was noise.
+        The line still appears in detailed output for users who care
+        about install state, just without ticking the warn counter."""
         from sponsio.doctor import check_skill_installed
 
         dirs = self._set_fake_dirs(monkeypatch, tmp_path)
@@ -612,9 +617,14 @@ class TestCheckSkillInstalled:
         skill_md.write_text(skill_md.read_text() + "\n# stale marker\n")
 
         r = check_skill_installed()
-        assert r.status == "warn", r.detail
-        assert "stale" in r.detail.lower()
-        assert "sponsio skill install" in r.detail
+        assert r.status == "skip", r.detail
+        # The diagnostic still names which tool is drifted, so a user
+        # who wants to action it has the data — just no in-your-face
+        # command suggestion.
+        assert "cursor" in r.detail
+        # And the old "run --force" pointer is GONE — that was the
+        # whole point of this demotion.
+        assert "--force" not in r.detail
 
     def test_fail_when_frontmatter_broken(self, tmp_path, monkeypatch):
         """Broken SKILL.md (no frontmatter) → ``fail``.  Users think

@@ -27,6 +27,7 @@ from sponsio.patterns.library import (
     requires_permission,
     sanitized_before_sink,
     segregation_of_duty,
+    tool_allowlist,
     untrusted_source_gate,
 )
 
@@ -503,6 +504,57 @@ def test_duplicate_call_limit_uses_count_with():
 # factory helpers now raise ValueError at construction time so the
 # operator sees the mistake instead of a vacuously-passing contract.
 # ---------------------------------------------------------------------------
+
+
+class TestToolAllowlist:
+    """Pin the LTL encoding fix.
+
+    Bug shipped pre-2026-04: ``tool_allowlist`` compiled to
+    ``G(∨ called(tᵢ))``, which is FALSE at any timestep where no
+    tool fires — the empty trace, the gap between events, or the
+    initial state of any verification run.  In enforce mode this
+    auto-violated the rule and blocked the first call regardless
+    of whether it was on the list.
+
+    Fix: compile to ``G(called_any -> ∨ called(tᵢ))`` so the
+    rule is vacuously satisfied at non-tool timesteps and only
+    enforced when SOME tool actually fires.
+    """
+
+    @staticmethod
+    def _step(tool: str | None) -> dict:
+        """One trace timestep.  ``tool=None`` = no tool fired
+        (e.g. an empty trace boundary) — ``called_any`` is absent.
+
+        Key shape ``called_any()`` (with parens) matches what
+        ``pred_key("called_any")`` produces in the grounding layer
+        — see :mod:`sponsio.formulas._pred_key`.
+        """
+        if tool is None:
+            return {}
+        return {f"called({tool})": True, "called_any()": True}
+
+    def test_satisfied_on_empty_trace(self):
+        """Empty trace = no events; rule must NOT pre-violate."""
+        af = tool_allowlist(["read_doc", "send_email"])
+        assert evaluate(af.formula, []) is True
+
+    def test_satisfied_when_listed_tool_fires(self):
+        af = tool_allowlist(["read_doc", "send_email"])
+        trace = [self._step("read_doc"), self._step("send_email")]
+        assert evaluate(af.formula, trace) is True
+
+    def test_violated_on_unlisted_tool(self):
+        af = tool_allowlist(["read_doc"])
+        trace = [self._step("delete_user")]  # not in list, called_any=True
+        assert evaluate(af.formula, trace) is False
+
+    def test_satisfied_with_non_tool_gap_between_calls(self):
+        """A timestep with no tool call (some other event type) must
+        not pre-violate even when surrounding steps DO call tools."""
+        af = tool_allowlist(["read_doc"])
+        trace = [self._step("read_doc"), self._step(None), self._step("read_doc")]
+        assert evaluate(af.formula, trace) is True
 
 
 class TestDegeneratePatternsRejected:

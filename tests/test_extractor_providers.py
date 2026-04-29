@@ -114,7 +114,7 @@ class TestProviderAutoDetection:
         monkeypatch.setenv("GOOGLE_API_KEY", "fake-gemini-key")
         ext = UnifiedExtractor()
         assert ext._provider == "gemini"
-        assert ext._model == "gemini-2.5-flash"
+        assert ext._model == "gemini-2.5-flash-lite"
 
     def test_anthropic_takes_priority_over_gemini(self, monkeypatch):
         # When a user has BOTH keys set, prefer anthropic — it tends to

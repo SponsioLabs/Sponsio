@@ -116,27 +116,27 @@ class TestStarterContracts:
         assert len(rate) == 1
         assert rate[0].evidence["args"][0] == "send_email"
 
-    def test_no_tool_allowlist_emitted(self):
-        """``tool_allowlist`` is no longer emitted by starter-pack.
+    def test_tool_allowlist_contains_every_tool(self):
+        """``tool_allowlist`` is back on after the LTL encoding fix.
 
-        The pattern's LTL encoding ``G(∨ called(tᵢ))`` is FALSE on a
-        partial trace where no tool has been called yet — guaranteed-
-        violation on the first event regardless of whether the call
-        is in the list.  The pattern docstring acknowledged this with
-        "real enforcement is done by the monitor", but for users
-        running the verifier in enforce mode the LTL form blocked
-        the first call unconditionally.
+        Historical bug: the rule used to compile to ``G(∨ called(tᵢ))``
+        which is FALSE at any timestep where no tool fires (initial
+        state, gaps between events).  Once a partial trace was being
+        verified, the rule auto-violated and blocked the first call
+        regardless of whether it was in the list.
 
-        Until the encoding is repaired, starter-pack stops shipping
-        the rule.  Frameworks already enforce tool registration at
-        the integration boundary, so the LTL-level coverage gap
-        doesn't open a real security hole.
+        Fix: the rule now compiles to
+        ``G(called_any -> ∨ called(tᵢ))`` — vacuously true at
+        non-tool timesteps, enforced only when SOME tool fires.
+        See ``test_tool_allowlist_satisfied_on_empty_trace`` (in
+        the patterns suite) for the regression pin.
         """
         names = ["read_doc", "send_email", "delete_user"]
         props = starter_contracts(names)
-        assert not any(
-            p.formula.pattern_name == "tool_allowlist" for p in props
-        ), "starter_contracts must not emit tool_allowlist"
+        allowlist = next(p for p in props if p.formula.pattern_name == "tool_allowlist")
+        # Args shape: [[name1, name2, ...]] — one positional list-arg
+        # so YAML round-trip splats cleanly into ``tool_allowlist([..])``.
+        assert sorted(allowlist.evidence["args"][0]) == sorted(names)
 
     def test_every_proposal_has_args_matching_pattern_signature(self):
         """Every proposal's evidence['args'] must splat cleanly into
@@ -509,7 +509,12 @@ class TestRunOnboard:
         report = run_onboard(tmp_path, probe_ollama=False)
         assert report.framework.framework == "google_adk"
         assert "from sponsio.google_adk import Sponsio" in report.wrap_snippet
-        assert "tools = guard.wrap(tools)" in report.wrap_snippet
+        # Snippet now nudges users to pass ``guard.wrap(tools)`` into
+        # their agent constructor rather than just declaring the
+        # wrapped binding and stopping — the original two-liner left
+        # day-1 users wondering "OK, where do these go?".
+        assert "guard.wrap(tools)" in report.wrap_snippet
+        assert "agent = Agent(" in report.wrap_snippet
 
 
 class TestOnboardCli:

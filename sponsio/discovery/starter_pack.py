@@ -49,6 +49,7 @@ from sponsio.patterns.library import (
     loop_detection,
     rate_limit,
     token_budget,
+    tool_allowlist,
 )
 
 # Extractor tag used in ProposedConstraint.extractor.  Picked so
@@ -335,20 +336,25 @@ def starter_contracts(
     for name in names:
         proposals.extend(_per_tool_rules(name))
 
-    # ``tool_allowlist`` used to be auto-emitted here as a "first-line
-    # defence against prompt-injected tool calls the agent never
-    # declared."  Removed because the pattern's LTL encoding —
-    # ``G(∨ called(tᵢ) for tᵢ ∈ allowed)`` — is FALSE at every
-    # timestep where the trace contains a partial state without yet
-    # any tool call (i.e., the very first event).  The pattern's
-    # docstring acknowledges this with "real enforcement is done by
-    # the monitor"; for users running the verifier in enforce mode,
-    # the LTL form turns the rule into a guaranteed-violation that
-    # blocks the FIRST call regardless of whether it's in the list.
-    # Until the encoding is repaired (see issue tracker), starter-
-    # pack stops shipping it — frameworks already enforce
-    # tool-registration at integration time, so the loss of LTL-
-    # level coverage doesn't open a real gap.
+    # ``tool_allowlist`` — first-line defence against prompt-injected
+    # tool calls the agent never declared.  The encoding is
+    # ``G(called_any -> ∨ called(tᵢ) for tᵢ ∈ allowed)``: at any
+    # timestep where some tool fires, that tool must be in the list.
+    # The ``called_any`` guard is essential — without it the rule
+    # is FALSE on empty / non-tool timesteps and fires before the
+    # first event.  See ``sponsio.patterns.library.tool_allowlist``
+    # and the ``tool_allowlist__empty_trace_satisfied`` cross-
+    # language scenario for the historical bug + regression pin.
+    if names:
+        proposals.append(
+            _proposal(
+                tool_allowlist(names),
+                [names],
+                f"only declared tools may be called ({len(names)} tool(s))",
+                confidence=0.6,
+                heuristic="starter_allowlist",
+            )
+        )
 
     if include_token_budget:
         proposals.append(

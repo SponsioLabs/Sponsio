@@ -7,7 +7,7 @@ command:
     • Python           3.11.8
     ✓ sponsio import    0.1.0a0
     ✓ Optional SDKs     langchain, openai (crewai not installed — ok)
-    ✓ LLM credentials   GOOGLE_API_KEY present (gemini-2.5-flash, 1500/day free)
+    ✓ LLM credentials   GOOGLE_API_KEY present (gemini-2.5-flash-lite, 1500/day free)
     ✓ Project scan      12 tools found in src/
     ✓ Guard smoke-test  contract wires up, data_write visible
     ✓ Runtime mode      observe (shadow — safe default)
@@ -145,8 +145,8 @@ def check_optional_sdks() -> CheckResult:
 
 # Env var → (provider label, default model, note)
 _LLM_PROVIDERS: tuple[tuple[str, str, str, str], ...] = (
-    ("GEMINI_API_KEY", "Gemini", "gemini-2.5-flash", "1500 req/day free tier"),
-    ("GOOGLE_API_KEY", "Gemini", "gemini-2.5-flash", "1500 req/day free tier"),
+    ("GEMINI_API_KEY", "Gemini", "gemini-2.5-flash-lite", "1500 req/day free tier"),
+    ("GOOGLE_API_KEY", "Gemini", "gemini-2.5-flash-lite", "1500 req/day free tier"),
     ("ANTHROPIC_API_KEY", "Anthropic", "claude-3-5-sonnet-20241022", ""),
     ("OPENAI_API_KEY", "OpenAI", "gpt-4o-mini", ""),
 )
@@ -258,6 +258,29 @@ def check_project_scan(path: Path) -> CheckResult:
         all_contracts += len(constraints)
 
     if all_contracts == 0:
+        # Frameworks that use built-in tools (Claude Agent SDK's
+        # native ``Bash``, MCP servers configured per-host, framework-
+        # less projects driving HTTP / DB clients directly) don't
+        # expose ``@tool`` decorations for the AST scanner to pick
+        # up.  Zero contracts there is the *expected* state, not a
+        # warning — the user's job is to author the rules by hand
+        # against the tool names the framework will actually emit.
+        # Demote to ``skip`` for those so the doctor banner doesn't
+        # carry a noisy warn the user can't act on.
+        try:
+            from sponsio.onboard import detect_framework
+
+            fw = detect_framework(path).framework
+        except Exception:  # noqa: BLE001 — pure observability call
+            fw = "none"
+        if fw in {"claude_agent", "mcp", "none"}:
+            return CheckResult(
+                "Project scan",
+                "skip",
+                f"{len(py_files)} .py file(s) scanned, no @tool defs "
+                f"({fw} uses built-in tools — author rules by hand "
+                f"against the framework's tool names)",
+            )
         return CheckResult(
             "Project scan",
             "warn",
@@ -519,11 +542,20 @@ def check_skill_installed() -> CheckResult:
             f"broken at {names} — re-run `sponsio skill install --force`",
         )
     if drift:
+        # Drift = the installed SKILL.md content has diverged from the
+        # packaged source (typically because the user ran ``pip install
+        # -U sponsio`` without re-running ``sponsio skill install``).
+        # The skill still works — it's just one minor version behind —
+        # so we don't ``warn`` it: there's a dedicated ``sponsio skill``
+        # subcommand for managing skill installs and pushing users
+        # toward it from every ``sponsio onboard`` / ``sponsio doctor``
+        # run is noise.  Demoted to ``skip`` so the line stays
+        # diagnostic but doesn't tick the warn counter.
         names = ", ".join(p.tool for p in drift)
         return CheckResult(
             "Agent Skill",
-            "warn",
-            f"stale copy at {names} — `sponsio skill install --force` to refresh",
+            "skip",
+            f"installed at {names} (one minor version behind packaged source)",
         )
     if ok:
         names = ", ".join(p.tool for p in ok)

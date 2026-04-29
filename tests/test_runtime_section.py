@@ -294,6 +294,48 @@ class TestSponsioFactoryPrecedence:
         self._clean_env(monkeypatch)
         g = Sponsio(agent_id="bot", contracts=[])
         assert g._mode == "observe"
+
+    def test_defaults_mode_yaml_drives_when_no_runtime_section(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # ``sponsio onboard`` / ``sponsio init`` write ``defaults.mode``
+        # (not ``runtime.mode``).  Sponsio() must honour that — without
+        # this fallback, flipping ``defaults.mode: observe → enforce``
+        # in an onboard-generated yaml is silently ignored, and users
+        # have no way to make the yaml authoritative without learning
+        # the undocumented ``runtime:`` alternative.
+        self._clean_env(monkeypatch)
+        p = tmp_path / "sponsio.yaml"
+        p.write_text(
+            'version: "1"\n'
+            "defaults:\n"
+            "  mode: enforce\n"
+            "agents:\n"
+            "  bot:\n"
+            "    contracts: []\n"
+        )
+        g = Sponsio(config=str(p), agent_id="bot")
+        assert g._mode == "enforce"
+
+    def test_runtime_mode_beats_defaults_mode(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # When both sections are present (transitional configs / power
+        # users), the typed ``runtime:`` block is the canonical source.
+        self._clean_env(monkeypatch)
+        p = tmp_path / "sponsio.yaml"
+        p.write_text(
+            'version: "1"\n'
+            "runtime:\n"
+            "  mode: observe\n"
+            "defaults:\n"
+            "  mode: enforce\n"
+            "agents:\n"
+            "  bot:\n"
+            "    contracts: []\n"
+        )
+        g = Sponsio(config=str(p), agent_id="bot")
+        assert g._mode == "observe"
         assert g._dashboard_url is None
 
     def test_inline_guard_honors_env_dashboard(self, monkeypatch) -> None:

@@ -464,6 +464,14 @@ def format_summary(summary: PerfSummary, *, color: bool = True) -> str:
         ("sto (memo)", summary.sto_cached, "34"),
         ("sto (live)", summary.sto_live, "33"),
     ]
+    # Hide the two sto rows entirely when nobody's using sto contracts.
+    # The det-only deployment is the common case (every demo we ship,
+    # most user agents on day one) and two ``— — — — —`` lines are
+    # pure noise there.  The memo-vs-live distinction is preserved for
+    # users who DO have sto rules — both rows reappear as soon as
+    # either bucket has a single sample.
+    if summary.sto_cached.n == 0 and summary.sto_live.n == 0:
+        buckets = buckets[:1]
     # Header
     lines.append(
         f"  {'bucket':<12}  {'n':>8}  {'p50':>10}  {'p99':>10}  {'max':>10}  {'QPS':>12}"

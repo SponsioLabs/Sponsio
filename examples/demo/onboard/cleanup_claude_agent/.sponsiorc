@@ -3,7 +3,7 @@
 # `api_key_env` names the env var sponsio reads at runtime —
 # export it from your shell rc / direnv / secret manager.
 
-framework: none
+framework: claude_agent
 
 # Parse-time LLM — used by `sponsio scan` / `sponsio refresh`
 # to infer contracts from your tool definitions.

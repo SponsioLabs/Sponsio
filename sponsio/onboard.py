@@ -883,7 +883,9 @@ def _wrap_snippet(framework: str, agent_id: str) -> str:
         "langchain": (
             f"from sponsio.langgraph import Sponsio\n"
             f'guard = Sponsio(config="sponsio.yaml", agent_id="{agent_id}")\n'
-            f"tools = guard.wrap(tools)"
+            f"# pass guard.wrap(tools) to your agent constructor:\n"
+            f"#   agent = create_react_agent(model, guard.wrap(tools))\n"
+            f"#   # or: AgentExecutor(agent=..., tools=guard.wrap(tools))"
         ),
         "claude_agent": (
             f"from sponsio.claude_agent import Sponsio\n"
@@ -898,7 +900,8 @@ def _wrap_snippet(framework: str, agent_id: str) -> str:
         "google_adk": (
             f"from sponsio.google_adk import Sponsio\n"
             f'guard = Sponsio(config="sponsio.yaml", agent_id="{agent_id}")\n'
-            f"tools = guard.wrap(tools)"
+            f"# pass guard.wrap(tools) to your agent constructor:\n"
+            f"#   agent = Agent(model=..., tools=guard.wrap(tools))"
         ),
         "openai_agents": (
             f"from sponsio.agents import Sponsio\n"
@@ -918,7 +921,9 @@ def _wrap_snippet(framework: str, agent_id: str) -> str:
         "mcp": (
             f"from sponsio.mcp import MCPContractProxy\n"
             f'proxy = MCPContractProxy(config="sponsio.yaml", '
-            f'agent_id="{agent_id}")'
+            f'agent_id="{agent_id}")\n'
+            f"# then run the proxy in front of your upstream MCP server:\n"
+            f"#   await proxy.serve_stdio()  # or proxy.serve_sse(host=..., port=...)"
         ),
         "none": (
             f"import sponsio\n"

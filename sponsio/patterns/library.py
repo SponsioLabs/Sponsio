@@ -1301,17 +1301,27 @@ def tool_allowlist(allowed_tools: list[str], desc: str = "") -> DetFormula:
     Returns:
         A ``DetFormula``.
     """
-    # Build disjunction: called(t1) ∨ called(t2) ∨ ...
+    # Build the rule shape: at every timestep where SOME tool fires
+    # (``called_any``), the call must be one of the allowed tools.
+    # Using a guarded implication rather than a bare disjunction is
+    # essential — the bare ``G(∨ called(tᵢ))`` form is FALSE at the
+    # initial / non-tool timestep where no called(tᵢ) is true,
+    # which made the rule self-violate before any call ever fired.
+    # See cross_language ``tool_allowlist__empty_trace_satisfied``.
+    called_any = Atom("called_any")
     if not allowed_tools:
-        # Empty allowlist = nothing allowed = always false
-        formula = G(Not(Atom("called", "__any__")))
-    elif len(allowed_tools) == 1:
-        formula = G(_called(allowed_tools[0]))
+        # Empty allowlist = nothing allowed.  Whenever a tool fires,
+        # the consequent (an empty Or) is false, so the implication
+        # forces ``called_any`` to be false at every timestep.
+        formula = G(Not(called_any))
     else:
-        allowed = _called(allowed_tools[0])
-        for t in allowed_tools[1:]:
-            allowed = Or(allowed, _called(t))
-        formula = G(allowed)
+        if len(allowed_tools) == 1:
+            allowed = _called(allowed_tools[0])
+        else:
+            allowed = _called(allowed_tools[0])
+            for t in allowed_tools[1:]:
+                allowed = Or(allowed, _called(t))
+        formula = G(Implies(called_any, allowed))
 
     tools_str = ", ".join(allowed_tools)
     return DetFormula(
