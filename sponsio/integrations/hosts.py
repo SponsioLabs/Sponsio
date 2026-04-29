@@ -69,6 +69,23 @@ class HookHost:
     (Claude Code's PreToolUse/PostToolUse is signalled in the JSON
     body, not via a separate ``--event`` argument)."""
 
+    status_fn: Callable[..., dict] | None = None
+    """Optional ``status(host: HookHost) -> dict`` returning a
+    structured report of what Sponsio has deployed for this host.
+    ``sponsio host status <name>`` calls this and renders the result.
+    Hosts without a ``status_fn`` fall back to a generic file-presence
+    check on ``config_path_user``.  Each report key is conventionally
+    ``{"ok": bool, "detail": str}``; one reserved key ``libraries``
+    holds a list of contract-library summaries when applicable."""
+
+    trace_fn: Callable[..., object] | None = None
+    """Optional ``trace(host, *, follow: bool, container: str | None)
+    -> Iterator[tuple[level, line]]`` — yields a human-readable
+    stream of agent activity (tool calls, results, sponsio blocks).
+    ``sponsio host trace <name>`` calls this and prints each yielded
+    line with level-appropriate colour.  Hosts that don't expose a
+    structured session log have no trace adapter today."""
+
     extras: dict = field(default_factory=dict)
     """Host-specific options that the install/uninstall/runtime
     functions read.  Keeps the dataclass closed-shape while allowing
@@ -208,6 +225,18 @@ def _openclaw_runtime(host, hook_event, stdin_text):
     return run_stdin(stdin_text)
 
 
+def _openclaw_status(host):
+    from sponsio.integrations.openclaw_install import status as _impl
+
+    return _impl(host)
+
+
+def _openclaw_trace(host, **kwargs):
+    from sponsio.integrations.openclaw_install import trace as _impl
+
+    return _impl(host, **kwargs)
+
+
 # Order matters: ``sponsio host list`` prints in registry order.
 register(
     HookHost(
@@ -271,5 +300,7 @@ register(
         uninstall_fn=_openclaw_uninstall,
         runtime_fn=_openclaw_runtime,
         runtime_events=(),
+        status_fn=_openclaw_status,
+        trace_fn=_openclaw_trace,
     )
 )

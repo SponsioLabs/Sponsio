@@ -1,0 +1,54 @@
+# =============================================================================
+# Operator-supplied Sponsio config for the Lethal Trifecta demo —
+# OpenClaw variant.
+#
+# Drop this at:
+#   $DEMO_HOME/.sponsio/plugins/gh_gist/sponsio.yaml
+#
+# Even though OpenClaw's runtime names MCP tools `<server>__<tool>`
+# (no leading `mcp__`), Sponsio's guard (see
+# ``sponsio.guard_stdin.evaluate_event``) normalises OpenClaw tool
+# names to the Claude-Code shape ``mcp__<server>__<tool>`` before
+# evaluation — so the same rules and the bundled
+# ``sponsio:incident/mcp-composition`` pack work verbatim on both
+# runtimes.  Reads are similarly forwarded as the host's native
+# tool name (``read`` for OpenClaw, ``Read`` for Claude Code); R2
+# matches both.
+# =============================================================================
+
+version: "1"
+
+agents:
+  gh_gist:
+    include:
+      - sponsio:incident/mcp-composition
+
+    contracts:
+
+      # ─── R1: gists are private only (canonical first defense) ──────
+      - desc: "GitHub Gist must be private (public: false)"
+        E:
+          ltl: 'G(called(mcp__gh_gist__create_gist) -> arg_field_has(mcp__gh_gist__create_gist, public, "False|false"))'
+
+      # ─── R2: trace-aware lethal-trifecta — after reading any work
+      #         notes file, require gist privacy.  We accept either
+      #         the OpenClaw read-tool name (``read`` / ``path``) or
+      #         the Claude Code shape (``Read`` / ``file_path``) so
+      #         the kit ports cleanly between hosts.
+      - desc: "After reading work notes, gist must remain private"
+        activate_at: first_match
+        A:
+          ltl: 'F(arg_field_has(read, path, "/work/notes/|/work/shared/") | arg_field_has(Read, file_path, "/work/notes/|/work/shared/"))'
+        E:
+          ltl: 'G(called(mcp__gh_gist__create_gist) -> arg_field_has(mcp__gh_gist__create_gist, public, "False|false"))'
+
+      # ─── R3: file count cap — a single gist with >2 files is
+      #         almost always a "dump everything" leak shape rather
+      #         than a focused snippet share.
+      - desc: "Gist file count: at most 2 files per create_gist call"
+        E:
+          ltl: 'G(called(mcp__gh_gist__create_gist) -> !arg_field_has(mcp__gh_gist__create_gist, files, "(\\.md\"\\s*:.*?){3,}"))'
+
+      # R4 and R5 (body-shape defenses for salary / termination /
+      # ARR / KEY=VAL / $()) come from the bundle:
+      # ``sponsio:incident/mcp-composition`` § 3b — already included.

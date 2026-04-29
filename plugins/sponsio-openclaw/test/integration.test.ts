@@ -6,9 +6,12 @@
  * --stdin`` binary, with ``$SPONSIO_PLUGIN_ROOT`` pointed at a
  * temp dir we set up by hand.
  *
- * Mock OpenClaw API surface tracks the public docs as of 2026-04-26:
- *   https://docs.openclaw.ai/plugins/hooks.md (event payload)
- *   https://docs.openclaw.ai/plugins/sdk-entrypoints.md (registerHook)
+ * Mock OpenClaw API surface tracks the runtime observed in
+ * ghcr.io/openclaw/openclaw:2026.4.14:
+ *
+ *   - registerHook(events, handler, opts) — three positional args.
+ *   - handler(event, ctx) — ctx is the SECOND arg, not event.ctx.
+ *   - opts.name is the hook's unique identifier (NOT the event).
  *
  * Run with: ``npm test``.
  *
@@ -26,8 +29,10 @@ import { join } from "node:path";
 
 import sponsioOpenClawPlugin, {
   type BeforeToolCallEvent,
+  type BeforeToolCallContext,
   type BeforeToolCallResult,
   type OpenClawPluginApi,
+  type RegisterHookOptions,
 } from "../src/index.ts";
 
 // Skip the whole suite if the user doesn't have the Python CLI
@@ -46,21 +51,30 @@ const skipUnlessSponsio = SPONSIO_AVAILABLE ? test : test.skip;
 // Mock OpenClaw API
 // ----------------------------------------------------------------------------
 
+type CapturedRegistration = {
+  hookName: string;
+  handler: (
+    event: BeforeToolCallEvent,
+    ctx: BeforeToolCallContext,
+  ) => Promise<BeforeToolCallResult | undefined>;
+  opts: RegisterHookOptions | undefined;
+};
+
 interface MockApi extends OpenClawPluginApi {
-  /** Captured spec from the last ``registerHook`` call. */
-  __lastHookSpec?: {
-    name: string;
-    handler: (
-      event: BeforeToolCallEvent,
-    ) => Promise<BeforeToolCallResult | undefined>;
-    priority?: number;
-  };
+  /** Captured args from the last ``api.on`` call. */
+  __lastRegistration?: CapturedRegistration;
 }
 
 function makeMockApi(): MockApi {
   const api: MockApi = {
-    registerHook(spec) {
-      api.__lastHookSpec = spec;
+    on(hookName, handler, opts) {
+      api.__lastRegistration = {
+        hookName: String(hookName),
+        // The plugin uses the BeforeToolCall variant; cast for the
+        // mock since OpenClawPluginApi.on is typed generically.
+        handler: handler as CapturedRegistration["handler"],
+        opts,
+      };
     },
   };
   return api;
@@ -75,12 +89,17 @@ function makeEvent(
     params,
     runId: "run-test",
     toolCallId: "toolu-test",
-    ctx: {
-      agentId: "test-agent",
-      sessionKey: "test-session-key",
-      sessionId: "test-session",
-      trace: null,
-    },
+  };
+}
+
+function makeCtx(toolName: string): BeforeToolCallContext {
+  return {
+    toolName,
+    agentId: "test-agent",
+    sessionKey: "test-session-key",
+    sessionId: "test-session",
+    runId: "run-test",
+    toolCallId: "toolu-test",
   };
 }
 
@@ -128,14 +147,25 @@ test("plugin object exposes definePluginEntry-compatible shape", () => {
 test("register installs a single before_tool_call hook with high priority", () => {
   const api = makeMockApi();
   sponsioOpenClawPlugin.register(api);
-  assert.ok(api.__lastHookSpec, "registerHook was never called");
-  assert.equal(api.__lastHookSpec.name, "before_tool_call");
-  assert.equal(typeof api.__lastHookSpec.handler, "function");
+  assert.ok(api.__lastRegistration, "api.on was never called");
+  // The plugin must use ``api.on(hookName, handler, opts)`` for the
+  // typed-hook surface.  ``api.registerHook`` writes to a different
+  // registry (``registry.hooks`` / ``triggerInternalHook``) that the
+  // tool-call path doesn't consult — verified against
+  // pi-tools.before-tool-call's ``hookRunner.runBeforeToolCall``,
+  // which reads ``registry.typedHooks``.
+  assert.equal(api.__lastRegistration.hookName, "before_tool_call");
+  assert.equal(typeof api.__lastRegistration.handler, "function");
+  assert.ok(
+    api.__lastRegistration.opts?.name &&
+      api.__lastRegistration.opts.name.length > 0,
+    "hook needs a unique name in opts",
+  );
   // High priority = early in the chain. We picked 1000 so a Sponsio
   // deny short-circuits any other hooks the user has installed.
-  assert.equal(typeof api.__lastHookSpec.priority, "number");
+  assert.equal(typeof api.__lastRegistration.opts?.priority, "number");
   assert.ok(
-    (api.__lastHookSpec.priority ?? 0) >= 100,
+    (api.__lastRegistration.opts?.priority ?? 0) >= 100,
     "Sponsio guardrails should run at high priority",
   );
 });
@@ -152,8 +182,9 @@ skipUnlessSponsio(
     process.env.SPONSIO_PLUGIN_ROOT = root;
     try {
       sponsioOpenClawPlugin.register(api);
-      const result = await api.__lastHookSpec!.handler(
+      const result = await api.__lastRegistration!.handler(
         makeEvent("Bash", { command: "ls" }),
+        makeCtx("Bash"),
       );
       assert.equal(result, undefined);
     } finally {
@@ -172,8 +203,9 @@ skipUnlessSponsio(
     process.env.SPONSIO_PLUGIN_ROOT = root;
     try {
       sponsioOpenClawPlugin.register(api);
-      const result = await api.__lastHookSpec!.handler(
+      const result = await api.__lastRegistration!.handler(
         makeEvent("Bash", { command: "rm -rf /tmp/x" }),
+        makeCtx("Bash"),
       );
       assert.ok(result, "expected a block result, got undefined");
       assert.equal(result.block, true);
@@ -196,8 +228,9 @@ skipUnlessSponsio(
     process.env.SPONSIO_PLUGIN_ROOT = root;
     try {
       sponsioOpenClawPlugin.register(api);
-      const result = await api.__lastHookSpec!.handler(
+      const result = await api.__lastRegistration!.handler(
         makeEvent("Bash", { command: "ls -la" }),
+        makeCtx("Bash"),
       );
       assert.equal(result, undefined);
     } finally {
@@ -232,16 +265,18 @@ agents:
     process.env.SPONSIO_PLUGIN_ROOT = root;
     try {
       sponsioOpenClawPlugin.register(api);
-      const handler = api.__lastHookSpec!.handler;
+      const handler = api.__lastRegistration!.handler;
 
       const blocked = await handler(
         makeEvent("mcp__acme__fetch", { url: "https://evil.com" }),
+        makeCtx("mcp__acme__fetch"),
       );
       assert.ok(blocked, "expected block on evil URL");
       assert.equal(blocked.block, true);
 
       const allowed = await handler(
         makeEvent("mcp__acme__fetch", { url: "https://example.com" }),
+        makeCtx("mcp__acme__fetch"),
       );
       assert.equal(allowed, undefined);
     } finally {
@@ -256,7 +291,7 @@ agents:
 // ----------------------------------------------------------------------------
 
 skipUnlessSponsio(
-  "missing event.ctx field doesn't crash — fail-open allow",
+  "missing ctx argument doesn't crash — fail-open allow",
   async () => {
     const api = makeMockApi();
     const root = makePluginRoot();
@@ -264,12 +299,13 @@ skipUnlessSponsio(
     process.env.SPONSIO_PLUGIN_ROOT = root;
     try {
       sponsioOpenClawPlugin.register(api);
-      // Some OpenClaw versions may omit ctx. Our handler should
-      // not throw — defensive ?. on every dotted access.
-      const result = await api.__lastHookSpec!.handler({
-        toolName: "Bash",
-        params: { command: "ls" },
-      } as unknown as BeforeToolCallEvent);
+      // Some OpenClaw versions may invoke the handler without ctx.
+      // Our handler reads ctx?.sessionId / ctx?.agentId defensively
+      // so this should not throw.
+      const result = await api.__lastRegistration!.handler(
+        makeEvent("Bash", { command: "ls" }),
+        undefined as unknown as BeforeToolCallContext,
+      );
       assert.equal(result, undefined);
     } finally {
       delete process.env.SPONSIO_PLUGIN_ROOT;
@@ -295,8 +331,9 @@ skipUnlessSponsio(
     process.env.SPONSIO_GUARD_BIN = "/definitely/nonexistent/sponsio-bin";
     try {
       sponsioOpenClawPlugin.register(api);
-      const result = await api.__lastHookSpec!.handler(
+      const result = await api.__lastRegistration!.handler(
         makeEvent("Bash", { command: "rm -rf /tmp/x" }),
+        makeCtx("Bash"),
       );
       // Crashed → no decision → undefined → caller proceeds.
       assert.equal(result, undefined);
@@ -328,8 +365,9 @@ agents:
     process.env.SPONSIO_PLUGIN_ROOT = root;
     try {
       sponsioOpenClawPlugin.register(api);
-      const result = await api.__lastHookSpec!.handler(
+      const result = await api.__lastRegistration!.handler(
         makeEvent("mcp__github__delete_repository", { name: "test" }),
+        makeCtx("mcp__github__delete_repository"),
       );
       assert.ok(result, "expected block");
       assert.equal(result.block, true);
@@ -348,6 +386,9 @@ test("deprecated register() named export is still callable", async () => {
   const { register } = await import("../src/index.ts");
   const api = makeMockApi();
   register(api);
-  assert.ok(api.__lastHookSpec, "deprecated register() should still install hook");
-  assert.equal(api.__lastHookSpec.name, "before_tool_call");
+  assert.ok(
+    api.__lastRegistration,
+    "deprecated register() should still install hook",
+  );
+  assert.equal(api.__lastRegistration.hookName, "before_tool_call");
 });

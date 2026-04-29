@@ -8,6 +8,11 @@ __pycache__/
 *.egg-info/
 *.egg-info
 dist/
+# But track the prebuilt OpenClaw plugin artifact bundled with the wheel
+# (canonical source: plugins/sponsio-openclaw/, mirrored here by
+# scripts/sync_openclaw_artifact.py — guarded by tests/test_openclaw_artifact_sync.py).
+!sponsio/plugin/openclaw_artifact/dist/
+!sponsio/plugin/openclaw_artifact/dist/**
 build/
 .eggs/
 *.so
