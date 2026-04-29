@@ -35,6 +35,22 @@ jobs:
           pip install pytest pytest-cov langgraph langchain-core fastapi pydantic uvicorn python-multipart httpx opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http
           pip install claude-agent-sdk vercel-ai-sdk || echo "Optional SDK install failed (platform-specific), tests will skip"
 
+      # Build the canonical OpenClaw plugin TS so the
+      # ``test_openclaw_artifact_sync`` invariant test (compares
+      # ``plugins/sponsio-openclaw/dist/`` byte-for-byte against the
+      # wheel-bundled ``sponsio/plugin/openclaw_artifact/dist/``) has
+      # both copies on disk. ``npm ci`` pins to the exact lockfile
+      # versions that produced the committed bundled artifact, so
+      # bytes match.
+      - name: Set up Node.js (for OpenClaw plugin build)
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+
+      - name: Build OpenClaw plugin TS artifact
+        working-directory: plugins/sponsio-openclaw
+        run: npm ci && npm run build
+
       - name: Run tests
         run: pytest --cov=sponsio --cov-report=term-missing -v
 
@@ -108,11 +124,10 @@ jobs:
           # WYSIWYG markdown editors (Typora / Obsidian Live Preview / VS Code
           # Markdown Editor / Cursor rich preview) silently strip <details>
           # tags when they round-trip the file. Catch this before push.
-          # Expectation: 16 <details> blocks total —
-          #   3 in Quick start (TypeScript / One-shot prompt / Agent Skill)
-          #   4 in See it in action (one per scenario demo)
+          # Expectation: 13 <details> blocks total —
+          #   4 in Quick start (One-shot prompt / Agent Skill / OpenClaw plugin / TypeScript)
           #   9 in Integrations (one per supported framework)
-          expected=16
+          expected=13
           opens=$(grep -c '^<details>' README.md || echo 0)
           closes=$(grep -c '^</details>' README.md || echo 0)
           if [ "$opens" -ne "$expected" ] || [ "$closes" -ne "$expected" ]; then
@@ -124,10 +139,7 @@ jobs:
             "<summary><b>TypeScript</b></summary>"
             "<summary><b>One-shot prompt</b>"
             "<summary><b>Install as an Agent Skill</b></summary>"
-            "<summary><b>1. Coding"
-            "<summary><b>2. Infra"
-            "<summary><b>3. Finance"
-            "<summary><b>4. OpenClaw"
+            "<summary><b>Install as an OpenClaw Plugin</b></summary>"
             "<summary><b>No framework</b>"
             "<summary><b>LangGraph / LangChain.js</b>"
             "<summary><b>Claude Agent SDK</b>"
