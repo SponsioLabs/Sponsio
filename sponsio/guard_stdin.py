@@ -135,10 +135,21 @@ def derive_plugin_id(
         # agent calls go to _host as before.
         return "_host_subagent" if is_subagent else "_host"
     if tool_name.startswith("mcp__"):
-        # mcp__<server>__<tool>
+        # mcp__<server>__<tool>  (Claude Code MCP tool naming)
         parts = tool_name.split("__", 2)
         if len(parts) >= 2 and parts[1]:
             return parts[1]
+        return fallback
+    if host == "openclaw" and "__" in tool_name:
+        # OpenClaw MCP tool naming: <server>__<tool>  (no leading
+        # ``mcp__`` prefix).  Confirmed against
+        # ``pi-bundle-mcp-tools.js::buildSafeToolName`` in the
+        # 2026.4.14 image: ``<safeServerName>__<originalToolName>``.
+        # Route the same way Claude Code's ``mcp__`` form does so
+        # one set of per-plugin libraries works on both runtimes.
+        server, _, _rest = tool_name.partition("__")
+        if server:
+            return server
         return fallback
     if ":" in tool_name:
         # <plugin>:<tool> (Claude Code namespaced skill)
@@ -295,6 +306,24 @@ def evaluate_event(event: dict) -> GuardOutcome:
     tool_name = event.get("tool_name") or ""
     tool_input = event.get("tool_input") or {}
     host = event.get("host") if isinstance(event.get("host"), str) else None
+    # OpenClaw names MCP tools ``<server>__<tool>`` (verified against
+    # ``pi-bundle-mcp-tools.js::buildSafeToolName`` in the 2026.4.14
+    # image).  Claude Code uses ``mcp__<server>__<tool>``.  Normalise
+    # to the Claude-Code shape so contract rules and bundled packs
+    # like ``sponsio:incident/mcp-composition`` (which all reference
+    # ``mcp__server__tool``) work verbatim on both runtimes.
+    #
+    # The "__" check excludes OpenClaw built-in names like ``read`` /
+    # ``write`` / ``exec`` (single-token, no separator) which should
+    # keep their canonical form and route via the ``_host_openclaw``
+    # fallback.
+    if (
+        host == "openclaw"
+        and tool_name
+        and "__" in tool_name
+        and not tool_name.startswith("mcp__")
+    ):
+        tool_name = f"mcp__{tool_name}"
     # Claude Code's PreToolUse payload includes ``agent_id`` only when
     # the hook fires inside a Task-spawned sub-agent.  Its presence
     # alone is the signal — value is just the sub-agent's ID.  Empty

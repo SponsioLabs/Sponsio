@@ -5194,6 +5194,172 @@ def host_list():
         click.echo(f"  {name:<{width_name}}  {state:<{width_state}}  {path_str}")
 
 
+@host.command(name="status")
+@click.argument("name")
+def host_status(name: str):
+    """Show what Sponsio has deployed for ``<name>``.
+
+    Hosts with a ``status_fn`` (currently OpenClaw) return a
+    structured report of each install step + on-disk contract
+    libraries.  Hosts without one fall back to a simple "is the
+    config file there?" check.
+
+    Use this when you want a single, scriptable answer to "is my
+    Sponsio install for X actually in place" — and to surface
+    rule-library summaries for a recording or screenshot.
+    """
+    from sponsio.integrations import hosts as _hosts_mod
+
+    try:
+        host_spec = _hosts_mod.get(name)
+    except KeyError as e:
+        click.secho(f"✘  {e}", fg="red", err=True)
+        sys.exit(1)
+
+    if host_spec.status_fn is None:
+        # Generic file-presence fallback so every registered host has
+        # *some* status answer.
+        installed = host_spec.config_path_user.exists()
+        glyph = "✓" if installed else "○"
+        colour = "green" if installed else "yellow"
+        click.secho(
+            f"{glyph}  {host_spec.name}: "
+            f"{'config present' if installed else 'config missing'} "
+            f"({host_spec.config_path_user})",
+            fg=colour,
+        )
+        if not installed:
+            sys.exit(1)
+        return
+
+    report = host_spec.status_fn(host_spec)
+    click.secho(f"{host_spec.name}", fg="cyan", bold=True)
+
+    any_failed = False
+    for key in ("library", "extension", "registration"):
+        entry = report.get(key)
+        if not isinstance(entry, dict):
+            continue
+        ok = bool(entry.get("ok"))
+        glyph = "✓" if ok else "✘"
+        colour = "green" if ok else "red"
+        click.secho(f"  {glyph}  {key}: {entry.get('detail', '')}", fg=colour)
+        if not ok:
+            any_failed = True
+
+    libs = report.get("libraries")
+    if isinstance(libs, list) and libs:
+        click.secho("  ─  contract libraries:", fg="cyan")
+        for lib in libs:
+            name_ = lib.get("name", "?")
+            contracts = lib.get("contracts") or []
+            includes = lib.get("includes") or []
+            err = lib.get("parse_error")
+            header = f"     {name_}"
+            if contracts:
+                header += (
+                    f"  ({len(contracts)} contract{'s' if len(contracts) != 1 else ''})"
+                )
+            click.secho(header, fg="cyan", bold=True)
+            if err:
+                click.secho(f"        (could not parse yaml: {err})", fg="yellow")
+                continue
+            for c in contracts:
+                desc = c.get("desc") or "(unnamed)"
+                tag = ""
+                if c.get("activate_at"):
+                    tag = f"  [activate_at: {c['activate_at']}]"
+                click.echo(f"        • {desc}{tag}")
+                a = c.get("A")
+                e = c.get("E")
+                if a:
+                    # 80-char window keeps the line readable on a
+                    # demo terminal; full text lives in the YAML.
+                    if len(a) > 96:
+                        a = a[:96] + "…"
+                    click.secho(f"            A:  {a}", fg="white", dim=True)
+                if e:
+                    if len(e) > 96:
+                        e = e[:96] + "…"
+                    click.secho(f"            E:  {e}", fg="white", dim=True)
+            for inc in includes:
+                click.secho(
+                    f"        + bundled pack: {inc}",
+                    fg="cyan",
+                    dim=True,
+                )
+
+    if any_failed:
+        sys.exit(1)
+
+
+@host.command(name="trace")
+@click.argument("name")
+@click.option(
+    "--follow/--no-follow",
+    "-f",
+    default=False,
+    show_default=True,
+    help="Tail the latest agent session forever.  Without it, prints once and exits.",
+)
+@click.option(
+    "--container",
+    "container",
+    default=None,
+    help=(
+        "Read sessions from inside a Docker container instead of the local "
+        "filesystem.  Convenient when the host runs as a container with "
+        "``~/.openclaw`` *not* bind-mounted to a host path you can read."
+    ),
+)
+def host_trace(name: str, follow: bool, container: str | None):
+    """Stream agent activity (tool calls + Sponsio blocks) in real time.
+
+    Useful as a side terminal during demos: the audience sees what
+    the agent is doing and where Sponsio steps in.  Each line is
+    coloured by event type:
+
+    \b
+    →  CALL   (yellow)  tool the agent invoked
+    ←  ok    (green)   tool succeeded
+    ←  ✘ BLOCKED (red) tool denied by Sponsio (deny reason inline)
+    [agent] (blue)     assistant text
+    [user]  (dim)      user text (Telegram metadata stripped)
+    """
+    from sponsio.integrations import hosts as _hosts_mod
+
+    try:
+        host_spec = _hosts_mod.get(name)
+    except KeyError as e:
+        click.secho(f"✘  {e}", fg="red", err=True)
+        sys.exit(1)
+
+    if host_spec.trace_fn is None:
+        click.secho(
+            f"✘  {host_spec.name}: no trace adapter for this host",
+            fg="red",
+            err=True,
+        )
+        sys.exit(1)
+
+    palette = {
+        "call": "yellow",
+        "ok": "green",
+        "block": "red",
+        "text": "cyan",
+        "user": None,  # default fg
+        "error": "red",
+    }
+    try:
+        for level, line in host_spec.trace_fn(
+            host_spec, follow=follow, container=container
+        ):
+            click.secho(line, fg=palette.get(level))
+    except KeyboardInterrupt:
+        # Clean exit on Ctrl-C so the recording terminal doesn't show a stack trace.
+        click.echo()
+
+
 def _resolve_host_targets(name_or_set: str) -> list[str]:
     """Map a CLI ``<name>`` token into a list of registered host ids.
 
