@@ -45,17 +45,29 @@ from sponsio.onboard import (
 
 
 class TestStarterContracts:
-    def test_empty_tool_list_still_emits_global_rules(self):
-        """Even an agent with no discovered tools should get a token
-        budget + delegation cap — they're the two rules that don't
-        depend on tool names."""
+    def test_empty_tool_list_emits_nothing_by_default(self):
+        """Empty input + default args produces zero proposals.
+
+        Both ``token_budget`` and ``delegation_depth_limit`` used to
+        be emitted unconditionally with arbitrary thresholds (100k
+        tokens / depth 3) — every user removed them on first review,
+        so the defaults are now opt-in.  The opt-in path is exercised
+        by ``test_globals_can_be_opted_in``.
+        """
         props = starter_contracts([])
+        assert props == []
+
+    def test_globals_can_be_opted_in(self):
+        """Explicit ``include_*`` flags still produce the global rules
+        for callers that genuinely want session-wide caps."""
+        props = starter_contracts(
+            [],
+            include_token_budget=True,
+            include_delegation_limit=True,
+        )
         pats = {p.formula.pattern_name for p in props}
         assert "token_budget" in pats
         assert "delegation_depth_limit" in pats
-        # No per-tool rules without tools
-        assert "loop_detection" not in pats
-        assert "tool_allowlist" not in pats
 
     def test_irreversible_token_triggers_irreversible_once(self):
         props = starter_contracts(["delete_user", "drop_table"])

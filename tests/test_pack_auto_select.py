@@ -368,7 +368,10 @@ class TestRunOnboardAutoSelect:
         # ship dozens of contracts each, plus the scan-extracted
         # contracts.  Pin a lower bound that catches "no packs got
         # included" regressions without being brittle to pack churn.
-        assert len(cfg.agents["agent"].contracts) > 30
+        # Threshold tracks pack contents (~30 today after the
+        # starter-pack signal-to-noise pass dropped read-tool
+        # loop_detection / global token_budget defaults).
+        assert len(cfg.agents["agent"].contracts) >= 25
 
     def test_workspace_resolves_in_emitted_yaml(
         self, langgraph_project_with_capabilities

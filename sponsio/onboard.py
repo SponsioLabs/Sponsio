@@ -315,13 +315,21 @@ def detect_provider(
     """
     if os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY"):
         env = "GOOGLE_API_KEY" if os.environ.get("GOOGLE_API_KEY") else "GEMINI_API_KEY"
+        # ``SPONSIO_EXTRACTOR_MODEL`` lets per-project workflows pin
+        # a specific Gemini model.  Default is ``gemini-2.5-flash`` —
+        # the lighter ``flash-lite`` consistently missed numeric-
+        # threshold rules (the ``arg_numeric(wire_transfer, amount)
+        # <= 50000`` case in the wire-transfer demo was the canonical
+        # repro).  Trading ~13s of extra latency on the one-off
+        # onboard call for stable contract coverage is the right
+        # call; users who specifically need lite's ~3s latency (CI
+        # smoke tests, "I'll re-run with flash later") set the env
+        # var to override.
+        model = os.environ.get("SPONSIO_EXTRACTOR_MODEL", "gemini-2.5-flash")
         return ProviderHint(
             provider="gemini",
             env_var=env,
-            # 2.5-flash, not 2.0-flash: 2.0 has a much tighter free-tier
-            # quota and onboard's contract-extraction call burns through
-            # it on first run, surfacing as 429 RESOURCE_EXHAUSTED.
-            model="gemini-2.5-flash",
+            model=model,
             evidence=f"{env} set (1500 req/day free tier)",
         )
 
@@ -915,6 +923,68 @@ def _wrap_snippet(framework: str, agent_id: str) -> str:
     return snippets.get(framework, snippets["none"])
 
 
+def _refresh_stale_skills() -> list[str]:
+    """Silently refresh any drifted SKILL.md copies.
+
+    Walks every Sponsio Agent Skill install slot (``~/.cursor/skills/``,
+    ``~/.claude/skills/``, ``~/.codex/skills/``).  For each one whose
+    install is in ``drift`` state — i.e. the user previously ran
+    ``sponsio skill install`` and the copy now lags behind the packaged
+    source — re-copy the source on top of it.
+
+    What this DOESN'T do:
+        * Install into slots the user never opted into (status
+          ``missing``) — that's a deliberate first-time choice, not a
+          drift refresh.
+        * Touch link-mode installs — those auto-upgrade with the
+          package and never go stale.
+        * Surface errors to the caller — onboard runs the doctor pass
+          immediately after, which will re-flag the drift if anything
+          went wrong here.
+
+    Returns the list of tool labels that were refreshed (for the
+    progress emit).  Empty when there's nothing to do, which is the
+    common case.
+    """
+    try:
+        from sponsio.cli import (
+            _SKILL_TOOL_DIRS,
+            _packaged_skill_source,
+            _verify_skill_install_target,
+        )
+    except Exception:  # noqa: BLE001 — cli should always import
+        return []
+
+    try:
+        src = _packaged_skill_source()
+    except FileNotFoundError:
+        # Packaged skill missing — doctor will raise this loudly; we
+        # have nothing to refresh from.
+        return []
+
+    refreshed: list[str] = []
+    import shutil
+
+    for tool, parent in _SKILL_TOOL_DIRS.items():
+        try:
+            probe = _verify_skill_install_target(tool, parent, src)
+        except Exception:  # noqa: BLE001
+            continue
+        if probe.status != "drift":
+            continue
+        target = parent / "sponsio"
+        try:
+            if target.is_symlink() or target.is_file():
+                target.unlink()
+            elif target.exists():
+                shutil.rmtree(target)
+            shutil.copytree(src, target)
+        except OSError:
+            continue
+        refreshed.append(tool)
+    return refreshed
+
+
 # ---------------------------------------------------------------------------
 # Main entrypoint
 # ---------------------------------------------------------------------------
@@ -1054,11 +1124,13 @@ def run_onboard(
         # on very small tool sets).  Either way the starter pack adds
         # safety net rules that require only the tool names.
         tool_names = [t["name"] for t in tool_inventory] if tool_inventory else []
-        starter = starter_contracts(
-            tool_names,
-            include_delegation_limit=framework.framework
-            in {"langgraph", "crewai", "openai_agents", "google_adk"},
-        )
+        # Both globals (token_budget + delegation_depth_limit) default
+        # to OFF — their hard-coded thresholds (100k tokens, depth 3)
+        # are arbitrary and produced one ``# review`` line per onboard
+        # that every user immediately removed.  Users who actually want
+        # those caps add them by hand with values calibrated to their
+        # workload.
+        starter = starter_contracts(tool_names)
         # Dedup against contracts the scan already emitted.  We drop
         # starter rules — never the other way round — because the
         # scan side has full source context (param names, call graph,
@@ -1109,6 +1181,19 @@ def run_onboard(
     # for any framework with fewer surprises).  The CLI prints the
     # snippet for the user to apply.
     snippet = _wrap_snippet(framework.framework, agent_id)
+
+    # --- Stage 5.5: refresh stale agent skills --------------------------
+    # The `Agent Skill` doctor check warns when a previously-installed
+    # SKILL.md copy lags behind the packaged source (the classic
+    # ``pip install -U sponsio`` foot-gun: Python API moved forward,
+    # the agent dispatcher still reads V(n-1)).  Onboard already
+    # implies "freshen the local Sponsio install" so silently refresh
+    # any drifted copies — a no-op if everything is already up to
+    # date, no surprise installs into tools the user hadn't already
+    # opted into.
+    refreshed = _refresh_stale_skills()
+    if refreshed:
+        _emit(f"refreshed agent skill copies: {', '.join(refreshed)}")
 
     # --- Stage 6: doctor ------------------------------------------------
     doctor_results = None

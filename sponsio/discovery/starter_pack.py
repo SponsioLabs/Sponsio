@@ -198,6 +198,7 @@ def _proposal(
 
 def _per_tool_rules(name: str) -> list[ProposedConstraint]:
     out: list[ProposedConstraint] = []
+    high_risk = False
 
     # Irreversible actions — at-most-once per session.  Highest
     # priority because double-triggering is the actual blast radius.
@@ -211,6 +212,7 @@ def _per_tool_rules(name: str) -> list[ProposedConstraint]:
                 heuristic="starter_irreversible",
             )
         )
+        high_risk = True
 
     # Bash / shell-shaped tools — blacklist the classic footguns on
     # the first string-ish param.  We assume ``command`` by convention;
@@ -233,6 +235,7 @@ def _per_tool_rules(name: str) -> list[ProposedConstraint]:
                 heuristic="starter_bash",
             )
         )
+        high_risk = True
 
     # SQL tools — bind to the user's actual tool name.  We emit the
     # ``arg_blacklist`` shape directly (rather than ``dangerous_sql_verbs``)
@@ -252,6 +255,7 @@ def _per_tool_rules(name: str) -> list[ProposedConstraint]:
                 heuristic="starter_sql",
             )
         )
+        high_risk = True
 
     # External-send tools — conservative rate cap.  10/session catches
     # "LLM stuck in a loop emailing the same user" without bothering
@@ -267,20 +271,24 @@ def _per_tool_rules(name: str) -> list[ProposedConstraint]:
                 heuristic="starter_rate_limit",
             )
         )
+        high_risk = True
 
-    # Universal anti-runaway — calling any tool >5 times in a row is
-    # almost always an agent stuck in a loop.  The cap is high enough
-    # that legitimate retry chains (which should use ``bounded_retry``)
-    # aren't affected.
-    out.append(
-        _proposal(
-            loop_detection(name, LOOP_MAX_CONSECUTIVE),
-            [name, LOOP_MAX_CONSECUTIVE],
-            f"{name} at most {LOOP_MAX_CONSECUTIVE} consecutive calls",
-            confidence=0.5,
-            heuristic="starter_loop",
+    # Anti-runaway loop_detection cap — emitted ONLY when the tool is
+    # already on a risk list (irreversible / shell / sql / external
+    # send).  Adding it to plain reads (``list_invoices``,
+    # ``get_user``) padded a typical 5-tool yaml with 5 lines of
+    # boilerplate that every reviewer learned to skip.  High-blast-
+    # radius tools still get the cap; quiet reads don't.
+    if high_risk:
+        out.append(
+            _proposal(
+                loop_detection(name, LOOP_MAX_CONSECUTIVE),
+                [name, LOOP_MAX_CONSECUTIVE],
+                f"{name} at most {LOOP_MAX_CONSECUTIVE} consecutive calls",
+                confidence=0.5,
+                heuristic="starter_loop",
+            )
         )
-    )
 
     return out
 
@@ -293,8 +301,8 @@ def _per_tool_rules(name: str) -> list[ProposedConstraint]:
 def starter_contracts(
     tool_names: Iterable[str],
     *,
-    include_delegation_limit: bool = True,
-    include_token_budget: bool = True,
+    include_delegation_limit: bool = False,
+    include_token_budget: bool = False,
 ) -> list[ProposedConstraint]:
     """Produce starter det contracts from a bare tool inventory.
 
@@ -302,11 +310,14 @@ def starter_contracts(
         tool_names: Names of tools discovered in the user's code.
             Duplicates are de-duplicated; empty strings are dropped.
         include_delegation_limit: Emit ``delegation_depth_limit(3)``.
-            Set False for frameworks that don't model delegation
-            (plain function-calling loops) to avoid a rule that can
-            never fire.
-        include_token_budget: Emit a session-wide token cap.  Always
-            safe; opt-out exists for tests that want a minimal bundle.
+            Defaults to False — the cap is an arbitrary round-number
+            that almost every user has to override.  Opt in when you
+            actually want a session-wide depth budget.
+        include_token_budget: Emit a session-wide token cap of
+            100,000.  Defaults to False for the same reason as
+            delegation_depth_limit: an arbitrary default produces
+            review noise on every onboard.  Opt in when you want a
+            real budget, or override the value entirely.
 
     Returns:
         A list of :class:`ProposedConstraint` objects, ready to be
