@@ -3,13 +3,13 @@
 # `api_key_env` names the env var sponsio reads at runtime —
 # export it from your shell rc / direnv / secret manager.
 
-framework: claude_agent
+framework: none
 
 # Parse-time LLM — used by `sponsio scan` / `sponsio refresh`
 # to infer contracts from your tool definitions.
 extractor:
   provider: gemini
-  model: gemini-2.5-flash
+  model: gemini-2.5-flash-lite
   api_key_env: GOOGLE_API_KEY
 
 # Runtime stochastic-judge — used at agent runtime to score
@@ -18,6 +18,6 @@ extractor:
 # want a cheaper / different model on the hot path.
 judge:
   provider: gemini
-  model: gemini-2.5-flash
+  model: gemini-2.5-flash-lite
   api_key_env: GOOGLE_API_KEY
   fallback_mode: allow  # allow|deny|skip on judge LLM failure

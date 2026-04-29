@@ -79,46 +79,75 @@ def run_without_guard() -> None:
     )
 
 
-def run_with_guard() -> None:
-    slow_print(f"{BOLD}== Coding Agent — cleanup, with Sponsio =={RESET}")
+async def _no_check(_input, _ctx, _msg):
+    """Naive PreToolUse hook — never denies anything.
 
-    # ─── Onboard patch — applied by `sponsio onboard coding_agent.py` ───
-    # Two lines below are the entire Sponsio integration. Contracts +
-    # tool inventory live in `sponsio.yaml` next to this file. In a real
-    # Claude Agent SDK app you'd add `guard.hooks()` to your
-    # `ClaudeAgentOptions(hooks=...)`.
+    Used as the default ``pre_tool_hook`` so the trajectory can run
+    end-to-end with the Sponsio patch stripped (recording's hidden
+    setup step removes the patch block before the gif starts; the
+    visible sed re-applies it)."""
+    return None
+
+
+def run_with_guard() -> None:
+    slow_print(f"{BOLD}== Coding Agent — cleanup =={RESET}")
+
+    # Default: tools fire raw (the naive hook never denies).  The
+    # ``sponsio onboard`` block below rebinds ``pre_tool_hook`` to
+    # Sponsio's real PreToolUse callback so contract violations land
+    # ``permissionDecision: "deny"`` and short-circuit the trajectory.
+    pre_tool_hook = _no_check
+
+    # ─── sponsio onboard patch ─────────────────────────────────────
+    # Three lines from ``sponsio onboard <path>``'s wrap snippet for
+    # Claude Agent SDK projects.  In a real app you'd hand
+    # ``guard.hooks()`` to ``ClaudeAgentOptions(hooks=...)`` and call
+    # ``query(...)``; this demo invokes the PreToolUse hook directly
+    # against a recorded trajectory so the gif runs without spending
+    # an LLM token.
     from sponsio.claude_agent import Sponsio
 
-    config_path = str(Path(__file__).parent / "sponsio.yaml")
-    guard = Sponsio(config=config_path, agent_id="coding_agent", mode="enforce")
-    # ────────────────────────────────────────────────────────────────────
-    #
-    # In a real Claude Agent SDK app:
-    #
-    #     options = ClaudeAgentOptions(hooks=guard.hooks())
-    #     async for msg in query(prompt="clean up unused files", options=options):
-    #         print(msg)
-    #
-    # We skip the SDK loop and invoke the real PreToolUse hook directly
-    # in the order the Claude-Code-style trajectory would have tried.
+    guard = Sponsio(config=str(Path(__file__).parent / "sponsio.yaml"), agent_id="agent")
     pre_tool_hook = guard.hooks()["PreToolUse"][0].hooks[0]
+    # ─── /sponsio onboard patch ────────────────────────────────────
+
+    blocked = False
 
     async def drive() -> None:
+        nonlocal blocked
         for cmd, _stage in TRAJECTORY:
             shown = cmd[:110] + ("..." if len(cmd) > 110 else "")
             slow_print(f"  {DIM}$ {shown}{RESET}")
-            await pre_tool_hook(
+            result = await pre_tool_hook(
                 {"tool_name": "Bash", "tool_input": {"command": cmd}},
                 None,
                 None,
             )
+            # Sponsio's hook returns ``permissionDecision: deny`` on
+            # contract violations; the SDK uses that to stop the tool
+            # from running.  We mimic the same short-circuit here.
+            decision = (
+                result.get("hookSpecificOutput", {}).get("permissionDecision")
+                if isinstance(result, dict)
+                else None
+            )
+            if decision == "deny":
+                blocked = True
+                break
 
     asyncio.run(drive())
 
-    slow_print(
-        f"\n{GREEN}{BOLD}✓ Outcome: secrets, git history, "
-        f"and teammate commits all intact.{RESET}"
-    )
+    if blocked:
+        slow_print(
+            f"\n{GREEN}{BOLD}✓ Outcome: secrets, git history, "
+            f"and teammate commits all intact.{RESET}"
+        )
+    else:
+        slow_print(
+            f"\n{RED}{BOLD}✗ Sponsio did not block — full breach trajectory ran. "
+            f"Check that the wrap patch is in place and `mode: enforce` "
+            f"is set in sponsio.yaml.{RESET}"
+        )
 
 
 def main() -> None:

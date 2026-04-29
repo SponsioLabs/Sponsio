@@ -1,19 +1,15 @@
 version: 1
 
-# Parse-time LLM (used by `sponsio scan` to turn code/docs into
-# contracts).  Offline & one-shot — favour accuracy over latency.
-extractor:
-  provider: gemini
-  model: gemini-2.5-flash
-  api_key: ${GOOGLE_API_KEY}
+# No LLM configured — `sponsio scan` currently runs AST + starter-pack
+# only.  To enable richer inference, uncomment and fill in:
+# extractor:
+#   provider: gemini   # 1500 req/day free tier
+#   api_key: ${GOOGLE_API_KEY}
 
 # Runtime sto-judge (evaluates stochastic atoms like `injection_free`)
 # on the agent's hot path.  Favour cheap+fast model; fault tolerance
 # matters because LLM outages must NOT cascade into agent outages.
 judge:
-  provider: gemini
-  model: gemini-2.5-flash
-  api_key: ${GOOGLE_API_KEY}
   fallback_mode: allow  # allow|deny|skip on judge failure
   circuit_breaker: true
 
@@ -38,7 +34,7 @@ tools:
     params: "output_path: str"
 
 agents:
-  ap_copilot:
+  agent:
     # Auto-selected contract packs.  Each pack ships a curated set
     # of rules; use `overrides:` below to disable individual ones
     # without forking the pack.
@@ -46,16 +42,6 @@ agents:
       - sponsio:core/universal  # universal: applies to every LLM agent
 
     contracts:
-      - A:  # confidence: 0.80
-          ltl: "called('wire_transfer')"
-        E:
-          ltl: "((!(called('wire_transfer')) U called('read_invoice')) | G(!(called('wire_transfer'))))"
-          source: scan
-      - A:  # confidence: 0.80
-          ltl: "called('wire_transfer')"
-        E:
-          ltl: "((!(called('wire_transfer')) U called('check_vendor_history')) | G(!(called('wire_transfer'))))"
-          source: scan
       - E:  # confidence: 0.50
           pattern: idempotent
           args: [read_invoice]
@@ -64,12 +50,36 @@ agents:
           pattern: idempotent
           args: [wire_transfer]
           source: scan
-      - E:  # confidence: 0.50
-          ltl: "G((called('wire_transfer') -> ((0 <= Var('arg_numeric', 'wire_transfer', 'amount')) & (Var('arg_numeric', 'wire_transfer', 'amount') <= 50000))))"
+
+      - E:  # confidence: 0.60
+          pattern: tool_allowlist
+          args: [[check_vendor_history, generate_report, list_invoices, read_invoice, wire_transfer]]
           source: scan
       - E:  # confidence: 0.50
-          ltl: "G((Var('count', 'wire_transfer') <= 5))"
+          pattern: loop_detection
+          args: [check_vendor_history, 5]
           source: scan
       - E:  # confidence: 0.50
-          ltl: "G((called('generate_report') -> arg_paths_within('generate_report', '/reports/')))"
+          pattern: loop_detection
+          args: [generate_report, 5]
+          source: scan
+      - E:  # confidence: 0.50
+          pattern: loop_detection
+          args: [list_invoices, 5]
+          source: scan
+      - E:  # confidence: 0.50
+          pattern: loop_detection
+          args: [read_invoice, 5]
+          source: scan
+      - E:  # confidence: 0.50
+          pattern: loop_detection
+          args: [wire_transfer, 5]
+          source: scan
+      - E:  # confidence: 0.50
+          pattern: token_budget
+          args: [100000, total]
+          source: scan
+      - E:  # confidence: 0.50
+          pattern: delegation_depth_limit
+          args: [3]
           source: scan

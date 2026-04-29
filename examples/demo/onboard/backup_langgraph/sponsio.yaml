@@ -1,20 +1,24 @@
 version: 1
 
-# No LLM configured — `sponsio scan` currently runs AST + starter-pack
-# only.  To enable richer inference, uncomment and fill in:
-# extractor:
-#   provider: gemini   # 1500 req/day free tier
-#   api_key: ${GOOGLE_API_KEY}
+# Parse-time LLM (used by `sponsio scan` to turn code/docs into
+# contracts).  Offline & one-shot — favour accuracy over latency.
+extractor:
+  provider: gemini
+  model: gemini-2.5-flash
+  api_key: ${GOOGLE_API_KEY}
 
 # Runtime sto-judge (evaluates stochastic atoms like `injection_free`)
 # on the agent's hot path.  Favour cheap+fast model; fault tolerance
 # matters because LLM outages must NOT cascade into agent outages.
 judge:
+  provider: gemini
+  model: gemini-2.5-flash
+  api_key: ${GOOGLE_API_KEY}
   fallback_mode: allow  # allow|deny|skip on judge failure
   circuit_breaker: true
 
 defaults:
-  mode: observe  # observe|enforce — observe = shadow (safe default)
+  mode: enforce  # observe|enforce — observe = shadow (safe default)
 
 tools:
   - name: list_snapshots
@@ -43,7 +47,7 @@ tools:
     params: "output_path: str"
 
 agents:
-  sre_optimizer:
+  agent:
     # Auto-selected contract packs.  Each pack ships a curated set
     # of rules; use `overrides:` below to disable individual ones
     # without forking the pack.
@@ -51,40 +55,11 @@ agents:
       - sponsio:core/universal  # universal: applies to every LLM agent
 
     contracts:
-      - E:  # confidence: 0.55
+      - E:  # review
           pattern: idempotent
           args: [delete_snapshot]
           source: scan
-      - E:  # confidence: 0.50
+      - E:  # review
           pattern: arg_blacklist
           args: [delete_snapshot, path, ["\\.\\./", "~/\\.ssh/", "^/etc/(?:passwd|shadow|sudoers)", "^/proc/", "^/sys/", "\\.aws/credentials"]]
-          source: scan
-
-      - E:  # confidence: 0.60
-          pattern: tool_allowlist
-          args: [[delete_snapshot, estimate_savings, generate_report, list_snapshots]]
-          source: scan
-      - E:  # confidence: 0.50
-          pattern: loop_detection
-          args: [delete_snapshot, 5]
-          source: scan
-      - E:  # confidence: 0.50
-          pattern: loop_detection
-          args: [estimate_savings, 5]
-          source: scan
-      - E:  # confidence: 0.50
-          pattern: loop_detection
-          args: [generate_report, 5]
-          source: scan
-      - E:  # confidence: 0.50
-          pattern: loop_detection
-          args: [list_snapshots, 5]
-          source: scan
-      - E:  # confidence: 0.50
-          pattern: token_budget
-          args: [100000, total]
-          source: scan
-      - E:  # confidence: 0.50
-          pattern: delegation_depth_limit
-          args: [3]
           source: scan
