@@ -40,20 +40,68 @@ enforce them.
 ### 1. Install the Sponsio CLI (Python — does the actual evaluation)
 
 ```bash
-pip install -e .                # from a clone
-# or pip install sponsio        # when published
+pip install sponsio              # PyPI
+# or pip install -e .            # from a clone
 
-sponsio --version               # smoke-check
+sponsio --version                # smoke-check
 ```
 
-### 2. Bootstrap the per-plugin contract libraries
+### 2. Deploy + register in one command
 
 ```bash
-sponsio plugin init              # writes ~/.sponsio/plugins/_host/sponsio.yaml
-sponsio plugin install --all     # adds github / filesystem / playwright starters
+sponsio host install openclaw
 ```
 
-### 3. Build the OpenClaw plugin
+This idempotently does three things:
+
+| Step | What | Where |
+|---|---|---|
+| 1 | Writes the fallback contract library | `~/.sponsio/plugins/_host_openclaw/sponsio.yaml` |
+| 2 | Copies the bundled prebuilt plugin (no `npm install` needed) | `~/.openclaw/extensions/sponsio-openclaw/` |
+| 3 | Patches `plugins.entries.sponsio-openclaw = { enabled: true }` | `~/.openclaw/openclaw.json` (backup → `openclaw.json.before-sponsio` on first install) |
+
+Re-running is safe — the library + extension folder + JSON patch are all idempotent.
+
+### 3. Restart OpenClaw to pick up the plugin
+
+```bash
+# Standard docker layout (what `openclaw onboard` ships):
+docker restart openclaw-openclaw-gateway-1
+
+# Bare-host install: re-launch your OpenClaw gateway.
+```
+
+Confirm load with `sponsio host status openclaw` — the report shows the `_host_openclaw` library presence, extension folder integrity, and `openclaw.json` registration. Watch live tool calls flowing through Sponsio with `sponsio host trace openclaw --follow`.
+
+### 4. (Optional) Auto-generate per-plugin libraries
+
+The `_host_openclaw` library catches OpenClaw's first-party tools (`exec`, `read`, `write`, …). For per-plugin libraries — one per OpenClaw plugin / MCP server — use:
+
+```bash
+sponsio plugin scan --plugin-id <name> --target-host openclaw \
+  --introspect "<spawn-command>"
+```
+
+`--introspect` spawns the MCP server, runs the JSON-RPC `initialize` + `tools/list` handshake, and emits a starter library plus a tool-inventory JSON the agent can extend semantically. ALWAYS pass `--target-host openclaw` so the generated contracts use OpenClaw's flat tool names, not the `mcp__<server>__` shape Claude Code expects.
+
+---
+
+## Installing into a running Docker container
+
+If OpenClaw runs inside a container that doesn't have the Sponsio Python CLI on PATH, the host-side `sponsio host install openclaw` plants the *files* but the in-container plugin still can't subprocess-spawn `sponsio`. For that case use the dedicated docker installer:
+
+```bash
+plugins/sponsio-openclaw/install_into_running_openclaw.sh \
+    --container openclaw-openclaw-gateway-1
+```
+
+This builds the plugin in an ephemeral container matching the running gateway's node version, copies it into the bind-mounted `~/.openclaw/extensions/sponsio-openclaw/`, `pip install -e`'s the Sponsio repo into the running container at `/opt/sponsio`, and bootstraps `~/.sponsio/plugins/` inside the container so the subprocess transport finds its libraries. See the script header for assumptions and dry-run mode.
+
+---
+
+## Developing the plugin (contributors only)
+
+End users do not need to clone the repo. If you're modifying the plugin source:
 
 ```bash
 cd plugins/sponsio-openclaw
@@ -61,41 +109,7 @@ npm install
 npm run build                    # tsc → dist/index.js
 ```
 
-### 4. Register the plugin with OpenClaw
-
-The plugin entry point is a `definePluginEntry`-compatible object.
-OpenClaw's recommended pattern (per
-[docs.openclaw.ai/plugins/sdk-entrypoints](https://docs.openclaw.ai/plugins/sdk-entrypoints.md))
-wraps it through the SDK helper:
-
-```typescript
-// my-openclaw-config/plugin-entry.ts
-import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
-import sponsioPlugin from "@sponsio/openclaw";
-
-export default definePluginEntry(sponsioPlugin);
-```
-
-Then point the OpenClaw runtime's plugin loader at this file, or
-add the plugin to `plugins.entries` in your OpenClaw config:
-
-```json
-{
-  "plugins": {
-    "entries": {
-      "sponsio-openclaw": {
-        "module": "@sponsio/openclaw",
-        "config": {}
-      }
-    }
-  }
-}
-```
-
-Refer to your OpenClaw version's plugin loading docs for the
-exact path to the config file (varies between OpenClaw releases).
-The plugin's `id` is `sponsio-openclaw` — the entries key
-must match.
+The `sponsio host install openclaw` flow uses the prebuilt `dist/index.js` shipped with the wheel under `sponsio/plugin/openclaw_artifact/`. After a local rebuild, copy `dist/` over that bundled artifact (or use `install_into_running_openclaw.sh` which builds + copies in one shot for the docker case).
 
 ---
 

@@ -49,28 +49,41 @@ the cost of ~80ms per tool call. The
 pure-TS path is feasible later but requires porting the YAML
 config loader.
 
-## Install (development)
+## Install — end users
 
 ```bash
-# 1. Sponsio CLI on PATH (Python).
-pip install -e .                            # from a clone
+pip install sponsio
+sponsio host install openclaw     # deploys prebuilt extension + library + json patch
+# restart your OpenClaw gateway (e.g. `docker restart openclaw-openclaw-gateway-1`)
+```
+
+`sponsio host install openclaw` performs three idempotent writes:
+
+1. `~/.sponsio/plugins/_host_openclaw/sponsio.yaml` — fallback contract library (OpenClaw-shape: `exec`, `read`, `write`, `apply_patch`, …).
+2. `~/.openclaw/extensions/sponsio-openclaw/` — prebuilt plugin folder copied from the wheel's bundled `sponsio/plugin/openclaw_artifact/`. **No `npm install` needed** for end users.
+3. `~/.openclaw/openclaw.json` — patches `plugins.entries.sponsio-openclaw = { enabled: true }` (with backup at `openclaw.json.before-sponsio` on first install).
+
+Verify with `sponsio host status openclaw`. See [`QUICKSTART.md`](QUICKSTART.md) for tuning, per-plugin scan, and the docker-in-container path.
+
+## Install — plugin developers
+
+Only required if you're modifying the plugin source itself (end users use the bundled artifact above):
+
+```bash
+# 1. Sponsio CLI from the clone.
+pip install -e .
 sponsio --version
 
-# 2. Bootstrap per-plugin libraries (same as Claude Code).
-sponsio plugin init
-sponsio plugin install --all                # github / filesystem / playwright
+# 2. Bootstrap libraries.
+sponsio plugin init                         # writes _host / _host_subagent / _host_openclaw
 
-# 3. Build this plugin.
+# 3. Build the plugin.
 cd plugins/sponsio-openclaw
 npm install
 npm run build                               # produces dist/index.js
-
-# 4. Tell OpenClaw where to find it.
-#    Method depends on your OpenClaw install — typically a
-#    `plugins.json` entry pointing at this directory or a published
-#    `@sponsio/openclaw` npm package. Refer to OpenClaw's
-#    plugin loading docs.
 ```
+
+After a local rebuild, copy `dist/` over the bundled artifact at `sponsio/plugin/openclaw_artifact/dist/` (or use [`install_into_running_openclaw.sh`](install_into_running_openclaw.sh) which builds + syncs into a running container in one shot).
 
 ## Verify it works without OpenClaw
 

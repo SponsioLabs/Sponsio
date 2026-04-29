@@ -153,8 +153,11 @@ echo "  ✓ sponsio CLI is on the container's PATH"
 step "4. Bootstrap Sponsio per-plugin libraries in container"
 
 run "docker exec --user node '$CONTAINER' sh -c '
-  sponsio plugin init --host openclaw 2>&1 | tail -3 || true
+  sponsio plugin init 2>&1 | tail -5
 '"
+# `sponsio plugin init` writes _host, _host_subagent, and _host_openclaw
+# fallback libraries in one shot; routing in `sponsio guard --stdin` picks
+# the right one per inbound hook payload.
 echo "  ✓ /home/node/.sponsio/plugins/ initialised"
 
 # ─── 5. Register the plugin in openclaw.json ─────────────────────────
