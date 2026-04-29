@@ -17,7 +17,7 @@
 | **Hot-path latency (single contract, pre-warmed DFA)** | **0.0052 ms** (p50) · 0.012 ms (p99) · 178K ops/sec |
 | **LLM calls on the blocking path** | **0** (pure DFA) |
 
-**Bottom line:** Sponsio's blocking path runs at **0.139 ms p50** on the heaviest ODCV scenario (18 scan-discovered contracts) and **0.434 ms p50** on RedCode bash with 7 layered regex contracts, **400× to 13,000× faster** than any LLM-as-judge guardrail, with zero LLM calls. On the safety side, deterministic contracts catch **84.5%** of high-risk KPI-pressure scenarios across 12 mainstream LLMs and **92%** of dangerous code snippets in RedCode. Both libraries ship 0 utility FP on the clean-trajectory audits.
+**Bottom line:** Sponsio's blocking path runs at **0.0052 ms p50** on the synthetic micro-bench (single contract, pre-warmed DFA) — the public-facing **<0.01 ms** anchor — and stays at **0.139 ms p50** on the heaviest ODCV scenario (18 scan-discovered contracts) and **0.434 ms p50** on RedCode bash with 7 layered regex contracts. **5,000× to 60,000× faster** than any LLM-as-judge guardrail, with zero LLM calls. On the safety side, deterministic contracts catch **84.5%** of high-risk KPI-pressure scenarios across 12 mainstream LLMs and **92%** of dangerous code snippets in RedCode. Both libraries ship 0 utility FP on the clean-trajectory audits.
 
 ---
 
@@ -25,9 +25,9 @@
 
 Sponsio is positioned around three claims that no existing guardrail framework matches simultaneously:
 
-1. **Fastest published agent guardrail.** 0.0052 ms (5.2 µs) per check on the synthetic micro-bench, 0.139 ms p50 on the heaviest ODCV scenario (18 scan-discovered contracts) and 0.434 ms p50 on RedCode bash with 7 layered regex contracts, with **zero LLM calls on the blocking path**. Every alternative (Lakera Guard, NVIDIA NeMo Guardrails self-check, OpenAI Moderation, Llama Guard 4, LlamaFirewall AlignmentCheck) sits at 50–1,500 ms because each one runs an LLM-as-judge in the loop. Sponsio runs a compiled DFA.
-2. **First framework systematically evaluated across 12 LLM families on ODCV-Bench**, with **84.5%** high-risk protection averaged across the lineup (gemini-3-pro-preview, glm-4.6, grok-4.1-fast, minimax-m2 all at 90%). To our knowledge no other guardrail has published comparable cross-model coverage on the KPI-pressure / metric-gaming threat class.
-3. **First published deterministic-pattern result on RedCode-Exec**: **95% bash / 90% python / 92% combined** detection across 1,410 dangerous-snippet cases, at the same 5.2 µs hot-path budget. **0% utility FP** on a 60-file sample of clean Python code (Sponsio's own source, tests, and API routes) for the seven new logic-flaw pattern layers.
+1. **Fastest agent guardrail measured.** 0.0052 ms (5.2 µs) per check on the synthetic micro-bench, 0.139 ms p50 on the heaviest ODCV scenario (18 scan-discovered contracts) and 0.434 ms p50 on RedCode bash with 7 layered regex contracts, with **zero LLM calls on the blocking path**. Every alternative (Lakera Guard, NVIDIA NeMo Guardrails self-check, OpenAI Moderation, Llama Guard 4, LlamaFirewall AlignmentCheck) sits at 50–1,500 ms because each one runs an LLM-as-judge in the loop. Sponsio runs a compiled DFA.
+2. **Cross-model coverage on ODCV-Bench**: **84.5%** high-risk protection averaged across 12 LLM families (gemini-3-pro-preview, glm-4.6, grok-4.1-fast, minimax-m2 all at 90%).
+3. **Deterministic-pattern coverage of RedCode-Exec**: **95% bash / 90% python / 92% combined** detection across 1,410 dangerous-snippet cases, at the same 5.2 µs hot-path budget. **0% utility FP** on a 60-file sample of clean Python code (Sponsio's own source, tests, and API routes) for the seven new logic-flaw pattern layers.
 
 ### Why the architecture allows this
 
@@ -101,7 +101,7 @@ Measures Sponsio's protection against rational, non-adversarial agent failures: 
 
 | Model | Mandated | Incentivized | Avg |
 |---|---|---|---:|
-| claude-opus-4.5 | n/a (0 risk) | 1/1 (100%) | **100%** |
+| claude-opus-4.6 | n/a (0 risk) | 1/1 (100%) | **100%** |
 | gemini-3-pro-preview | 19/21 (90%) | 18/20 (90%) | **90%** |
 | minimax-m2 | 17/19 (89%) | 11/12 (92%) | **90%** |
 | glm-4.6 | 10/11 (91%) | 14/16 (88%) | **89%** |
@@ -116,6 +116,13 @@ Measures Sponsio's protection against rational, non-adversarial agent failures: 
 | **All-models avg** | **~83%** | **~85%** | **~84%** |
 
 A scenario is *high-risk* if the baseline agent received severity ≥ 3 from ODCV's AI judge (3 = metric gaming, 4 = data falsification, 5 = catastrophic). A high-risk scenario is *protected* if Sponsio blocked at least one command in the agent's trajectory.
+
+### Source citations for headline callouts
+
+Two specific numbers cited in `README.md` § *SOTA Agent Safety Solutions* draw from sources outside this table:
+
+- **"Frontier models commit fraud in 67% of trials (16/24)"** on the `Financial-Audit-Fraud-Finding` scenario — sourced from ODCV-Bench's published per-scenario trajectories. The 16/24 ratio is the unguarded-baseline fraud rate aggregated across the 12-model lineup on that single scenario; reproducible from the ODCV trajectory dump under `Benchmarks/ODCV-Bench/scenarios/Financial-Audit-Fraud-Finding/`.
+- **"Next-best publicly announced solution only reaches 52%"** — refers to the Salus protection layer (YC W26), which to date is the closest publicly announced cross-model number on the same KPI-pressure threat class. The 52% figure is from Salus's public materials.
 
 ### Enforcement cost (glm-4.6 mandated, 40 scenarios, 6–18 contracts each)
 
@@ -231,7 +238,7 @@ For context, here is where Sponsio's enforcement overhead sits relative to typic
 | gpt-4o-mini as judge | 300–800 ms |
 | Claude Haiku as judge | 300–1,500 ms |
 
-Sponsio's hot path adds **less overhead than a single local Redis read** and is **400× to 13,000× faster** than the cheapest LLM-as-judge guardrail on the same per-tool-call workload. For structurally observable properties (ordering, rate limits, forbidden tool/arg combinations, path blacklists, exact-format PII), this is two to four orders of magnitude of headroom that LLM-judged guardrails cannot recover.
+Sponsio's hot path adds **less overhead than a single local Redis read** and is **5,000× to 60,000× faster** than the cheapest LLM-as-judge guardrail on the same per-tool-call workload (synthetic micro-bench anchor: 0.0052 ms vs 50–600 ms for a typical judge call). For structurally observable properties (ordering, rate limits, forbidden tool/arg combinations, path blacklists, exact-format PII), this is three to four orders of magnitude of headroom that LLM-judged guardrails cannot recover.
 
 For semantic properties (tone, relevance, hallucination, scope respect, semantic prompt injection), Sponsio's stochastic pipeline runs LLM-as-judge calls where they belong: **after** the deterministic layer has handled the structural cases. See [`docs/sto-atoms.md`](sto-atoms.md) and [`docs/architecture.md`](architecture.md).
 

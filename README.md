@@ -35,7 +35,7 @@
   <img src="assets/sponsio-architecture.png" alt="Sponsio architecture: Agent Flow + (Natural Language + Pattern Library) compile into Contracts (Assumption → Enforcement), enforced by a Fuzzy LTL Monitor (deterministic + stochastic) that decides Pass / Block · Warn · Escalate / Redirect for every function call, with full audit trail logs feeding back to the agent." width="900">
 </p>
 
-On [ODCV-Bench](https://arxiv.org/abs/2512.20798), 12 frontier LLMs × 40 KPI-pressure scenarios (Claude-Opus-4.6 included), unguarded models cheat in **11.5%–66.7% of runs**. With Sponsio, **84% of misalignment is blocked on average**, while the next-best publicly announced solution only reaches 52%. On the `Financial-Audit-Fraud-Finding` scenario, **frontier models commit fraud in 67% of trials (16/24)**; with Sponsio, **100% blocked**.
+On [ODCV-Bench](https://arxiv.org/abs/2512.20798), 12 frontier LLMs × 80 trajectories (Claude-Opus-4.6 included), unguarded models cheat in **11.5%–66.7% of runs**. With Sponsio, **84.5% of misalignment is blocked on average**, while the next-best publicly announced solution only reaches 52%. On the `Financial-Audit-Fraud-Finding` scenario, **frontier models commit fraud in 67% of trials (16/24)**; with Sponsio, **100% blocked**.
 
 ### Why Sponsio
 
@@ -104,6 +104,32 @@ sponsio skill install        # auto-detects Cursor / Claude Code / Codex
 Drops `SKILL.md` into `~/.cursor/skills/sponsio/`, `~/.claude/skills/sponsio/`, or `~/.codex/skills/sponsio/`. Auto-triggers on *"add sponsio"*, *"add guardrails"*, *"explain my sponsio.yaml"*, *"why is this rule firing"*. Covers five lifecycle workflows: initial setup, audit & refine, tune in observe, flip to enforce, troubleshoot.
 
 Upgrade: `pip install -U sponsio && sponsio skill install --force` (or `sponsio skill install --link` once, then upgrades follow `pip install -U`).
+
+</details>
+
+<details>
+<summary><b>Install as an OpenClaw Plugin</b></summary>
+
+For users running OpenClaw / ClawHub. The plugin (`@sponsio/openclaw`) wraps every `before_tool_call` event through the Sponsio engine — same per-plugin contract libraries the Claude Code plugin uses, just a different runtime transport.
+
+```bash
+# 1. Sponsio CLI on PATH (Python — does the actual evaluation)
+pip install sponsio
+
+# 2. Bootstrap the per-plugin library tree
+sponsio plugin init                 # writes ~/.sponsio/plugins/_host_openclaw/sponsio.yaml
+
+# 3. Build the OpenClaw plugin (TypeScript)
+cd plugins/sponsio-openclaw
+npm install
+npm run build                       # produces dist/index.js
+
+# 4. Register with the OpenClaw runtime (see plugins.json or your runtime's plugin loader)
+```
+
+Add `sponsio:incident/openclaw` to your `~/.sponsio/plugins/_host_openclaw/sponsio.yaml` `include:` block for ClawHavoc + CVE-2026-25253 coverage. Tune via `sponsio plugin scan --target-host openclaw` to auto-generate per-plugin libraries from a plugin's tool inventory.
+
+Full setup walkthrough: [`plugins/sponsio-openclaw/QUICKSTART.md`](plugins/sponsio-openclaw/QUICKSTART.md) · plugin internals: [`plugins/sponsio-openclaw/README.md`](plugins/sponsio-openclaw/README.md).
 
 </details>
 
@@ -260,7 +286,11 @@ Sponsio is benchmarked on two public agent-safety suites covering two distinct f
 | **RedCode-Exec** (1,410 cases)             | Dangerous bash / python snippet detection | **95% bash · 90% python · 92% combined** · **0% utility FP** on 60-file clean-code audit |
 
 
-To our knowledge this is the **first published deterministic-pattern result on RedCode-Exec**, and the first guardrail systematically evaluated across 12 LLM families on ODCV-Bench. Both libraries ship as loadable contract packs (`sponsio:benchmark/redcode_exec`, `sponsio:benchmark/odcv_bench`). Semantic properties det can't fingerprint (tone, hallucination, scope drift in NL output) fall to the [stochastic pipeline](docs/sto-atoms.md) (beta).
+Both libraries ship as loadable contract packs (`sponsio:benchmark/redcode_exec`, `sponsio:benchmark/odcv_bench`). Semantic properties det can't fingerprint (tone, hallucination, scope drift in NL output) fall to the [stochastic pipeline](docs/sto-atoms.md) (beta).
+
+### Logic-flaw failures are deterministically catchable too
+
+Conventional wisdom said RedCode's logic-flaw categories — biased decision logic, weak regex bypasses, missing-authorisation patterns, algorithmic flaws, memory leaks — were "behavioural defects with no syscall fingerprint" and required a semantic LLM judge. We pushed back on that label. Every such failure surfaces as a *finite code-text pattern*; once the pattern is enumerated, det binds. Seven new layers (`bias_logic`, `weak_regex`, `algo_flaw`, `memory_leak`, `match_no_default`, `missing_auth`, `redcode_unauth_marker`) lifted RedCode python from **69% → 90%** with **0/60 FP** on a clean-code audit (Sponsio's own source, tests, and API routes). The det/sto boundary is wider than most guardrail authors assumed; sto stays for properties that genuinely live in free-form output (tone, hallucination, faithfulness) — not for code-shape patterns whose finite enumeration was just under-explored.
 
 ### Hot-Path Performance
 
@@ -275,7 +305,7 @@ To our knowledge this is the **first published deterministic-pattern result on R
 
 **Backend-engineer anchor:** at 0.139 ms p50 on ODCV mandated, Sponsio's hot path adds **less overhead than a single local Redis read** (typical 0.1–0.5 ms).
 
-<u>**400×–13,000× faster than any LLM-as-judge guardrail**</u> (gpt-4o-mini, Lakera Guard, OpenAI Moderation — all 50–800 ms per check) on the same per-tool-call workload, at zero LLM cost on the hot path. Per-call latency scales linearly with contract count; p99 stays under 1.04 ms across every measured workload. The heaviest scenario (9-contract layered regex over a whole RedCode python script) is still **50× faster than the cheapest LLM-as-judge call**.
+<u>**5,000×–60,000× faster than any LLM-as-judge guardrail**</u> (gpt-4o-mini, Lakera Guard, OpenAI Moderation — all 50–800 ms per check) on the same per-tool-call workload, at zero LLM cost on the hot path. Per-call latency scales linearly with contract count; p99 stays under 1.04 ms across every measured workload. The heaviest scenario (9-contract layered regex over a whole RedCode python script) is still **50× faster than the cheapest LLM-as-judge call**.
 
 Full per-model breakdown, methodology, harness scripts: [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
 
