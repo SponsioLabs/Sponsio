@@ -6163,6 +6163,40 @@ def _install_skill_for_host(
     return True, f"wrote skill to {target}"
 
 
+def _uninstall_skill_for_host(host_name: str, *, scope: str) -> tuple[bool, str]:
+    """Remove the bundled Sponsio skill from the host's skill directory.
+
+    Symmetric to :func:`_install_skill_for_host` so ``sponsio host
+    uninstall <host>`` reverts everything ``sponsio host install
+    <host>`` planted (skill + extension + config patch + fallback
+    library).  Without this, the skill silently lingered in
+    ``~/.<host>/skills/sponsio/`` after uninstall, surprising users
+    who expected the inverse of install.
+
+    Returns ``(removed, note)``.  ``removed=False`` is informational
+    (already gone, host has no skill standard, permission denied) —
+    not a hard error.
+    """
+    if host_name not in _HOST_SKILL_DIRS:
+        return False, f"{host_name}: no skill discovery path standard — skipped"
+
+    user_parent, project_parent = _HOST_SKILL_DIRS[host_name]
+    parent = project_parent if scope == "project" and project_parent else user_parent
+    target = parent / "sponsio"
+
+    if not target.exists() and not target.is_symlink():
+        return False, f"skill not present at {target}"
+
+    try:
+        if target.is_symlink() or target.is_file():
+            target.unlink()
+        else:
+            shutil.rmtree(target)
+    except OSError as e:
+        return False, f"could not remove {target}: {e}"
+    return True, f"removed skill from {target}"
+
+
 @host.command(name="install")
 @click.argument("names", nargs=-1, required=True)
 @click.option(
@@ -6340,11 +6374,27 @@ def host_install(
     default="user",
     show_default=True,
 )
-def host_uninstall(names: tuple[str, ...], scope: str):
+@click.option(
+    "--with-skill/--keep-skill",
+    default=True,
+    show_default=True,
+    help=(
+        "Also remove the bundled Sponsio Agent Skill from the host's "
+        "skill directory.  Symmetric to ``host install --with-skill`` "
+        "(also default-on).  Pass ``--keep-skill`` to leave the skill "
+        "in place — useful when you're re-installing immediately and "
+        "want to avoid an OpenClaw skill-cache bounce, or when the "
+        "skill predates Sponsio at this host."
+    ),
+)
+def host_uninstall(names: tuple[str, ...], scope: str, with_skill: bool):
     """Remove Sponsio's entries from one or more host configs.
 
     Leaves any non-Sponsio hooks untouched.  Use ``all`` to clean
     every registered host.
+
+    Removes the bundled Sponsio skill by default (symmetric to
+    ``host install``); pass ``--keep-skill`` to leave it.
     """
     from sponsio.integrations import hosts as _hosts_mod
 
@@ -6365,6 +6415,12 @@ def host_uninstall(names: tuple[str, ...], scope: str):
         result = host_spec.uninstall_fn(host_spec, scope=scope)
         click.secho(f"○  {result.host}: {result.note}", fg="yellow")
         click.echo(f"     {result.config_path}")
+
+        if with_skill:
+            removed, note = _uninstall_skill_for_host(name, scope=scope)
+            glyph = "✔" if removed else "○"
+            colour = "green" if removed else "yellow"
+            click.secho(f"{glyph}  {name} skill: {note}", fg=colour)
     if any_failed:
         sys.exit(1)
 
