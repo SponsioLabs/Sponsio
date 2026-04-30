@@ -4482,6 +4482,27 @@ def onboard(
     for ln in snippet.splitlines():
         click.echo(f"  {click.style(ln, fg='cyan')}")
 
+    # Surface the contract file the user should now review. ``onboard``
+    # wrote LLM-inferred (or starter-pack) contracts based on detected
+    # tools — they're a sane first cut, not a finished policy. Pointing
+    # the user at the path with a clear "review before flipping to
+    # enforce" callout turns "did onboard actually do what I wanted?"
+    # into one ``cat`` command.
+    review_path = (
+        report.out_path
+        if report is not None
+        else (out_path_check if yaml_already_exists else None)
+    )
+    if review_path is not None and not as_json and not emit_context:
+        click.echo()
+        click.secho("Review the generated contracts:", bold=True)
+        click.echo(f"  {click.style(str(review_path), fg='green')}")
+        click.secho(
+            "  (open it, sanity-check each rule, then re-run with `--mode enforce`",
+            dim=True,
+        )
+        click.secho("   when you're ready to switch from observe to active)", dim=True)
+
     # --push: surface the generated yaml in the local dashboard (one
     # command == everything the dashboard needs). Silently skipped if
     # the dashboard isn't running, so a CI invocation without `serve`
@@ -5887,6 +5908,7 @@ def host_install(
     click.echo(f"Runtime mode for new host libraries: {chosen_mode}")
 
     any_failed = False
+    review_paths: list[Path] = []
     for name in targets:
         try:
             host_spec = _hosts_mod.get(name)
@@ -5919,12 +5941,30 @@ def host_install(
         for path, note in applied:
             click.secho(f"○  {name} mode: {note}", fg="yellow")
             click.echo(f"     {path}")
+            review_paths.append(path)
 
         if with_skill:
             written, note = _install_skill_for_host(name, scope=scope, force=force)
             glyph = "✔" if written else "○"
             colour = "green" if written else "yellow"
             click.secho(f"{glyph}  {name} skill: {note}", fg=colour)
+
+    # Final review pointer — surface the bootstrapped per-host
+    # library paths so the user immediately knows where to look /
+    # what to read before flipping to enforce. The bundled starter
+    # ships sane defaults, but the privileged-action surface
+    # (Bash blacklist, secret-shape rules, rate_limit thresholds)
+    # is something the operator should still see with their own eyes.
+    if review_paths:
+        click.echo()
+        click.secho("Review the bootstrapped contract libraries:", bold=True)
+        for path in review_paths:
+            click.echo(f"  {click.style(str(path), fg='green')}")
+        click.secho(
+            "  (open each, sanity-check the rules, then re-run with `--mode enforce`",
+            dim=True,
+        )
+        click.secho("   when you're ready to switch from observe to active)", dim=True)
 
     if any_failed:
         sys.exit(1)

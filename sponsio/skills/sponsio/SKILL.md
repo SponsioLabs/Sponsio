@@ -131,25 +131,79 @@ You (the host agent — Claude Code, Cursor, Codex) ARE the LLM here.  Drive the
 
 3. **You** apply the prompt to the JSON in your own LLM context.  Produce a single YAML document.  Mode MUST start as `observe`.  Source-tag everything you author with `source: agent-extracted` so future `sponsio refresh` runs can re-consider them.
 
-4. **Pick the write target.**  Don't ask the user — pick by what's on disk:
+4. **Pick the write target by INTENT, not by what's on disk.**
 
-   ```bash
-   # Resolution order:
-   # 1. If the host-tool runtime library exists (i.e. `sponsio host install`
-   #    was already run for THIS host), write there — that's where the
-   #    hooks read from.
-   # 2. Else if the project already has its own sponsio.yaml, append to it.
-   # 3. Else create a new project sponsio.yaml.
-   if [ -d "$HOME/.sponsio/plugins/{{HOST_BUCKET}}" ]; then
-       echo "$HOME/.sponsio/plugins/{{HOST_BUCKET}}/sponsio.yaml"
-   elif [ -f sponsio.yaml ]; then
-       echo "sponsio.yaml"
-   else
-       echo "sponsio.yaml"
-   fi
-   ```
+   You are about to write a yaml. There are TWO categorically different
+   destinations, and choosing wrong silently breaks the entire setup.
+   Decide *intent first*, then write — never default to project-local
+   because it "feels nicer" or because the file already exists.
 
-   **Why this matters.** The host-tool runtime path (`~/.sponsio/plugins/{{HOST_BUCKET}}/sponsio.yaml`) is where this host (Cursor, Claude Code, Codex, OpenClaw — whichever materialised this skill) routes its first-party tool calls (Shell, Read, Edit, Bash, …) via `derive_plugin_id` → `{{HOST_BUCKET}}`. Each host has its own bucket so per-IDE rules don't tangle. If `sponsio host install <host>` was already run, those hooks are firing — but they look up rules at the host-tool path, NOT at `<project>/sponsio.yaml`. Writing to the wrong path = rules silently inert. Project-config (`<project>/sponsio.yaml`) is for code-wrapped agents (LangGraph, OpenAI Agents SDK, etc.) where Sponsio is invoked from inside the user's program.
+   ### The two destinations
+
+   **(A) Host-tool runtime library — `~/.sponsio/plugins/{{HOST_BUCKET}}/sponsio.yaml`**
+
+   This is where you (the IDE / host agent — Cursor, Claude Code,
+   Codex, OpenClaw) get governed. Cursor's hooks evaluate THIS file
+   on every Bash / Read / Write / Edit / MultiEdit / MCP call you
+   make. Writing rules here means: "the next time *I* try to do
+   something, the rule fires and either blocks me or logs the
+   attempt".
+
+   **(B) Project-local config — `<project>/sponsio.yaml`**
+
+   This is for **code the user writes that itself runs an LLM agent**.
+   Concretely: the user has a Python file with
+   `from langgraph import ...` or `from openai_agents import ...` and
+   somewhere does `Sponsio(config="sponsio.yaml")` to wrap their own
+   agent. THAT agent — the one running inside the user's program —
+   is what `sponsio.yaml` here governs. Cursor / Claude Code's IDE
+   hook never reads this file. Rules here do not constrain you.
+
+   ### Pick destination (A) when ANY of these is true
+
+   - The user said "set up sponsio for this project" / "add
+     guardrails" / "harden the agent" / "I'm in a code freeze, the
+     agent shouldn't..." without naming a specific code-wrapped agent.
+   - The project has no LangGraph / OpenAI Agents SDK / CrewAI /
+     Anthropic SDK imports (i.e. `framework=="none"` in the
+     `--emit-context` JSON). The user's project is just regular
+     code — there is no other agent to constrain, only YOU.
+   - The user's policy paragraphs talk about *coding actions* —
+     SQL, file edits, git push, shell commands. Those are tool
+     calls *you* make, so they need to fire on *your* tool calls.
+
+   ### Pick destination (B) ONLY when ALL of these are true
+
+   - The project ships a code-wrapped LLM agent (framework is one of
+     `langgraph` / `langchain` / `openai_agents` / `crewai` / etc.).
+   - The user explicitly references that agent (by name, by file,
+     by behavior) — not "this project's agent" meaning you, but
+     "the customer-support bot we deploy" or "our wire-transfer
+     agent".
+   - The user is wiring Sponsio into their *own program's* runtime,
+     not into the IDE's.
+
+   ### When uncertain, ASK
+
+   If both signals are present (the project DOES ship a code-wrapped
+   agent AND the user wants to govern coding-time tool calls too),
+   write a one-line question to the user before generating any yaml:
+
+   > "These rules — should they govern (a) my own tool calls inside
+   > this IDE so the freeze applies while I refactor, or (b) the
+   > <agent_name> agent your project deploys at runtime?"
+
+   Don't author yaml until the user disambiguates. Two destinations
+   need two yaml files; conflating them silently breaks one or both.
+
+   ### Anti-pattern (do NOT do this)
+
+   Writing a yaml at `<project>/sponsio.yaml` whose comment block
+   says "Cursor hooks evaluate ~/.sponsio/plugins/_host_cursor/...
+   not this file" — that's an admission that you wrote to the
+   wrong location. If you find yourself adding a comment like
+   that, stop, delete the project yaml, and write to the host
+   bucket instead.
 
 5. Write the YAML to the resolved path via Edit/Write.  Then validate:
 
