@@ -28,6 +28,7 @@ import RegressionPanel from '../components/monitor/RegressionPanel';
 import ViolationHeatmap from '../components/monitor/ViolationHeatmap';
 import IoDiffPanel from '../components/monitor/IoDiffPanel';
 import DataLineage from '../components/monitor/DataLineage';
+import SponsioVerdictCards from '../components/monitor/SponsioVerdictCards';
 import {
   aggregateLlmMetrics, extractLlmMetrics, extractSessionId, formatCost, formatTokens,
 } from '../utils/llmMetrics';
@@ -381,6 +382,14 @@ function OverviewTab({ data }: { data: MonitorData }) {
         <EmptyState />
       ) : (
         <>
+          {/* Sponsio verdict cards — 4 panels keyed off the same
+              ``sponsio.*`` schema documented in
+              ``docs/observability.md``. The same data shapes power
+              external OTLP consumers, so what's on this dashboard
+              matches what the user's own visibility platform would
+              render. */}
+          <SponsioVerdictCards violations={violations} />
+
           {/* Waterfall of all recent spans */}
           <TraceWaterfall spans={spans} />
 

@@ -11,6 +11,9 @@ import re
 import shutil
 import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -2824,6 +2827,365 @@ def export_cmd(
         click.echo(click.style("  skipped:", fg="yellow"))
         for p, why in skipped:
             click.echo(f"    · {p.name} — {why}")
+
+
+# ---------------------------------------------------------------------------
+# `sponsio export-sessions` — push session audit log to OTLP
+# ---------------------------------------------------------------------------
+
+
+def _parse_since(since: str) -> float:
+    """Parse a relative duration like ``"24h"`` / ``"7d"`` / ``"30m"``
+    into a Unix-timestamp cutoff (seconds).
+
+    Returns ``0.0`` (= no cutoff) for the empty / sentinel values the
+    user might pass when they want everything. Bare integers are
+    interpreted as hours (``--since 6`` == ``--since 6h``) since
+    ``hour`` is the unit operators reach for first.
+    """
+    import re as _re
+
+    s = (since or "").strip().lower()
+    if not s or s in ("0", "all"):
+        return 0.0
+    m = _re.fullmatch(r"(\d+(?:\.\d+)?)\s*([smhd]?)", s)
+    if not m:
+        raise click.BadParameter(
+            f"invalid --since value {since!r}; expected '24h' / '7d' / '30m' / '90s'",
+        )
+    n = float(m.group(1))
+    unit = m.group(2) or "h"
+    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    return time.time() - n * multipliers[unit]
+
+
+def _session_event_to_otlp_span(event: dict) -> dict:
+    """Convert one ``MonitorEvent``-shaped JSONL record into an OTLP span.
+
+    The session log captures *flat* monitor events (one row per
+    contract verdict), not the full span tree. We synthesise a
+    self-contained OTLP span per event so the dashboard's "Today's
+    blocks" card has the same attribute keys it gets from live
+    span-tree exports.
+
+    Lossy on purpose: we don't re-derive the contract_check tree from
+    flat events, so the violation card works but the rule-fire-heatmap
+    won't have per-phase precondition / guarantee detail. That's
+    acceptable for historical replay; live exports keep the full tree.
+    """
+    from sponsio.tracer import semconv
+
+    ts_unix = float(event.get("ts") or 0.0)
+    ts_ns = int(ts_unix * 1_000_000_000) if ts_unix else 0
+    result = event.get("result") or {}
+    action = result.get("action") or "allowed"
+    blocked = action in ("blocked", "escalated", "observed")
+
+    attrs: list[dict] = []
+    if event.get("agent_id"):
+        attrs.append(_attr_for_session(semconv.ATTR_AGENT_ID, event["agent_id"]))
+    if event.get("action"):
+        attrs.append(_attr_for_session(semconv.ATTR_EVENT_TOOL, event["action"]))
+    if ts_ns:
+        attrs.append(_attr_for_session(semconv.ATTR_EVENT_TIMESTAMP_NS, ts_ns))
+    if event.get("pipeline"):
+        # ``hard`` is the legacy alias; emit the public ``det`` name.
+        pipeline = "det" if event["pipeline"] == "hard" else event["pipeline"]
+        attrs.append(_attr_for_session(semconv.ATTR_CONTRACT_PIPELINE, pipeline))
+    if event.get("constraint"):
+        attrs.append(
+            _attr_for_session(semconv.ATTR_CONTRACT_LABEL, event["constraint"])
+        )
+    attrs.append(_attr_for_session(semconv.ATTR_OUTCOME_BLOCKED, bool(blocked)))
+    attrs.append(
+        _attr_for_session(
+            semconv.ATTR_OUTCOME_STATUS,
+            "violated" if blocked else "ok",
+        )
+    )
+    attrs.append(_attr_for_session(semconv.ATTR_ENFORCEMENT_ACTION, action))
+    if result.get("message"):
+        attrs.append(
+            _attr_for_session(semconv.ATTR_VIOLATION_EVIDENCE, result["message"])
+        )
+
+    return {
+        "traceId": "0" * 32,
+        "spanId": f"{int(ts_unix * 1000):016x}" if ts_ns else "0" * 16,
+        "name": semconv.SPAN_AGENT_TURN,
+        "startTimeUnixNano": str(ts_ns or 0),
+        "endTimeUnixNano": str(ts_ns or 0),
+        "status": {"code": 2 if blocked else 1},
+        "attributes": attrs,
+    }
+
+
+def _attr_for_session(key: str, value):
+    """Local copy of otel_writer._attr — used by the session importer
+    so we don't leak the writer's private API into this CLI command."""
+    if isinstance(value, bool):
+        v: dict = {"boolValue": value}
+    elif isinstance(value, int):
+        v = {"intValue": str(value)}
+    elif isinstance(value, float):
+        v = {"doubleValue": value}
+    else:
+        v = {"stringValue": str(value)}
+    return {"key": key, "value": v}
+
+
+@cli.command(name="export-sessions")
+@click.option(
+    "--since",
+    default="24h",
+    show_default=True,
+    help=(
+        "Time window relative to now: ``24h`` / ``7d`` / ``30m`` / "
+        "``90s``, or ``all`` for no cutoff. Bare numbers default to "
+        "hours."
+    ),
+)
+@click.option(
+    "--agent",
+    "agent_filter",
+    default=None,
+    help=(
+        "Only export sessions for this agent_id. Defaults to all "
+        "agents under ``~/.sponsio/sessions/``."
+    ),
+)
+@click.option(
+    "--sessions-dir",
+    "sessions_dir",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help=(
+        "Override the source directory. Default: "
+        "``$SPONSIO_SESSIONS_DIR`` or ``~/.sponsio/sessions/``."
+    ),
+)
+@click.option(
+    "--to",
+    "destination",
+    required=True,
+    help=(
+        "Output destination. Either an OTLP file path "
+        "(``./traces.jsonl``) or an HTTP endpoint "
+        "(``https://collector.example.com/v1/traces``)."
+    ),
+)
+@click.option(
+    "--header",
+    "headers_raw",
+    multiple=True,
+    help=(
+        "Extra HTTP headers as ``Key: Value``. May be specified "
+        "multiple times. Auth keys, tenant ids etc. go here. Only "
+        "honored when ``--to`` is an HTTP URL."
+    ),
+)
+@click.option(
+    "--batch-size",
+    type=int,
+    default=50,
+    show_default=True,
+    help="Spans per HTTP POST (HTTP destination only).",
+)
+@click.option(
+    "--service-name",
+    default=None,
+    help=(
+        "OTLP ``resource.service.name`` stamped on every exported "
+        "span. Defaults to the per-agent_id of each session file."
+    ),
+)
+def export_sessions_cmd(
+    since: str,
+    agent_filter: str | None,
+    sessions_dir: Path | None,
+    destination: str,
+    headers_raw: tuple[str, ...],
+    batch_size: int,
+    service_name: str | None,
+):
+    """Ship audit-log session events to an OTLP destination.
+
+    Reads ``~/.sponsio/sessions/<agent_id>/*.jsonl``, converts each
+    ``MonitorEvent`` row into an OTLP span using the Sponsio Semantic
+    Conventions (see ``docs/observability.md``), and writes them
+    either to a local OTLP-JSONL file or POSTs them to an OTLP/HTTP
+    collector (Datadog, Honeycomb, Grafana Cloud, the Sponsio-native
+    dashboard, …).
+
+    \b
+    Examples:
+      # Last 24h of audit, all agents, push to your dashboard
+      sponsio export-sessions --to https://obs.example.com/v1/traces \\
+                              --header "x-api-key: $OBS_API_KEY"
+
+      # Last 7d of one agent, write to a file
+      sponsio export-sessions --since 7d --agent _host_cursor \\
+                              --to ./audit-export.jsonl
+
+      # Everything we have, no time cutoff
+      sponsio export-sessions --since all --to ./full-audit.jsonl
+
+    The session log is the audit substrate (``MonitorEvent``-flat
+    records); the runtime span tree (per-phase precondition /
+    guarantee / sto_eval children) is *not* persisted to disk, so
+    historical exports are necessarily lossy on per-phase detail.
+    Live exports via :class:`sponsio.tracer.exporters.OtlpHttpExporter`
+    carry the full tree.
+    """
+    from sponsio.runtime.session_log import _resolve_default_base_dir
+
+    cutoff = _parse_since(since)
+    base = (
+        sessions_dir.expanduser()
+        if sessions_dir is not None
+        else _resolve_default_base_dir()
+    )
+
+    if not base.exists():
+        click.echo(
+            click.style(f"sessions dir not found: {base}", fg="yellow"),
+            err=True,
+        )
+        sys.exit(0)
+
+    # Walk per-agent subdirectories.
+    agent_dirs: list[Path]
+    if agent_filter is not None:
+        agent_dirs = [base / agent_filter]
+        if not agent_dirs[0].is_dir():
+            click.echo(
+                click.style(f"no sessions for agent {agent_filter!r}", fg="yellow"),
+                err=True,
+            )
+            sys.exit(0)
+    else:
+        agent_dirs = [p for p in base.iterdir() if p.is_dir()]
+
+    spans: list[dict] = []
+    by_agent: dict[str, int] = {}
+
+    for agent_dir in sorted(agent_dirs):
+        agent_id = agent_dir.name
+        for jsonl_path in sorted(agent_dir.glob("*.jsonl")):
+            try:
+                lines = jsonl_path.read_text().splitlines()
+            except OSError as e:
+                click.echo(
+                    click.style(f"  skip {jsonl_path}: {e}", fg="yellow"), err=True
+                )
+                continue
+            for ln in lines:
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    rec = json.loads(ln)
+                except json.JSONDecodeError:
+                    continue
+                if cutoff and float(rec.get("ts") or 0.0) < cutoff:
+                    continue
+                spans.append(_session_event_to_otlp_span(rec))
+                by_agent[agent_id] = by_agent.get(agent_id, 0) + 1
+
+    if not spans:
+        click.echo(
+            click.style(
+                f"no events matched (since={since}, agent={agent_filter})",
+                fg="yellow",
+            ),
+            err=True,
+        )
+        sys.exit(0)
+
+    # Emit one OTLP envelope.
+    from sponsio.tracer import semconv as _semconv
+
+    envelope = {
+        "resourceSpans": [
+            {
+                "resource": {
+                    "attributes": [
+                        _attr_for_session(
+                            "service.name",
+                            service_name or "sponsio-sessions",
+                        ),
+                    ],
+                },
+                "scopeSpans": [
+                    {
+                        "scope": {
+                            "name": "sponsio",
+                            "version": _semconv.SCHEMA_VERSION,
+                        },
+                        "schemaUrl": _semconv.SCHEMA_URL,
+                        "spans": spans,
+                    }
+                ],
+            }
+        ],
+    }
+
+    if destination.startswith(("http://", "https://")):
+        # HTTP push via the in-tree batching exporter.
+        headers: dict[str, str] = {}
+        for raw in headers_raw:
+            if ":" not in raw:
+                raise click.BadParameter(f"--header must be 'Key: Value' (got {raw!r})")
+            k, _, v = raw.partition(":")
+            headers[k.strip()] = v.strip()
+
+        body = json.dumps(envelope).encode("utf-8")
+        click.echo(
+            f"POSTing {len(spans)} spans ({len(body) / 1024:.1f} KB) → {destination}"
+        )
+        try:
+            req = urllib.request.Request(
+                destination,
+                data=body,
+                headers={"Content-Type": "application/json", **headers},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10.0) as resp:
+                if not (200 <= resp.status < 300):
+                    click.echo(
+                        click.style(
+                            f"collector returned HTTP {resp.status}",
+                            fg="red",
+                        ),
+                        err=True,
+                    )
+                    sys.exit(1)
+        except urllib.error.URLError as e:
+            click.echo(click.style(f"HTTP push failed: {e}", fg="red"), err=True)
+            sys.exit(1)
+        click.secho(f"✓ pushed {len(spans)} spans", fg="green")
+    else:
+        # File destination — write the OTLP envelope as a single JSON.
+        out = Path(destination).expanduser()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(envelope, indent=2))
+        click.secho(
+            f"✓ wrote {len(spans)} spans → {out} ({out.stat().st_size / 1024:.1f} KB)",
+            fg="green",
+        )
+
+    # Summary by agent — useful when --agent isn't set.
+    if by_agent:
+        click.echo()
+        click.echo(click.style("By agent:", bold=True))
+        for agent_id, n in sorted(by_agent.items(), key=lambda x: -x[1]):
+            click.echo(f"  {agent_id:30}  {n:6} events")
+
+    click.echo()
+    click.echo(
+        click.style("Schema: ", dim=True)
+        + f"{_semconv.SCHEMA_URL} (version {_semconv.SCHEMA_VERSION})"
+    )
 
 
 @cli.command(name="eval")
