@@ -35,7 +35,13 @@ htmlcov/
 .env
 .env.*
 .venv/
+.venv-*/
 venv/
+
+# Project-scope Cursor hooks dropped in by ``sponsio host install
+# cursor --scope project`` while running the freeze_cursor demo.
+# They're a per-developer install artifact, not a checked-in config.
+.cursor/
 
 # Frontend build outputs
 web/node_modules/
