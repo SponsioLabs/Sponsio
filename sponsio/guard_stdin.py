@@ -338,30 +338,32 @@ def _maybe_rotate(path: Path) -> None:
             pass
 
 
-def _load_prior_events(plugin_id: str, conversation_id: str | None = None):
-    """Reconstruct the prior session trace for ``plugin_id``.
-
-    Returns a list of ``Event`` objects, oldest first.  Empty list if
-    there's no log yet (first call) or the log is past TTL.
-
-    ``conversation_id`` selects the per-conversation bucket; see
-    :func:`_trace_file_for`.
+def _trace_root() -> Path:
+    """Where namespace trace dirs live.  Mirrors the path-resolution
+    logic inside :func:`_trace_file_for` so the iteration in
+    :func:`_load_prior_events` reaches the same files.
     """
-    path = _trace_file_for(plugin_id, conversation_id=conversation_id)
-    _maybe_rotate(path)
-    if not path.exists():
-        return []
+    override = os.environ.get("SPONSIO_SHIELD_TRACE_ROOT")
+    if override:
+        return Path(override).expanduser()
+    return library_root()
 
-    # Lazy import — keeps cold-start cheap when no log exists.
+
+def _read_events_from(path: Path):
+    """Parse a single ``.shield-trace.jsonl`` file into ``Event`` objects.
+
+    One bad line never poisons the rest of the trace — corrupt records
+    are skipped silently.
+    """
     from sponsio.models.trace import Event
 
-    events = []
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as e:
         sys.stderr.write(f"sponsio shield guard:could not read trace log {path}: {e}\n")
         return []
 
+    events = []
     for raw in text.splitlines():
         raw = raw.strip()
         if not raw:
@@ -387,6 +389,80 @@ def _load_prior_events(plugin_id: str, conversation_id: str | None = None):
             )
         except (KeyError, ValueError, TypeError):
             continue
+    return events
+
+
+def _load_prior_events(plugin_id: str, conversation_id: str | None = None):
+    """Reconstruct the prior session trace, merged across all active
+    namespaces.
+
+    Trace files are *written* per-namespace (each tool call lands in
+    the bucket :func:`derive_plugin_id` selects), but cross-namespace
+    temporal contracts — e.g. "after a host ``read /work/notes/*``,
+    deny public ``mcp__gh_gist__create_gist``" — need a unified view
+    of session history.  Lethal-trifecta-class flows are inherently
+    cross-component (untrusted input crosses tool-provider boundaries
+    on its way out), so the read-side merges where the write-side
+    isolates.
+
+    Per-namespace TTL still applies independently: a stale namespace's
+    file is rotated on this read just as it would be on a same-namespace
+    read.  Namespaces ending in ``.bak`` / ``.disabled`` (the convention
+    for retiring a contract bucket) are skipped, as are dot-prefixed
+    dirs.
+
+    ``conversation_id``-bucketed events stay isolated to their bucket
+    via :func:`_trace_file_for` — the merge happens across namespaces,
+    not across conversations.
+
+    Returns a list of ``Event`` objects sorted by ``ts``, oldest first.
+    Ties broken by ``agent`` (namespace name) for deterministic test
+    fixtures.
+
+    ``plugin_id`` is retained in the signature for caller compatibility
+    and so the calling namespace's TTL gets noticed if its dir is the
+    only activity; it does not narrow the read.
+    """
+    root = _trace_root()
+    if not root.exists():
+        return []
+
+    try:
+        ns_dirs = sorted(root.iterdir(), key=lambda p: p.name)
+    except OSError:
+        return []
+
+    events: list = []
+    seen_calling = False
+    for ns_dir in ns_dirs:
+        if not ns_dir.is_dir():
+            continue
+        # Skip dot-prefixed and retired (.bak / .disabled) namespaces.
+        if ns_dir.name.startswith("."):
+            continue
+        if ns_dir.name.endswith(".bak") or ns_dir.name.endswith(".disabled"):
+            continue
+        path = _trace_file_for(ns_dir.name, conversation_id=conversation_id)
+        _maybe_rotate(path)
+        if ns_dir.name == plugin_id:
+            seen_calling = True
+        if not path.exists():
+            continue
+        events.extend(_read_events_from(path))
+
+    # If the caller's own namespace dir doesn't exist yet (very first
+    # tool call into this namespace), still rotate-probe its path so
+    # callers depending on TTL side-effects keep working.  Reading from
+    # a non-existent file is a no-op.
+    if not seen_calling:
+        own_path = _trace_file_for(plugin_id, conversation_id=conversation_id)
+        _maybe_rotate(own_path)
+        if own_path.exists():
+            events.extend(_read_events_from(own_path))
+            events.sort(key=lambda e: (e.ts, e.agent or ""))
+            return events
+
+    events.sort(key=lambda e: (e.ts, e.agent or ""))
     return events
 
 
