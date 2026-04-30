@@ -103,6 +103,14 @@ The user's invariant: *adding* contracts is always allowed; *modifying* or *dele
 
 You don't.  Use `overrides: ... disabled: true` (an additive edit that silences the rule) or ask the user to delete it by hand.  The agent never has authority to remove its own contracts.
 
+### Pattern generality — match operator intent, not demo data
+
+When the operator's NL says "block public gists" or "cap files at 3", write the rule against the operator's **literal intent**.  Do not infer file extensions, content types, naming conventions, or path structures from sample data, demo fixtures, or examples you've seen — unless the operator explicitly named them.
+
+Concrete: a regex like `(\.md"\s*:.*?){4,}` matches only keys ending in `.md`, which means a 4-file gist of `.json` / `.txt` / `.csv` / extension-less keys passes freely.  If the operator said "cap files at 3", the right form is `(\".+?\"\s*:\s*\{){4,}` — any 4+ keys.  Same principle for path globs (`/work/notes/.*\.md` vs `/work/notes/.+`), `arg_field_has` value patterns, and `match:` selectors.
+
+If the operator's intent **IS** demo-specific ("block any `.md` dump from this notes plugin"), keep the narrow pattern but record the assumption in the contract `desc:` so a later reviewer sees the constraint instead of inferring a bug.
+
 ---
 
 ## W1 — Initial setup
