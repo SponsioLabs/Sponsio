@@ -239,15 +239,18 @@ class TestP2PatternsInMonitor:
     def test_no_pii_blocks_via_monitor(self):
         agent = Agent(id="bot")
         mon = _make_monitor(Contract(agent=agent, enforcement=no_pii()))
-        mon._trace.events.append(
-            Event(
-                ts=0,
-                agent="bot",
-                event_type="llm_response",
-                content="Your SSN is 123-45-6789.",
-            )
+        # Drive the PII-bearing response through check_action so the
+        # violation is fresh at the step that introduced it. Pre-fix
+        # this test pre-appended the event directly to mon._trace and
+        # relied on a *later*, unrelated check call surfacing the
+        # historical violation — that's the stale-violation behavior the
+        # verifier no longer reproduces.
+        results = mon.check_action(
+            agent.id,
+            "emit",
+            event_type="llm_response",
+            metadata={"content": "Your SSN is 123-45-6789."},
         )
-        results = mon.check_action(agent.id, "emit")
         assert _blocked(results), results
 
     def test_max_length_passes_short_response(self):

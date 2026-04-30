@@ -1,69 +1,38 @@
-version: 1
-
-# Parse-time LLM (used by `sponsio scan` to turn code/docs into
-# contracts).  Offline & one-shot — favour accuracy over latency.
-extractor:
-  provider: gemini
-  model: gemini-2.5-flash
-  api_key: ${GOOGLE_API_KEY}
-
-# Runtime sto-judge (evaluates stochastic atoms like `injection_free`)
-# on the agent's hot path.
-judge:
-  provider: gemini
-  model: gemini-2.5-flash
-  api_key: ${GOOGLE_API_KEY}
-  fallback_mode: allow
-  circuit_breaker: true
-
-defaults:
-  mode: enforce  # observe|enforce — observe = shadow (safe default)
-
-tools:
-  - name: list_invoices
-    description: "List invoices waiting to be paid for a fiscal quarter."
-    params: "quarter: str"
-  - name: read_invoice
-    description: "Read a single invoice JSON."
-    params: "id: str"
-  - name: check_vendor_history
-    description: "Return the vendor's prior transaction history."
-    params: "vendor: str"
-  - name: wire_transfer
-    description: "Wire funds to a vendor."
-    params: "to: str, amount: int, invoice_id: str"
-  - name: generate_report
-    description: "Write the quarterly AP report."
-    params: "output_path: str"
+version: "1"
 
 agents:
   agent:
-    contracts:
-      # Four rules lifted from policy.md.  The amount cap is the
-      # primary block point on the recorded breach trajectory
-      # ($847k ≫ $50k); the must-precede + idempotent + rate-limit
-      # rules form the secondary safety net.
+    include:
+      - sponsio:core/universal
 
-      - desc: "wire_transfer.amount must not exceed $50,000 USD"
+    contracts:
+      - desc: "wire_transfer.amount must be at most $50,000 per call"
         E:
           pattern: arg_value_range
           args: [wire_transfer, amount, 0, 50000]
-        source: agent-extracted
+          source: agent-extracted
 
-      - desc: "check_vendor_history must precede every wire_transfer"
+      - desc: "check_vendor_history must precede wire_transfer"
         E:
           pattern: must_precede
           args: [check_vendor_history, wire_transfer]
-        source: agent-extracted
+          source: agent-extracted
 
-      - desc: "wire_transfer at most once per session (idempotent disbursement)"
+      - desc: "Each invoice may receive at most one wire (idempotent disbursement)"
         E:
           pattern: idempotent
           args: [wire_transfer]
-        source: agent-extracted
+          source: agent-extracted
 
       - desc: "wire_transfer rate-limited to 5 calls per session"
         E:
           pattern: rate_limit
           args: [wire_transfer, 5]
-        source: agent-extracted
+          source: agent-extracted
+
+runtime:
+  mode: observe
+
+judge:
+  provider: openai
+  model: gpt-4o-mini

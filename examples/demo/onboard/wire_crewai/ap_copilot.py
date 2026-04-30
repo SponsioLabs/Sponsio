@@ -58,13 +58,15 @@ def generate_report(output_path: str) -> str:
     return f"wrote {output_path}: 12/12 invoices processed"
 
 
-TOOLS = [
+from sponsio.crewai import Sponsio
+
+TOOLS = Sponsio(config="sponsio.yaml", agent_id="agent").wrap([
     list_invoices,
     read_invoice,
     check_vendor_history,
     wire_transfer,
     generate_report,
-]
+])
 
 
 # Recorded trajectory for an AP copilot under SLA pressure.
@@ -129,28 +131,8 @@ def run_without_guard() -> None:
 def run_with_guard() -> None:
     slow_print(f"{BOLD}== AP (Accounts Payable) Copilot =={RESET}")
 
-    # Default: tools fire raw.  ``TOOLS`` is a list of plain Python
-    # functions (not CrewAI BaseTool yet), so we wrap each in a tiny
-    # shim that exposes ``._run(**kwargs)`` — same call shape the
-    # crewai-wrapped variant has, so the trajectory loop below can
-    # invoke either form without branching.
-    from types import SimpleNamespace as _NS
 
-    tools_by_name = {f.__name__: _NS(name=f.__name__, _run=f) for f in TOOLS}
-
-    # ─── sponsio onboard patch ─────────────────────────────────────
-    # The three lines below are what ``sponsio onboard <path>`` prints
-    # as the wrap snippet for CrewAI projects (real apps would do
-    # ``crew = guard.wrap(crew)``; we adapt to the trajectory-replay
-    # shape by indexing the wrapped tools by name).  The recording in
-    # ``assets/demos/wire_onboard.tape`` strips this block at hidden
-    # setup and re-inserts it via ``sed`` on screen.
-    from sponsio.crewai import Sponsio
-
-    guard = Sponsio(config=str(Path(__file__).parent / "sponsio.yaml"), agent_id="agent")
-    tools_by_name = {t.name: t for t in guard.wrap(TOOLS)}
-    # ─── /sponsio onboard patch ────────────────────────────────────
-
+    tool_by_name = {t.name: t for t in TOOLS}
     blocked = False
     for name, args in TRAJECTORY:
         slow_print(f"  {DIM}→ {name}({_fmt_args(args)}){RESET}")
@@ -159,7 +141,7 @@ def run_with_guard() -> None:
         # on a contract violation rather than raising, so we sniff
         # the return value to short-circuit (this is the crewai
         # adapter's documented blocking behaviour, not a demo hack).
-        result = tools_by_name[name]._run(**args)
+        result = tool_by_name[name]._run(**args)
         if isinstance(result, str) and result.startswith("BLOCKED by contract"):
             blocked = True
             break

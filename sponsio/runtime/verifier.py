@@ -82,6 +82,16 @@ class Verdict:
             string so ``self._policy[stable_key]`` still resolves the
             user's RetryWithConstraint / RedirectToSafe overrides.
             Empty string falls back to ``desc`` for backward compatibility.
+        fresh: Whether the latest trace event itself caused this verdict's
+            outcome. Only meaningful for ``holds=False`` enforcements:
+            ``fresh=True`` means the just-appended event broke the rule and
+            should be blocked; ``fresh=False`` means the violation was
+            already present on the prefix (stale) and the current event is
+            not the cause. The runtime monitor skips stale enforcement
+            violations so a single bad event under observe-mode (or any
+            other no-rollback path) is not re-blamed on every subsequent
+            event. Defaults to ``True`` so callers that don't set it keep
+            their pre-existing block-on-violation behavior.
     """
 
     holds: bool
@@ -93,6 +103,7 @@ class Verdict:
     evidence: str = ""
     suggestion: str = ""
     policy_key: str = ""
+    fresh: bool = True
 
     def __bool__(self) -> bool:
         return self.holds
@@ -201,6 +212,55 @@ def _collect_det_formulas(contracts: list[Contract]) -> list:
             if _is_det(constraint):
                 out.append(constraint)
     return out
+
+
+# Cumulative-aggregate Var names emitted by ``sponsio.tracer.grounding``.
+# Their valuation at position ``p`` reflects accumulated trace history up
+# to ``p`` (count of past calls, depth, sustained time, …) — *not* a
+# property of the event at ``p`` alone. The fresh-violation check uses
+# this to tell "the latest event moved the aggregate" (fresh) from
+# "unrelated event, aggregate carried forward" (stale).
+_CUMULATIVE_VAR_NAMES: frozenset[str] = frozenset(
+    {
+        "count",
+        "count_with",
+        "token_count",
+        "consecutive_count",
+        "delegation_depth",
+        "time_since",
+    }
+)
+
+
+def _collect_cumulative_var_keys(node: Any) -> set[str]:
+    """All cumulative-aggregate valuation keys referenced under ``node``.
+
+    Walks the formula AST collecting :class:`Var` nodes whose ``name`` is
+    in :data:`_CUMULATIVE_VAR_NAMES`, returning the canonical
+    ``Var.key()`` for each. Used by
+    :meth:`TraceVerifier._enforcement_is_fresh` to decide whether a
+    failing enforcement's responsibility lies with the just-appended
+    event (an aggregate moved) or with a prior event whose violation is
+    being carried forward (the aggregate didn't move).
+
+    Returns an empty set for purely event-local formulas (only ``Atom``
+    leaves), which signals the caller to fall through to per-step
+    predicate evaluation.
+    """
+    from sponsio.formulas.formula import Var
+
+    keys: set[str] = set()
+    stack: list[Any] = [node]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, Var) and cur.name in _CUMULATIVE_VAR_NAMES:
+            keys.add(cur.key())
+            continue
+        for attr in ("child", "left", "right"):
+            sub = getattr(cur, attr, None)
+            if sub is not None:
+                stack.append(sub)
+    return keys
 
 
 def _is_temporally_flat(node: Any) -> bool:
@@ -608,6 +668,86 @@ class TraceVerifier:
         self._g_cache[key] = (n, result)
         return result
 
+    def _enforcement_is_fresh(self, raw_formula: Any, eval_pos: int = 0) -> bool:
+        """True iff the latest event itself caused the enforcement to fail.
+
+        Used to distinguish a brand-new violation introduced by the
+        just-appended event from a *stale* violation already present on
+        the prefix. Callers only consult this when they already know the
+        enforcement does not hold on the full trace.
+
+        For ``G(child)`` we layer three signals:
+
+        1. **Trace transition.** If the formula held on the prefix
+           ``valuations[:-1]`` but not now, the latest event flipped it.
+           Always fresh.
+        2. **Cumulative-aggregate change.** If ``child`` references any
+           ``Var`` aggregate (``count(...)``, ``count_with(...)``,
+           ``token_count(...)``, ``consecutive_count(...)``,
+           ``delegation_depth``, ``time_since(...)``), fresh iff the
+           aggregate's value at ``n-1`` differs from ``n-2``. This is
+           what keeps ``rate_limit(Bash, 50)`` from re-blaming an
+           unrelated submit-prompt event after the count is already
+           over budget — count(Bash) didn't move at that event, so it
+           wasn't the cause.
+        3. **Event-local predicate fail.** If ``child`` has no
+           cumulative aggregate, the formula is purely event-local
+           (e.g. ``arg_blacklist`` / ``arg_allowlist`` / ``no_pii`` /
+           ``arg_value_range``). Fresh iff ``child`` fails at ``n-1`` —
+           i.e. *this* event is itself the violator.
+
+        Cases (1) ∨ ((2) when aggregate present) ∨ ((3) when no aggregate)
+        — the layering is deliberate: signal (2) only kicks in when an
+        aggregate is present, and signal (3) only when none is present.
+        This is what lets ``arg_blacklist`` block back-to-back ``rm``
+        calls (each is independently a violator) while ``rate_limit``
+        ignores unrelated calls after the limit is blown.
+
+        For non-G shapes we use only signal (1) at the contract's
+        evaluation position (``0`` for global, ``k_star`` for reactive).
+        """
+        from sponsio.formulas.formula import G
+
+        n = len(self._valuations)
+        if n == 0:
+            return False  # nothing to be fresh-or-stale about
+        if n == 1:
+            return True  # only one event — it is by definition the cause
+
+        prefix = self._valuations[:-1]
+
+        if isinstance(raw_formula, G):
+            # Signal (1): formula held on the prefix and was just flipped.
+            if eval_formula(raw_formula, prefix):
+                return True
+
+            # Already failed on prefix. Two disjoint sub-cases.
+            agg_keys = _collect_cumulative_var_keys(raw_formula.child)
+            last_val = self._valuations[-1]
+            prior_val = prefix[-1]
+
+            if agg_keys:
+                # Signal (2): cumulative-aware. Only fresh if some
+                # tracked aggregate moved at this event — otherwise the
+                # current event is unrelated to the constrained action
+                # and shouldn't be re-blamed.
+                for key in agg_keys:
+                    if last_val.get(key) != prior_val.get(key):
+                        return True
+                return False
+
+            # Signal (3): purely event-local predicate. Fresh iff this
+            # event itself fails the per-step ``child``.
+            return not eval_formula(raw_formula.child, self._valuations, n - 1)
+
+        # Non-G: use the prefix-vs-now signal at the contract's eval
+        # position. If the formula already failed on the prefix at the
+        # same position, the current event is not the cause.
+        if eval_pos >= len(prefix):
+            # The current event IS the activation point; treat as fresh.
+            return True
+        return eval_formula(raw_formula, prefix, eval_pos)
+
     def check_assumption(self, contract: Contract) -> Verdict:
         """Evaluate a contract's assumption conjunction.
 
@@ -734,12 +874,14 @@ class TraceVerifier:
                 holds = self._incremental_eval(
                     raw, finalize=(include_liveness and is_liveness)
                 )
+                fresh = True if holds else self._enforcement_is_fresh(raw, eval_pos=0)
                 e_results.append(
                     Verdict(
                         holds=holds,
                         desc=_desc(e),
                         kind="enforcement",
                         formula=e,
+                        fresh=fresh,
                     )
                 )
 
@@ -851,12 +993,14 @@ class TraceVerifier:
             # is the right complexity — we explicitly want the suffix
             # semantic.
             holds = eval_formula(raw, self._valuations, k_star)
+            fresh = True if holds else self._enforcement_is_fresh(raw, eval_pos=k_star)
             e_results.append(
                 Verdict(
                     holds=holds,
                     desc=_desc(e),
                     kind="enforcement",
                     formula=e,
+                    fresh=fresh,
                 )
             )
 

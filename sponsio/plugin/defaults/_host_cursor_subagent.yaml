@@ -1,0 +1,111 @@
+# =============================================================================
+# Sample contract library for Claude Code Task-spawned sub-agents.
+#
+# The sponsio-claude-code plugin routes any tool call whose hook
+# payload includes an ``agent_id`` field into this library.  That
+# field is present iff Claude Code is firing the hook from inside a
+# sub-agent (Task / general-purpose / Explore / user-defined types).
+# Main session calls keep routing to ``_host``.
+#
+# Why a separate file from `_host.yaml`:
+#
+# Sub-agents lack the user-conversation context the main agent has.
+# They receive a task description, not the user's intent — so
+# alignment-style "wait, is this what the user wanted?" refusals
+# don't fire, and the same Bash/Write call that the main agent
+# might justify with user-visible reasoning gets executed silently
+# by a sub-agent.  This library applies a tighter privilege
+# boundary: same shell / database / credentials baseline as
+# ``_host``, plus ``capability/subagent`` which blocks side-effects
+# whose authorization should travel back through the main
+# conversation (git mutations, package installs, outbound network,
+# system-path writes).
+#
+# The expected pattern: sub-agents read, search, summarize, and
+# return findings via their final response.  Side effects fire
+# from the main agent (or, with user blessing, the main agent
+# explicitly re-runs a sub-agent recommendation).
+#
+# Override individual rules with `overrides:`.
+# =============================================================================
+
+version: "1"
+
+agents:
+  _host_cursor_subagent:
+    # Same Claude Code tool surface as _host.yaml — sub-agents call
+    # the same Bash / Read / Write / Edit / MultiEdit tools.  The
+    # tool_rename block lets the canonical ``exec`` / ``write`` /
+    # ``edit`` rules in the included packs apply to Claude Code's
+    # first-party tool names.
+    tool_rename:
+      exec: Bash
+      write: Write
+      edit: Edit
+      apply_patch: MultiEdit
+
+    include:
+      # Same baseline as _host: dangerous shell / DB / secrets / CC
+      # incident pack.  Sub-agents should be at least as restricted
+      # as the main agent on these foot-guns.
+      - sponsio:capability/shell
+      - sponsio:capability/database
+      - sponsio:capability/credentials
+      - sponsio:incident/claude-code-secret-bypass
+      # Sub-agent-only tighter restrictions: no git mutations, no
+      # global package installs, no outbound network, no writes
+      # outside scratch / project paths.
+      - sponsio:capability/subagent
+      # Privilege-escape protection: deny the entire ``~/.sponsio/``
+      # tree (Edit / Write / MultiEdit + Read of host rule lists).
+      # Sub-agents have no legitimate reason to manage Sponsio
+      # configuration — and reading the parent's rule list is
+      # reconnaissance for a targeted bypass.
+      - sponsio:incident/subagent-escape
+
+    contracts:
+      # Mirror _host.yaml's inline credential-path denies.  These
+      # apply ON TOP of the included packs — credentials pack
+      # checks Write.content; these check Write.file_path.
+      - desc: "Sub-agent: block writes to dotenv / SSH keys / cloud creds"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Write
+            - file_path
+            - - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/credentials"
+              - "(^|/)\\.aws/config"
+              - "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[\\w.-]+)?$"
+              - "(^|/)\\.netrc"
+              - "(^|/)\\.pgpass"
+              - "(^|/)\\.kube/config"
+              - "(^|/)\\.docker/config\\.json"
+              - "(^|/)\\.gnupg/"
+              - "^/etc/shadow($|/)"
+              - "^/etc/sudoers($|\\.d/|$)"
+              - "^/etc/ssh/ssh_host_"
+              - "^/etc/ssl/private/"
+              - "(^|/)Library/Keychains/"
+              - "(^|/)Library/LaunchAgents/"
+
+      - desc: "Sub-agent: block reads of credential paths"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Read
+            - file_path
+            - - "(^|/)\\.ssh/"
+              - "(^|/)\\.aws/credentials"
+              - "(^|/)\\.aws/config"
+              - "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[\\w.-]+)?$"
+              - "(^|/)\\.netrc"
+              - "(^|/)\\.pgpass"
+              - "(^|/)\\.kube/config"
+              - "(^|/)\\.docker/config\\.json"
+              - "(^|/)\\.gnupg/"
+              - "^/etc/shadow($|/)"
+              - "^/etc/ssh/ssh_host_"
+              - "^/etc/ssl/private/"
+              - "(^|/)Library/Keychains/"
+              - "(^|/)Library/Cookies/"

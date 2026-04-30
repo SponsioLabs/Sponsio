@@ -676,6 +676,27 @@ class RuntimeMonitor:
                     )
                     continue
 
+                # Stale violation guard: the enforcement is False on the
+                # full trace, but the latest event isn't the cause — the
+                # rule was already broken on the prefix. Don't blame
+                # (and block) the current event for a historical
+                # violation. This matters most under observe-mode where
+                # nothing rolls back the offending prior event, but it's
+                # the right semantic everywhere: an action should only
+                # be denied for what *it* did.
+                if not e_verdict.fresh:
+                    collector.finish_span("ok")
+                    self._emit_pass_event(
+                        agent_id=agent_id,
+                        action=context.action,
+                        constraint_name=e_verdict.desc,
+                        pass_desc=(
+                            f"PASSED (stale prior violation, not caused by "
+                            f"this event): {e_verdict.desc}"
+                        ),
+                    )
+                    continue
+
                 guar_span.result = False
                 collector.finish_span("violated")
                 if e_verdict.is_sto:

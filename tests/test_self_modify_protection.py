@@ -197,7 +197,16 @@ class TestSelfModifyAllows:
     """
 
     def test_edit_subagent_lib_allowed(self, host_home, capsys):
-        """Parent managing child policy is the legitimate workflow."""
+        """Parent managing child policy is the legitimate workflow.
+
+        The shared ``capability/self-modify`` pack only locks the
+        running bucket's OWN file. ``_host`` (legacy) editing
+        ``_host_subagent/`` from the same agent context is the
+        parent-tightens-child workflow Sponsio explicitly preserves;
+        same for the per-host buckets, where each starter only locks
+        its own ``_host_<host>/sponsio.yaml`` and leaves siblings
+        editable.
+        """
         out, code = _run(
             _hook_event(
                 "Edit",

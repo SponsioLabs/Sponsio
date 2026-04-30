@@ -155,10 +155,21 @@ agents:
           args: [exec, 50]
           source: "library:tier1.shell"
 
-      - desc: "No more than 5 consecutive exec calls (runaway loop cap)"
+      # Threshold tuned for shell specifically. Earlier 5 was inherited
+      # from narrow-tool defaults (apply_patch / merge_pr) where 5
+      # consecutive same-tool calls is genuinely suspicious. Shell is a
+      # swiss-army-knife — a normal coding agent doing a refactor will
+      # routinely run pytest → git status → git diff → git add → git
+      # commit → git push back-to-back without ever leaving the shell
+      # tool, which is 6 consecutive calls of legitimate work. 20 still
+      # trips on the runaway pattern (a genuinely stuck self-rewrite
+      # loop hits 20 in a few seconds) without false-positiving real
+      # development workflows. The session-wide rate_limit(exec, 50)
+      # below remains the harder backstop.
+      - desc: "No more than 20 consecutive exec calls (runaway loop cap)"
         E:
           pattern: loop_detection
-          args: [exec, 5]
+          args: [exec, 20]
           source: "library:tier1.shell"
 
       # =================================================================

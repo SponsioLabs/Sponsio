@@ -60,22 +60,27 @@ def test_derive_plugin_id(tool_name, expected):
         ("read_file", "openclaw", "_host_openclaw"),
         ("", "openclaw", "_host_openclaw"),
         ("UnknownTool", "openclaw", "_host_openclaw"),
-        # Unknown tool with host=claude-code → _host fallback (default)
-        ("UnknownTool", "claude-code", "_host"),
+        # Explicit host=claude-code now routes to its dedicated bucket
+        # so per-IDE rules can diverge (cf. Cursor's _host_cursor).
+        # Callers that don't tag a host (legacy entry point) keep
+        # routing to the original ``_host`` for backward compatibility.
+        ("UnknownTool", "claude-code", "_host_claude_code"),
         # MCP-namespaced tool routes to <server> regardless of host
         ("mcp__github__delete_repo", "openclaw", "github"),
         ("mcp__github__delete_repo", "claude-code", "github"),
-        # Claude Code first-party tool always routes to _host (it's
-        # only meaningful in Claude Code's namespace; if OpenClaw ever
-        # had a literal "Bash" tool it would still match the
-        # Claude-Code-shape rules in _host, which is the right call).
-        ("Bash", "openclaw", "_host"),
+        # Host-driven bucketing: a tool name shaped like a Claude Code
+        # first-party (``Bash``) but emitted from OpenClaw still routes
+        # to the OpenClaw bucket. The host's contract surface is
+        # authoritative — letting a stray Bash event hit Claude Code
+        # rules from an OpenClaw runtime mixes shapes (``file_path`` vs
+        # ``path``) and gives the wrong deny reasons.
+        ("Bash", "openclaw", "_host_openclaw"),
     ],
 )
 def test_derive_plugin_id_host_aware(tool_name, host, expected):
     """``host`` field in the hook payload steers the fallback library
-    away from ``_host`` (Claude-Code-shape) when the call comes from
-    OpenClaw (canonical names + ``path`` arg).
+    to the host's own bucket so per-IDE rules and shape conventions
+    don't bleed across runtimes.
     """
     assert derive_plugin_id(tool_name, host=host) == expected
 

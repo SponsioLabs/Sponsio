@@ -80,6 +80,44 @@ class GuardOutcome:
     library_path: str | None = None
 
 
+def _bucket_for_host(host: str | None, is_subagent: bool) -> str:
+    """Per-host main / sub-agent bucket name.
+
+    Each host gets its own ``_host_<host>`` directory under
+    ``~/.sponsio/plugins/`` so per-IDE rules (Cursor's
+    ``beforeSubmitPrompt`` checks, Claude Code's Task subagent
+    boundary, OpenClaw's exec/write canonical names) live separately.
+    Common rules pull from the shared ``sponsio:capability/*`` packs
+    via ``include:`` in each bucket's ``sponsio.yaml`` — there's no
+    single "share everything" library that all hosts read.
+
+    Subagent buckets are namespaced per host too —
+    ``_host_cursor_subagent`` / ``_host_claude_code_subagent`` —
+    because Cursor's Task-spawned agents and Claude Code's Task tool
+    have different surfaces. OpenClaw doesn't expose a subagent
+    equivalent today; it returns ``_host_openclaw`` regardless.
+
+    When ``host`` is ``None`` we treat the call as the legacy entry
+    point and route to the original shared ``_host`` /
+    ``_host_subagent`` buckets. That keeps the historical Claude Code
+    integration (which doesn't yet tag its events with a host string)
+    working against the existing on-disk libraries. Once the Claude
+    Code hook handler starts emitting ``host="claude-code"``, those
+    calls will migrate to the dedicated bucket without an opt-in
+    flag.
+    """
+    if host == "openclaw":
+        return "_host_openclaw"
+    if host == "cursor":
+        return "_host_cursor_subagent" if is_subagent else "_host_cursor"
+    if host == "claude-code":
+        return "_host_claude_code_subagent" if is_subagent else "_host_claude_code"
+    # Legacy entry point (no host tag) — preserve the original
+    # routing so existing libraries on disk stay reachable without
+    # a manual move.
+    return "_host_subagent" if is_subagent else "_host"
+
+
 def derive_plugin_id(
     tool_name: str,
     host: str | None = None,
@@ -116,24 +154,15 @@ def derive_plugin_id(
     ``_host_subagent`` so a misnamed tool still gets *some* coverage
     (default-deny would be hostile in observe mode).
     """
-    if host == "openclaw":
-        # OpenClaw doesn't expose a Task / sub-agent equivalent today,
-        # so the openclaw fallback path doesn't carry the sub-agent
-        # boundary.  If an OpenClaw equivalent surfaces later, mirror
-        # the Claude Code logic here.
-        fallback = "_host_openclaw"
-    elif is_subagent:
-        fallback = "_host_subagent"
-    else:
-        fallback = "_host"
+    fallback = _bucket_for_host(host, is_subagent)
     if not tool_name:
         return fallback
     if tool_name in _HOST_TOOL_NAMES:
-        # Claude-Code-shaped first-party tools route to the
-        # appropriate Claude-Code library.  Sub-agent calls go to
-        # _host_subagent so the stricter rule set applies; main
-        # agent calls go to _host as before.
-        return "_host_subagent" if is_subagent else "_host"
+        # First-party host tools (Bash / Read / Write / Edit / …)
+        # route to the per-host main or sub-agent bucket. Cursor's
+        # Shell tool is renamed to "Bash" upstream in
+        # ``cursor_event_to_sponsio_event`` so it lands here too.
+        return fallback
     if tool_name.startswith("mcp__"):
         # mcp__<server>__<tool>  (Claude Code MCP tool naming)
         parts = tool_name.split("__", 2)
@@ -175,12 +204,72 @@ def library_path_for(plugin_id: str) -> Path:
     return library_root() / plugin_id / "sponsio.yaml"
 
 
+def _resolve_library(plugin_id: str) -> tuple[Path, str]:
+    """Resolve ``(library_path, effective_agent_id)`` with legacy fallback.
+
+    Cursor and Claude Code now route to per-host buckets
+    (``_host_cursor`` / ``_host_claude_code``) so each IDE can carry
+    its own rules. Existing users still have a populated legacy
+    ``_host/sponsio.yaml`` from earlier installs — fall back to that
+    when the host-specific library doesn't exist yet, so no manual
+    migration is required for the runtime to keep enforcing.
+
+    Both the path and the agent id need to fall back together: the
+    legacy library declares ``agents: _host:`` (resp. ``_host_subagent``)
+    as its top-level key, so :class:`BaseGuard` must be invoked with
+    that same id or it cannot find the agent to evaluate against.
+    Trace bucketing keeps using the new per-host plugin_id (so
+    ``rate_limit`` stays per-IDE), but the contract evaluation
+    transparently borrows the legacy yaml.
+
+    The fallback only fires for the per-host main / sub-agent buckets.
+    Per-MCP-server buckets (``github``, ``filesystem``, …) and the
+    OpenClaw bucket return their primary path unchanged — they have
+    no legacy counterpart to fall back to.
+    """
+    primary = library_path_for(plugin_id)
+    if primary.exists():
+        return primary, plugin_id
+
+    legacy: str | None = None
+    if plugin_id in {"_host_cursor", "_host_claude_code"}:
+        legacy = "_host"
+    elif plugin_id in {"_host_cursor_subagent", "_host_claude_code_subagent"}:
+        legacy = "_host_subagent"
+
+    if legacy:
+        legacy_path = library_path_for(legacy)
+        if legacy_path.exists():
+            return legacy_path, legacy
+
+    return primary, plugin_id  # primary may not exist; caller short-circuits
+
+
 # ----------------------------------------------------------------------
 # Per-plugin trace continuity (file-based)
 # ----------------------------------------------------------------------
 
 
-def _trace_file_for(plugin_id: str) -> Path:
+def _safe_conv_id(conversation_id: str) -> str:
+    """Sanitize a host conversation id for use in a trace filename.
+
+    Cursor / Claude Code emit UUID-shaped ids today, but be defensive
+    against future shape drift: replace anything outside ``A-Za-z0-9._-``
+    with ``_`` and cap length so a pathological host can't blow past
+    the OS path limit. Empty/whitespace input falls back to "default"
+    so the per-conversation bucket still exists (rather than silently
+    routing to the legacy single-file path).
+    """
+    import re
+
+    stripped = conversation_id.strip()
+    if not stripped:
+        return "default"
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", stripped)
+    return safe[:64] or "default"
+
+
+def _trace_file_for(plugin_id: str, conversation_id: str | None = None) -> Path:
     """Per-plugin shield trace log path.
 
     The trace lives **inside** each plugin's library directory at
@@ -195,11 +284,28 @@ def _trace_file_for(plugin_id: str) -> Path:
 
     Override the trace location entirely via ``$SPONSIO_SHIELD_TRACE_ROOT``
     when you need decoupled storage (e.g. read-only library mounts).
+
+    When ``conversation_id`` is given (Cursor / Claude Code surface one
+    per IDE conversation), the trace is bucketed per-conversation:
+    ``<plugin>/conv-<safe_id>.shield-trace.jsonl``. Without bucketing,
+    cumulative contracts like ``rate_limit(Bash, 50)`` would compound
+    Bash counts across every conversation that ever touched this plugin
+    — well past the 50-call session budget the policy actually intends.
+    Per-conversation bucketing is the design fix; the legacy single-file
+    path is preserved for callers without a conv_id (one-off CLI tools,
+    older integrations) and for backward compatibility.
     """
     override = os.environ.get("SPONSIO_SHIELD_TRACE_ROOT")
     if override:
-        return Path(override).expanduser() / plugin_id / "trace.jsonl"
-    return library_root() / plugin_id / ".shield-trace.jsonl"
+        base = Path(override).expanduser() / plugin_id
+        legacy_name = "trace.jsonl"  # historical override-mode filename
+    else:
+        base = library_root() / plugin_id
+        legacy_name = ".shield-trace.jsonl"
+
+    if conversation_id:
+        return base / f"conv-{_safe_conv_id(conversation_id)}.{legacy_name.lstrip('.')}"
+    return base / legacy_name
 
 
 def _trace_ttl_seconds() -> int:
@@ -232,13 +338,16 @@ def _maybe_rotate(path: Path) -> None:
             pass
 
 
-def _load_prior_events(plugin_id: str):
+def _load_prior_events(plugin_id: str, conversation_id: str | None = None):
     """Reconstruct the prior session trace for ``plugin_id``.
 
     Returns a list of ``Event`` objects, oldest first.  Empty list if
     there's no log yet (first call) or the log is past TTL.
+
+    ``conversation_id`` selects the per-conversation bucket; see
+    :func:`_trace_file_for`.
     """
-    path = _trace_file_for(plugin_id)
+    path = _trace_file_for(plugin_id, conversation_id=conversation_id)
     _maybe_rotate(path)
     if not path.exists():
         return []
@@ -281,15 +390,20 @@ def _load_prior_events(plugin_id: str):
     return events
 
 
-def _append_event(plugin_id: str, event_dict: dict) -> None:
+def _append_event(
+    plugin_id: str, event_dict: dict, conversation_id: str | None = None
+) -> None:
     """Append one Event-shaped dict to the per-plugin trace log.
 
     Atomic at the level of one ``write`` syscall (a JSONL line is one
     write); concurrent hooks won't tear individual records, though
     interleaving order isn't guaranteed.  Claude Code's hook protocol
     is sequential per-session today, so this is acceptable.
+
+    ``conversation_id`` selects the per-conversation bucket; see
+    :func:`_trace_file_for`.
     """
-    path = _trace_file_for(plugin_id)
+    path = _trace_file_for(plugin_id, conversation_id=conversation_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(event_dict, separators=(",", ":")) + "\n"
     with open(path, "a", encoding="utf-8") as fh:
@@ -332,7 +446,14 @@ def evaluate_event(event: dict) -> GuardOutcome:
     raw_agent_id = event.get("agent_id")
     is_subagent = isinstance(raw_agent_id, str) and bool(raw_agent_id.strip())
     plugin_id = derive_plugin_id(tool_name, host=host, is_subagent=is_subagent)
-    lib_path = library_path_for(plugin_id)
+    # ``effective_agent_id`` may differ from ``plugin_id`` when the
+    # per-host library (``_host_cursor.yaml`` / ``_host_claude_code.yaml``)
+    # isn't installed yet and we fall back to the legacy ``_host``
+    # library — the legacy yaml's top-level agent key is ``_host``,
+    # so BaseGuard must be invoked with that id or it can't locate
+    # the agent. Trace persistence keeps using ``plugin_id`` so
+    # per-host bucketing is preserved.
+    lib_path, effective_agent_id = _resolve_library(plugin_id)
 
     if not lib_path.exists():
         # No library configured for this plugin — vacuously allow.
@@ -373,9 +494,22 @@ def evaluate_event(event: dict) -> GuardOutcome:
     saved_env = os.environ.get("SPONSIO_MODE")
     os.environ["SPONSIO_MODE"] = guard_mode
 
+    # Per-conversation trace bucketing. Cursor and Claude Code both
+    # emit a ``conversation_id`` per IDE conversation; routing the
+    # trace file by that id keeps cumulative contracts (rate_limit /
+    # idempotent / count-based) honest — without it, every Bash call
+    # in the user's history compounds across conversations and
+    # ``rate_limit(Bash, 50)`` blows past its session budget within
+    # the first day. Other temporal contracts (must_precede /
+    # cooldown / R2 prod-read-only) still see the full conversation
+    # history because that's where they need to be coherent.
+    conversation_id = event.get("conversation_id")
+    if not isinstance(conversation_id, str):
+        conversation_id = None
+
     # Load prior session trace from the per-plugin JSONL log (if any).
     # ``_load_prior_events`` handles TTL rotation internally.
-    prior_events = _load_prior_events(plugin_id)
+    prior_events = _load_prior_events(plugin_id, conversation_id=conversation_id)
 
     try:
         with (
@@ -383,7 +517,7 @@ def evaluate_event(event: dict) -> GuardOutcome:
             contextlib.redirect_stderr(captured_err),
         ):
             guard = BaseGuard(
-                agent_id=plugin_id,
+                agent_id=effective_agent_id,
                 config=str(lib_path),
                 verbose=False,
                 verbosity=0,
@@ -431,6 +565,7 @@ def evaluate_event(event: dict) -> GuardOutcome:
                     "tool": last_event.tool,
                     "args": last_event.args,
                 },
+                conversation_id=conversation_id,
             )
         except OSError as e:  # pragma: no cover - log-write failure
             sys.stderr.write(

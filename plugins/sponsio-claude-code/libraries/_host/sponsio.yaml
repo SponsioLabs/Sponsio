@@ -112,6 +112,41 @@ agents:
               - "^/etc/sudoers($|\\.d/|$)"
               - "(^|/)Library/Keychains/"
 
+      # ---------- Self-modify: close the Bash bypass ----------
+      # ``sponsio:capability/self-modify`` (included above) blocks
+      # Edit / Write / MultiEdit on ``~/.sponsio/plugins/_host/sponsio.yaml``.
+      # That leaves Bash open: ``echo … >`` / ``sed -i`` / ``tee`` /
+      # ``cp`` / ``mv`` / ``rm`` against the same path achieve the
+      # same self-rewrite.  This rule closes that path.
+      #
+      # Scoped narrowly to *write-shaped operators* on the agent's
+      # OWN host config.  Crucially this lets the canonical add
+      # path stay open:
+      #
+      #   sponsio plugin scan -o ~/.sponsio/plugins/_host/sponsio.yaml
+      #
+      # `sponsio plugin scan` writes the file via its own Python
+      # code (atomic, validated, additive merge) and the Bash
+      # invocation that triggers it has no `>` / `sed -i` / `tee`
+      # operator on its command line — so it doesn't match.  Direct
+      # shell-level overwrites and removes are the only thing this
+      # rule denies.
+      #
+      # Sibling slots (``_host_subagent``, ``_host_openclaw``,
+      # ``<plugin-id>``) stay editable so the host can manage
+      # children's policy.
+      - desc: "Block Bash write-shaped operators on own sponsio guard config"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Bash
+            - command
+            - - ">\\s*[^|&;]*\\.sponsio/plugins/_host/sponsio\\.yaml"
+              - ">>\\s*[^|&;]*\\.sponsio/plugins/_host/sponsio\\.yaml"
+              - "tee\\s+[^|&;]*\\.sponsio/plugins/_host/sponsio\\.yaml"
+              - "sed\\s+-i\\b[^|&;]*\\.sponsio/plugins/_host/sponsio\\.yaml"
+              - "(cp|mv|rm|dd)\\s+[^|&;]*\\.sponsio/plugins/_host/sponsio\\.yaml"
+
       # ---------- Read protections for credentials exfiltration ----------
       - desc: "Block reads of SSH keys / cloud creds / dotenv secrets / keychains"
         E:

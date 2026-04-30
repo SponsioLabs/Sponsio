@@ -244,8 +244,8 @@ def _prompt_mode() -> str:
         return "observe"
     click.echo(
         "\nRuntime mode:\n"
-        "  observe   shadow — never blocks; emits audit events  (recommended for first run)\n"
-        "  enforce   blocks violations at guard_before/after  (run `sponsio eval` first to verify FPR)"
+        "  observe   shadow — checks run + log; tool behavior unchanged  (safe first run)\n"
+        "  enforce   active — block / retry-with-feedback / escalate per violation type"
     )
     return click.prompt(
         "Mode",

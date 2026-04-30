@@ -1,13 +1,13 @@
 # =============================================================================
-# Sample contract library for Claude Code's built-in (host) tools.
+# Sample contract library for the claude-code host's built-in tools.
 #
-# The sponsio-claude-code plugin routes any tool call whose name is
+# The sponsio host plugin routes any tool call whose name is
 # one of Claude Code's first-party tools (Bash, Edit, Write, Read, …)
 # into this library. Plugin-provided tools (`my-plugin:hello`,
 # `mcp__server__tool`) get their own per-plugin libraries under
 # ../<plugin-id>/sponsio.yaml.
 #
-# After installing the sponsio-claude-code plugin, copy this file (and
+# After installing the sponsio host plugin, copy this file (and
 # any sibling per-plugin libraries) into ``~/.sponsio/plugins/_host/``
 # to activate.  Override individual rules with ``overrides:``.
 #
@@ -23,7 +23,7 @@
 version: "1"
 
 agents:
-  _host:
+  _host_claude_code:
     # Reuse the shell-capability pack against Bash. This covers
     # rm -rf /, fork bombs, curl|bash, reverse-shell primitives,
     # line-continuation evasion, etc.  ``credentials`` covers
@@ -42,7 +42,7 @@ agents:
       - sponsio:capability/credentials
       - sponsio:incident/claude-code-secret-bypass
       # Self-modification protection — block agent-mediated edits to
-      # ``~/.sponsio/plugins/_host/sponsio.yaml`` so the agent under
+      # ``~/.sponsio/plugins/_host_claude_code/sponsio.yaml`` so the agent under
       # guard cannot weaken or disable the rule about to fire.  The
       # pack only locks the agent's OWN file; managing sub-agent or
       # per-plugin libraries stays open (legitimate parental control).
@@ -112,40 +112,65 @@ agents:
               - "^/etc/sudoers($|\\.d/|$)"
               - "(^|/)Library/Keychains/"
 
-      # ---------- Self-modify: close the Bash bypass ----------
-      # ``sponsio:capability/self-modify`` (included above) blocks
-      # Edit / Write / MultiEdit on ``~/.sponsio/plugins/_host/sponsio.yaml``.
-      # That leaves Bash open: ``echo … >`` / ``sed -i`` / ``tee`` /
-      # ``cp`` / ``mv`` / ``rm`` against the same path achieve the
-      # same self-rewrite.  This rule closes that path.
+      # ---------- Self-modify protection: lock OWN bucket only ----------
       #
-      # Scoped narrowly to *write-shaped operators* on the agent's
-      # OWN host config.  Crucially this lets the canonical add
-      # path stay open:
+      # The Claude Code main agent should not be able to weaken or
+      # disable the rule about to fire against itself.  We block all
+      # four write surfaces (Edit / Write / MultiEdit / Bash with
+      # shell write operators) against this bucket's own
+      # ``sponsio.yaml``, and ONLY this bucket — sibling buckets stay
+      # editable so:
       #
-      #   sponsio plugin scan -o ~/.sponsio/plugins/_host/sponsio.yaml
+      #   * Claude Code main agent CAN edit ``_host_claude_code_subagent/``
+      #     to tighten child rules (legitimate parental control).
+      #   * Claude Code main agent CAN edit other hosts' buckets
+      #     (``_host_cursor/``, ``_host_openclaw/``) — operator-driven
+      #     management, not self-modify.
+      #   * Claude Code main agent CAN edit per-MCP-server libraries
+      #     (``github/``, ``filesystem/``, ``<plugin-id>/``).
       #
-      # `sponsio plugin scan` writes the file via its own Python
-      # code (atomic, validated, additive merge) and the Bash
-      # invocation that triggers it has no `>` / `sed -i` / `tee`
-      # operator on its command line — so it doesn't match.  Direct
-      # shell-level overwrites and removes are the only thing this
-      # rule denies.
+      # The canonical "add a contract" path stays open:
       #
-      # Sibling slots (``_host_subagent``, ``_host_openclaw``,
-      # ``<plugin-id>``) stay editable so the host can manage
-      # children's policy.
-      - desc: "Block Bash write-shaped operators on own sponsio guard config"
+      #   sponsio plugin scan -o ~/.sponsio/plugins/_host_claude_code/sponsio.yaml
+      #
+      # That CLI writes via Python (atomic, validated, additive
+      # merge); the Bash invocation that triggers it has no shell
+      # write operator and never matches the regex below.
+      - desc: "Claude Code: block Edit on own _host_claude_code sponsio guard config"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Edit
+            - file_path
+            - - "(^|/)\\.sponsio/plugins/_host_claude_code/sponsio\\.yaml$"
+
+      - desc: "Claude Code: block Write on own _host_claude_code sponsio guard config"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Write
+            - file_path
+            - - "(^|/)\\.sponsio/plugins/_host_claude_code/sponsio\\.yaml$"
+
+      - desc: "Claude Code: block MultiEdit on own _host_claude_code sponsio guard config"
+        E:
+          pattern: arg_blacklist
+          args:
+            - MultiEdit
+            - file_path
+            - - "(^|/)\\.sponsio/plugins/_host_claude_code/sponsio\\.yaml$"
+
+      - desc: "Claude Code: block Bash write-shaped operators on own _host_claude_code sponsio guard config"
         E:
           pattern: arg_blacklist
           args:
             - Bash
             - command
-            - - ">\\s*[^|&;]*\\.sponsio/plugins/_host/sponsio\\.yaml"
-              - ">>\\s*[^|&;]*\\.sponsio/plugins/_host/sponsio\\.yaml"
-              - "tee\\s+[^|&;]*\\.sponsio/plugins/_host/sponsio\\.yaml"
-              - "sed\\s+-i\\b[^|&;]*\\.sponsio/plugins/_host/sponsio\\.yaml"
-              - "(cp|mv|rm|dd)\\s+[^|&;]*\\.sponsio/plugins/_host/sponsio\\.yaml"
+            - - ">\\s*[^|&;]*\\.sponsio/plugins/_host_claude_code/sponsio\\.yaml"
+              - ">>\\s*[^|&;]*\\.sponsio/plugins/_host_claude_code/sponsio\\.yaml"
+              - "tee\\s+[^|&;]*\\.sponsio/plugins/_host_claude_code/sponsio\\.yaml"
+              - "sed\\s+-i\\b[^|&;]*\\.sponsio/plugins/_host_claude_code/sponsio\\.yaml"
+              - "(cp|mv|rm|dd)\\s+[^|&;]*\\.sponsio/plugins/_host_claude_code/sponsio\\.yaml"
 
       # ---------- Read protections for credentials exfiltration ----------
       - desc: "Block reads of SSH keys / cloud creds / dotenv secrets / keychains"

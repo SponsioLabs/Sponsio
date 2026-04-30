@@ -37,6 +37,74 @@ sponsio --version
 
 ---
 
+## Editing contract YAML — additive-only protocol
+
+This applies whenever you (the host agent) write to ANY of:
+- `<project>/sponsio.yaml`                                        (the user's project config)
+- `~/.sponsio/plugins/{{HOST_BUCKET}}/sponsio.yaml`               (this host's runtime library)
+- `~/.sponsio/plugins/{{HOST_BUCKET_SUBAGENT}}/sponsio.yaml`      (this host's subagent library)
+- `~/.sponsio/plugins/<plugin-id>/sponsio.yaml`                   (per-plugin / per-MCP-server library)
+
+The `{{HOST_BUCKET}}` placeholders above are baked in at install time —
+when this skill is materialised under Cursor's skill dir they read
+`_host_cursor`, under Claude Code's they read `_host_claude_code`, and
+so on. There is one bucket per host so per-IDE rules don't bleed
+across runtimes.
+
+These files house contracts that govern *your own future tool calls*.  Modifying or removing contracts in them is privilege escalation — you'd be weakening the very rule that's about to fire against you.  The runtime self-modify pack will already block non-additive writes against `~/.sponsio/plugins/{{HOST_BUCKET}}/sponsio.yaml`; this protocol applies the same discipline universally so behavior is consistent.
+
+### The three legal write modes — pick one
+
+1. **Add a new contract** (new entry under `contracts:`) — use **`Edit`** with `new_string` extending `old_string`:
+
+   ```text
+   old_string  = the verbatim tail of the existing file ending at the
+                 last contract entry (or the last `contracts:` line if
+                 the list is empty)
+   new_string  = old_string + "\n      - <new contract YAML block>"
+   ```
+
+   The invariant: `old_string` MUST appear verbatim inside `new_string`.  This guarantees you didn't change or remove anything.
+
+2. **Tune an existing pack-shipped rule** — never edit the rule directly.  Add an `overrides:` entry instead:
+
+   ```yaml
+   overrides:
+     - match: { desc: "<the shipped rule's desc, exact>" }
+       A: "<extra assumption that narrows when it fires>"   # to relax
+       # or args: [...]                                     # to retune thresholds
+       # or disabled: true                                  # to silence (last resort)
+   ```
+
+   This is itself an additive edit — you're appending an `overrides:` block, not modifying the rule.
+
+3. **Run `sponsio plugin scan`** for bulk additions from code / policy / traces.  This is the canonical way to add many rules at once; it merges additively, validates, and writes atomically:
+
+   ```bash
+   sponsio plugin scan <plugin-dir> -o ~/.sponsio/plugins/<plugin-id>/sponsio.yaml
+   sponsio scan <paths> -o ./sponsio.yaml --append
+   sponsio refresh --since 7d --apply --mode add-only
+   ```
+
+   The `--append` / `--mode add-only` flags make the additive guarantee explicit.
+
+### Forbidden write modes
+
+- **`Write` on any of the yaml files above** — overwrites the entire file in one go; even if the new content happens to be a superset, you bypass the additive evidence and the runtime can't tell.
+- **`Edit` where `new_string` does NOT contain `old_string`** — that's a modification or deletion masquerading as an edit.
+- **`MultiEdit` on these files** — same as `Write` in spirit; multiple non-additive edits in one call.
+- **Bash with shell write operators** (`>`, `>>`, `tee`, `sed -i`, `cp`, `mv`, `rm`, `dd`) targeting these paths — the runtime blocks these against `{{HOST_BUCKET}}/sponsio.yaml` and you should treat them as forbidden against any contract yaml in the list above.
+
+### Why this matters
+
+The user's invariant: *adding* contracts is always allowed; *modifying* or *deleting* existing ones is not.  Following this protocol makes that invariant easy to see at the diff level (`old_string ⊆ new_string`).  When the user audits your edits later, "was anything removed or changed?" reduces to a string-containment check.
+
+### If you genuinely need to remove a rule
+
+You don't.  Use `overrides: ... disabled: true` (an additive edit that silences the rule) or ask the user to delete it by hand.  The agent never has authority to remove its own contracts.
+
+---
+
 ## W1 — Initial setup
 
 Goal: from "project has no Sponsio" to "agent runs under observe mode with a sane contract file".
@@ -63,28 +131,49 @@ You (the host agent — Claude Code, Cursor, Codex) ARE the LLM here.  Drive the
 
 3. **You** apply the prompt to the JSON in your own LLM context.  Produce a single YAML document.  Mode MUST start as `observe`.  Source-tag everything you author with `source: agent-extracted` so future `sponsio refresh` runs can re-consider them.
 
-4. Write the YAML to `sponsio.yaml` at the project root via your Edit/Write tool.  Then validate:
+4. **Pick the write target.**  Don't ask the user — pick by what's on disk:
 
    ```bash
-   sponsio validate --config sponsio.yaml
+   # Resolution order:
+   # 1. If the host-tool runtime library exists (i.e. `sponsio host install`
+   #    was already run for THIS host), write there — that's where the
+   #    hooks read from.
+   # 2. Else if the project already has its own sponsio.yaml, append to it.
+   # 3. Else create a new project sponsio.yaml.
+   if [ -d "$HOME/.sponsio/plugins/{{HOST_BUCKET}}" ]; then
+       echo "$HOME/.sponsio/plugins/{{HOST_BUCKET}}/sponsio.yaml"
+   elif [ -f sponsio.yaml ]; then
+       echo "sponsio.yaml"
+   else
+       echo "sponsio.yaml"
+   fi
+   ```
+
+   **Why this matters.** The host-tool runtime path (`~/.sponsio/plugins/{{HOST_BUCKET}}/sponsio.yaml`) is where this host (Cursor, Claude Code, Codex, OpenClaw — whichever materialised this skill) routes its first-party tool calls (Shell, Read, Edit, Bash, …) via `derive_plugin_id` → `{{HOST_BUCKET}}`. Each host has its own bucket so per-IDE rules don't tangle. If `sponsio host install <host>` was already run, those hooks are firing — but they look up rules at the host-tool path, NOT at `<project>/sponsio.yaml`. Writing to the wrong path = rules silently inert. Project-config (`<project>/sponsio.yaml`) is for code-wrapped agents (LangGraph, OpenAI Agents SDK, etc.) where Sponsio is invoked from inside the user's program.
+
+5. Write the YAML to the resolved path via Edit/Write.  Then validate:
+
+   ```bash
+   sponsio validate --config <resolved-path>
    ```
 
    If validation fails, fix and re-validate.  Don't leave a malformed file on disk.
 
-5. Run health check + show summary:
+6. Run health check + show summary:
 
    ```bash
    sponsio doctor
    ```
 
    Then surface to the user:
-   - The generated `sponsio.yaml` (read it back and summarize: packs included, tools renamed, mode).
-   - The framework-specific wrap snippet — the `wrap_snippet` field on the emit-context JSON has it.  Paste it into the agent entry file at the marked location (the snippet's inline comment shows where the wrap must run *before* the agent is built).
+   - The resolved write path + a one-line "host-tool runtime" or "project config" tag so the user knows which surface they just configured.
+   - The generated YAML (read it back and summarize: packs included, tools renamed, mode).
+   - For project-config writes only: the framework-specific wrap snippet — the `wrap_snippet` field on the emit-context JSON has it.  Paste it into the agent entry file at the marked location.  (Host-tool runtime writes don't need a wrap snippet — the host's hooks are already wired by `sponsio host install`.)
    - Any `sponsio doctor` warn/fail lines.
 
-6. Explain observe mode explicitly: "Nothing is blocked on day 1. Every contract is still evaluated; violations are logged to `~/.sponsio/sessions/<agent_id>/*.jsonl` and (if a dashboard is configured) pushed there. Use `sponsio report --since 24h` after a day of real traffic to see what would have been blocked."
+7. Explain observe mode explicitly: "Nothing is blocked on day 1. Every contract is still evaluated; violations are logged to `~/.sponsio/sessions/<agent_id>/*.jsonl` and (if a dashboard is configured) pushed there. Use `sponsio report --since 24h` after a day of real traffic to see what would have been blocked."
 
-7. If `sponsio doctor` failed (not warned, failed), stop and surface it — don't let the user run their agent thinking the install is healthy when it isn't.
+8. If `sponsio doctor` failed (not warned, failed), stop and surface it — don't let the user run their agent thinking the install is healthy when it isn't.
 
 ### Fallback: bare-CLI / CI use
 
@@ -255,7 +344,7 @@ You ARE the LLM — same agent-mediated pattern as W1 / W2.
    ~/.sponsio/plugins/<plugin-id>/sponsio.yaml
    ```
 
-   (`<plugin-id>` matches what `sponsio.guard_stdin.derive_plugin_id` would compute from the tool name — Claude Code's `mcp__github__*` → `github`; bare names with no prefix → `_host` / `_host_openclaw` / `_host_subagent` depending on context.)
+   (`<plugin-id>` matches what `sponsio.guard_stdin.derive_plugin_id` would compute from the tool name — `mcp__github__*` → `github`, `<server>__<tool>` on OpenClaw → `<server>`. First-party host tools route to the per-host bucket: `{{HOST_BUCKET}}` for main-agent calls, `{{HOST_BUCKET_SUBAGENT}}` for Task-spawned subagent calls.)
 
 5. Validate:
 
@@ -281,23 +370,23 @@ Goal: ensure tool calls from Task-spawned subagents are subject to a stricter ru
 
 ### Why a separate library
 
-A subagent is dispatched with a *task description*, not the full user conversation.  It can't perform the alignment-style refusal "wait, the user didn't ask for this" — so the same Bash/Write call that the main agent might pause on tends to fire silently from a subagent.  Sponsio routes subagent-context tool calls to `_host_subagent` instead of `_host`, applying the same shell / database / credentials baseline plus the `capability/subagent` pack which blocks side-effects whose authorisation should travel back through the main conversation (git mutations, package installs, outbound network, system-path writes).
+A subagent is dispatched with a *task description*, not the full user conversation.  It can't perform the alignment-style refusal "wait, the user didn't ask for this" — so the same Bash/Write call that the main agent might pause on tends to fire silently from a subagent.  Sponsio routes subagent-context tool calls to `{{HOST_BUCKET_SUBAGENT}}` instead of `{{HOST_BUCKET}}`, applying the same shell / database / credentials baseline plus the `capability/subagent` pack which blocks side-effects whose authorisation should travel back through the main conversation (git mutations, package installs, outbound network, system-path writes).
 
 ### How routing happens
 
 | Host | Signal | Library |
 |---|---|---|
-| Claude Code | hook payload has non-empty `agent_id` field | `~/.sponsio/plugins/_host_subagent/sponsio.yaml` |
+| Claude Code | hook payload has non-empty `agent_id` field | `~/.sponsio/plugins/{{HOST_BUCKET_SUBAGENT}}/sponsio.yaml` |
 | Cursor | `subagentStart` event recorded the conversation_id; later `preToolUse` calls match against the registry at `~/.sponsio/cursor-subagents.jsonl` | same library |
 
-Both hosts converge on the **same `_host_subagent` library**, so contract authoring stays one place.  `sponsio host install cursor` and `sponsio host install claude-code` both bootstrap it on first run.
+Each host has its own per-host subagent bucket — this skill copy was materialised under the host's skill dir with `{{HOST_BUCKET_SUBAGENT}}` baked in. `sponsio host install <host>` bootstraps both the main and subagent buckets on first run.
 
 ### Steps
 
 1. Verify the subagent library exists:
 
    ```bash
-   ls ~/.sponsio/plugins/_host_subagent/sponsio.yaml
+   ls ~/.sponsio/plugins/{{HOST_BUCKET_SUBAGENT}}/sponsio.yaml
    ```
 
    If missing, re-run `sponsio host install <host>` — the installer auto-bootstraps it.
@@ -305,7 +394,7 @@ Both hosts converge on the **same `_host_subagent` library**, so contract author
 2. Read the shipped baseline + decide what to add:
 
    ```bash
-   cat ~/.sponsio/plugins/_host_subagent/sponsio.yaml
+   cat ~/.sponsio/plugins/{{HOST_BUCKET_SUBAGENT}}/sponsio.yaml
    sponsio packs | grep capability/subagent
    ```
 
@@ -322,12 +411,12 @@ Both hosts converge on the **same `_host_subagent` library**, so contract author
 4. Validate after editing:
 
    ```bash
-   sponsio validate --config ~/.sponsio/plugins/_host_subagent/sponsio.yaml
+   sponsio validate --config ~/.sponsio/plugins/{{HOST_BUCKET_SUBAGENT}}/sponsio.yaml
    ```
 
 ### Cursor caveat
 
-Cursor's `subagentStart` event fires once per Task spawn; Sponsio records the subagent's `conversation_id` to `~/.sponsio/cursor-subagents.jsonl`.  If you wipe or rotate that file mid-session, in-flight subagent calls fall back to `_host`.  Override the registry path via `SPONSIO_CURSOR_SUBAGENT_REGISTRY` if you need test isolation.
+Cursor's `subagentStart` event fires once per Task spawn; Sponsio records the subagent's `conversation_id` to `~/.sponsio/cursor-subagents.jsonl`.  If you wipe or rotate that file mid-session, in-flight subagent calls fall back to `{{HOST_BUCKET}}` (the main bucket).  Override the registry path via `SPONSIO_CURSOR_SUBAGENT_REGISTRY` if you need test isolation.
 
 ---
 

@@ -55,15 +55,16 @@ def _resolve_binary(override: str | None) -> str:
     return resolved or "sponsio"
 
 
-def _ensure_subagent_library() -> None:
-    """Bootstrap ``~/.sponsio/plugins/_host_subagent/sponsio.yaml`` if it
+def _ensure_bundled_library(bucket: str) -> None:
+    """Bootstrap ``~/.sponsio/plugins/<bucket>/sponsio.yaml`` if it
     isn't already there.
 
-    Cursor's ``Task`` tool spawns subagents that lack the user-visible
-    conversation context.  ``cursor.py`` flags subagent calls (matched
-    against the registry populated on ``subagentStart``) so they route
-    to a stricter library — but that library has to exist on disk for
-    the routing to land somewhere useful.  Idempotent."""
+    Each host now owns its own bucket (``_host_cursor``,
+    ``_host_cursor_subagent``, ``_host_claude_code``,
+    ``_host_claude_code_subagent``, ``_host_openclaw``) so per-IDE
+    rules can diverge from the legacy shared ``_host`` library.
+    The bundled starter yaml is dropped in on first install only —
+    subsequent installs leave the user's edits alone (idempotent)."""
     import os as _os
 
     from sponsio.plugin.registry import read_bundled
@@ -74,15 +75,26 @@ def _ensure_subagent_library() -> None:
         if root_env
         else Path.home() / ".sponsio" / "plugins"
     )
-    target = root / "_host_subagent" / "sponsio.yaml"
+    target = root / bucket / "sponsio.yaml"
     if target.exists():
         return
     try:
-        text = read_bundled("_host_subagent")
+        text = read_bundled(bucket)
     except (FileNotFoundError, ModuleNotFoundError):
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(text, encoding="utf-8")
+
+
+def _ensure_subagent_library() -> None:
+    """Backward-compat shim — bootstraps the cursor host buckets.
+
+    Pre-host-bucketing this only seeded ``_host_subagent``. Now we
+    seed both the main and sub-agent buckets for Cursor; callers
+    that imported this private name keep working.
+    """
+    _ensure_bundled_library("_host_cursor")
+    _ensure_bundled_library("_host_cursor_subagent")
 
 
 def install(

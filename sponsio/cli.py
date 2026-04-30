@@ -3948,12 +3948,13 @@ _BENCH_STOPWORDS = {
 @click.option(
     "--mode",
     type=click.Choice(["observe", "enforce"]),
-    default="observe",
-    show_default=True,
+    default=None,
     help=(
-        "Runtime mode written into sponsio.yaml.  Observe is the "
-        "safe default — never blocks, logs every would-have-blocked "
-        "decision to ~/.sponsio/sessions/<agent_id>/*.jsonl."
+        "Runtime mode written into sponsio.yaml.  Skip the flag to be "
+        "prompted interactively (same Y/N question ``sponsio init`` "
+        "and ``sponsio host install`` ask).  ``observe`` is the safe "
+        "default — never blocks, logs every would-have-blocked decision "
+        "to ~/.sponsio/sessions/<agent_id>/*.jsonl."
     ),
 )
 @click.option(
@@ -4030,7 +4031,7 @@ _BENCH_STOPWORDS = {
 def onboard(
     target: Path,
     agent_id: str,
-    mode: str,
+    mode: str | None,
     force: bool,
     no_probe_ollama: bool,
     no_doctor: bool,
@@ -4233,6 +4234,14 @@ def onboard(
         is_interactive = interactive
     else:
         is_interactive = stdin_is_tty()
+
+    # Resolve runtime mode through the same shared helper that
+    # ``sponsio host install`` uses, so all install paths ask the
+    # observe-vs-enforce question the same way. ``--mode`` skips the
+    # prompt; ``--json`` / ``--emit-context`` / ``--no-interactive``
+    # also skip it (structured-output paths must not pollute stdout
+    # with a click prompt). Fallback when no signal: ``observe``.
+    mode = _resolve_runtime_mode(mode, allow_prompt=is_interactive)
 
     target_dir = target if target.is_dir() else target.parent
 
@@ -5581,10 +5590,168 @@ _HOST_SKILL_DIRS: dict[str, tuple[Path, Path | None]] = {
 }
 
 
+def _resolve_runtime_mode(explicit: str | None, *, allow_prompt: bool = True) -> str:
+    """Pick the runtime mode for a fresh sponsio.yaml / host bucket.
+
+    Single shared resolver for ``sponsio init`` / ``sponsio onboard`` /
+    ``sponsio host install`` so all three present the same observe
+    vs. enforce question to the user. Three sources, in precedence
+    order:
+
+    1. ``--mode`` flag on the command (skip the prompt).
+    2. Interactive Y/N-style prompt — only if ``allow_prompt`` is true
+       AND stdin is a tty (so CI / piped invocations don't hang).
+    3. Default ``"observe"`` — the safe shadow-mode first run.
+
+    ``allow_prompt=False`` lets callers opt out of interactive mode
+    even on a tty (for ``--json`` / ``--emit-context`` / ``--no-interactive``
+    invocations where structured stdout must not be polluted by a
+    prompt).
+    """
+    if explicit is not None:
+        return explicit
+    if not allow_prompt or not sys.stdin.isatty():
+        return "observe"
+    click.echo(
+        "\nRuntime mode:\n"
+        "  observe   shadow — checks run + log; tool behavior unchanged  (safe first run)\n"
+        "  enforce   active — block / retry-with-feedback / escalate per violation type"
+    )
+    return click.prompt(
+        "Mode",
+        type=click.Choice(["observe", "enforce"]),
+        default="observe",
+        show_default=True,
+    )
+
+
+# Backward-compat alias — earlier code imported the more specific name.
+_resolve_install_mode = _resolve_runtime_mode
+
+
+def _apply_install_mode_to_host_buckets(
+    host_name: str, mode: str
+) -> list[tuple[Path, str]]:
+    """Stamp ``defaults.mode: <mode>`` on freshly-bootstrapped buckets.
+
+    Walks the per-host main + sub-agent buckets for ``host_name``, and
+    for each one whose ``sponsio.yaml`` exists on disk:
+
+    * If the file already has a ``defaults:`` block with ``mode:``,
+      leave it alone — the user's choice (or a previous install)
+      wins. This is the load-bearing "never overwrite" promise.
+    * Otherwise, add a top-level ``defaults: { mode: <mode> }``
+      block right after the ``version:`` line.
+
+    Returns a list of ``(path, note)`` tuples suitable for the CLI
+    to surface to the user (one per bucket touched). Never raises —
+    a malformed yaml just gets reported and skipped.
+    """
+    import os as _os
+    import re
+
+    root_env = _os.environ.get("SPONSIO_PLUGIN_ROOT")
+    root = (
+        Path(root_env).expanduser()
+        if root_env
+        else Path.home() / ".sponsio" / "plugins"
+    )
+    main_bucket, sub_bucket = _bucket_for_host_name(host_name)
+    candidates = [
+        root / main_bucket / "sponsio.yaml",
+        root / sub_bucket / "sponsio.yaml",
+    ]
+
+    out: list[tuple[Path, str]] = []
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as e:
+            out.append((path, f"could not read: {e}"))
+            continue
+        if re.search(r"^defaults:\s*$\n(?:[ \t]+.*\n)*[ \t]+mode:", text, re.MULTILINE):
+            out.append((path, "mode already set, kept"))
+            continue
+        # Insert ``defaults:\n  mode: <mode>\n`` after the version line.
+        # If there's no ``version:`` line, prepend at top of file.
+        defaults_block = f"defaults:\n  mode: {mode}  # observe|enforce — observe = shadow (safe default)\n\n"
+        if re.search(r"^version:\s*", text, re.MULTILINE):
+            new_text = re.sub(
+                r"(^version:[^\n]*\n)",
+                lambda m: m.group(1) + "\n" + defaults_block,
+                text,
+                count=1,
+                flags=re.MULTILINE,
+            )
+        else:
+            new_text = defaults_block + text
+        try:
+            path.write_text(new_text, encoding="utf-8")
+            out.append((path, f"set mode={mode}"))
+        except OSError as e:
+            out.append((path, f"could not write: {e}"))
+    return out
+
+
+def _bucket_for_host_name(host_name: str) -> tuple[str, str]:
+    """Bucket names baked into the per-host skill copy.
+
+    The Skill is copied verbatim into each host's skill directory but
+    its template placeholders for the ``_host_*`` library paths are
+    rewritten at copy time so the agent under guard always writes
+    contracts to the correct per-host bucket. We bake them in (rather
+    than have the agent infer the host at runtime) because runtime
+    detection is fragile — same Claude Code binary can show up under
+    different host ids depending on how it was launched, and a wrong
+    inference would write contracts to a bucket that no hook reads.
+
+    Returns ``(main_bucket, subagent_bucket)``. OpenClaw doesn't have a
+    subagent surface today; we still pick a name so the placeholder
+    resolves cleanly even if the file is never created.
+    """
+    return (
+        f"_host_{host_name.replace('-', '_')}",
+        f"_host_{host_name.replace('-', '_')}_subagent",
+    )
+
+
+def _materialize_skill(src: Path, dst: Path, host_name: str) -> None:
+    """Copy ``src`` to ``dst`` and substitute per-host bucket placeholders.
+
+    Recursive (the skill ships as a directory). Files are read as text
+    and written with placeholders resolved; binary files (if any are
+    ever added) would need a separate bypass — none today.
+    """
+    main_bucket, sub_bucket = _bucket_for_host_name(host_name)
+    if dst.exists():
+        shutil.rmtree(dst)
+    dst.mkdir(parents=True, exist_ok=True)
+    for entry in src.rglob("*"):
+        relative = entry.relative_to(src)
+        target = dst / relative
+        if entry.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        text = entry.read_text(encoding="utf-8")
+        # Substitute the longer placeholder first so the prefix match
+        # of {{HOST_BUCKET}} doesn't eat {{HOST_BUCKET_SUBAGENT}}.
+        text = text.replace("{{HOST_BUCKET_SUBAGENT}}", sub_bucket)
+        text = text.replace("{{HOST_BUCKET}}", main_bucket)
+        target.write_text(text, encoding="utf-8")
+
+
 def _install_skill_for_host(
     host_name: str, *, scope: str, force: bool
 ) -> tuple[bool, str]:
     """Copy the bundled Sponsio skill into the host's skill directory.
+
+    Per-host bucket placeholders in the skill content
+    (``{{HOST_BUCKET}}`` / ``{{HOST_BUCKET_SUBAGENT}}``) are
+    substituted with this host's actual bucket names so the installed
+    skill writes contracts straight to ``_host_<host>/sponsio.yaml``
+    without runtime detection.
 
     Returns ``(written, note)``.  ``written=False`` is informational
     (already present, host has no skill standard, etc.) — not a hard
@@ -5609,7 +5776,7 @@ def _install_skill_for_host(
         else:
             shutil.rmtree(target)
 
-    shutil.copytree(src, target)
+    _materialize_skill(src, target, host_name)
     return True, f"wrote skill to {target}"
 
 
@@ -5659,15 +5826,28 @@ def _install_skill_for_host(
 )
 @click.option(
     "--with-skill/--no-skill",
-    default=False,
+    default=True,
     show_default=True,
     help=(
         "Also copy the bundled Sponsio Agent Skill into the host's skill "
-        "directory (Cursor 2.4+ and Claude Code).  Skill teaches the "
-        "agent to drive Sponsio's CLI for setup / scan / report; hook "
-        "enforces contracts at the action boundary.  Skills + hooks "
-        "are complementary and recommended together — opt-in for now "
-        "to keep the default install minimal."
+        "directory (Cursor 2.4+, Claude Code, Codex, OpenClaw via the "
+        "linked chatbot). Skill teaches the agent to drive Sponsio's "
+        "CLI for setup / scan / report; hook enforces contracts at the "
+        "action boundary. Default ON — they're complementary, the "
+        "without-skill flow is rare. Pass ``--no-skill`` to suppress."
+    ),
+)
+@click.option(
+    "--mode",
+    type=click.Choice(["observe", "enforce"]),
+    default=None,
+    help=(
+        "Initial runtime mode written into the bootstrapped per-host "
+        "library (``defaults.mode``). ``observe`` (recommended) shadow-"
+        "logs every violation without blocking; ``enforce`` blocks at "
+        "the action boundary. Skip the flag to be prompted "
+        "interactively. Doesn't overwrite a mode already set in an "
+        "existing on-disk library."
     ),
 )
 def host_install(
@@ -5677,6 +5857,7 @@ def host_install(
     force: bool,
     binary_override: str | None,
     with_skill: bool,
+    mode: str | None,
 ):
     """Install Sponsio as a hook handler for one or more hosts.
 
@@ -5696,6 +5877,14 @@ def host_install(
     # Dedup while preserving order.
     seen: set[str] = set()
     targets = [t for t in targets if not (t in seen or seen.add(t))]
+
+    # Resolve runtime mode once for all hosts in this invocation. The
+    # prompt mirrors ``sponsio init``'s mode prompt so first-time users
+    # see the same observe-vs-enforce question regardless of entry
+    # point. ``observe`` is the default if non-interactive (CI, piped
+    # stdin) — same precedent as init_wizard.
+    chosen_mode = _resolve_install_mode(mode)
+    click.echo(f"Runtime mode for new host libraries: {chosen_mode}")
 
     any_failed = False
     for name in targets:
@@ -5722,6 +5911,14 @@ def host_install(
         if not result.written:
             # Existing-but-not-overwritten is informational, not a failure.
             pass
+
+        # Stamp the chosen mode onto the freshly-bootstrapped per-host
+        # library, but never clobber a mode the user has already set.
+        # Done after install so the bucket directory exists.
+        applied = _apply_install_mode_to_host_buckets(name, chosen_mode)
+        for path, note in applied:
+            click.secho(f"○  {name} mode: {note}", fg="yellow")
+            click.echo(f"     {path}")
 
         if with_skill:
             written, note = _install_skill_for_host(name, scope=scope, force=force)

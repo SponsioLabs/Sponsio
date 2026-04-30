@@ -158,6 +158,33 @@ agents:
               - "(^|/)\\.gnupg/"
               - "^/etc/shadow($|/)"
 
+      # ─── Self-modify protection — Bash bypass ──────────────────────
+      #
+      # `sponsio:capability/self-modify` (above) blocks
+      # Edit / Write / MultiEdit on ~/.sponsio/plugins/_host/sponsio.yaml.
+      # This rule closes the Bash bypass: shell-level overwrites
+      # (`>`), append-overwrites (`>>`), `sed -i`, `tee`, `cp/mv/rm/dd`
+      # against the same path.
+      #
+      # Critically, the canonical *add* path stays open: the agent
+      # can still run `sponsio plugin scan -o …/_host/sponsio.yaml`
+      # to merge new rules in.  That CLI writes via its own Python
+      # code (atomic, validated, additive); the Bash command line
+      # itself contains no write-shaped operator, so this rule
+      # doesn't match.  Only direct shell-level overwrites and
+      # removes are denied.
+      - desc: "No Bash write-shaped operators on own ~/.sponsio/plugins/_host/sponsio.yaml"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Bash
+            - command
+            - - ">\\s*[^|&;]*\\.sponsio/plugins/_host/sponsio\\.yaml"
+              - ">>\\s*[^|&;]*\\.sponsio/plugins/_host/sponsio\\.yaml"
+              - "tee\\s+[^|&;]*\\.sponsio/plugins/_host/sponsio\\.yaml"
+              - "sed\\s+-i\\b[^|&;]*\\.sponsio/plugins/_host/sponsio\\.yaml"
+              - "(cp|mv|rm|dd)\\s+[^|&;]*\\.sponsio/plugins/_host/sponsio\\.yaml"
+
       # ─── R1 ─ from: policy.md § "We're in a code freeze" (¶ 1) ─────
       # "Don't drop, truncate, or wipe any tables.  Anywhere."
       # NOTE: capability/database (A-layer) covers DROP/TRUNCATE in
