@@ -15,9 +15,7 @@ import json
 import threading
 import time
 import urllib.error
-from pathlib import Path
 
-import pytest
 
 from sponsio.models.spans import AgentTurnSpan, ContractCheckSpan, GuaranteeSpan
 from sponsio.tracer import semconv
