@@ -44,8 +44,6 @@ venv/
 .cursor/
 
 # Frontend build outputs
-web/node_modules/
-web/dist/
 ts/node_modules/
 ts/packages/*/node_modules/
 ts/packages/*/dist/

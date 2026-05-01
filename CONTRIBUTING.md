@@ -71,9 +71,7 @@ sponsio/
 ├── integrations/     LangGraph, MCP, OpenAI, CrewAI, Agents, Vercel, Claude Agent
 └── discovery/        docs/traces/code → proposed contracts
 
-api/                  FastAPI dashboard backend
-web/                  React frontend
-ts/packages/sdk/               TypeScript engine + integrations
+ts/packages/sdk/      TypeScript engine + integrations
 tests/                pytest
 docs/                 user-facing documentation
 ```

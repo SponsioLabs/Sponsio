@@ -78,8 +78,6 @@ sponsio/
 ├── scoring/           tool configuration risk scoring
 └── tracer/            event collection and grounding
 
-web/                   dashboard frontend (single-user local mode in OSS;
-                       multi-tenant + auth backend lives in Sponsio Cloud)
 ts/                    TypeScript workspace (npm workspaces)
 ├── packages/sdk/      @sponsio/sdk: det engine + framework integrations
 └── packages/scanner/  @sponsio/scan-ts: AST static scanner CLI
@@ -90,11 +88,12 @@ scripts/               one-off maintenance utilities (e.g. plugin sync)
 tests/                 pytest suite
 ```
 
-The `api/` FastAPI backend (multi-tenant dashboard, OTel ingest, monitor /
-score / leaderboard / playground routers) was moved to Sponsio Cloud
-(`pip install sponsio[cloud]`); it no longer ships in OSS. Local
-single-user observability uses `sponsio host trace --follow` /
-`sponsio report` / `sponsio.tracer.exporters.OtlpHttpExporter` instead.
+The `api/` FastAPI backend AND the `web/` React dashboard (multi-tenant
+auth, OTel ingest, monitor / score / leaderboard / playground routers
++ the matching frontend) were moved to Sponsio Cloud (`pip install
+sponsio[cloud]`); neither ships in OSS. Local single-user observability
+uses `sponsio host trace --follow` / `sponsio report` /
+`sponsio.tracer.exporters.OtlpHttpExporter` instead.
 
 ## Core Invariants
 

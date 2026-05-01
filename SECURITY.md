@@ -32,7 +32,7 @@ In-scope — issues that affect Sponsio's security guarantees:
 - **LTL evaluator correctness** — crashes, misevaluation, or DoS in the deterministic engine (`sponsio/formulas/`, `sponsio/runtime/`).
 - **Tracer / grounding injection** — malformed tool-call metadata that pollutes the trace or flips contract verdicts (`sponsio/tracer/`).
 - **Pattern library vulnerabilities** — patterns in `sponsio/patterns/library.py` or `sponsio/patterns/sto_catalog.py` that accept crafted input and fail to block, or block valid input.
-- **Dashboard / API auth** — unauthorized access, session handling, CSRF, or XSS in `api/` and `web/`.
+- **Session log leakage** in OSS-shipped surfaces (the FastAPI backend and React dashboard live in Sponsio Cloud — report dashboard / API auth issues against `sponsio[cloud]` instead).
 - **Session log leakage** — secrets or PII written to `~/.sponsio/sessions/*.jsonl` or OTEL spans in ways the user didn't explicitly configure.
 - **Sto judge-prompt injection** — crafted tool output or agent text that jailbreaks the stochastic evaluator into returning incorrect verdicts.
 - **Supply chain of the `sponsio` package** — release integrity, typosquat surface, published-but-missing files.
@@ -58,7 +58,7 @@ These are the security-relevant properties of Sponsio's deterministic core. They
 
 - **Det path: zero outbound.** Determinism plus offline operation make Sponsio safe to deploy in air-gapped environments.
 - **Sto path: outbound only to the judge endpoint you configure.** Pinned via `judge.provider` + `judge.base_url` in `sponsio.yaml`.
-- **Dashboard (`sponsio serve --dev`): localhost only by default.** Bind address is configurable; CORS and CSRF protections apply when bound to a non-loopback interface.
+- **Dashboard (`sponsio serve --dev`): Sponsio Cloud only** (`pip install sponsio[cloud]`). Localhost-only by default; bind address is configurable; CORS and CSRF protections apply when bound to a non-loopback interface. Not part of the OSS package.
 
 ### Audit logging
 
