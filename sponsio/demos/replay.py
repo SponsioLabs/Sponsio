@@ -3,21 +3,23 @@
 These demos intentionally use the framework-agnostic ``guard_before`` API so
 they work from a plain PyPI install. The full framework-specific examples live
 in ``examples/demo`` for contributors and integration docs.
+
+Output is rendered via the shared :mod:`sponsio.render` palette so the
+demo narration matches the visual language of ``sponsio report`` /
+``sponsio explain`` / ``sponsio replay``.
 """
 
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import dataclass
 from typing import Any
 
+from rich.console import Console
+from rich.text import Text
 
-BOLD = "\033[1m"
-RED = "\033[91m"
-GREEN = "\033[92m"
-YELLOW = "\033[93m"
-DIM = "\033[2m"
-RESET = "\033[0m"
+from sponsio.render.tokens import PALETTE
 
 
 @dataclass(frozen=True)
@@ -39,15 +41,60 @@ def run_demo(scenario: str, *, no_guard: bool = False, fast: bool = False) -> No
 
 
 def _printer(fast: bool):
+    # Build the Console *inside* _printer so it grabs the current
+    # sys.stdout — Click's CliRunner swaps stdout per-invocation and a
+    # module-level Console would write past the redirect.
+    #
     # 0.35s default mirrors the framework demos under examples/demo/*.py;
     # also paces the gif recordings (assets/demos/*.tape) so the contract
     # banner and trajectory are readable instead of scroll-blurred.
-    def emit(line: str = "", delay: float = 0.35) -> None:
-        print(line, flush=True)
+    console = Console(file=sys.stdout, soft_wrap=True, highlight=False)
+
+    def emit(content: str | Text = "", delay: float = 0.35) -> None:
+        console.print(content)
         if not fast:
             time.sleep(delay)
 
     return emit
+
+
+def _title_line(title: str, mode: str) -> Text:
+    """Bold cyan title row that mirrors `sponsio report` headers."""
+    return Text.assemble(
+        ("== ", PALETTE["rule"]),
+        (title, f"bold {PALETTE['brand']}"),
+        (f" ({mode})", PALETTE["metadata"]),
+        (" ==", PALETTE["rule"]),
+    )
+
+
+def _narration_line(tool: str, args: str) -> Text:
+    """Dim ``-> tool(args)`` row narrating the agent's intent."""
+    return Text.assemble(
+        ("  -> ", PALETTE["metadata"]),
+        (tool, PALETTE["fg"]),
+        ("(", PALETTE["metadata"]),
+        (args, PALETTE["metadata"]),
+        (")", PALETTE["metadata"]),
+    )
+
+
+def _no_guard_breach_line(note: str) -> Text:
+    """Red follow-up shown only when running --no-guard so the contrast
+    between unguarded and guarded outcomes is visible."""
+    return Text.assemble(
+        ("    ✗ ", f"bold {PALETTE['violation']}"),
+        (note, PALETTE["violation"]),
+    )
+
+
+def _outcome_line(text: str, *, blocked: bool) -> Text:
+    color = PALETTE["violation"] if blocked else PALETTE["success"]
+    icon = "✗" if blocked else "✓"
+    return Text.assemble(
+        (f"{icon} Outcome: ", f"bold {color}"),
+        (text, f"bold {color}"),
+    )
 
 
 def _run_steps(
@@ -65,8 +112,13 @@ def _run_steps(
 
     emit = _printer(fast)
     mode = "no Sponsio" if no_guard else "with Sponsio mock replay"
-    emit(f"{BOLD}== {title} ({mode}) =={RESET}")
-    emit(f"{DIM}Recorded unsafe trajectory, replayed locally with no API key.{RESET}\n")
+    emit(_title_line(title, mode))
+    emit(
+        Text(
+            "Recorded unsafe trajectory, replayed locally with no API key.\n",
+            style=PALETTE["metadata"],
+        )
+    )
 
     guard = None
     if not no_guard:
@@ -88,10 +140,10 @@ def _run_steps(
         emit("", 1.5)
 
     for step in steps:
-        emit(f"  {DIM}-> {step.tool}({_fmt_args(step.args)}){RESET}")
+        emit(_narration_line(step.tool, _fmt_args(step.args)))
         if no_guard:
             if step.note:
-                emit(f"    {RED}-> {step.note}{RESET}", 0.25)
+                emit(_no_guard_breach_line(step.note), 0.25)
             continue
 
         assert guard is not None
@@ -102,10 +154,11 @@ def _run_steps(
     # Brief pause before the outcome line so the violation banner has
     # time to settle and the verdict reads as a separate beat.
     emit("", 0.8)
+    emit("")
     if no_guard:
-        emit(f"\n{RED}{BOLD}x Outcome: {breach_outcome}{RESET}")
+        emit(_outcome_line(breach_outcome, blocked=True))
     else:
-        emit(f"\n{GREEN}{BOLD}✓ Outcome: {guarded_outcome}{RESET}")
+        emit(_outcome_line(guarded_outcome, blocked=False))
 
 
 def _cleanup_demo(*, no_guard: bool, fast: bool) -> None:

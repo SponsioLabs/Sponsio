@@ -10,7 +10,10 @@ def test_demo_default_mock_runs_without_optional_sdks():
 
     assert result.exit_code == 0
     assert "with Sponsio mock replay" in result.output
-    assert "blocked" in result.output
+    # Either the in-process monitor's lowercase line (Phase 2 stream)
+    # or the session view's uppercase verdict (Phase 2.5) suffices —
+    # both indicate at least one contract fired and was reported.
+    assert "BLOCKED" in result.output or "blocked" in result.output
 
 
 def test_demo_no_guard_replays_breach():
