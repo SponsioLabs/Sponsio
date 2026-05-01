@@ -1,13 +1,14 @@
 """Tests for the local single-user dashboard backend (`sponsio serve`).
 
-Covers the four shipped read-only endpoints and the path-traversal
-guard. Uses ``fastapi.testclient.TestClient`` against a temp
-sessions dir — never touches ``~/.sponsio``.
+Covers all read-only HTTP endpoints, the WebSocket live tail, and the
+path-traversal guards. Uses ``fastapi.testclient.TestClient`` against
+temp dirs — never touches ``~/.sponsio``.
 """
 
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
@@ -182,3 +183,199 @@ def test_read_trace_rejects_traversal_in_trace_id(client):
     # FastAPI's normalisation, so this is the real test of the guard.
     r = client.get("/api/sessions/agent_a/traces/..%2F..%2Fetc%2Fpasswd")
     assert r.status_code in (400, 404)
+
+
+# ---------------------------------------------------------------------------
+# /api/contracts — pattern catalog + sponsio.yaml.
+# ---------------------------------------------------------------------------
+
+
+def test_contracts_lists_pattern_catalog(client):
+    body = client.get("/api/contracts").json()
+    names = {p["name"] for p in body["patterns"]}
+    # A few well-known det patterns must show up — if these disappear the
+    # OSS contract surface has shrunk and the docs are out of sync.
+    assert {"must_precede", "rate_limit", "idempotent", "no_data_leak"} <= names
+    sample = next(p for p in body["patterns"] if p["name"] == "must_precede")
+    assert sample["kind"] == "det"
+    assert "before" in sample["params"] and "after" in sample["params"]
+    # ``desc`` is boilerplate; it should be filtered out.
+    assert "desc" not in sample["params"]
+
+
+def test_contracts_yaml_is_none_when_no_config(tmp_path, monkeypatch):
+    # Run from a CWD with no sponsio.yaml, no SPONSIO_CONFIG override.
+    monkeypatch.delenv("SPONSIO_CONFIG", raising=False)
+    monkeypatch.chdir(tmp_path)
+    client = TestClient(create_app(sessions_dir=tmp_path / "sessions"))
+    body = client.get("/api/contracts").json()
+    assert body["yaml"] is None
+
+
+def test_contracts_yaml_loads_via_env_override(tmp_path, monkeypatch):
+    pytest.importorskip("yaml")
+    cfg = tmp_path / "my-sponsio.yaml"
+    cfg.write_text(
+        "contracts:\n"
+        "  - name: refund_needs_check\n"
+        "    pattern: must_precede\n"
+        "    args: {before: check_policy, after: issue_refund}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SPONSIO_CONFIG", str(cfg))
+    client = TestClient(create_app(sessions_dir=tmp_path / "sessions"))
+    body = client.get("/api/contracts").json()
+    assert body["yaml"]["path"] == str(cfg)
+    assert body["yaml"]["contracts"][0]["name"] == "refund_needs_check"
+
+
+# ---------------------------------------------------------------------------
+# /api/host/buckets — `~/.sponsio/plugins/<bucket>/`.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def populated_plugins(tmp_path):
+    plugins = tmp_path / "plugins"
+    cursor = plugins / "_host_cursor"
+    cursor.mkdir(parents=True)
+    (cursor / "conv-aaa.shield-trace.jsonl").write_text(
+        json.dumps({"ts": 10.0, "action": "edit"})
+        + "\n"
+        + json.dumps({"ts": 11.0, "action": "save"})
+        + "\n",
+        encoding="utf-8",
+    )
+    (cursor / "conv-bbb.shield-trace.jsonl").write_text(
+        json.dumps({"ts": 12.0, "action": "run"}) + "\n",
+        encoding="utf-8",
+    )
+    (cursor / "sponsio.yaml").write_text("contracts: []\n", encoding="utf-8")
+
+    # An empty plugin dir — should still appear, with conv_count=0.
+    (plugins / "filesystem").mkdir()
+    return plugins
+
+
+def test_host_buckets_lists_directories(tmp_path, populated_plugins):
+    client = TestClient(
+        create_app(sessions_dir=tmp_path / "sessions", plugins_dir=populated_plugins)
+    )
+    body = client.get("/api/host/buckets").json()
+    by_name = {b["name"]: b for b in body["buckets"]}
+    assert by_name["_host_cursor"]["conv_count"] == 2
+    assert by_name["_host_cursor"]["has_yaml"] is True
+    assert by_name["filesystem"]["conv_count"] == 0
+    assert by_name["filesystem"]["has_yaml"] is False
+
+
+def test_host_bucket_events_returns_sorted_tail(tmp_path, populated_plugins):
+    client = TestClient(
+        create_app(sessions_dir=tmp_path / "sessions", plugins_dir=populated_plugins)
+    )
+    body = client.get("/api/host/buckets/_host_cursor/events").json()
+    timestamps = [e["ts"] for e in body["events"]]
+    assert timestamps == sorted(timestamps)
+    assert {e["action"] for e in body["events"]} == {"edit", "save", "run"}
+
+
+def test_host_bucket_events_respects_limit(tmp_path, populated_plugins):
+    client = TestClient(
+        create_app(sessions_dir=tmp_path / "sessions", plugins_dir=populated_plugins)
+    )
+    body = client.get("/api/host/buckets/_host_cursor/events?limit=2").json()
+    assert len(body["events"]) == 2
+    # Tail = newest two, so ts=11.0 and ts=12.0.
+    assert [e["ts"] for e in body["events"]] == [11.0, 12.0]
+
+
+def test_host_bucket_events_unknown_bucket_404s(tmp_path, populated_plugins):
+    client = TestClient(
+        create_app(sessions_dir=tmp_path / "sessions", plugins_dir=populated_plugins)
+    )
+    r = client.get("/api/host/buckets/no_such_bucket/events")
+    assert r.status_code == 404
+
+
+def test_host_buckets_handles_missing_root(tmp_path):
+    client = TestClient(
+        create_app(sessions_dir=tmp_path / "sessions", plugins_dir=tmp_path / "absent")
+    )
+    body = client.get("/api/host/buckets").json()
+    assert body["buckets"] == []
+
+
+# ---------------------------------------------------------------------------
+# Capabilities — flags must reflect the new endpoints being live.
+# ---------------------------------------------------------------------------
+
+
+def test_capabilities_reflects_live_endpoints(client):
+    body = client.get("/api/capabilities").json()["features"]
+    assert body["contract_browser"] is True
+    assert body["host_buckets"] is True
+    assert body["live_trace"] is True
+
+
+# ---------------------------------------------------------------------------
+# WS /api/live — incremental session-log tail.
+# ---------------------------------------------------------------------------
+
+
+def test_live_streams_new_events(populated_sessions):
+    # Use a small poll interval so the test doesn't hang.
+    app = create_app(sessions_dir=populated_sessions, poll_interval=0.05)
+    client = TestClient(app)
+    with client.websocket_connect("/api/live") as ws:
+        ready = ws.receive_json()
+        assert ready["type"] == "ready"
+        assert ready["sessions_dir"] == str(populated_sessions)
+
+        # Append a new event; the tail loop should pick it up next tick.
+        new_path = populated_sessions / "agent_a" / "20260501_120000_111.jsonl"
+        with new_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": 99.0, "action": "tool.live"}) + "\n")
+            f.flush()
+
+        # Drain up to a few frames waiting for ours.
+        deadline = time.monotonic() + 5.0
+        seen_actions: list[str] = []
+        while time.monotonic() < deadline:
+            frame = ws.receive_json()
+            if frame.get("type") == "event":
+                seen_actions.append(frame["data"].get("action"))
+                if "tool.live" in seen_actions:
+                    break
+        assert "tool.live" in seen_actions
+
+
+def test_live_ignores_partial_trailing_line(populated_sessions):
+    # A line written without a newline must NOT be emitted until newline
+    # arrives — otherwise live tail emits half-records.
+    app = create_app(sessions_dir=populated_sessions, poll_interval=0.05)
+    client = TestClient(app)
+    with client.websocket_connect("/api/live") as ws:
+        assert ws.receive_json()["type"] == "ready"
+
+        target = populated_sessions / "agent_a" / "20260501_120000_111.jsonl"
+        with target.open("a", encoding="utf-8") as f:
+            f.write('{"ts": 100.0, "action": "tool.partial"')  # no closing brace, no \n
+            f.flush()
+
+        # Wait long enough for several poll cycles; nothing should fire.
+        time.sleep(0.4)
+
+        # Now complete the line.
+        with target.open("a", encoding="utf-8") as f:
+            f.write("}\n")
+            f.flush()
+
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            frame = ws.receive_json()
+            if (
+                frame.get("type") == "event"
+                and frame["data"].get("action") == "tool.partial"
+            ):
+                return
+        pytest.fail("partial-then-complete event was never emitted")
