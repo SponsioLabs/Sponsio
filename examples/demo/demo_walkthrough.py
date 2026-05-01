@@ -532,7 +532,7 @@ def stage2_data_lookup():
     guard = _make_guard(
         [
             contract("no sensitive terms in wiki search").enforce(
-                'tool `search_wiki` argument `query` must not match "password|credential|secret"'
+                "search_wiki arguments must not contain password|credential|secret"
             ),
             contract("ticket lookup before customer lookup")
             .assume("called `lookup_customer`")

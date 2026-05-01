@@ -1076,7 +1076,12 @@ class BaseGuard:
                         contract
                     ).holds
                 for e in contract.enforcements:
-                    from sponsio.runtime.monitor import _is_det
+                    # ``_is_det`` lives in the verifier module; pre-OSS-cut
+                    # ``monitor`` re-exported it via an internal import that
+                    # ruff pruned when the sto path was stubbed out. Import
+                    # directly from where it actually lives so this guard
+                    # stays correct regardless of monitor's internal shape.
+                    from sponsio.runtime.verifier import _is_det
 
                     if _is_det(e):
                         continue
