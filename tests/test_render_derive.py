@@ -181,5 +181,9 @@ def test_short_session_id_differs_per_input():
 
 
 def test_short_contract_alias_is_one_indexed():
-    assert short_contract_alias("any_name", 0) == "#1"
-    assert short_contract_alias("any_name", 9) == "#10"
+    assert short_contract_alias("any_name", 0) == "C1"
+    assert short_contract_alias("any_name", 9) == "C10"
+
+
+def test_short_contract_alias_accepts_custom_prefix():
+    assert short_contract_alias("any_name", 0, prefix="#") == "#1"

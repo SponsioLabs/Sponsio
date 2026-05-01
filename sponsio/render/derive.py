@@ -52,6 +52,8 @@ _TOOL_PREFIX_TO_SERVICE: list[tuple[str, str]] = [
     ("shell.", "shell"),
     ("run_tests", "shell"),
     ("execute_command", "shell"),
+    ("user_instruction", "mcp"),
+    ("user_message", "mcp"),
     ("mcp.", "mcp"),
     ("mcp__", "mcp"),
     ("http.", "http"),
@@ -206,12 +208,12 @@ def short_session_id(filename_stem: str, prefix: str = "sess") -> str:
 _CONSTRAINT_ALIAS_RE = re.compile(r"[^a-z0-9_-]+")
 
 
-def short_contract_alias(name: str, index: int) -> str:
-    """``#1``-style display alias, kept alongside the real contract name.
+def short_contract_alias(name: str, index: int, *, prefix: str = "C") -> str:
+    """``C1``-style display alias, kept alongside the real contract name.
 
-    The spec wanted ``C1`` / ``C2`` but Sponsio's contracts have
-    meaningful string names — promoting an opaque numeric ID into the
-    domain model would be a regression. The alias is purely for layout
-    alignment in banners.
+    Sponsio contracts have meaningful string names; promoting an opaque
+    numeric ID into the domain model would be a regression. The alias
+    is purely for layout alignment in banners and tree views, matching
+    the v1 CLI mockup style.
     """
-    return f"#{index + 1}"
+    return f"{prefix}{index + 1}"

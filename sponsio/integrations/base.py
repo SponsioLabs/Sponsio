@@ -1991,6 +1991,38 @@ class BaseGuard:
             )
         return "\n".join(lines)
 
+    def _try_print_rich_session_view(self) -> bool:
+        """Render the v1 CLI mockup via :mod:`sponsio.render.session_view`.
+
+        Returns ``True`` if the Rich path ran successfully, ``False``
+        if we should fall through to the legacy plain summary
+        (non-TTY, NO_COLOR, no spans, or a render-side exception).
+        """
+        if os.environ.get("NO_COLOR") or not sys.stderr.isatty():
+            return False
+        turn_spans = list(self._monitor.turn_spans)
+        if not turn_spans:
+            # An empty session has nothing tree-like to show; legacy
+            # one-liner ("✓ All contracts satisfied") fits better.
+            return False
+        try:
+            from rich.console import Console
+
+            from sponsio.render.session_view import render_session
+
+            console = Console(file=sys.stderr, soft_wrap=True, highlight=False)
+            render_session(
+                console=console,
+                agent_id=self.agent_id,
+                mode=self._mode,
+                contracts=list(self._system._contracts),
+                turn_spans=turn_spans,
+            )
+            return True
+        except Exception:
+            # Never let a render bug swallow the summary.
+            return False
+
     def disable_auto_summary(self) -> None:
         """Suppress the atexit auto-summary for this guard.
 
@@ -2099,8 +2131,17 @@ class BaseGuard:
         Shows total checks, violations, and overall status. Auto-called
         at process exit (see ``__init__``); can also be invoked manually.
         Idempotent — subsequent calls are no-ops.
+
+        On a TTY this dispatches to the Rich session-view renderer
+        (the v1 CLI mockup form: header banner + contracts armed +
+        trace tree + verdict banner + perf summary + CTA). When stderr
+        is piped or NO_COLOR is set, falls through to the legacy
+        plain-ANSI summary so logs / CI captures stay readable.
         """
         if self._summary_printed:
+            return
+        if self._try_print_rich_session_view():
+            self._summary_printed = True
             return
         self._summary_printed = True
         total = len(self._monitor.turn_spans)
