@@ -910,6 +910,16 @@ function VirtualizedTraceList({
   onSelect: (id: string) => void;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
+  // TanStack Virtual's `useVirtualizer()` returns functions whose
+  // identities change per render but whose closure captures live
+  // virtualizer state — they intentionally aren't memoization-safe,
+  // so React Compiler refuses to memoize this component. That's
+  // correct: forcing memoization of `getVirtualItems()` /
+  // `measureElement` here would yield stale scroll positions.
+  // Suppress the auto-skip warning since the resulting "no
+  // compiler optimization on this component" is the intended
+  // behavior for windowed lists.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => parentRef.current,
