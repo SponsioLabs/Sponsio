@@ -78,6 +78,10 @@ commitment, not a "temporarily open" status.
 - `sponsio report --since` — session log summary
 - Session log writer (`~/.sponsio/sessions/<agent>/*.jsonl`)
 - Per-conversation trace state (`~/.sponsio/plugins/<bucket>/conv-*.shield-trace.jsonl`)
+- `sponsio serve` — **local single-user** dashboard backend (`sponsio/serve/`).
+  Read-only FastAPI app bound to `127.0.0.1`, no auth, no ingestion endpoint.
+  Surfaces session-log JSONL files to a local web UI for trace inspection.
+  Requires the `[web]` extra (`pip install sponsio[web]`).
 
 ---
 
@@ -106,9 +110,10 @@ commitment, not a "temporarily open" status.
   mining
 - `sponsio.discovery.store` — cross-customer pattern store
 - `api/` — full FastAPI backend (auth, multi-tenant, OTel ingest,
-  monitor / leaderboard / score / playground / discovery routers)
-- `sponsio serve` — local dashboard backend (in OSS this is a stub
-  pointing at the cloud install)
+  monitor / leaderboard / score / playground / discovery routers).
+  Cloud's `sponsio serve` (or equivalent) replaces the OSS single-user
+  app with this multi-tenant backend — adds hosted ingestion, sto
+  evaluators, cross-trace aggregation views, and team features.
 
 ### Premium content packs
 - `sponsio/contracts/premium/*.yaml` — bespoke threat patterns from
@@ -130,6 +135,8 @@ commitment, not a "temporarily open" status.
 | Is it a single-project static scan? | OSS |
 | Is it a per-host hook adapter (Cursor / Claude Code / OpenClaw)? | OSS |
 | Does it serve a multi-user web dashboard with auth? | Cloud |
+| Is it a single-user local dashboard reading `~/.sponsio/sessions/`? | OSS (`sponsio serve`) |
+| Does it accept hosted span ingestion from remote agents? | Cloud |
 | Is it a session-log ship-out to your own collector? | OSS (`sponsio export-sessions` + `sponsio.tracer.exporters`) |
 | Is it an in-process OTel exporter that POSTs to your endpoint? | OSS (`sponsio.tracer.exporters.OtlpHttpExporter`) |
 
