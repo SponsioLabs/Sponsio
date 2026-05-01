@@ -124,10 +124,12 @@ def run_with_guard() -> None:
     tools_by_name = {t.name: t for t in TOOLS}
     # ─── sponsio onboard patch ─────────────────────────────────────
     from sponsio.langgraph import Sponsio
-    guard = Sponsio(config=str(Path(__file__).parent / "sponsio.yaml"), agent_id="agent")
+
+    guard = Sponsio(
+        config=str(Path(__file__).parent / "sponsio.yaml"), agent_id="agent"
+    )
     tools_by_name = guard.wrap(TOOLS).tools_by_name
     # ─── /sponsio onboard patch ────────────────────────────────────
-
 
     blocked = False
     for name, args in TRAJECTORY:

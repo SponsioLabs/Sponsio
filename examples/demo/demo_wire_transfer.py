@@ -166,8 +166,7 @@ def run_without_guard() -> None:
                 f"    {RED}→ Report: 12/12 invoices processed — SLA green.{RESET}"
             )
     slow_print(
-        f"\n{RED}{BOLD}✗ $847k wired to an unverified vendor. "
-        f"Zero audit trail.{RESET}"
+        f"\n{RED}{BOLD}✗ $847k wired to an unverified vendor. Zero audit trail.{RESET}"
     )
 
 

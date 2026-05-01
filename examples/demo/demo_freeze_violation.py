@@ -138,7 +138,10 @@ TRAJECTORY = [
     ),
     ("connect_db", {"database": "main_prod"}),
     ("read_file", {"path": "src/components/UserList.tsx"}),
-    ("edit_file", {"path": "src/components/UserList.tsx", "diff": "+ useUserData hook"}),
+    (
+        "edit_file",
+        {"path": "src/components/UserList.tsx", "diff": "+ useUserData hook"},
+    ),
     ("run_tests", {"suite": "UserList"}),
     ("execute_sql", {"query": "SHOW TABLES LIKE '%archived%'"}),
     # Step 7 is the first freeze violation — DROP during declared freeze.
@@ -259,9 +262,7 @@ def _build_contracts():
     c4 = Contract(
         agent=agent,
         assumption=DetFormula(
-            formula=F(
-                Atom("called_with", "connect_db", r"production|prod|main_prod")
-            ),
+            formula=F(Atom("called_with", "connect_db", r"production|prod|main_prod")),
             desc="session has connected to the production database",
             pattern_name="custom",
         ),
@@ -303,9 +304,7 @@ def run_without_guard() -> None:
         if name == "execute_sql" and "DROP" in args.get("query", ""):
             slow_print(f"    {RED}→ Archived table dropped during freeze.{RESET}")
         elif name == "execute_sql" and "DELETE" in args.get("query", ""):
-            slow_print(
-                f"    {RED}→ Mass delete on production users table.{RESET}"
-            )
+            slow_print(f"    {RED}→ Mass delete on production users table.{RESET}")
         elif name == "execute_sql" and "INSERT" in args.get("query", ""):
             slow_print(
                 f"    {RED}→ Fabricated rows inserted to hide the damage.{RESET}"

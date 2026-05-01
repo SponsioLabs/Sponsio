@@ -58,15 +58,21 @@ def generate_report(output_path: str) -> str:
     return f"wrote {output_path}: 12/12 invoices processed"
 
 
-from sponsio.crewai import Sponsio
+# Pedagogical ordering: bare tool functions defined above; Sponsio wraps
+# them below so the diff between "no guard" and "guarded" is one import +
+# one ``.wrap(...)`` call. ``noqa: E402`` silences ruff's
+# module-level-import-not-at-top warning since the order is intentional.
+from sponsio.crewai import Sponsio  # noqa: E402
 
-TOOLS = Sponsio(config="sponsio.yaml", agent_id="agent").wrap([
-    list_invoices,
-    read_invoice,
-    check_vendor_history,
-    wire_transfer,
-    generate_report,
-])
+TOOLS = Sponsio(config="sponsio.yaml", agent_id="agent").wrap(
+    [
+        list_invoices,
+        read_invoice,
+        check_vendor_history,
+        wire_transfer,
+        generate_report,
+    ]
+)
 
 
 # Recorded trajectory for an AP copilot under SLA pressure.
@@ -123,14 +129,12 @@ def run_without_guard() -> None:
                 f"    {RED}→ Report: 12/12 invoices processed — SLA green.{RESET}"
             )
     slow_print(
-        f"\n{RED}{BOLD}✗ $847k wired to an unverified vendor. "
-        f"Zero audit trail.{RESET}"
+        f"\n{RED}{BOLD}✗ $847k wired to an unverified vendor. Zero audit trail.{RESET}"
     )
 
 
 def run_with_guard() -> None:
     slow_print(f"{BOLD}== AP (Accounts Payable) Copilot =={RESET}")
-
 
     tool_by_name = {t.name: t for t in TOOLS}
     blocked = False

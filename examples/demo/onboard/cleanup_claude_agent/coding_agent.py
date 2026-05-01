@@ -107,7 +107,9 @@ def run_with_guard() -> None:
     # an LLM token.
     from sponsio.claude_agent import Sponsio
 
-    guard = Sponsio(config=str(Path(__file__).parent / "sponsio.yaml"), agent_id="agent")
+    guard = Sponsio(
+        config=str(Path(__file__).parent / "sponsio.yaml"), agent_id="agent"
+    )
     pre_tool_hook = guard.hooks()["PreToolUse"][0].hooks[0]
     # ─── /sponsio onboard patch ────────────────────────────────────
 

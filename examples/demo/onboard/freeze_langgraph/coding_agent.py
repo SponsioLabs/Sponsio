@@ -108,7 +108,10 @@ TRAJECTORY = [
     ),
     ("connect_db", {"database": "main_prod"}),
     ("read_file", {"path": "src/components/UserList.tsx"}),
-    ("edit_file", {"path": "src/components/UserList.tsx", "diff": "+ useUserData hook"}),
+    (
+        "edit_file",
+        {"path": "src/components/UserList.tsx", "diff": "+ useUserData hook"},
+    ),
     ("run_tests", {"suite": "UserList"}),
     ("execute_sql", {"query": "SHOW TABLES LIKE '%archived%'"}),
     ("execute_sql", {"query": "DROP TABLE users_archived"}),
@@ -192,7 +195,9 @@ def run_with_guard() -> None:
     # the user journey from naive → integrated.
     from sponsio.langgraph import Sponsio
 
-    guard = Sponsio(config=str(Path(__file__).parent / "sponsio.yaml"), agent_id="agent")
+    guard = Sponsio(
+        config=str(Path(__file__).parent / "sponsio.yaml"), agent_id="agent"
+    )
     tools_by_name = guard.wrap(TOOLS).tools_by_name
     # ─── /sponsio onboard patch ────────────────────────────────────
 
