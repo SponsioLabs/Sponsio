@@ -113,7 +113,7 @@ For patterns with arguments — notably sto atoms — use the structured form:
   beta: 0.85
 ```
 
-See the [pattern catalog](patterns.md) for det patterns and the [sto atom catalog](sto-atoms.md) for sto atoms.
+See the [pattern catalog](patterns.md) for det patterns and the *sto atom catalog* (Sponsio Cloud) for sto atoms.
 
 ---
 
@@ -164,6 +164,6 @@ guard = Sponsio(config="sponsio.yaml", agent_id="support_bot")
 ## Next
 
 - [Pattern catalog](patterns.md) — every det pattern with NL form.
-- [Sto atom catalog](sto-atoms.md) — every sto atom.
+- *Sto atom catalog* (Sponsio Cloud) — every sto atom.
 - [CLI reference](cli.md) — `sponsio scan`, `sponsio validate`, `sponsio doctor`.
 - [Contract sources](../guides/contract-sources.md) — scan, policy-doc mining, trace mining.

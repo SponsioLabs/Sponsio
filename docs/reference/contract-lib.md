@@ -153,6 +153,6 @@ Source attribution is preserved through loading: every compiled contract knows i
 
 - [`sponsio.yaml` reference](config-yaml.md) — top-level schema, `include:` / `overrides:` / `tool_rename:` / `workspace:` mechanics.
 - [Pattern catalog](patterns.md) — the Python factories each pack rule compiles into.
-- [Sto atom catalog](sto-atoms.md) — the LLM-judged atoms used by `core/universal`.
+- *Sto atom catalog* (Sponsio Cloud) — the LLM-judged atoms used by `core/universal`.
 - [Onboarding guide](../guides/onboarding.md) — `sponsio onboard` auto-selects tier-0 packs based on detected tools.
-- [Benchmark contract libraries](benchmark-libraries.md) — hand-curated libraries that drive Sponsio's published RedCode-Exec and ODCV-Bench headlines. Distinct from the capability packs above: benchmark-reproduction artefacts, not auto-included by `onboard`.
+- *Benchmark contract libraries* (no longer shipped in OSS) — hand-curated libraries that drive Sponsio's published RedCode-Exec and ODCV-Bench headlines. Distinct from the capability packs above: benchmark-reproduction artefacts, not auto-included by `onboard`.

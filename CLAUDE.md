@@ -17,7 +17,7 @@ import sponsio
 guard = sponsio.Sponsio(...)
 ```
 
-Sponsio also supports stochastic constraints for fuzzy properties such as tone, relevance, semantic PII, scope respect, hallucination, and metric integrity. Deterministic contracts are the hot path for blocking unsafe actions; stochastic contracts provide scored feedback/retry behavior for output and semantic checks.
+Sponsio also supports stochastic constraints for fuzzy properties such as tone, relevance, semantic PII, scope respect, hallucination, and metric integrity. **Stochastic constraints are a Sponsio Cloud feature** (`pip install sponsio[cloud]`); the OSS engine logs-and-skips them with a one-time per-contract warning. Deterministic contracts are the OSS hot path for blocking unsafe actions; stochastic contracts provide scored feedback/retry behavior for output and semantic checks. See [docs/oss_scope.md](docs/oss_scope.md) for the full OSS / Cloud boundary.
 
 ## Positioning
 
@@ -46,7 +46,7 @@ For architecture and contract questions:
 
 - `docs/architecture.md` — conceptual model, atoms, patterns, grounding, observation boundaries
 - `docs/contracts.md` — deterministic constraints and atom vocabulary
-- `docs/sto-atoms.md` — stochastic atom catalog and framework wiring
+- *(Sponsio Cloud)* `docs/sto-atoms.md` — stochastic atom catalog and framework wiring (in the cloud repo)
 For implementation:
 
 - `sponsio/core.py` — `sponsio.Sponsio()` factory and framework resolution
@@ -54,7 +54,7 @@ For implementation:
 - `sponsio/runtime/monitor.py` — det/sto dispatch and enforcement routing
 - `sponsio/runtime/verifier.py` — trace-aware contract verification
 - `sponsio/patterns/library.py` — deterministic pattern factories
-- `sponsio/patterns/sto_catalog.py` — built-in stochastic evaluators/atoms
+- *(Sponsio Cloud)* `sponsio/patterns/sto_catalog.py` — built-in stochastic evaluators/atoms; OSS ships an empty stub. The full catalog lives in the cloud repo
 - `sponsio/generation/nl_to_contract.py` — natural-language parsing
 - `sponsio/tracer/grounding.py` — event-to-atom grounding
 - `sponsio/formulas/formula.py` and `sponsio/formulas/evaluator.py` — formula AST and finite-trace evaluator
@@ -150,10 +150,10 @@ The TS SDK covers deterministic runtime enforcement. Python currently has the br
 
 ### Add a stochastic atom
 
-1. Register it in `sponsio/patterns/sto_catalog.py` with `@register_sto_atom`.
+1. *Sponsio Cloud only.* Register it in `sponsio/patterns/sto_catalog.py` with `@register_sto_atom` (in the cloud repo — OSS exports an empty registry).
 2. Decide the context scope: event, last_k, or full_trace.
 3. Add tests around evaluator behavior and prompting.
-4. Document wiring in `docs/sto-atoms.md` if user-facing.
+4. Document wiring in the cloud-side `docs/sto-atoms.md` if user-facing.
 
 ### Add an integration
 
@@ -191,5 +191,5 @@ Frontend/dashboard:
 
 ```bash
 cd web && npm install && npm run dev
-sponsio serve --dev
+sponsio serve --dev   # Sponsio Cloud (`pip install sponsio[cloud]`)
 ```

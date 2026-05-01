@@ -67,8 +67,8 @@ Formal methods do not magic away every failure mode:
 - Baier & Katoen, *Principles of Model Checking* (2008) — chapters 5–7 cover LTL → automata in depth.
 - [`docs/architecture.md`](architecture.md) — how Sponsio's grounding, monitor, and verifier components fit together.
 - [`docs/contracts.md`](contracts.md) — the actual atom vocabulary and contract DSL syntax.
-- [`docs/sto-atoms.md`](sto-atoms.md) — the complementary stochastic pipeline.
+- *the stochastic atom catalog* (Sponsio Cloud) — the complementary stochastic pipeline.
 
 ---
 
-**Related:** [Quick start](../QUICKSTART.md) · [Contract DSL](contracts.md) · [Stochastic atoms](sto-atoms.md) · [CLI Reference](cli.md) · [Integrations](integrations.md) · [Architecture](architecture.md) · [OWASP Agentic Top 10](owasp-agentic-top-10.md)
+**Related:** [Quick start](../QUICKSTART.md) · [Contract DSL](contracts.md) · *Stochastic atoms* (Sponsio Cloud — `pip install sponsio[cloud]`) · [CLI Reference](cli.md) · [Integrations](integrations.md) · [Architecture](architecture.md) · [OWASP Agentic Top 10](owasp-agentic-top-10.md)

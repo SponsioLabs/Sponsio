@@ -103,7 +103,7 @@ Sto cost is dominated by judge-call latency, which is 100ms–1s per atom. Keep 
 
 ### Where are the numbers from?
 
-`sponsio scan` + offline replay against [ODCV-Bench](https://github.com/your-org/odcv-bench). ~84% average protection on high-risk trajectories across 12 mainstream LLMs. Full methodology and per-model results: [Benchmarks](BENCHMARKS.md).
+`sponsio scan` + offline replay against [ODCV-Bench](https://github.com/your-org/odcv-bench). ~84% average protection on high-risk trajectories across 12 mainstream LLMs. Full methodology and per-model results: *Benchmarks* (separate report — contact Sponsio for current numbers).
 
 ### Can I reproduce them?
 

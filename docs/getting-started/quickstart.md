@@ -120,12 +120,19 @@ After exercising the agent, review what would have been blocked:
 sponsio report --agent agent --since 24h
 ```
 
-Or the live dashboard:
+Or the live dashboard (Sponsio Cloud):
 
 ```bash
-sponsio serve --dev
+sponsio serve --dev   # requires `pip install sponsio[cloud]`
 # API → http://localhost:8000
 # UI  → http://localhost:3000
+```
+
+Pure-OSS alternative — terminal stream + summary:
+
+```bash
+sponsio host trace --follow   # live coloured event stream
+sponsio report --since 1h     # session-log summary table
 ```
 
 ## 5. Flip to enforce
@@ -178,16 +185,19 @@ judge:                                 # only when any include uses sto (LLM-jud
 
 Run `sponsio packs` to list shipped packs with rule counts and include syntax.
 
-## Re-mine contracts from recent traces
+## Re-mine contracts from recent traces (Sponsio Cloud)
 
-`sponsio.yaml` is not a one-shot. Periodically refresh the `source: trace` rules:
+`sponsio.yaml` is not a one-shot — periodic re-mining of `source: trace` rules
+ships in Sponsio Cloud (`pip install sponsio[cloud]`):
 
 ```bash
 sponsio refresh --since 7d             # dry-run: structured diff per agent
 sponsio refresh --since 7d --apply     # write it (backup at .sponsio.bak)
 ```
 
-User-written rules, `source: scan`, `source: policy`, and anything under `overrides:` flow through unchanged.
+User-written rules, `source: scan`, `source: policy`, and anything under
+`overrides:` flow through unchanged. The OSS pure-static path (`sponsio scan`)
+covers single-project re-scans without trace mining.
 
 ## Development Setup
 

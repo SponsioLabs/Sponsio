@@ -336,30 +336,32 @@ sponsio report --base-dir ./test-sessions --since all
 
 ---
 
-## `sponsio serve`
+## `sponsio serve` (Sponsio Cloud)
 
-Start the Sponsio dashboard server.
-
-```bash
-sponsio serve [OPTIONS]
-```
-
-### Options
-
-| Option | Description |
-|--------|-------------|
-| `--host` | Bind address (default: `127.0.0.1`) |
-| `--port`, `-p` | Port (default: `8000`) |
-| `--dev` | Also start frontend dev server (requires npm) |
-
-### Examples
+Starts the Sponsio dashboard server. The OSS package ships a stub
+that points at the Cloud install:
 
 ```bash
-sponsio serve                  # API on http://127.0.0.1:8000
-sponsio serve -p 9000          # custom port
-sponsio serve --dev            # API + frontend dev server
-sponsio serve --host 0.0.0.0   # expose to network
+sponsio serve
+# → "sponsio serve requires Sponsio Cloud (the OSS engine ships
+#    CLI + runtime only).
+#    pip install sponsio[cloud]   # for the local dashboard backend
+#    sponsio host trace --follow  # live alternative in pure OSS
+#    sponsio report --since 1h    # session-log summary"
+# Exit code: 2
 ```
+
+For OSS-only observability:
+
+| Need | OSS surface |
+|---|---|
+| Live coloured event stream | `sponsio host trace --follow` |
+| Periodic session-log summary | `sponsio report --since 1h` |
+| Push to your own collector | `sponsio export-sessions --to <url>` or `sponsio.tracer.exporters.OtlpHttpExporter` (in-process) |
+
+See [oss_scope.md](../oss_scope.md) for the full OSS / Cloud
+boundary and [observability.md](../observability.md) for the
+semantic-conventions schema downstream collectors consume.
 
 ---
 

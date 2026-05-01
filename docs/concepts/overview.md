@@ -112,7 +112,7 @@ If you can state the rule with a counter, a regex, a path match, or an ordering 
 - Hallucination, faithfulness, metric integrity
 - Any rule whose correctness would require a human to read the text
 
-Stochastic atoms cost one LLM call per check. Pick them for failure modes your regex vocabulary cannot reach, not by default. See [Stochastic atoms](../reference/sto-atoms.md).
+Stochastic atoms cost one LLM call per check. Pick them for failure modes your regex vocabulary cannot reach, not by default. See *Stochastic atoms* (Sponsio Cloud — `pip install sponsio[cloud]`).
 
 **The rule of thumb.** Do not reach for a judge call to check things a regex already checks. Do not force a regex to check things that only make sense semantically.
 
@@ -158,6 +158,6 @@ Deterministic formulas are evaluated in microseconds. Stochastic atoms are judge
 
 - [Architecture](architecture.md) — LTL semantics, grounding internals, why the atom vocabulary is the observation boundary.
 - [Deterministic contracts](contracts.md) — the pattern library and how each pattern compiles to LTL.
-- [Stochastic contracts](stochastic.md) — the judge pipeline, scoring, and retry strategies.
+- *Stochastic contracts* (Sponsio Cloud — `pip install sponsio[cloud]`) — the judge pipeline, scoring, and retry strategies.
 - [Write your first contract](../getting-started/first-contract.md) — hands-on walkthrough.
 - [Integrations](../integrations/index.md) — wire it into your framework (LangGraph, Claude Agent SDK, OpenAI, CrewAI, Google ADK, Vercel AI, MCP, or custom).

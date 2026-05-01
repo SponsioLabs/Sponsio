@@ -3,7 +3,9 @@
 Get Sponsio blocking an unsafe tool call in under 60 seconds — no API key, no framework SDK, no Docker.
 
 > [!NOTE]
-> **Stability (v0.1.x).** Det engine + LangGraph / Claude Agent SDK / OpenAI / Vercel AI integrations are production-ready. Sto pipeline (LLM-judged atoms), `sponsio serve --dev` dashboard, and OTEL export are **beta** — stable API, still hardening under load. `sponsio refresh` (trace-mined contracts), CrewAI, and OpenAI Agents SDK integrations are **alpha** — surface may shift before 0.2.
+> **Stability (v0.1.x).** Det engine + LangGraph / Claude Agent SDK / OpenAI / Vercel AI integrations are production-ready. OTEL export (`sponsio.tracer.exporters.OtlpHttpExporter` + `sponsio export-sessions`) is **beta**. CrewAI and OpenAI Agents SDK integrations are **alpha** — surface may shift before 0.2.
+>
+> **Sponsio Cloud features** (`pip install sponsio[cloud]`): the sto pipeline (LLM-judged atoms), the `sponsio serve --dev` dashboard, `sponsio refresh` (cross-trace pattern mining). OSS engine logs-and-skips sto contracts; Cloud installs replace the stub with the full sto path. See [docs/oss_scope.md](docs/oss_scope.md) for the boundary.
 
 ## Architecture overview
 
@@ -149,7 +151,7 @@ After exercising the agent, review what would have been blocked:
 sponsio report --agent agent --since 24h
 ```
 
-Or the live dashboard:
+Or the live dashboard (Sponsio Cloud — `pip install sponsio[cloud]`):
 
 ```bash
 sponsio serve --dev
@@ -362,27 +364,39 @@ Prune false positives, then flip enforce.
 
 | Use case                       | What to use                                                                                                            |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| Local dev & contract iteration | `sponsio serve --dev` — API on `:8000`, dashboard on `:5173` (live span tree, per-contract pass rates, violation feed) |
-| Production observability       | OTEL export — point any collector (Datadog, Honeycomb, Grafana, …) at `POST /api/otel/v1/traces`                       |
+| Live coloured event stream     | `sponsio host trace --follow` (pure OSS, terminal)                                                                     |
+| Local dev & contract iteration | `sponsio serve --dev` — API on `:8000`, dashboard on `:5173` (Sponsio Cloud — `pip install sponsio[cloud]`)            |
+| Production observability       | OTEL export — `sponsio.tracer.exporters.OtlpHttpExporter` (in-process) or `sponsio export-sessions --to <url>` (batch) |
 | Ad-hoc review                  | `guard.print_summary()` or `sponsio report --agent <id>`                                                               |
 
 
-The bundled dashboard is for local iteration; ship via OTEL into your existing observability stack.
+Push contract verdicts into your existing observability stack via OTEL — the
+schema is documented in [docs/observability.md](docs/observability.md), and the
+[`sponsio.tracer.exporters`](sponsio/tracer/exporters.py) module ships a
+batching OTLP/HTTP exporter ready to wire into `Sponsio(otel_exporter=...)`.
 
-### 6. Depth — stochastic contracts
+### 6. Depth — stochastic contracts (Sponsio Cloud)
 
-Once your det layer is stable, layer in fuzzy output-quality rules — tone, scope, semantic PII, hallucination, metric integrity. Same factory, same YAML; sto evaluators run post-tool-call and route violations to `RetryWithConstraint` instead of hard blocks. See [docs/sto-atoms.md](docs/sto-atoms.md).
+Once your det layer is stable, layer in fuzzy output-quality rules — tone,
+scope, semantic PII, hallucination, metric integrity. The sto pipeline (LLM-
+judge atoms + `RetryWithConstraint` strategy) ships in **Sponsio Cloud**
+(`pip install sponsio[cloud]`). The OSS engine logs-and-skips sto contracts
+with a one-time warning per contract; Cloud installs replace the stub with the
+full sto path. See [docs/oss_scope.md](docs/oss_scope.md) for the boundary.
 
-## Re-mine contracts from recent traces
+## Re-mine contracts from recent traces (Sponsio Cloud)
 
-`sponsio.yaml` is not a one-shot. Periodically refresh the `source: trace` rules:
+`sponsio.yaml` is not a one-shot — periodic re-mining of `source: trace` rules
+ships in **Sponsio Cloud** (`pip install sponsio[cloud]`):
 
 ```bash
 sponsio refresh --since 7d             # dry-run: structured diff per agent
 sponsio refresh --since 7d --apply     # write it (backup at .sponsio.bak)
 ```
 
-User-written rules, `source: scan`, `source: policy`, and anything under `overrides:` flow through unchanged.
+User-written rules, `source: scan`, `source: policy`, and anything under
+`overrides:` flow through unchanged. The OSS pure-static path (`sponsio scan`)
+covers single-project re-scans without trace mining.
 
 ## Development Setup
 

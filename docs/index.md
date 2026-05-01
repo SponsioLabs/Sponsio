@@ -25,7 +25,7 @@ Then pick a track below.
 |---|---|
 | **[Concepts](concepts/overview.md)** — how Sponsio models contracts, traces, atoms, and the two pipelines. Read this before writing your first custom contract. |
 | **[Integrations](integrations/index.md)** — wire Sponsio into LangGraph, Claude Agent SDK, OpenAI, OpenAI Agents, CrewAI, Google ADK, Vercel AI, MCP, or a custom tool-calling loop. |
-| **[Reference](reference/cli.md)** — CLI, pattern catalog, stochastic atom catalog, `sponsio.yaml` schema, Python and TypeScript API. |
+| **[Reference](reference/cli.md)** — CLI, pattern catalog, `sponsio.yaml` schema, Python and TypeScript API. See [`oss_scope.md`](oss_scope.md) for the OSS / Sponsio Cloud boundary. |
 
 ---
 
@@ -40,12 +40,12 @@ Then pick a track below.
 - **"Drop in a ready-made contract pack (shell, filesystem, runaway defense)"** → [Contract library](reference/contract-lib.md)
 - **"Wrap my Claude Code session with Sponsio guardrails"** → [sponsio-claude-code quickstart](../plugins/sponsio-claude-code/QUICKSTART.md)
 - **"Compare host plugins across Claude Code and OpenClaw"** → [Host plugins (Mode A)](plugins.md)
-- **"Add a stochastic atom for tone, PII, or scope"** → [Stochastic atoms](reference/sto-atoms.md)
 - **"Understand why Sponsio uses LTL"** → [Architecture](concepts/architecture.md)
 - **"Map a control to OWASP Agentic Top 10 (2026)"** → [OWASP coverage](owasp-agentic-top-10.md)
 - **"Look up a CLI flag"** → [CLI reference](reference/cli.md)
-- **"Reproduce the ODCV-Bench numbers"** → [Benchmarks](BENCHMARKS.md)
-- **"Read the curated libraries that drive the benchmark headlines"** → [Benchmark contract libraries](reference/benchmark-libraries.md)
+- **"Push contract verdicts to my own observability platform"** → [Observability](observability.md)
+- **"See what's OSS vs Sponsio Cloud"** → [OSS scope](oss_scope.md)
+- **"Add a stochastic atom for tone, PII, or scope"** → Sponsio Cloud (`pip install sponsio[cloud]`)
 
 ---
 
