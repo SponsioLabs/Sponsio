@@ -50,8 +50,8 @@ Example:
 
 - [ ] Tests added or updated (or N/A — docs/CI only).
 - [ ] `pytest -v` passes locally.
-- [ ] `ruff check sponsio/ api/ tests/` is clean.
-- [ ] `ruff format --check sponsio/ api/ tests/` is clean.
+- [ ] `ruff check sponsio/ tests/ examples/ scripts/` is clean.
+- [ ] `ruff format --check sponsio/ tests/ examples/ scripts/` is clean.
 - [ ] `README.md` updated if a user-visible surface changed (new
       pattern, integration, CLI command, or public API).
 - [ ] `CHANGELOG.md` `[Unreleased]` section updated if this is a

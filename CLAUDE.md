@@ -78,15 +78,23 @@ sponsio/
 ├── scoring/           tool configuration risk scoring
 └── tracer/            event collection and grounding
 
-api/                   FastAPI dashboard backend
-web/                   dashboard frontend
+web/                   dashboard frontend (single-user local mode in OSS;
+                       multi-tenant + auth backend lives in Sponsio Cloud)
 ts/                    TypeScript workspace (npm workspaces)
 ├── packages/sdk/      @sponsio/sdk: det engine + framework integrations
 └── packages/scanner/  @sponsio/scan-ts: AST static scanner CLI
-docs/                  user-facing documentation
+docs/                  user-facing documentation (see `docs/oss_scope.md`
+                       for the OSS / Sponsio Cloud boundary)
 examples/              source-checkout demos and integration examples
+scripts/               one-off maintenance utilities (e.g. plugin sync)
 tests/                 pytest suite
 ```
+
+The `api/` FastAPI backend (multi-tenant dashboard, OTel ingest, monitor /
+score / leaderboard / playground routers) was moved to Sponsio Cloud
+(`pip install sponsio[cloud]`); it no longer ships in OSS. Local
+single-user observability uses `sponsio host trace --follow` /
+`sponsio report` / `sponsio.tracer.exporters.OtlpHttpExporter` instead.
 
 ## Core Invariants
 
@@ -181,8 +189,8 @@ The TS SDK covers deterministic runtime enforcement. Python currently has the br
 ```bash
 pip install -e ".[all]"
 pytest -v
-ruff check sponsio/ api/ tests/
-ruff format sponsio/ api/ tests/
+ruff check sponsio/ tests/ examples/ scripts/
+ruff format sponsio/ tests/ examples/ scripts/
 sponsio demo --scenario freeze --fast
 sponsio validate "tool `check_policy` must precede `issue_refund`"
 ```

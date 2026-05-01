@@ -296,9 +296,9 @@ OTEL Consumer           No            Yes                 None (framework has OT
 
 | Component | Exists? | Direction | Purpose |
 |-----------|---------|-----------|---------|
-| `sponsio/integrations/otel.py` (OTelExporter) | **Yes** | Sponsio --> OTEL | Export Sponsio's own contract-checking spans to any OTEL backend |
-| `api/routers/otel_ingest.py` | **Yes** | OTEL --> Dashboard | Receive OTEL spans into the dashboard for visualization |
-| OTEL Consumer / Atom Adapter | **No** | OTEL --> Evaluator | Extract atoms from framework OTEL spans, run LTL evaluation |
+| `sponsio/tracer/exporters.py` (`OtlpHttpExporter` + friends) | **Yes** | Sponsio → OTLP | Push Sponsio's contract-checking span tree to any OTLP/HTTP collector (Datadog / Honeycomb / Grafana / your own) |
+| OTLP ingestion at the dashboard | **Sponsio Cloud** | OTLP → Dashboard | Multi-tenant ingest with auth + retention; in OSS, ship spans to your own collector via the exporter above |
+| OTEL Consumer / Atom Adapter | **No** | OTEL → Evaluator | Extract atoms from framework OTEL spans, run LTL evaluation |
 
 The exporter (outbound) and ingestion (storage) already work. The missing piece is the **consumer** -- the component that closes the loop from OTEL spans back to contract verification.
 

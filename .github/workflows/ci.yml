@@ -88,13 +88,13 @@ jobs:
           cache: pip
 
       - name: Install ruff and dependencies
-        run: pip install ruff fastapi pydantic -e .
+        run: pip install ruff -e .
 
       - name: Check formatting
-        run: ruff format --check sponsio/ api/ tests/
+        run: ruff format --check sponsio/ tests/ examples/ scripts/
 
       - name: Check linting
-        run: ruff check sponsio/ api/ tests/
+        run: ruff check sponsio/ tests/ examples/ scripts/
 
       - name: Check README/QUICKSTART command sync
         run: |
