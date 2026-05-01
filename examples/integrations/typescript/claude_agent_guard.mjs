@@ -5,17 +5,17 @@
  * Shows the zero-wrapping hooks integration with the native TS SDK.
  *
  * Usage:
- *   cd ts-sdk && npm install
+ *   cd ts/packages/sdk && npm install
  *   node ../examples/integrations/typescript/claude_agent_guard.mjs
  */
 
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
-// Adjust path to load from ts-sdk/src
+// Adjust path to load from ts/packages/sdk/src
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const { Sponsio } = await import(resolve(__dirname, "..", "..", "..", "ts-sdk", "dist", "index.js"));
-const { sponsioHooks } = await import(resolve(__dirname, "..", "..", "..", "ts-sdk", "dist", "integrations", "claude-agent.js"));
+const { Sponsio } = await import(resolve(__dirname, "..", "..", "..", "ts", "packages", "sdk", "dist", "index.js"));
+const { sponsioHooks } = await import(resolve(__dirname, "..", "..", "..", "ts", "packages", "sdk", "dist", "integrations", "claude-agent.js"));
 
 const CONTRACTS = [
   "tool `check_policy` must precede `issue_refund`",

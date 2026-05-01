@@ -7,7 +7,7 @@
  * ``client.chat.completions.create(...)`` is contract-guarded.
  *
  * Usage:
- *   cd ts-sdk && npm install && npm run build
+ *   cd ts/packages/sdk && npm install && npm run build
  *   node ../examples/integrations/typescript/openai_guard.mjs
  */
 
@@ -16,7 +16,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const { Sponsio } = await import(
-  resolve(__dirname, "..", "..", "..", "ts-sdk", "dist", "index.js")
+  resolve(__dirname, "..", "..", "..", "ts", "packages", "sdk", "dist", "index.js")
 );
 // patchOpenAI is re-exported alongside wrapOpenAI — both mutate the
 // client in place and return it. Pick the name that reads best next
@@ -27,7 +27,9 @@ const { patchOpenAI } = await import(
     "..",
     "..",
     "..",
-    "ts-sdk",
+    "ts",
+    "packages",
+    "sdk",
     "dist",
     "integrations",
     "openai.js",

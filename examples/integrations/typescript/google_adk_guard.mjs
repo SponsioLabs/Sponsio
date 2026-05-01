@@ -5,7 +5,7 @@
  * objects. Mock mode uses the same object shape: name + execute.
  *
  * Usage:
- *   cd ts-sdk && npm install && npm run build
+ *   cd ts/packages/sdk && npm install && npm run build
  *   node ../examples/integrations/typescript/google_adk_guard.mjs
  */
 
@@ -14,7 +14,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const { Sponsio } = await import(
-  resolve(__dirname, "..", "..", "..", "ts-sdk", "dist", "index.js")
+  resolve(__dirname, "..", "..", "..", "ts", "packages", "sdk", "dist", "index.js")
 );
 const { wrapGoogleAdkTools } = await import(
   resolve(
@@ -22,7 +22,9 @@ const { wrapGoogleAdkTools } = await import(
     "..",
     "..",
     "..",
-    "ts-sdk",
+    "ts",
+    "packages",
+    "sdk",
     "dist",
     "integrations",
     "google-adk.js",

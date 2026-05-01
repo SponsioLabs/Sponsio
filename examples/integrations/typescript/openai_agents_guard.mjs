@@ -12,7 +12,7 @@
  * boundary.
  *
  * Usage:
- *   cd ts-sdk && npm install && npm run build
+ *   cd ts/packages/sdk && npm install && npm run build
  *   node ../examples/integrations/typescript/openai_agents_guard.mjs
  */
 
@@ -21,7 +21,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const { Sponsio, contract } = await import(
-  resolve(__dirname, "..", "..", "..", "ts-sdk", "dist", "index.js")
+  resolve(__dirname, "..", "..", "..", "ts", "packages", "sdk", "dist", "index.js")
 );
 const { wrapAgentsTools } = await import(
   resolve(
@@ -29,7 +29,9 @@ const { wrapAgentsTools } = await import(
     "..",
     "..",
     "..",
-    "ts-sdk",
+    "ts",
+    "packages",
+    "sdk",
     "dist",
     "integrations",
     "openai-agents.js",

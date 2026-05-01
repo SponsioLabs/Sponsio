@@ -12,7 +12,7 @@
  *   - ``guard.printSummary()`` for ad-hoc review
  *
  * Usage:
- *   cd ts-sdk && npm install && npm run build
+ *   cd ts/packages/sdk && npm install && npm run build
  *   node ../examples/integrations/typescript/vanilla_guard.mjs
  */
 
@@ -21,7 +21,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const { Sponsio, contract } = await import(
-  resolve(__dirname, "..", "..", "..", "ts-sdk", "dist", "index.js")
+  resolve(__dirname, "..", "..", "..", "ts", "packages", "sdk", "dist", "index.js")
 );
 
 const CONTRACTS = [

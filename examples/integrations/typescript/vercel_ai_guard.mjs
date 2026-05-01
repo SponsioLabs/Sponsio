@@ -5,7 +5,7 @@
  * Shows sponsioMiddleware integration for Vercel AI SDK.
  *
  * Usage:
- *   cd ts-sdk && npm install
+ *   cd ts/packages/sdk && npm install
  *   node ../examples/integrations/typescript/vercel_ai_guard.mjs
  */
 
@@ -13,7 +13,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const { Sponsio } = await import(resolve(__dirname, "..", "..", "..", "ts-sdk", "dist", "index.js"));
+const { Sponsio } = await import(resolve(__dirname, "..", "..", "..", "ts", "packages", "sdk", "dist", "index.js"));
 
 const CONTRACTS = [
   "tool `review_content` must precede `publish_post`",

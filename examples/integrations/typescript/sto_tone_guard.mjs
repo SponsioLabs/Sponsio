@@ -28,7 +28,7 @@ import { join } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const { Sponsio } = await import(
-  resolve(__dirname, "..", "..", "..", "ts-sdk", "dist", "index.js")
+  resolve(__dirname, "..", "..", "..", "ts", "packages", "sdk", "dist", "index.js")
 );
 
 const USE_LIVE = !!process.env.OPENAI_API_KEY && process.env.USE_MOCK !== "1";
