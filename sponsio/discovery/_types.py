@@ -4,9 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import TYPE_CHECKING, Any
 
 from sponsio.patterns.library import DetFormula
-from sponsio.patterns.sto import StoFormula
+
+if TYPE_CHECKING:
+    # ``StoFormula`` lives in the (cloud) sto pipeline; the OSS engine
+    # ships only the type hint so dataclass annotations resolve cleanly
+    # without importing the missing module at runtime. ``ProposedConstraint.sto``
+    # stays typed for downstream consumers; assigning a real ``StoFormula``
+    # to it requires ``sponsio[cloud]``.
+    pass  # type: ignore[import-not-found]
 
 
 class DiscoverySource(str, Enum):
@@ -46,7 +54,7 @@ class ProposedConstraint:
 
     formula: DetFormula | None = None
     assumption: DetFormula | None = None
-    sto: StoFormula | None = None
+    sto: Any = None  # StoFormula in cloud builds; Any in OSS to keep import-light
     source: DiscoverySource = DiscoverySource.AUTO_EXTRACTED
     extractor: str = ""
     confidence: float = 1.0

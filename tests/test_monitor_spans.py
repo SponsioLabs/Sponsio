@@ -6,12 +6,8 @@ from sponsio.models.spans import (
     ContractCheckSpan,
     EnforcementSpan,
     GuaranteeSpan,
-    StoCheckSpan,
-    StoEvalSpan,
     ViolationSpan,
 )
-from sponsio.runtime.evaluators import StoEvaluator, StoResult
-from sponsio.models.trace import Trace
 
 
 # =============================================================================
@@ -133,74 +129,6 @@ class TestHardPipelineSpans:
 
 # =============================================================================
 # Sto pipeline spans
-# =============================================================================
-
-
-class TestSoftPipelineSpans:
-    def _make_guard_with_soft(self, score: float = 0.3):
-        """Helper: guard with one sto constraint."""
-
-        def tone_check(trace: Trace) -> StoResult:
-            return StoResult(
-                score=score,
-                evidence="aggressive language detected",
-                suggestion="use neutral tone",
-            )
-
-        evaluator = StoEvaluator()
-        evaluator.register("tone_appropriate", tone_check, threshold=0.5)
-
-        guard = LangGraphGuard(
-            agent_id="bot",
-            sto_evaluator=evaluator,
-        )
-        return guard
-
-    def test_soft_violation_produces_soft_check_span(self):
-        guard = self._make_guard_with_soft(score=0.3)
-        guard.pre_check("generate_reply")
-
-        span = guard.last_check_span
-        assert span is not None
-        assert span.sto_violations >= 1
-
-        # Find sto check container
-        soft_checks = [c for c in span.children if isinstance(c, StoCheckSpan)]
-        assert len(soft_checks) == 1
-
-        # Find sto eval inside
-        soft_check = soft_checks[0]
-        soft_evals = [c for c in soft_check.children if isinstance(c, StoEvalSpan)]
-        assert len(soft_evals) == 1
-
-        se = soft_evals[0]
-        assert se.constraint_name == "tone_appropriate"
-        assert se.score == 0.3
-        assert se.threshold == 0.5
-        assert se.passed is False
-        assert se.status == "violated"
-
-        # Should have violation + enforcement children
-        assert any(isinstance(c, ViolationSpan) for c in se.children)
-        assert any(isinstance(c, EnforcementSpan) for c in se.children)
-
-    def test_soft_passing_produces_ok_span(self):
-        guard = self._make_guard_with_soft(score=0.9)
-        result = guard.pre_check("generate_reply")
-        assert result.allowed
-
-        span = guard.last_check_span
-        assert span is not None
-        assert span.sto_violations == 0
-
-        # Sto check should still exist but be ok
-        soft_checks = [c for c in span.children if isinstance(c, StoCheckSpan)]
-        assert len(soft_checks) == 1
-        assert soft_checks[0].status == "ok"
-
-
-# =============================================================================
-# Monitor span properties
 # =============================================================================
 
 

@@ -348,25 +348,6 @@ class TestCheckNL:
         assert v.check_nl("tool `X` at most 3 times").holds is False
         assert v.check_nl("tool `X` at most 10 times").holds is True
 
-    def test_check_nl_rejects_sto_rule(self):
-        import pytest
-
-        v = TraceVerifier()
-        v.sync(_trace("X"))
-        # Use a truly sto rule — "empathetic" routes through the tone
-        # evaluator (LLM-judged). Per-P2 the regex/length rules are now
-        # det and wouldn't trigger this path.
-        with pytest.raises(ValueError, match="sto"):
-            v.check_nl("response must be empathetic")
-
-    def test_check_nl_rejects_garbage(self):
-        import pytest
-
-        v = TraceVerifier()
-        v.sync(_trace("X"))
-        with pytest.raises(ValueError):
-            v.check_nl("asdkjfhasdjkfh nonsense")
-
 
 class TestBaseGuardCheckNL:
     """BaseGuard.check_nl is a thin wrapper around TraceVerifier.check_nl

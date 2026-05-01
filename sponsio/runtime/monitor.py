@@ -46,7 +46,7 @@ from sponsio.runtime.strategies import (
     RetryWithConstraint,
     RedirectToSafe,
 )
-from sponsio.runtime.verifier import TraceVerifier, Verdict, _is_det
+from sponsio.runtime.verifier import TraceVerifier, Verdict
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +112,37 @@ class LessonFormatter:
             pieces.append(f"Suggestion: {verdict.suggestion}")
         pieces.append("Please revise and retry.")
         return "\n".join(pieces)
+
+
+# Process-wide flag so the "sto pipeline is a cloud feature" warning
+# fires once total, not once per turn — long-running agents would
+# otherwise spam the operator's console for every check_action.
+_STO_WARNING_FIRED: set[str] = set()
+
+
+def _warn_sto_skipped(contract_label: str) -> None:
+    """Emit a single one-time warning per contract that would have used
+    the sto (probabilistic / LLM-judge) pipeline.
+
+    The OSS engine only enforces deterministic contracts. Contracts that
+    rely on stochastic atoms (``no_pii`` / ``tone_polite`` / ``injection_free`` …)
+    require Sponsio Cloud's atom catalog + judge harness; in the OSS
+    runtime they're skipped (vacuously satisfied) rather than blocked.
+    Operators who load a yaml mixing det + sto contracts should see
+    this warning once per contract so silent no-ops don't surprise
+    them at audit time.
+    """
+    if contract_label in _STO_WARNING_FIRED:
+        return
+    _STO_WARNING_FIRED.add(contract_label)
+    logger.warning(
+        "Skipping stochastic contract %r — the sto pipeline (LLM-judge "
+        "atoms) is a Sponsio Cloud feature, not bundled with the OSS "
+        "engine. Det contracts in the same library continue to enforce. "
+        "Install ``sponsio[cloud]`` or contact your account team to "
+        "enable the sto pipeline.",
+        contract_label,
+    )
 
 
 def _has_liftable_formulas(contract) -> bool:
@@ -607,24 +638,13 @@ class RuntimeMonitor:
                 with CheckTimer(self._perf_tracker, label, is_pure_det=True):
                     verdict = self._verifier.check_contract(contract)
             elif _has_liftable_formulas(contract):
-                collector.start_contract_check(label, pipeline="sto")
-                # Scope the per-guard judge to the evaluation so
-                # atom-registered evaluators pick it up via ContextVar.
-                from sponsio.patterns.sto_catalog import _use_judge
-
-                # ``is_pure_det=False`` defers bucket selection until
-                # the timer exits — if the TLS LLM-call counter moved
-                # during evaluation the sample goes to ``sto_live``,
-                # otherwise to ``sto_cached`` (meaning: this sto
-                # contract was resolved purely from the atom memo,
-                # zero LLM calls on this turn — which is the common
-                # steady-state path we want to make visible).
-                with CheckTimer(self._perf_tracker, label, is_pure_det=False):
-                    if self._sto_judge is not None:
-                        with _use_judge(self._sto_judge):
-                            verdict = self._check_contract_with_confidence(contract)
-                    else:
-                        verdict = self._check_contract_with_confidence(contract)
+                # Sto pipeline (probabilistic / LLM-judge contracts) is
+                # a Sponsio Cloud feature in this build; the OSS engine
+                # only enforces deterministic contracts. Skip and warn
+                # once per process so contracts authored against the
+                # cloud surface don't silently no-op.
+                _warn_sto_skipped(label)
+                continue
             else:
                 # Legacy StoFormula contract — _check_sto handles it.
                 continue
@@ -729,155 +749,17 @@ class RuntimeMonitor:
         return results
 
     def _check_contract_with_confidence(self, contract):
-        """Probabilistic-lifting evaluation for contracts with sto atoms
-        or non-default (α, β) thresholds.
+        """Stub: sto pipeline is a Sponsio Cloud feature.
 
-        Returns a :class:`ContractVerdict`-shaped result using synthetic
-        :class:`Verdict` objects so the downstream span / enforcement
-        handling in :meth:`_check_det` works unchanged.
-
-        Semantics (see ``docs/cost-based-thresholds.md`` §2):
-
-        * Assumption triggered iff ``conf(A) ≥ contract.alpha``. When
-          *not* triggered, every enforcement is marked ``holds=True``
-          (vacuously satisfied).
-        * Each enforcement entry is satisfied iff ``conf(E) ≥ contract.beta``.
-        * Lists on either side are treated as independent entries —
-          each gets its own synthetic Verdict. This mirrors the det
-          path and keeps per-entry span output.
+        OSS callers should never reach this method — the dispatch in
+        :meth:`_check_det` short-circuits on sto contracts and emits a
+        one-time warning via :func:`_warn_sto_skipped`. Kept as a typed
+        no-op so any in-tree caller that bypasses the dispatch still
+        gets a clean empty verdict instead of an attribute error.
         """
-        from sponsio.runtime.sto_lifting import eval_sto_confidence
-        from sponsio.runtime.verifier import ContractVerdict, Verdict
-        from sponsio.tracer.grounding import collect_content_atoms, ground
+        from sponsio.runtime.verifier import ContractVerdict
 
-        def _unwrap(item):
-            inner = getattr(item, "formula", None)
-            return inner if inner is not None else item
-
-        def _describe(item, fallback: str) -> str:
-            desc = getattr(item, "desc", None)
-            if desc:
-                return desc
-            # Fall back to repr (Atom → "injection_free()", Not → "!(...)")
-            # before the generic fallback string — much more useful for
-            # logs and retry prompts than "enforcement".
-            if item is not None:
-                try:
-                    return repr(item)
-                except Exception:
-                    pass
-            return fallback
-
-        formulas = [_unwrap(x) for x in contract.assumptions + contract.enforcements]
-        content_atoms = collect_content_atoms(formulas)
-        agents = {c.agent.id: c.agent for c in self._system.contracts}
-        valuations = ground(self._trace, agents=agents, content_atoms=content_atoms)
-
-        cache: dict = {}
-        # Persistent per-contract atom cache. Event content at each
-        # position is immutable once appended, so an atom's score at
-        # that position never changes after the first evaluation.
-        # Reusing the cache across check_action calls drops the cost
-        # of formulas like G(atom) from O(n) LLM calls per event to
-        # O(1) — total linear instead of quadratic.
-        atom_cache = self._atom_caches.setdefault(contract, {})
-        cv = ContractVerdict()
-
-        # --- Assumption side ---
-        # IMPORTANT — the sto assumption is a *trigger threshold*, not a
-        # precondition. conf(A) < α means "the contract doesn't apply
-        # right now", which is semantically different from a det
-        # assumption violation (upstream flow problem → escalate).
-        # When not triggered we return an empty ContractVerdict so the
-        # monitor skips the contract cleanly, no escalation emitted.
-        triggered = True
-        for a_item in contract.assumptions:
-            formula = _unwrap(a_item)
-            stable_key = _describe(a_item, "assumption")
-            try:
-                conf = eval_sto_confidence(
-                    formula,
-                    valuations,
-                    self._trace,
-                    t=0,
-                    cache=cache,
-                    atom_cache=atom_cache,
-                )
-            except Exception as e:
-                # Missing sto evaluator / bad formula — surface as a
-                # real assumption failure so it escalates to a human.
-                # Also log so the underlying error (judge timeout, missing
-                # atom registration, malformed formula) is diagnosable —
-                # the verdict desc only carries the str(e), not the
-                # traceback.
-                logger.exception(
-                    "sto-lifting failure on assumption %r in contract %r",
-                    stable_key,
-                    getattr(contract, "desc", contract),
-                )
-                cv.assumptions.append(
-                    Verdict(
-                        holds=False,
-                        desc=f"{stable_key} [lifting error: {e}]",
-                        kind="assumption",
-                        formula=formula,
-                        policy_key=stable_key,
-                    )
-                )
-                return cv  # abort — no enforcement side
-            if conf < contract.alpha:
-                triggered = False
-                break  # contract doesn't apply; skip enforcement entirely
-
-        # --- Enforcement side ---
-        if not triggered:
-            # Not triggered → vacuously satisfied. Empty ContractVerdict
-            # tells the monitor "nothing to check for this contract".
-            return cv
-
-        for e_item in contract.enforcements:
-            formula = _unwrap(e_item)
-            stable_key = _describe(e_item, "enforcement")
-            try:
-                conf = eval_sto_confidence(
-                    formula,
-                    valuations,
-                    self._trace,
-                    t=0,
-                    cache=cache,
-                    atom_cache=atom_cache,
-                )
-            except Exception as e:
-                logger.exception(
-                    "sto-lifting failure on enforcement %r in contract %r",
-                    stable_key,
-                    getattr(contract, "desc", contract),
-                )
-                cv.enforcements.append(
-                    Verdict(
-                        holds=False,
-                        desc=f"{stable_key} [lifting error: {e}]",
-                        kind="enforcement",
-                        formula=formula,
-                        policy_key=stable_key,
-                    )
-                )
-                continue
-            holds = conf >= contract.beta
-            label = f"{stable_key} [conf={conf:.3f}, β={contract.beta:.3f}]"
-            cv.enforcements.append(
-                Verdict(
-                    holds=holds,
-                    desc=label,
-                    kind="enforcement",
-                    formula=formula,
-                    score=float(conf),
-                    threshold=float(contract.beta),
-                    policy_key=stable_key,
-                )
-            )
-
-        return cv
+        return ContractVerdict()
 
     # -----------------------------------------------------------------
     # Det-pipeline helpers (side effects isolated from eval)
@@ -1088,148 +970,12 @@ class RuntimeMonitor:
         context: ActionContext,
         collector: SpanCollector,
     ) -> list[EnforcementResult]:
-        """Runs the sto evaluation pipeline.
+        """Stub: sto pipeline is a Sponsio Cloud feature.
 
-        For each contract whose enforcement contains sto constraints:
-        1. Evaluate the contract's assumption (det). If it fails, skip
-           all sto constraints on this contract.
-        2. Otherwise, run each sto constraint through the evaluator and
-           apply retry/redirect strategies for any below-threshold
-           scores.
+        Returns an empty result list so the per-turn aggregation in
+        :meth:`check_action` continues unchanged. Operators see the
+        per-contract sto-skipped warning via :func:`_warn_sto_skipped`
+        emitted from :meth:`_check_det`; this method has nothing to
+        add beyond that.
         """
-        results: list[EnforcementResult] = []
-
-        if self._sto_evaluator is None:
-            return results
-
-        # Sync verifier so assumption-gating queries hit current trace state.
-        # _check_det ran first and already synced, but resync defensively
-        # in case something mutated the trace between the two pipelines.
-        agents = {c.agent.id: c.agent for c in self._system.contracts}
-        self._verifier.set_agents(agents)
-        self._verifier.sync_from_contracts(self._trace, self._system.contracts)
-
-        # Collect prop names owned by each contract on this agent
-        owned_by_contract: set[str] = set()
-        gated_pass: set[str] = set()  # props whose contract's assumption holds
-        gated_fail: set[str] = set()  # props whose contract's assumption fails
-
-        for contract in self._system.contracts:
-            if contract.agent.id != agent_id:
-                continue
-            # Assumption check is per-contract, not per-enforcement. Hoisting
-            # it out of the enforcement loop saves N-1 redundant verifier
-            # calls for any contract that bundles multiple sto clauses (each
-            # extra call re-evaluates the same formula against the same
-            # trace). Det-only contracts skip the inner loop entirely and
-            # never reach this branch.
-            if contract.is_unconditional:
-                assumption_holds = True
-            else:
-                assumption_holds = self._verifier.check_assumption(contract).holds
-            for e in contract.enforcements:
-                if _is_det(e):
-                    continue
-                prop_name = getattr(e, "desc", str(e))
-                owned_by_contract.add(prop_name)
-                if assumption_holds:
-                    gated_pass.add(prop_name)
-                else:
-                    gated_fail.add(prop_name)
-
-        # Active = any prop that either (a) is attached to a contract whose
-        # assumption currently holds, or (b) is registered on the evaluator
-        # directly without any owning contract (treat as unconditional).
-        checked = self._sto_evaluator.check(self._trace)
-        if not checked:
-            return results
-
-        active: set[str] = set()
-        for prop_name in checked:
-            if prop_name in gated_fail and prop_name not in gated_pass:
-                continue  # gated out by failing assumption
-            if prop_name in gated_pass:
-                active.add(prop_name)
-            elif prop_name not in owned_by_contract:
-                # Not attached to any contract for this agent -> unconditional
-                active.add(prop_name)
-
-        if not active:
-            return results
-
-        collector.start_sto_check()
-
-        for prop_name, (passed, sto_result) in checked.items():
-            if prop_name not in active:
-                continue  # assumption gating filtered this out
-
-            threshold = self._sto_evaluator.get_threshold(prop_name)
-            collector.start_sto_eval(
-                constraint_name=prop_name,
-                score=sto_result.score,
-                threshold=threshold,
-                passed=passed,
-            )
-
-            if passed:
-                collector.finish_span("ok")
-                continue
-
-            collector.add_violation(
-                kind="sto",
-                severity="MEDIUM",
-                evidence=sto_result.evidence,
-            )
-
-            violation = Violation(
-                agent_id=agent_id,
-                formula=None,  # type: ignore[arg-type]
-                kind="sto",
-                desc=prop_name,
-                details=f"Sto constraint violated: {sto_result.evidence}",
-            )
-
-            strategy = self._policy.get(prop_name)
-            if strategy is None:
-                strategy = RetryWithConstraint(
-                    max_retries=2, feedback_generator=self._feedback_generator
-                )
-            if isinstance(strategy, (DetBlock, EscalateToHuman)):
-                strategy = RetryWithConstraint(
-                    max_retries=2, feedback_generator=self._feedback_generator
-                )
-
-            if isinstance(strategy, RetryWithConstraint):
-                template = self._sto_evaluator.get_feedback_template(prop_name)
-                enf_result = strategy.enforce(
-                    violation,
-                    context,
-                    sto_result=sto_result,
-                    feedback_template=template,
-                )
-            else:
-                enf_result = strategy.enforce(violation, context)
-
-            enf_result = self._maybe_downgrade(enf_result)
-
-            collector.add_enforcement(
-                strategy=type(strategy).__name__,
-                result_action=enf_result.action,
-            )
-
-            collector.finish_span("violated")
-
-            monitor_event = MonitorEvent(
-                agent_id=agent_id,
-                action=context.action,
-                pipeline="sto",
-                constraint_name=prop_name,
-                result=enf_result,
-                sto_result=sto_result,
-            )
-            self._emit(monitor_event)
-            results.append(enf_result)
-
-        collector.finish_span("violated" if results else "ok")
-
-        return results
+        return []

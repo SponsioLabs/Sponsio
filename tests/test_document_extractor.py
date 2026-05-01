@@ -126,27 +126,6 @@ class TestDocumentExtractor:
         # Unknown patterns fail compilation and are filtered out
         assert len(results) == 0
 
-    def test_soft_constraint_from_llm(self):
-        """LLM can directly return sto constraints with proper type field."""
-        response = {
-            "constraints": [
-                {
-                    "type": "sto",
-                    "category": "pii",
-                    "params": {},
-                    "nl": "Response must not contain PII",
-                    "confidence": 0.9,
-                    "source_quote": "No personal data in responses.",
-                },
-            ]
-        }
-        client = MockOpenAIClient(response)
-        extractor = DocumentExtractor(client=client)
-        results = extractor.extract("No personal data in responses.")
-        assert len(results) == 1
-        assert results[0].is_sto
-        assert results[0].sto.category == "pii"
-
     def test_empty_document(self):
         client = MockOpenAIClient({"constraints": []})
         extractor = DocumentExtractor(client=client)

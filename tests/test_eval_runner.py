@@ -200,19 +200,6 @@ class TestRunEval:
         # Only the two labelled cases contribute
         assert m.tp + m.fp + m.fn + m.tn == 2
 
-    def test_sto_contract_skipped_not_counted(self, tmp_path):
-        """A pure-sto / unparseable contract has no deterministic
-        verdict — it should land in ``skipped`` instead of being
-        treated as either pass or block."""
-        _write(tmp_path, "safe_a.json", "verify")
-        _write(tmp_path, "unsafe_a.json", "transfer")
-
-        cases = discover_cases(tmp_path)
-        report = run_eval(cases, ["something unparseable garbage 123"])
-        m = report.contracts[0]
-        assert m.skipped == 2
-        assert (m.tp, m.fp, m.fn, m.tn) == (0, 0, 0, 0)
-
     def test_overall_any_contract_blocks(self, tmp_path):
         """Overall (corpus-wide) FPR/FNR uses an OR over contracts:
         if *any* contract trips, the trace is "blocked".  This is the

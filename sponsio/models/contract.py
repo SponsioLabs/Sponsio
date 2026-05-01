@@ -215,7 +215,16 @@ class Contract:
         """
         if self.alpha != 1.0 or self.beta != 1.0:
             return False
-        from sponsio.runtime.sto_lifting import _all_det
+        # ``_all_det`` lives in the (cloud) sto-lifting module; the OSS
+        # engine ships only the deterministic pipeline. Best-effort
+        # import keeps the cloud path live when both packages are
+        # installed; absent it, every contract that reached this point
+        # is by definition pure-det (sto formula construction needs the
+        # cloud module too).
+        try:  # pragma: no cover - guarded import
+            from sponsio.runtime.sto_lifting import _all_det  # type: ignore[import-not-found]
+        except ImportError:
+            return True
 
         for item in self.enforcements + self.assumptions:
             inner = _unwrap(item)

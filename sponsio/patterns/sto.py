@@ -1,82 +1,47 @@
-"""StoFormula — the semantic counterpart to DetFormula.
+"""Stub for the sto (stochastic / LLM-judge) pipeline.
 
-While DetFormula wraps an LTL formula whose leaves are det atoms
-(binary pass/fail with :math:`\\alpha=\\beta=1`), StoFormula covers the
-sto pipeline — any formula whose leaves include atoms with
-``atom_type="sto"``, plus the legacy closure-evaluator path.
+The real ``StoFormula`` + sto evaluation engine is a Sponsio Cloud
+feature, not bundled with the OSS engine. This stub keeps lazy
+``from sponsio.patterns.sto import StoFormula`` imports across the
+codebase from breaking at module load — instead, the failure surfaces
+when sto behavior is actually invoked.
 
-Two shapes, exactly one may be set per instance:
+Operators who want the sto pipeline:
 
-* ``formula`` — an LTL ``Formula`` AST whose leaves may be sto Atoms.
-  Evaluated via :func:`sponsio.runtime.sto_lifting.eval_sto_confidence`.
-  This is the preferred shape for new atom-registered evaluators.
-* ``evaluator_fn`` — legacy closure ``(Trace) -> StoResult``. Used by
-  the six bundled closure-based categories (pii / length / format /
-  tone / relevance / content_prohibition) until they migrate to atom
-  form.
+    pip install sponsio[cloud]
 
-Both can appear in ``Contract.enforcement``. StoFormula inside an
-``assumption`` field is ignored — assumptions must be det.
+or contact your Sponsio account team for hosted access.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
 
-from sponsio.formulas.formula import FormulaMixin
-from sponsio.models.trace import Trace
-from sponsio.runtime.evaluators import StoResult
+class _CloudFeatureError(ImportError):
+    """Raised when OSS code paths reach a sto-only operation.
 
-
-@dataclass
-class StoFormula:
-    """A semantic constraint evaluated in the sto pipeline.
-
-    Attributes:
-        desc: Human-readable description (the original NL text).
-        category: Sto constraint category
-            (pii / tone / relevance / format / length /
-            content_prohibition / custom or an atom predicate name
-            like ``"injection_free"``).
-        formula: Optional LTL ``Formula`` whose leaves include sto
-            atoms. Mutually exclusive with ``evaluator_fn``.
-        evaluator_fn: Legacy scoring closure ``(Trace) -> StoResult``.
-            Mutually exclusive with ``formula``.
-        threshold: Minimum score to pass (0.0–1.0).
-        feedback_template: Optional template for FeedbackGenerator.
-        pattern_name: Always ``"sto"`` for discovery parity.
-        requires_llm: Whether this evaluator needs an LLM call.
+    Subclasses :class:`ImportError` so the standard ``try/except
+    ImportError`` guard already used at most lazy-import sites
+    catches it as the cloud-feature absence signal.
     """
 
-    desc: str
-    category: str = "custom"
-    formula: Optional[Any] = None  # Formula — Any to avoid fwd-ref issues
-    evaluator_fn: Optional[Callable[[Trace], StoResult]] = field(
-        default=None, repr=False
-    )
-    threshold: float = 0.7
-    feedback_template: Optional[str] = None
-    pattern_name: str = "sto"
-    requires_llm: bool = False
 
-    def __post_init__(self) -> None:
-        if self.formula is None and self.evaluator_fn is None:
-            raise ValueError(
-                "StoFormula requires exactly one of `formula` (LTL AST with "
-                "sto atoms) or `evaluator_fn` (legacy closure). Both were None."
-            )
-        if self.formula is not None and self.evaluator_fn is not None:
-            raise ValueError(
-                "StoFormula: `formula` and `evaluator_fn` are mutually "
-                "exclusive. Set one, not both."
-            )
-        if self.formula is not None and not isinstance(self.formula, FormulaMixin):
-            raise TypeError(
-                f"StoFormula.formula must be a Formula AST, got "
-                f"{type(self.formula).__name__}"
-            )
+class StoFormula:
+    """Placeholder for the cloud :class:`StoFormula` AST.
 
+    Constructing one in OSS raises :class:`_CloudFeatureError` with a
+    pointer to the cloud package. The class itself is importable so
+    ``isinstance`` checks and type hints elsewhere don't break.
+    """
 
-# Backward-compatible alias
-StoConstraint = StoFormula
+    def __init__(self, *args, **kwargs) -> None:
+        raise _CloudFeatureError(
+            "sponsio.patterns.sto.StoFormula is a Sponsio Cloud feature. "
+            "Install via `pip install sponsio[cloud]` or contact your "
+            "account team."
+        )
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        # Allow downstream subclassing for type compatibility, but the
+        # base ``__init__`` still raises if anyone instantiates the
+        # subclass without overriding it.
+        super().__init_subclass__(**kwargs)
