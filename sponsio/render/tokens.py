@@ -80,6 +80,9 @@ SYMBOLS: dict[str, str] = {
     "tree_end": "└─",
     "rule_heavy": "━",
     "rule_light": "─",
+    # Brand mark — the half-filled circle pair from the original
+    # `print_banner`. Sits between the heavy rule and the brand name.
+    "logo": "◒◓",
 }
 
 

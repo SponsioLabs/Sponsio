@@ -26,9 +26,14 @@ def header_banner(
     brand: str = "Sponsio",
     tagline: str = "runtime contract enforcement",
 ) -> Rule:
-    """Top-of-output banner: ``━━━ Sponsio ━━━ tagline ━━━━━━━━━``."""
+    """Top-of-output banner: ``━━━ ◒◓ Sponsio ━━━ tagline ━━━━━━━━━``.
+
+    The ``◒◓`` brand mark matches the original ``print_banner`` glyph
+    pair carried over from the pre-Rich terminal output.
+    """
     title = Text.assemble(
         ("━━━ ", PALETTE["rule"]),
+        (f"{SYMBOLS['logo']} ", f"bold {PALETTE['brand']}"),
         (brand, f"bold {PALETTE['brand']}"),
         (" ━━━ ", PALETTE["rule"]),
         (tagline, PALETTE["fg"]),
