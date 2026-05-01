@@ -5238,19 +5238,14 @@ def host_trace(name: str, follow: bool, container: str | None):
         )
         sys.exit(1)
 
-    palette = {
-        "call": "yellow",
-        "ok": "green",
-        "block": "red",
-        "text": "cyan",
-        "user": None,  # default fg
-        "error": "red",
-    }
+    from sponsio.render.host_trace import make_stdout_console, print_line
+
+    console = make_stdout_console()
     try:
         for level, line in host_spec.trace_fn(
             host_spec, follow=follow, container=container
         ):
-            click.secho(line, fg=palette.get(level))
+            print_line(console, level, line)
     except KeyboardInterrupt:
         # Clean exit on Ctrl-C so the recording terminal doesn't show a stack trace.
         click.echo()
