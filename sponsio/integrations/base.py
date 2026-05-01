@@ -551,6 +551,11 @@ class BaseGuard:
         # the fact.  All three paths land on the same ``_auto_summary``
         # flag.
         self._summary_printed: bool = False
+        # Set when print_summary() dispatched to the Rich session-view
+        # renderer (which already includes a perf line). Used by
+        # _auto_perf_report to skip the legacy perf table — the export
+        # + slow-DFA warning still run independently.
+        self._rich_view_printed: bool = False
         self._auto_summary: bool = auto_summary
         atexit.register(self._auto_print_summary)
 
@@ -2018,6 +2023,7 @@ class BaseGuard:
                 contracts=list(self._system._contracts),
                 turn_spans=turn_spans,
             )
+            self._rich_view_printed = True
             return True
         except Exception:
             # Never let a render bug swallow the summary.
@@ -2097,7 +2103,15 @@ class BaseGuard:
         # pattern: dashboards consume perf.json, humans don't need
         # the stderr table).
         should_print = report_mode == "always" or (
-            report_mode == "auto" and self._verbose and sys.stderr.isatty()
+            report_mode == "auto"
+            and self._verbose
+            and sys.stderr.isatty()
+            # The Rich session view already includes its own perf line
+            # (35 checks / det% / p50 / p99 / max). Re-printing the
+            # legacy table right after would duplicate the same numbers
+            # in two visually-incompatible formats. Skip when the new
+            # view ran; export + warn below still fire.
+            and not self._rich_view_printed
         )
         if should_print:
             from sponsio.runtime.perf import format_summary

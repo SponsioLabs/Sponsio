@@ -166,8 +166,15 @@ def _render_turn(
     is_last: bool,
     contracts: list,
     alias_map: dict[str, str],
+    activated_contracts: set[str],
 ) -> list[Text]:
-    """Render one tool-call AgentTurnSpan + its nested checks as Text rows."""
+    """Render one tool-call AgentTurnSpan + its nested checks as Text rows.
+
+    ``activated_contracts`` is mutated in place — the renderer adds an
+    alias the first time we emit its ``contract Cn → ACTIVE`` line, so
+    subsequent turns don't repeat the activation announcement (each
+    contract activates exactly once per session).
+    """
     rows: list[Text] = []
     branch = "└─" if is_last else "├─"
     timestamp = format_relative_time(session_start, turn.start_time)
@@ -198,7 +205,11 @@ def _render_turn(
         for child in check.children:
             kind = getattr(child, "span_type", "")
             if kind == "sponsio.precondition":
-                if child.result:
+                # Only announce a satisfied assumption the *first* time
+                # the contract becomes ACTIVE; subsequent turns re-evaluate
+                # the assumption but the contract was already armed.
+                if child.result and alias not in activated_contracts:
+                    activated_contracts.add(alias)
                     rows.append(
                         assume_line(
                             contract_alias=alias,
@@ -316,6 +327,13 @@ def render_session(
         console.print(indent(section_rule("trace")))
         # Use the first turn's start_time as t=0.
         session_start = turn_spans[0].start_time
+        # Bare contracts (no assumption) are ACTIVE from step 0; pre-seed
+        # the dedup set so we don't announce activation for them.
+        activated_contracts: set[str] = {
+            short_contract_alias(_contract_label(c), i)
+            for i, c in enumerate(contracts)
+            if not (getattr(c, "assumptions", []) or [])
+        }
         for i, turn in enumerate(turn_spans):
             is_last = i == len(turn_spans) - 1
             for row in _render_turn(
@@ -324,6 +342,7 @@ def render_session(
                 is_last=is_last,
                 contracts=contracts,
                 alias_map=alias_map,
+                activated_contracts=activated_contracts,
             ):
                 console.print(indent(row))
         console.print()

@@ -370,6 +370,44 @@ def test_render_handles_empty_turn_spans():
     assert "trace" not in plain or "trace" in plain.split("VERDICT")[0]
 
 
+def test_render_dedups_activation_lines_across_turns():
+    """Each contract should announce ``→ ACTIVE`` exactly once, even if
+    its assumption re-evaluates as satisfied on every subsequent turn
+    (which is how the verifier works — re-checking is cheap and stateless)."""
+    contracts = [_Contract("rule_X", [_Assumption("X declared")])]
+    t1 = _turn("a", t_offset=0.0)
+    c1 = _check("rule_X")
+    c1.children.append(_assume_ok("X declared"))
+    t1.children.append(c1)
+
+    t2 = _turn("b", t_offset=0.05)
+    c2 = _check("rule_X")
+    c2.children.append(_assume_ok("X declared"))
+    t2.children.append(c2)
+
+    _, plain = _render([t1, t2], contracts=contracts)
+    # The activation announcement must appear exactly once even though
+    # both turns re-satisfied the assumption.
+    assert plain.count("contract C1 → ACTIVE") == 1
+
+
+def test_render_does_not_announce_activation_for_bare_contracts():
+    """Contracts with no assumption are ACTIVE from step 0 (already shown
+    in the contracts-armed table). The trace tree must not re-announce
+    them when they fire on subsequent tool calls."""
+    contracts = [_Contract("bare_rule")]  # no assumptions → bare
+    t = _turn("execute_sql")
+    c = _check("bare_rule")
+    # A bare contract has no precondition span — only guarantees fire.
+    t.children.append(c)
+    _, plain = _render([t], contracts=contracts)
+    # No "→ ACTIVE" inside trace section (the contracts-armed table
+    # already shows ACTIVE; trace-tree announcements are only for
+    # READY → ACTIVE transitions).
+    trace_section = plain.split("trace")[1].split("VERDICT")[0]
+    assert "C1 → ACTIVE" not in trace_section
+
+
 def test_render_handles_contract_without_alias_map_entry():
     """A contract referenced by a check but missing from `contracts` list
     must not crash — we render a stable fallback alias instead."""

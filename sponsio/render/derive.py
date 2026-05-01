@@ -23,6 +23,9 @@ from sponsio.render.tokens import SERVICE_COLORS
 _TOOL_PREFIX_TO_SERVICE: list[tuple[str, str]] = [
     ("execute_sql", "postgres"),
     ("query_sql", "postgres"),
+    ("connect_db", "postgres"),
+    ("db_query", "postgres"),
+    ("db_execute", "postgres"),
     ("postgres.", "postgres"),
     ("psql.", "postgres"),
     ("mysql.", "mysql"),
@@ -172,9 +175,16 @@ def format_relative_time(start_ts: float, ts: float) -> str:
 
 
 def format_latency_ms(ms: float | int | None) -> str:
-    """Right-padded ``+<n>ms`` for the event latency column."""
+    """``+<n>ms`` for the event latency column.
+
+    Sub-millisecond durations format as ``+<n>µs`` so a fast demo
+    replay (where most spans complete in <1 ms) doesn't render as a
+    column of misleading ``+0ms`` rows.
+    """
     if ms is None:
         return ""
+    if 0 < ms < 1:
+        return f"+{int(round(ms * 1000))}µs"
     return f"+{int(ms)}ms"
 
 

@@ -28,6 +28,8 @@ from sponsio.render.derive import (
 def test_service_for_tool_postgres_prefixes():
     assert service_for_tool("execute_sql") == "postgres"
     assert service_for_tool("postgres.connect") == "postgres"
+    assert service_for_tool("connect_db") == "postgres"
+    assert service_for_tool("db_query") == "postgres"
 
 
 def test_service_for_tool_fs_prefixes():
@@ -145,6 +147,12 @@ def test_format_relative_time_always_six_chars():
 def test_format_latency_ms_basic():
     assert format_latency_ms(70) == "+70ms"
     assert format_latency_ms(0) == "+0ms"
+
+
+def test_format_latency_ms_sub_millisecond_renders_as_us():
+    """Sub-ms turns shouldn't all read as +0ms in the trace tree."""
+    assert format_latency_ms(0.5) == "+500µs"
+    assert format_latency_ms(0.155) == "+155µs"
 
 
 def test_format_latency_ms_none():
