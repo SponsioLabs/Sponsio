@@ -33,7 +33,11 @@ jobs:
         uses: github/codeql-action/init@865f5f5c36632f18690a3d569fa0a764f2da0c3e # v3
         with:
           languages: ${{ matrix.language }}
-          queries: security-extended
+          # Custom config scopes analysis to first-party source and
+          # excludes bundled / vendored / build-artifact trees that
+          # were timing the autobuild step out (see
+          # .github/codeql-config.yml for rationale).
+          config-file: ./.github/codeql-config.yml
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@865f5f5c36632f18690a3d569fa0a764f2da0c3e # v3
