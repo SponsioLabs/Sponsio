@@ -259,9 +259,9 @@ either:
 
 1. Drop that line from the rendered yaml before running with
    `--apply`.
-2. Apply, then add an override:
+2. Apply, then add a tweak:
    ```yaml
-   overrides:
+   tweaks:
      - match: { desc: "list_users at most 10 times per session" }
        disabled: true
    ```
@@ -335,12 +335,12 @@ Use the answer to override:
 | Read-only research | tighten Bash rate to 10, drop exec rate cap entirely |
 | Long-running (>1h) | drop session-bounded counts, switch to time-window pacing (note: needs daemon mode for time-window — surface as a future-work caveat) |
 
-Example override:
+Example tweak:
 
 ```yaml
 agents:
   _host:
-    overrides:
+    tweaks:
       - match: { desc: "Cap exec calls per session" }
         args: [Bash, 200]
 ```
@@ -361,65 +361,88 @@ Apply this matrix:
 | Production | move `delete_*` from `rate_limit 0` to **assumption-gated** — require an explicit `confirm_reconfirmed` tool emission (see existing pattern in `capability/shell` §4) |
 | Regulated / PII | tighten sto rules — `core/universal`'s β from 0.95 → 0.99; force `semantic_pii_free` even on agents that don't currently include it |
 
-### 4.4 — known-false-positive overrides
+### 4.4 — known-false-positive tweaks
 
 Walk the user through each shipped rule that's commonly tripped by
 legitimate workflows. For every "Yes, that's a problem for me"
-answer, write a targeted `overrides:` entry. Common cases:
+answer, the user adds a targeted `tweaks:` entry. Common cases:
 
-| Rule | When it false-positives | Override |
+| Rule | When it false-positives | Tweak |
 |---|---|---|
 | `_host` "Each exec call needs its own confirm_reconfirmed" | Any agent that doesn't emit `confirm_reconfirmed` markers | `disabled: true` (until the integration ships markers) |
-| `github` "delete_repository is blocked outright" | Cleanup bots, automated repo lifecycle | `disabled: true` + add a custom rule with a tighter pattern (only allow deletion of repos matching `^test-`) |
+| `github` "delete_repository is blocked outright" | Cleanup bots, automated repo lifecycle | `disabled: true` + add a new contract with a tighter pattern (only allow deletion of repos matching `^test-`) |
 | `filesystem` "read_file must not exfiltrate dotenv" | dotenv rotators, secret-rotation agents | `disabled: true` only for `read_file` (keep `write_file` denied) |
 | `playwright` "browser_navigate must not target internal hosts" | Anyone testing their own internal app | replace with a narrower allowlist of the user's actual internal hostnames |
 
 ### 4.5 — hand off to the user (don't write the file or invent YAML)
 
-The `~/.sponsio/plugins/<id>/sponsio.yaml` bundle libraries are
-**user-only files**. You must NOT use `Edit`, `Write`, `MultiEdit`,
-or shell redirects (`>`, `>>`, `tee`, `sed -i`, …) to modify them
-— the runtime self-modify pack will block those calls anyway.
+Per-plugin libraries live in a single file:
 
-You also must NOT hand the user a YAML snippet you generated from
-the conversation. The legitimate sources of contract content are:
+```
+~/.sponsio/plugins/<id>/sponsio.yaml
+```
+
+Inside, shipped contracts carry `source: bundle:<id>` (stamped at
+install). The user's customisations sit beside them in the same file:
+
+* **New contracts** — appended to the agent's `contracts:` list
+  (without a `source: bundle:*` tag — anything user-authored).
+* **Tweaks to shipped rules** — entries in the agent's `tweaks:`
+  block: `match: { desc: "..." }` plus `disabled: true` /
+  re-tuned `args:` / narrowed `A:`.
+
+`sponsio plugin install <id> --force` (used for re-install or to
+pull a new bundle after `pip install -U sponsio`) does a smart
+merge: shipped contracts are wholesale replaced from the new
+bundle, but everything user-authored — every contract without the
+bundle source tag, plus the entire `tweaks:` block — is preserved
+verbatim. Hand-editing a shipped contract's body in place is the
+one thing that doesn't survive upgrade (same model as
+`brew upgrade` clobbering a hand-edited formula); always express
+changes as a `tweaks:` entry instead.
+
+The agent must NOT use `Edit`, `Write`, `MultiEdit`, or shell
+redirects on this file — the runtime self-modify pack blocks
+those calls. The agent also must NOT hand the user a YAML snippet
+it composed from the conversation. Legitimate sources of contract
+content:
 
 - **Bundle libraries** — what `sponsio plugin install` ships
 - **`sponsio scan` / `sponsio plugin scan`** — extracted from code,
   policy docs, or a tool inventory
 - **`sponsio onboard`** — combines the above for the project YAML
-- **The user's own keystrokes** — they write what they want
+- **The user's own keystrokes**
 
-An agent-authored YAML block has *none* of these provenances; it's
+An agent-authored YAML block has none of those provenances; it's
 LLM output dressed up as configuration. Even if it parses, the user
-has no way to verify whether it matches a real shipped rule's desc
-or silently no-ops because of a typo.
+can't verify whether it matches a real shipped rule's desc or
+silently no-ops because of a typo.
 
 For the tuning conversation, do this instead:
 
 1. Restate, in plain English, what the user said they want and which
-   shipped rule (or new rule) it would affect. Cite the rule's desc
-   verbatim if relevant — `sponsio plugin show <id>` will print
-   the desc of every rule currently loaded; you can read that output
-   and quote it back, but do NOT compose YAML around it.
+   shipped rule (or new rule) it would affect. `sponsio plugin show
+   <id>` prints every rule currently loaded; read that output and
+   quote a desc verbatim if you need to refer to one — but do NOT
+   compose YAML around it.
 
 2. Tell the user the file path
    (`~/.sponsio/plugins/<id>/sponsio.yaml`) and describe the change
-   in words: "add an `overrides:` entry beside `contracts:` whose
-   `match.desc` is the rule you want to silence, with
-   `disabled: true`". Point them at the existing pack's syntax for
-   reference; don't ghostwrite the entry yourself.
+   in words: "add a `tweaks:` entry beside the agent's `contracts:`
+   list whose `match.desc` is the rule you want to silence, with
+   `disabled: true`", or "append a new contract to the agent's
+   `contracts:` list". Point them at the existing pack's syntax for
+   reference; let them author the YAML themselves.
 
 3. When the user says they're done, run
    `sponsio validate --config ~/.sponsio/plugins/<id>/sponsio.yaml`
    and help them debug if it doesn't parse.
 
-The reason: if the agent ghostwrites configuration, an injected
-prompt can slip a malicious-but-plausible override into the
-suggestion, and the user (trusting the agent's "helpful" snippet)
-applies it. Keeping the human as the only author of the bytes —
-not just the last keystroke before save — is the privilege
-boundary that makes Sponsio's guarantees real.
+The reason for not ghostwriting: an injected prompt can slip a
+malicious-but-plausible snippet into a "helpful" agent suggestion,
+and a trusting user could apply it. Keeping the human as the only
+author of the bytes is the privilege boundary that makes Sponsio's
+guarantees real.
 
 ### 4.6 — observe-mode dial for tuning runs
 

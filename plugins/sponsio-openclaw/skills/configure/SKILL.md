@@ -198,11 +198,11 @@ For each contract proposed, state:
 * **What it doesn't catch** — be explicit about generic rules so
   the user doesn't assume coverage they don't have.
 
-If a rule is wrong, drop it from the rendered yaml or add an
-`overrides:` block:
+If a rule is wrong, drop it from the rendered yaml or add a
+`tweaks:` block:
 
 ```yaml
-overrides:
+tweaks:
   - match: { desc: "<offending desc>" }
     disabled: true
 ```
@@ -265,55 +265,63 @@ agents:
 | Production | move `delete_*` from `rate_limit 0` to assumption-gated (require explicit `confirm_reconfirmed`) |
 | Regulated / PII | tighten sto rules — `core/universal`'s β from 0.95 → 0.99 |
 
-### 4.3 — known-false-positive overrides
+### 4.3 — known-false-positive tweaks
 
 Common cases:
 
-| Rule | When false-positives | Override |
+| Rule | When false-positives | Tweak |
 |---|---|---|
 | `_host_openclaw` "Block reads of dotenv secrets" | dotenv rotators, secret-rotation agents | `disabled: true` for `read` only (keep `write`) |
 | `incident/openclaw` "navigation must not target internal hosts" | testing one's own internal app | replace with allowlist of actual internal hostnames |
 
 ### 4.4 — hand off to the user (don't write the file or invent YAML)
 
-The `~/.sponsio/plugins/<id>/sponsio.yaml` bundle libraries are
-**user-only files**. You must NOT use `Edit`, `Write`, `MultiEdit`,
-or shell redirects (`>`, `>>`, `tee`, `sed -i`, …) to modify them
-— the runtime self-modify pack will block those calls anyway.
+Per-plugin libraries live in a single file:
 
-You also must NOT hand the user a YAML snippet you generated from
-the conversation. Contract content has exactly four legitimate
-sources: bundle libraries (`sponsio plugin install`), CLI extraction
-(`sponsio plugin scan` / `sponsio scan` / `sponsio onboard`), the
-user's own keystrokes, and `overrides:` blocks the user authors
-themselves. An agent-authored YAML block has none of these
-provenances — even if it parses, the user has no way to verify it
-matches a real shipped rule's desc.
+```
+~/.sponsio/plugins/<id>/sponsio.yaml
+```
 
-For every override the walkthrough produces:
+Inside, shipped contracts carry `source: bundle:<id>` (stamped at
+install). The user's customisations sit beside them: new contracts
+get appended (no source tag), and adjustments to shipped rules go
+into a `tweaks:` block (`disabled: true`, retuned `args:`, narrowed
+`A:`).
+
+`sponsio plugin install <id> --force` (used for re-install or to
+pull a new bundle after `pip install -U sponsio`) does a smart
+merge: shipped contracts are wholesale replaced from the new bundle,
+but every user-authored contract and the entire `tweaks:` block
+survive. Hand-editing a shipped contract's body in place is the one
+thing that doesn't survive upgrade — express changes as a `tweaks:`
+entry instead.
+
+The agent must NOT use `Edit`, `Write`, `MultiEdit`, or shell
+redirects on this file — the runtime self-modify pack blocks those
+calls. The agent also must NOT hand the user a YAML snippet it
+composed from the conversation. Legitimate sources of contract
+content: bundle libraries (`sponsio plugin install`), CLI extraction
+(`sponsio plugin scan` / `sponsio scan` / `sponsio onboard`), and
+the user's own keystrokes. An LLM-composed snippet has none of
+those provenances.
+
+For every tweak the walkthrough produces:
 
 1. Restate, in plain English, what the user wants and which shipped
    rule it affects. `sponsio plugin show <id>` prints the desc of
-   every loaded rule; quote a desc verbatim from that output if
-   you need to reference one — but do NOT compose YAML around it.
+   every loaded rule; quote a desc verbatim from that output if you
+   need to reference one — but do NOT compose YAML around it.
 
 2. Tell the user the file path
    (`~/.sponsio/plugins/<id>/sponsio.yaml`) and describe the change
-   in words ("add an `overrides:` entry beside `contracts:` whose
-   `match.desc` is the rule you want to silence, with
+   in words ("add a `tweaks:` entry beside the agent's `contracts:`
+   list whose `match.desc` is the rule you want to silence, with
    `disabled: true`"). Point them at the existing pack's syntax;
    let them write the YAML themselves.
 
 3. When the user says they're done, run
    `sponsio validate --config ~/.sponsio/plugins/<id>/sponsio.yaml`
    and help them debug if it doesn't parse.
-
-The legitimate update paths for these bundles are the CLI
-(`sponsio plugin install`, `sponsio plugin scan --apply`) and
-hand-editing by the user. The IDE coding agent reaching in
-directly to rewrite a bundle — or ghostwriting the YAML the user
-then pastes — is privilege escalation; the runtime blocks the
-direct path, and this skill closes the ghostwrite loophole.
 
 ## Step 5 — verify the deny path
 

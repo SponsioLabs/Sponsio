@@ -1381,24 +1381,63 @@ def load_config(path: str | Path) -> SponsoConfig:
             contracts_raw = agent_data.get("contracts", [])
             if not isinstance(contracts_raw, list):
                 raise ConfigError(f"Agent '{agent_id}': 'contracts' must be a list")
-            for item in contracts_raw:
+            # Single ``contracts:`` list, two entry shapes:
+            #
+            # * **Definition** — has ``E:`` (and a ``desc:``). Parses
+            #   into a ``ContractEntry`` and joins ``ac.contracts``.
+            # * **Tweak** — has ``match:`` and no ``E:``. Parses into
+            #   an ``OverrideRule`` and applies after the definition
+            #   list is built. This is the canonical place for users
+            #   to disable / retune shipped rules; the schema is the
+            #   same as the legacy agent-level ``tweaks:`` /
+            #   ``overrides:`` block, just inline.
+            #
+            # Mixing both shapes in one list keeps the file shape
+            # uniform — every entry under ``contracts:`` is, in
+            # spirit, a contract clause.
+            inline_tweaks: list = []
+            for i, item in enumerate(contracts_raw):
+                if isinstance(item, dict) and "match" in item and "E" not in item:
+                    inline_tweaks.append(_parse_override_rule(item, agent_id, i))
+                    continue
                 ac.contracts.append(_parse_contract_entry(item, agent_id))
 
             for contract in ac.contracts:
                 _rewrite_contract_entry(contract, workspace_raw, tool_rename, agent_id)
 
-            overrides_raw = agent_data.get("overrides", [])
-            if overrides_raw:
-                if not isinstance(overrides_raw, list):
+            # Legacy agent-level ``tweaks:`` / ``overrides:`` block —
+            # accepted for back-compat with files written before the
+            # inline-tweak shape landed. Identical schema to inline
+            # entries; just lives at the agent level. Reject if both
+            # legacy keys are present (a typo would ship a
+            # half-applied config).
+            legacy_tweaks = agent_data.get("tweaks")
+            legacy_overrides = agent_data.get("overrides")
+            if legacy_tweaks is not None and legacy_overrides is not None:
+                raise ConfigError(
+                    f"Agent '{agent_id}': both 'tweaks:' and "
+                    f"'overrides:' are present — pick one (or move them "
+                    "inline under 'contracts:', the canonical place)."
+                )
+            legacy_block = (
+                legacy_tweaks if legacy_tweaks is not None else legacy_overrides
+            )
+            legacy_parsed: list = []
+            if legacy_block:
+                key_used = "tweaks" if legacy_tweaks is not None else "overrides"
+                if not isinstance(legacy_block, list):
                     raise ConfigError(
-                        f"Agent '{agent_id}': 'overrides' must be a list of "
-                        f"override rules, got {type(overrides_raw).__name__}"
+                        f"Agent '{agent_id}': '{key_used}' must be a list "
+                        f"of tweak rules, got {type(legacy_block).__name__}"
                     )
-                overrides = [
+                legacy_parsed = [
                     _parse_override_rule(r, agent_id, i)
-                    for i, r in enumerate(overrides_raw)
+                    for i, r in enumerate(legacy_block)
                 ]
-                ac.contracts = _apply_overrides(ac.contracts, overrides, agent_id)
+
+            all_tweaks = inline_tweaks + legacy_parsed
+            if all_tweaks:
+                ac.contracts = _apply_overrides(ac.contracts, all_tweaks, agent_id)
 
             config.agents[agent_id] = ac
         else:

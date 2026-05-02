@@ -4704,6 +4704,38 @@ def plugin():
     """Host-plugin runtime for Claude Code, OpenClaw, …."""
 
 
+def _bootstrap_default_buckets(
+    root: Path, *, force: bool = False
+) -> list[tuple[Path, str]]:
+    """Write the ``_host`` / ``_host_subagent`` / ``_host_openclaw`` defaults.
+
+    Shared by ``plugin init`` (explicit) and ``host install`` (implicit, so
+    a single command wires the hook *and* lays down the contract library
+    the hook reads). Silent — returns ``[(path, status), ...]`` where
+    status is ``"wrote"`` (fresh write), ``"exists"`` (kept existing),
+    or ``"error:<reason>"`` (bundled source missing). Callers decide how
+    to render.
+    """
+    from sponsio.plugin.registry import read_bundled
+
+    results: list[tuple[Path, str]] = []
+    for lib_name in ("_host", "_host_subagent", "_host_openclaw"):
+        target_dir = root / lib_name
+        target = target_dir / "sponsio.yaml"
+        try:
+            src_text = read_bundled(lib_name)
+        except (FileNotFoundError, ModuleNotFoundError) as e:
+            results.append((target, f"error:{e}"))
+            continue
+        if target.exists() and not force:
+            results.append((target, "exists"))
+            continue
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target.write_text(src_text, encoding="utf-8")
+        results.append((target, "wrote"))
+    return results
+
+
 @plugin.command(name="init")
 @click.option(
     "--root",
@@ -4749,48 +4781,31 @@ def plugin_init(root: Path | None, force: bool, no_smoke_test: bool):
     siblings of ``_host/`` and can be created by hand or via
     ``sponsio plugin scan``.
     """
-    from sponsio.plugin.registry import read_bundled
-
     if root is None:
         env = os.environ.get("SPONSIO_PLUGIN_ROOT")
         root = Path(env).expanduser() if env else Path.home() / ".sponsio" / "plugins"
 
-    # Write both fallback libraries: ``_host`` (Claude-Code-shaped) and
-    # ``_host_openclaw`` (OpenClaw-shaped).  ``derive_plugin_id`` picks
-    # one or the other at runtime based on the hook payload's ``host``
-    # field — see :mod:`sponsio.guard_stdin`.  Operators get useful
-    # defaults whichever host plugin they install first.
-    primary_target: Path | None = None  # for smoke test
-
-    for lib_name in ("_host", "_host_subagent", "_host_openclaw"):
-        target_dir = root / lib_name
-        target = target_dir / "sponsio.yaml"
-
-        try:
-            src_text = read_bundled(lib_name)
-        except (FileNotFoundError, ModuleNotFoundError) as e:
+    results = _bootstrap_default_buckets(root, force=force)
+    for path, status in results:
+        if status == "wrote":
+            click.secho(f"✓ wrote {path}", fg="green")
+        elif status == "exists":
+            click.echo(f"{path} already exists. Re-run with --force to overwrite.")
+        elif status.startswith("error:"):
             click.secho(
-                f"Error: bundled default library {lib_name!r} not found ({e}). "
-                f"Reinstall sponsio.",
+                f"Error: bundled default library missing for {path.parent.name!r} "
+                f"({status[len('error:') :].strip()}). Reinstall sponsio.",
                 fg="red",
             )
             sys.exit(1)
-
-        if target.exists() and not force:
-            click.echo(f"{target} already exists. Re-run with --force to overwrite.")
-            continue
-
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target.write_text(src_text, encoding="utf-8")
-        click.secho(f"✓ wrote {target}", fg="green")
-        if lib_name == "_host":
-            primary_target = target
 
     # Smoke test runs against ``_host`` (the Claude-Code-shape fallback) —
     # the test prompt is a Bash ``rm -rf /`` which needs that library.
     # When no fresh ``_host`` write happened (existing file kept), skip
     # rather than validating someone's customised library.
-    wrote_file = primary_target is not None
+    wrote_file = any(
+        path.parent.name == "_host" and status == "wrote" for path, status in results
+    )
 
     # Smoke test: feed a JSON event through the actual hook entry point
     # and verify it (a) allows a benign command and (b) blocks rm -rf.
@@ -4924,7 +4939,7 @@ def plugin_install(
         sponsio plugin install github filesystem playwright
         sponsio plugin install --all
     """
-    from sponsio.plugin.registry import list_bundled, read_bundled
+    from sponsio.plugin.registry import list_bundled
 
     bundled = list_bundled()
 
@@ -4972,14 +4987,23 @@ def plugin_install(
         if target.exists() and not force:
             click.secho(
                 f"  skipped {target}: already exists "
-                f"(re-run with --force to overwrite)",
+                f"(re-run with --force to upgrade in place — "
+                f"your custom contracts and `tweaks:` are preserved)",
                 fg="yellow",
             )
             skipped.append(target)
             continue
         target_dir.mkdir(parents=True, exist_ok=True)
-        target.write_text(read_bundled(name), encoding="utf-8")
-        click.secho(f"  ✓ wrote {target}", fg="green")
+        kept = _install_one(name, target)
+        if kept is None:
+            click.secho(f"  ✓ wrote {target}", fg="green")
+        else:
+            click.secho(
+                f"  ✓ upgraded {target} — replaced shipped contracts, "
+                f"kept {kept['user_contracts']} custom contract(s) and "
+                f"{kept['tweaks']} tweak(s)",
+                fg="green",
+            )
         written.append(target)
 
     if not written:
@@ -4994,6 +5018,118 @@ def plugin_install(
         click.echo(
             _render_plugin_digest(name, target.read_text(encoding="utf-8"), target)
         )
+
+
+_BUNDLE_SOURCE_PREFIX = "bundle:"
+
+
+def _stamp_bundled_source(bundled_text: str, name: str) -> str:
+    """Tag every shipped contract with ``source: bundle:<name>`` so a
+    later ``--force`` upgrade can tell them apart from user-authored
+    additions in the same file.
+
+    Idempotent: if a contract already has a ``source`` field (e.g.
+    bundles that ship with their own ``source: library:...`` tag, or
+    a previously-stamped install), it's left alone.
+    """
+    import yaml
+
+    doc = yaml.safe_load(bundled_text) or {}
+    marker = f"{_BUNDLE_SOURCE_PREFIX}{name}"
+    for agent_cfg in (doc.get("agents") or {}).values():
+        if not isinstance(agent_cfg, dict):
+            continue
+        for c in agent_cfg.get("contracts") or []:
+            if isinstance(c, dict):
+                c.setdefault("source", marker)
+    return yaml.safe_dump(doc, sort_keys=False)
+
+
+def _install_one(name: str, target: Path) -> dict | None:
+    """Install or upgrade a single bundled library at ``target``.
+
+    Returns ``None`` for a fresh install (no prior file).  Returns a
+    dict ``{"user_contracts": int, "tweaks": int}`` for an upgrade
+    (existing file present), describing what was preserved from the
+    user's customisations on top of the new bundle.
+
+    Upgrade semantics — single-file with smart merge:
+
+    * Every shipped contract is tagged ``source: bundle:<name>`` at
+      install time. Anything else in the file (contracts without that
+      tag, or with ``source:`` pointing elsewhere) is treated as
+      user-authored.
+    * On upgrade, the shipped section is wholesale replaced with the
+      new bundle's contracts; user-authored contracts and the agent's
+      ``tweaks:`` block are spliced back in unchanged.
+    * Manual edits to a *shipped* contract (i.e. changing its body in
+      place rather than adding a ``tweaks:`` entry) are wiped on
+      upgrade — same model as ``brew upgrade`` over a hand-edited
+      formula. The skill flow steers users to ``tweaks:`` for exactly
+      this reason.
+    """
+    from sponsio.plugin.registry import read_bundled
+
+    new_text = _stamp_bundled_source(read_bundled(name), name)
+
+    if not target.exists():
+        target.write_text(new_text, encoding="utf-8")
+        return None
+
+    import yaml
+
+    new_doc = yaml.safe_load(new_text) or {}
+    existing = yaml.safe_load(target.read_text(encoding="utf-8")) or {}
+    marker = f"{_BUNDLE_SOURCE_PREFIX}{name}"
+    user_contracts_kept = 0
+    tweaks_kept = 0
+
+    for agent_id, new_agent in (new_doc.get("agents") or {}).items():
+        if not isinstance(new_agent, dict):
+            continue
+        existing_agent = (existing.get("agents") or {}).get(agent_id) or {}
+        if not isinstance(existing_agent, dict):
+            existing_agent = {}
+
+        # Pull every user-authored entry from the existing
+        # ``contracts:`` list — that includes:
+        #
+        # * Rule definitions the user added (no ``source`` tag, or
+        #   one that isn't our bundle marker).
+        # * Inline tweak entries (have ``match:`` instead of ``E:``,
+        #   no ``source`` tag at all).
+        #
+        # Anything tagged with the bundle marker is shipped content
+        # for THIS bundle and gets dropped — the new bundle's freshly
+        # stamped contracts take its place.
+        existing_contracts = existing_agent.get("contracts") or []
+        kept = [
+            c
+            for c in existing_contracts
+            if isinstance(c, dict) and c.get("source") != marker
+        ]
+        if kept:
+            new_agent.setdefault("contracts", []).extend(kept)
+            for c in kept:
+                if "match" in c and "E" not in c:
+                    tweaks_kept += 1
+                else:
+                    user_contracts_kept += 1
+
+        # Legacy agent-level ``tweaks:`` / ``overrides:`` block —
+        # preserve verbatim under whichever key the existing file
+        # used. New tweaks should go inline under ``contracts:``,
+        # but we don't silently rewrite the user's vocabulary on
+        # upgrade.
+        for key in ("tweaks", "overrides"):
+            existing_block = existing_agent.get(key)
+            if existing_block:
+                new_agent[key] = existing_block
+                if isinstance(existing_block, list):
+                    tweaks_kept += len(existing_block)
+
+    target.write_text(yaml.safe_dump(new_doc, sort_keys=False), encoding="utf-8")
+    return {"user_contracts": user_contracts_kept, "tweaks": tweaks_kept}
 
 
 _PATTERN_LABEL = {
@@ -5079,8 +5215,11 @@ def _render_plugin_digest(
             lines.append("")
 
     lines.append(
-        f"  Tune by appending to ``overrides:`` in {yaml_path or 'the file'}.\n"
-        "  Don't edit shipped rules in place — overrides survive re-install."
+        f"  Tune by adding entries to a ``tweaks:`` block (or new ``contracts:``\n"
+        f"  entries) in {yaml_path or 'the file'}.\n"
+        "  Don't hand-edit a shipped rule's body — ``sponsio plugin install --force``\n"
+        "  replaces shipped contracts on upgrade; only ``tweaks:`` and your own\n"
+        "  ``contracts:`` entries (without a ``source: bundle:*`` tag) survive."
     )
     return "\n".join(lines)
 
@@ -6054,6 +6193,11 @@ def host_install(
 ):
     """Install Sponsio as a hook handler for one or more hosts.
 
+    Bootstraps the default contract library (``~/.sponsio/plugins/_host``
+    and friends) on the way in, so a single invocation gives you a
+    fully-wired hook + the rules it reads — no separate
+    ``sponsio plugin init`` step required.
+
     \b
     Examples:
       sponsio host install cursor
@@ -6078,6 +6222,27 @@ def host_install(
     # stdin) — same precedent as init_wizard.
     chosen_mode = _resolve_install_mode(mode)
     click.echo(f"Runtime mode for new host libraries: {chosen_mode}")
+
+    # Bootstrap the default contract library buckets (``_host`` etc.)
+    # the hook will read at runtime — folded in here so users don't
+    # have to remember a separate ``sponsio plugin init`` step. Silent
+    # if everything already exists; reports any fresh writes.
+    plugin_root_env = os.environ.get("SPONSIO_PLUGIN_ROOT")
+    plugin_root = (
+        Path(plugin_root_env).expanduser()
+        if plugin_root_env
+        else Path.home() / ".sponsio" / "plugins"
+    )
+    for path, status in _bootstrap_default_buckets(plugin_root):
+        if status == "wrote":
+            click.secho(f"✔  bootstrapped contract library: {path}", fg="green")
+        elif status.startswith("error:"):
+            click.secho(
+                f"✘  could not bootstrap {path.parent.name!r}: "
+                f"{status[len('error:') :].strip()} — reinstall sponsio.",
+                fg="red",
+                err=True,
+            )
 
     any_failed = False
     review_paths: list[Path] = []
