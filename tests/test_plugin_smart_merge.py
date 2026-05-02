@@ -1,13 +1,14 @@
 """Tests for ``sponsio plugin install --force`` smart-merge upgrade.
 
 Single-file model: the per-plugin library at
-``~/.sponsio/plugins/<id>/sponsio.yaml`` houses both shipped rules
-and the user's customisations. On upgrade we partition by the
-``source: bundle:<name>`` tag — shipped contracts are replaced
-wholesale, user-authored contracts and ``tweaks:`` survive.
+``~/.sponsio/plugins/<id>/sponsio.yaml`` houses both default rules
+(from the bundle) and the user's customisations. On upgrade we
+partition by the ``source: bundle:<name>`` tag — default contracts
+are replaced wholesale, user-authored contracts and the
+``customized:`` block survive.
 
-These tests lock the user-facing contract: a re-install never
-silently drops a custom contract or a tweak.
+These tests lock the user-facing promise: a re-install never
+silently drops a customized contract or entry.
 """
 
 from __future__ import annotations
@@ -95,15 +96,11 @@ def test_existing_source_tags_are_not_clobbered(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _add_user_content(target: Path, *, inline_tweak: bool = True) -> None:
+def _add_user_content(target: Path) -> None:
     """Mutate the installed YAML to add one user-authored contract
-    and one tweak under the 'github' agent.
-
-    When ``inline_tweak=True`` (default), the tweak rides in the
-    same ``contracts:`` list as the definition — the canonical shape.
-    When ``False`` it goes in a legacy agent-level ``tweaks:`` block,
-    so the back-compat path stays exercised by these tests too.
-    """
+    (a real ``E:``-shaped entry under ``contracts:``) and one
+    customized entry (a ``match:`` entry under the agent's
+    ``customized:`` block)."""
     doc = yaml.safe_load(target.read_text())
     g = doc["agents"]["github"]
     g.setdefault("contracts", []).append(
@@ -120,22 +117,17 @@ def _add_user_content(target: Path, *, inline_tweak: bool = True) -> None:
             # No source tag → counts as user-authored.
         }
     )
-    tweak_entry = {
-        "match": {
-            "desc": (
-                "delete_repository is blocked outright (overrides: "
-                "disabled: true to allow)"
-            )
-        },
-        "disabled": True,
-    }
-    if inline_tweak:
-        # Canonical: tweak entry sits in ``contracts:`` next to
-        # definitions, distinguished by having ``match:`` (no ``E:``).
-        g["contracts"].append(tweak_entry)
-    else:
-        # Legacy: agent-level ``tweaks:`` block.
-        g["tweaks"] = [tweak_entry]
+    g["customized"] = [
+        {
+            "match": {
+                "desc": (
+                    "delete_repository is blocked outright (overrides: "
+                    "disabled: true to allow)"
+                )
+            },
+            "disabled": True,
+        }
+    ]
     target.write_text(yaml.safe_dump(doc, sort_keys=False))
 
 
@@ -146,40 +138,26 @@ def test_force_upgrade_preserves_user_contracts_and_tweaks(tmp_path):
 
     proc = _run_install("github", "--root", str(tmp_path), "--force")
     assert proc.returncode == 0
-    assert "kept 1 custom contract(s) and 1 tweak(s)" in proc.stdout
-
-    doc = yaml.safe_load(target.read_text())
-    contracts = doc["agents"]["github"].get("contracts") or []
-
-    # User-added rule definition is preserved.
-    descs = [c.get("desc") for c in contracts if "E" in c]
-    assert "user-added: block staging-* deletions" in descs
-    # Shipped rules are still present (not lost in the merge):
-    assert any("delete_repository" in (d or "") for d in descs)
-    # Inline tweak entry survives — distinguished by having ``match:``
-    # without ``E:``.
-    tweaks_inline = [c for c in contracts if "match" in c and "E" not in c]
-    assert len(tweaks_inline) == 1
-    assert tweaks_inline[0]["disabled"] is True
-
-
-def test_force_upgrade_preserves_legacy_tweaks_block(tmp_path):
-    """Same as the inline test, but using the legacy agent-level
-    ``tweaks:`` block. Both shapes must survive upgrade so users
-    who migrate at their own pace aren't punished."""
-    _run_install("github", "--root", str(tmp_path))
-    target = tmp_path / "github" / "sponsio.yaml"
-    _add_user_content(target, inline_tweak=False)
-
-    proc = _run_install("github", "--root", str(tmp_path), "--force")
-    assert proc.returncode == 0
-    assert "kept 1 custom contract(s) and 1 tweak(s)" in proc.stdout
+    assert "kept 1 customized contract(s) and 1 customized entry" in proc.stdout
 
     doc = yaml.safe_load(target.read_text())
     g = doc["agents"]["github"]
-    legacy_tweaks = g.get("tweaks") or []
-    assert len(legacy_tweaks) == 1
-    assert legacy_tweaks[0]["disabled"] is True
+    contracts = g.get("contracts") or []
+
+    # User-added contract (E-shape) is preserved.
+    descs = [c.get("desc") for c in contracts]
+    assert "user-added: block staging-* deletions" in descs
+    # Shipped rules are still present (not lost in the merge).
+    assert any("delete_repository" in (d or "") for d in descs)
+    # Every entry in ``contracts:`` is a real contract (E + optional
+    # A) — no match-shape entries leaked in.
+    for c in contracts:
+        assert "E" in c, f"non-contract entry in contracts:: {c!r}"
+
+    # Tweak block (match + effect) survives at the agent level.
+    customized = g.get("customized") or []
+    assert len(customized) == 1
+    assert customized[0]["disabled"] is True
 
 
 def test_force_upgrade_replaces_shipped_contracts(tmp_path):
@@ -246,17 +224,44 @@ def test_force_upgrade_with_no_user_content_reports_zero_kept(tmp_path):
     _run_install("github", "--root", str(tmp_path))
     proc = _run_install("github", "--root", str(tmp_path), "--force")
     assert proc.returncode == 0
-    assert "kept 0 custom contract(s) and 0 tweak(s)" in proc.stdout
+    assert "kept 0 customized contract(s) and 0 customized" in proc.stdout
 
 
 # ---------------------------------------------------------------------------
-# §4 — Loader accepts ``tweaks:`` (canonical) AND ``overrides:`` (legacy)
+# §4 — Loader accepts ``customized:`` (canonical) plus ``tweaks:`` /
+#       ``overrides:`` as silent legacy aliases
 # ---------------------------------------------------------------------------
 
 
-def test_loader_accepts_inline_tweak_entry(tmp_path):
-    """Canonical shape: a tweak entry rides inside ``contracts:``,
-    discriminated by having ``match:`` instead of ``E:``."""
+def test_loader_rejects_match_entry_in_contracts_list(tmp_path):
+    """The ``contracts:`` list holds ONLY contracts (E + optional A).
+    Match-shape entries belong in the agent-level ``customized:``
+    block; a stray one inside ``contracts:`` is malformed and must
+    surface as a parse error instead of silently degrading."""
+    cfg = tmp_path / "sponsio.yaml"
+    cfg.write_text(
+        """
+version: "1"
+agents:
+  github:
+    contracts:
+      - match: { desc: anything }
+        disabled: true
+"""
+    )
+    from sponsio.config import ConfigError, load_config
+
+    import pytest
+
+    with pytest.raises(ConfigError):
+        load_config(cfg)
+
+
+def test_loader_accepts_customized_block(tmp_path):
+    """Canonical place for user adjustments is the agent-level
+    ``customized:`` block, a sibling of ``contracts:``. The block
+    schema is ``match:`` plus effect fields (``disabled``, ``args``,
+    etc.)."""
     cfg = tmp_path / "sponsio.yaml"
     cfg.write_text(
         """
@@ -266,6 +271,7 @@ agents:
     contracts:
       - desc: shipped
         E: { pattern: rate_limit, args: [tool, 0] }
+    customized:
       - match: { desc: shipped }
         disabled: true
 """
@@ -275,29 +281,7 @@ agents:
     parsed = load_config(cfg)
     # ``disabled: true`` drops the matched contract from the active
     # list (see ``_apply_overrides`` semantics) — empty contracts list
-    # is the proof the tweak was applied.
-    assert parsed.agents["github"].contracts == []
-
-
-def test_loader_accepts_legacy_tweaks_key(tmp_path):
-    """Legacy back-compat: agent-level ``tweaks:`` block stays valid."""
-    cfg = tmp_path / "sponsio.yaml"
-    cfg.write_text(
-        """
-version: "1"
-agents:
-  github:
-    contracts:
-      - desc: shipped
-        E: { pattern: rate_limit, args: [tool, 0] }
-    tweaks:
-      - match: { desc: shipped }
-        disabled: true
-"""
-    )
-    from sponsio.config import load_config
-
-    parsed = load_config(cfg)
+    # is the proof the customization was applied.
     assert parsed.agents["github"].contracts == []
 
 
@@ -323,7 +307,9 @@ agents:
     assert parsed.agents["github"].contracts == []
 
 
-def test_loader_rejects_both_keys_present(tmp_path):
+def test_loader_accepts_legacy_tweaks_key(tmp_path):
+    """Existing user configs using ``tweaks:`` (the prior rename
+    that didn't stick) keep working."""
     cfg = tmp_path / "sponsio.yaml"
     cfg.write_text(
         """
@@ -336,6 +322,27 @@ agents:
     tweaks:
       - match: { desc: shipped }
         disabled: true
+"""
+    )
+    from sponsio.config import load_config
+
+    parsed = load_config(cfg)
+    assert parsed.agents["github"].contracts == []
+
+
+def test_loader_rejects_multiple_customization_keys(tmp_path):
+    cfg = tmp_path / "sponsio.yaml"
+    cfg.write_text(
+        """
+version: "1"
+agents:
+  github:
+    contracts:
+      - desc: shipped
+        E: { pattern: rate_limit, args: [tool, 0] }
+    customized:
+      - match: { desc: shipped }
+        disabled: true
     overrides:
       - match: { desc: shipped }
         disabled: false
@@ -345,5 +352,5 @@ agents:
 
     import pytest
 
-    with pytest.raises(ConfigError, match="both 'tweaks:' and 'overrides:'"):
+    with pytest.raises(ConfigError, match="multiple customization keys"):
         load_config(cfg)

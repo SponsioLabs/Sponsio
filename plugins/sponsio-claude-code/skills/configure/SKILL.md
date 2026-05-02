@@ -259,9 +259,9 @@ either:
 
 1. Drop that line from the rendered yaml before running with
    `--apply`.
-2. Apply, then add a tweak:
+2. Apply, then add a customization:
    ```yaml
-   tweaks:
+   customized:
      - match: { desc: "list_users at most 10 times per session" }
        disabled: true
    ```
@@ -335,12 +335,12 @@ Use the answer to override:
 | Read-only research | tighten Bash rate to 10, drop exec rate cap entirely |
 | Long-running (>1h) | drop session-bounded counts, switch to time-window pacing (note: needs daemon mode for time-window — surface as a future-work caveat) |
 
-Example tweak:
+Example customization:
 
 ```yaml
 agents:
   _host:
-    tweaks:
+    customized:
       - match: { desc: "Cap exec calls per session" }
         args: [Bash, 200]
 ```
@@ -361,13 +361,13 @@ Apply this matrix:
 | Production | move `delete_*` from `rate_limit 0` to **assumption-gated** — require an explicit `confirm_reconfirmed` tool emission (see existing pattern in `capability/shell` §4) |
 | Regulated / PII | tighten sto rules — `core/universal`'s β from 0.95 → 0.99; force `semantic_pii_free` even on agents that don't currently include it |
 
-### 4.4 — known-false-positive tweaks
+### 4.4 — known-false-positive customizations
 
 Walk the user through each shipped rule that's commonly tripped by
 legitimate workflows. For every "Yes, that's a problem for me"
-answer, the user adds a targeted `tweaks:` entry. Common cases:
+answer, the user adds a targeted `customized:` entry. Common cases:
 
-| Rule | When it false-positives | Tweak |
+| Rule | When it false-positives | Customization |
 |---|---|---|
 | `_host` "Each exec call needs its own confirm_reconfirmed" | Any agent that doesn't emit `confirm_reconfirmed` markers | `disabled: true` (until the integration ships markers) |
 | `github` "delete_repository is blocked outright" | Cleanup bots, automated repo lifecycle | `disabled: true` + add a new contract with a tighter pattern (only allow deletion of repos matching `^test-`) |
@@ -387,7 +387,7 @@ install). The user's customisations sit beside them in the same file:
 
 * **New contracts** — appended to the agent's `contracts:` list
   (without a `source: bundle:*` tag — anything user-authored).
-* **Tweaks to shipped rules** — entries in the agent's `tweaks:`
+* **Customizations to default rules** — entries in the agent's `customized:`
   block: `match: { desc: "..." }` plus `disabled: true` /
   re-tuned `args:` / narrowed `A:`.
 
@@ -395,11 +395,11 @@ install). The user's customisations sit beside them in the same file:
 pull a new bundle after `pip install -U sponsio`) does a smart
 merge: shipped contracts are wholesale replaced from the new
 bundle, but everything user-authored — every contract without the
-bundle source tag, plus the entire `tweaks:` block — is preserved
+bundle source tag, plus the entire `customized:` block — is preserved
 verbatim. Hand-editing a shipped contract's body in place is the
 one thing that doesn't survive upgrade (same model as
 `brew upgrade` clobbering a hand-edited formula); always express
-changes as a `tweaks:` entry instead.
+changes as a `customized:` entry instead.
 
 The agent must NOT use `Edit`, `Write`, `MultiEdit`, or shell
 redirects on this file — the runtime self-modify pack blocks
@@ -428,7 +428,7 @@ For the tuning conversation, do this instead:
 
 2. Tell the user the file path
    (`~/.sponsio/plugins/<id>/sponsio.yaml`) and describe the change
-   in words: "add a `tweaks:` entry beside the agent's `contracts:`
+   in words: "add a `customized:` entry beside the agent's `contracts:`
    list whose `match.desc` is the rule you want to silence, with
    `disabled: true`", or "append a new contract to the agent's
    `contracts:` list". Point them at the existing pack's syntax for

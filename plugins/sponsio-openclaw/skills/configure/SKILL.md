@@ -199,10 +199,10 @@ For each contract proposed, state:
   the user doesn't assume coverage they don't have.
 
 If a rule is wrong, drop it from the rendered yaml or add a
-`tweaks:` block:
+`customized:` block:
 
 ```yaml
-tweaks:
+customized:
   - match: { desc: "<offending desc>" }
     disabled: true
 ```
@@ -265,11 +265,11 @@ agents:
 | Production | move `delete_*` from `rate_limit 0` to assumption-gated (require explicit `confirm_reconfirmed`) |
 | Regulated / PII | tighten sto rules — `core/universal`'s β from 0.95 → 0.99 |
 
-### 4.3 — known-false-positive tweaks
+### 4.3 — known-false-positive customizations
 
 Common cases:
 
-| Rule | When false-positives | Tweak |
+| Rule | When false-positives | Customization |
 |---|---|---|
 | `_host_openclaw` "Block reads of dotenv secrets" | dotenv rotators, secret-rotation agents | `disabled: true` for `read` only (keep `write`) |
 | `incident/openclaw` "navigation must not target internal hosts" | testing one's own internal app | replace with allowlist of actual internal hostnames |
@@ -285,15 +285,15 @@ Per-plugin libraries live in a single file:
 Inside, shipped contracts carry `source: bundle:<id>` (stamped at
 install). The user's customisations sit beside them: new contracts
 get appended (no source tag), and adjustments to shipped rules go
-into a `tweaks:` block (`disabled: true`, retuned `args:`, narrowed
+into a `customized:` block (`disabled: true`, retuned `args:`, narrowed
 `A:`).
 
 `sponsio plugin install <id> --force` (used for re-install or to
 pull a new bundle after `pip install -U sponsio`) does a smart
 merge: shipped contracts are wholesale replaced from the new bundle,
-but every user-authored contract and the entire `tweaks:` block
+but every user-authored contract and the entire `customized:` block
 survive. Hand-editing a shipped contract's body in place is the one
-thing that doesn't survive upgrade — express changes as a `tweaks:`
+thing that doesn't survive upgrade — express changes as a `customized:`
 entry instead.
 
 The agent must NOT use `Edit`, `Write`, `MultiEdit`, or shell
@@ -305,7 +305,7 @@ content: bundle libraries (`sponsio plugin install`), CLI extraction
 the user's own keystrokes. An LLM-composed snippet has none of
 those provenances.
 
-For every tweak the walkthrough produces:
+For every customization the walkthrough produces:
 
 1. Restate, in plain English, what the user wants and which shipped
    rule it affects. `sponsio plugin show <id>` prints the desc of
@@ -314,7 +314,7 @@ For every tweak the walkthrough produces:
 
 2. Tell the user the file path
    (`~/.sponsio/plugins/<id>/sponsio.yaml`) and describe the change
-   in words ("add a `tweaks:` entry beside the agent's `contracts:`
+   in words ("add a `customized:` entry beside the agent's `contracts:`
    list whose `match.desc` is the rule you want to silence, with
    `disabled: true`"). Point them at the existing pack's syntax;
    let them write the YAML themselves.

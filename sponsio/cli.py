@@ -4988,7 +4988,7 @@ def plugin_install(
             click.secho(
                 f"  skipped {target}: already exists "
                 f"(re-run with --force to upgrade in place — "
-                f"your custom contracts and `tweaks:` are preserved)",
+                f"your customized contracts and `customized:` block are preserved)",
                 fg="yellow",
             )
             skipped.append(target)
@@ -4999,9 +4999,9 @@ def plugin_install(
             click.secho(f"  ✓ wrote {target}", fg="green")
         else:
             click.secho(
-                f"  ✓ upgraded {target} — replaced shipped contracts, "
-                f"kept {kept['user_contracts']} custom contract(s) and "
-                f"{kept['tweaks']} tweak(s)",
+                f"  ✓ upgraded {target} — replaced default contracts, "
+                f"kept {kept['user_contracts']} customized contract(s) "
+                f"and {kept['customized']} customized entry/entries",
                 fg="green",
             )
         written.append(target)
@@ -5049,24 +5049,25 @@ def _install_one(name: str, target: Path) -> dict | None:
     """Install or upgrade a single bundled library at ``target``.
 
     Returns ``None`` for a fresh install (no prior file).  Returns a
-    dict ``{"user_contracts": int, "tweaks": int}`` for an upgrade
+    dict ``{"user_contracts": int, "customized": int}`` for an upgrade
     (existing file present), describing what was preserved from the
     user's customisations on top of the new bundle.
 
     Upgrade semantics — single-file with smart merge:
 
-    * Every shipped contract is tagged ``source: bundle:<name>`` at
+    * Every default contract is tagged ``source: bundle:<name>`` at
       install time. Anything else in the file (contracts without that
       tag, or with ``source:`` pointing elsewhere) is treated as
       user-authored.
-    * On upgrade, the shipped section is wholesale replaced with the
+    * On upgrade, the default section is wholesale replaced with the
       new bundle's contracts; user-authored contracts and the agent's
-      ``tweaks:`` block are spliced back in unchanged.
-    * Manual edits to a *shipped* contract (i.e. changing its body in
-      place rather than adding a ``tweaks:`` entry) are wiped on
+      ``customized:`` block (or its legacy aliases ``tweaks:`` /
+      ``overrides:``) are spliced back in unchanged.
+    * Manual edits to a *default* contract (i.e. changing its body in
+      place rather than adding a ``customized:`` entry) are wiped on
       upgrade — same model as ``brew upgrade`` over a hand-edited
-      formula. The skill flow steers users to ``tweaks:`` for exactly
-      this reason.
+      formula. The skill flow steers users to ``customized:`` for
+      exactly this reason.
     """
     from sponsio.plugin.registry import read_bundled
 
@@ -5091,17 +5092,13 @@ def _install_one(name: str, target: Path) -> dict | None:
         if not isinstance(existing_agent, dict):
             existing_agent = {}
 
-        # Pull every user-authored entry from the existing
-        # ``contracts:`` list — that includes:
-        #
-        # * Rule definitions the user added (no ``source`` tag, or
-        #   one that isn't our bundle marker).
-        # * Inline tweak entries (have ``match:`` instead of ``E:``,
-        #   no ``source`` tag at all).
-        #
-        # Anything tagged with the bundle marker is shipped content
-        # for THIS bundle and gets dropped — the new bundle's freshly
-        # stamped contracts take its place.
+        # Pull user-authored contracts from ``contracts:`` — anything
+        # without our bundle marker. Entries tagged with the bundle
+        # marker are shipped content for THIS bundle and get dropped;
+        # the new bundle's freshly stamped contracts take their place.
+        # Every entry under ``contracts:`` is a contract (``E:`` plus
+        # optional ``A:``); tweaks live in their own ``tweaks:`` /
+        # ``overrides:`` block, handled below.
         existing_contracts = existing_agent.get("contracts") or []
         kept = [
             c
@@ -5110,18 +5107,13 @@ def _install_one(name: str, target: Path) -> dict | None:
         ]
         if kept:
             new_agent.setdefault("contracts", []).extend(kept)
-            for c in kept:
-                if "match" in c and "E" not in c:
-                    tweaks_kept += 1
-                else:
-                    user_contracts_kept += 1
+            user_contracts_kept += len(kept)
 
-        # Legacy agent-level ``tweaks:`` / ``overrides:`` block —
-        # preserve verbatim under whichever key the existing file
-        # used. New tweaks should go inline under ``contracts:``,
-        # but we don't silently rewrite the user's vocabulary on
-        # upgrade.
-        for key in ("tweaks", "overrides"):
+        # ``customized:`` block (or its ``tweaks:`` / ``overrides:``
+        # legacy aliases) — always user-authored, preserve verbatim
+        # under whichever key the existing file used so we don't
+        # silently rewrite the user's vocabulary on upgrade.
+        for key in ("customized", "tweaks", "overrides"):
             existing_block = existing_agent.get(key)
             if existing_block:
                 new_agent[key] = existing_block
@@ -5129,7 +5121,7 @@ def _install_one(name: str, target: Path) -> dict | None:
                     tweaks_kept += len(existing_block)
 
     target.write_text(yaml.safe_dump(new_doc, sort_keys=False), encoding="utf-8")
-    return {"user_contracts": user_contracts_kept, "tweaks": tweaks_kept}
+    return {"user_contracts": user_contracts_kept, "customized": tweaks_kept}
 
 
 _PATTERN_LABEL = {
@@ -5215,10 +5207,10 @@ def _render_plugin_digest(
             lines.append("")
 
     lines.append(
-        f"  Tune by adding entries to a ``tweaks:`` block (or new ``contracts:``\n"
-        f"  entries) in {yaml_path or 'the file'}.\n"
-        "  Don't hand-edit a shipped rule's body — ``sponsio plugin install --force``\n"
-        "  replaces shipped contracts on upgrade; only ``tweaks:`` and your own\n"
+        f"  Customize by adding entries to a ``customized:`` block, or appending\n"
+        f"  new ``contracts:`` entries in {yaml_path or 'the file'}.\n"
+        "  Don't hand-edit a default rule's body — ``sponsio plugin install --force``\n"
+        "  replaces default contracts on upgrade; only ``customized:`` and your own\n"
         "  ``contracts:`` entries (without a ``source: bundle:*`` tag) survive."
     )
     return "\n".join(lines)
