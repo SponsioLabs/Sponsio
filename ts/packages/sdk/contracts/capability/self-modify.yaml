@@ -9,7 +9,7 @@
 # Threat model:
 #
 # An agent that can edit its own ``~/.sponsio/plugins/_host/sponsio.yaml``
-# can append an ``overrides:`` block to disable the rule about to
+# can append an ``customized:`` block to disable the rule about to
 # fire against it.  This is privilege escalation by self-rewriting:
 # the safety mechanism becomes the agent's own debuggable resource.
 # Observed in the wild during the development of this very pack —

@@ -330,7 +330,7 @@ agents:
       # requirement on every retrieval-augmented reply would cripple
       # chat/assistant workloads.  Teams whose `send_message` routes
       # to external (non-owner) channels should add it via
-      # overrides: — see the commented example below.
+      # customized: — see the commented example below.
       - desc: "After untrusted content ingest, sensitive sinks require re-confirmation"
         E:
           pattern: untrusted_source_gate

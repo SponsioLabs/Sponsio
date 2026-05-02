@@ -19,6 +19,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import * as yaml from "js-yaml";
+import { extractOtlpEvents, isOtlpPayload } from "./otlp";
 
 const HELP =
   "sponsio check — replay a trace file through the engine, report violations\n" +
@@ -62,11 +63,8 @@ function sniffEvents(text: string, path: string): RawEvent[] {
     } catch (e) {
       throw new Error(`[check] cannot parse ${path} as JSON: ${(e as Error).message}`);
     }
-    if (data && typeof data === "object" && Array.isArray((data as { resourceSpans?: unknown }).resourceSpans)) {
-      throw new Error(
-        `[check] ${path} looks like OTLP/JSON — not supported in TS yet. ` +
-          `Use the Python CLI: \`sponsio check -t ${path} ...\``,
-      );
+    if (isOtlpPayload(data)) {
+      return extractOtlpEvents(data);
     }
     if (data && typeof data === "object" && Array.isArray((data as { events?: unknown }).events)) {
       return ((data as { events: unknown[] }).events).map(coerceEvent).filter(Boolean) as RawEvent[];

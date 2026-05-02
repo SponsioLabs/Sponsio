@@ -14,6 +14,7 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { resolve, join, basename } from "node:path";
 import * as yaml from "js-yaml";
+import { extractOtlpEvents, isOtlpPayload } from "./otlp";
 
 const HELP =
   "sponsio eval — replay a labelled trace corpus and report FPR/FNR\n" +
@@ -87,6 +88,7 @@ function loadEvents(path: string): RawEvent[] {
   const trimmed = text.trimStart();
   if (trimmed.startsWith("{")) {
     const data = JSON.parse(text);
+    if (isOtlpPayload(data)) return extractOtlpEvents(data);
     if (Array.isArray(data?.events)) return data.events.map(coerceEvent).filter(Boolean) as RawEvent[];
     return [];
   }

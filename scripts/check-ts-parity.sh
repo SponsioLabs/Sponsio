@@ -33,6 +33,7 @@ check_dir() {
 
 check_dir "contracts/" "$PY/contracts" "$TS_SDK/contracts"
 check_dir "prompts/" "$PY/prompts" "$TS_SCAN/prompts"
+check_dir "init_examples/" "$PY/init_examples" "$TS_SCAN/init_examples"
 
 if [ "$failures" -gt 0 ]; then
   echo ""

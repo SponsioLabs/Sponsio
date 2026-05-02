@@ -17,7 +17,7 @@
 #   1. ``cat ~/.sponsio/plugins/_host_subagent/sponsio.yaml`` —
 #      reconnaissance: learn which rules are about to fire.
 #   2. ``Edit ~/.sponsio/plugins/_host_subagent/sponsio.yaml`` —
-#      add an ``overrides:`` block disabling the inconvenient rules.
+#      add an ``customized:`` block disabling the inconvenient rules.
 #   3. Proceed with the previously-blocked action.
 #
 # Same sequence works against the parent's ``_host/sponsio.yaml``

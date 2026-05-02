@@ -1,0 +1,65 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "customer_bot"
+            }
+          }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "sponsio"
+          },
+          "spans": [
+            {
+              "traceId": "exampletrace0001",
+              "spanId": "span00",
+              "name": "verify_identity",
+              "startTimeUnixNano": "1000000000",
+              "endTimeUnixNano": "1500000000",
+              "status": {
+                "code": 1
+              }
+            },
+            {
+              "traceId": "exampletrace0001",
+              "spanId": "span01",
+              "name": "issue_refund",
+              "startTimeUnixNano": "2000000000",
+              "endTimeUnixNano": "2500000000",
+              "status": {
+                "code": 1
+              }
+            },
+            {
+              "traceId": "exampletrace0001",
+              "spanId": "span02",
+              "name": "issue_refund",
+              "startTimeUnixNano": "3000000000",
+              "endTimeUnixNano": "3500000000",
+              "status": {
+                "code": 1
+              }
+            },
+            {
+              "traceId": "exampletrace0001",
+              "spanId": "span03",
+              "name": "issue_refund",
+              "startTimeUnixNano": "4000000000",
+              "endTimeUnixNano": "4500000000",
+              "status": {
+                "code": 1
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

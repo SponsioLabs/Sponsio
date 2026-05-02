@@ -198,7 +198,7 @@ agents:
       # batch-approve (CI pipelines, planned migrations).  If your
       # workflow does, override this rule in your config:
       #
-      #     overrides:
+      #     customized:
       #       - match: {desc: "Each exec call needs its own confirm_reconfirmed (no confirmation reuse)"}
       #         disabled: true
       #     contracts:
