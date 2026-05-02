@@ -21,7 +21,7 @@
  * skipped with a one-time warning in ``@sponsio/sdk``).
  */
 
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve, dirname } from "path";
 import { spawnSync } from "child_process";
@@ -391,8 +391,8 @@ export async function runOnboard(opts: OnboardOptions): Promise<OnboardResult> {
 
 /* ----------------------------------------------------------------- */
 
-function parseOnboardArgs(argv: string[]): OnboardOptions & { help: boolean } {
-  const out: OnboardOptions & { help: boolean } = {
+function parseOnboardArgs(argv: string[]): OnboardOptions & { help: boolean; emitContext: boolean } {
+  const out: OnboardOptions & { help: boolean; emitContext: boolean } = {
     target: ".",
     agent: "agent",
     mode: "observe",
@@ -400,6 +400,7 @@ function parseOnboardArgs(argv: string[]): OnboardOptions & { help: boolean } {
     llm: false,
     pyNever: false,
     help: false,
+    emitContext: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -419,6 +420,8 @@ function parseOnboardArgs(argv: string[]): OnboardOptions & { help: boolean } {
       out.push = false;
     } else if (a === "--push-url") {
       out.pushUrl = argv[++i];
+    } else if (a === "--emit-context") {
+      out.emitContext = true;
     } else if (a.startsWith("-")) {
       process.stderr.write(`unknown flag: ${a}\n`);
       process.exit(2);
@@ -450,6 +453,11 @@ const ONBOARD_HELP = [
   "  --push-url <url>   Dashboard URL (default: http://127.0.0.1:8000)",
   "  --force            Overwrite an existing sponsio.yaml",
   "  --py-never         Never call Python; always write the det-only fallback",
+  "  --emit-context     Skip writing the yaml; emit structured project context",
+  "                     (framework / tool inventory / packs / existing yaml /",
+  "                      policy docs / wrap snippet) as JSON to stdout. Pair",
+  "                     with `sponsio prompt onboard` to drive the IDE agent",
+  "                     through contract authoring without a separate LLM call.",
   "  -h, --help         Show this help",
   "",
   "REQUIRES: npm `yaml` for `@sponsio/sdk` when using `config:` —",
@@ -458,12 +466,90 @@ const ONBOARD_HELP = [
 ].join("\n");
 
 /**
+ * Discover root-level policy docs (security.md / policy.md and case
+ * variants) and bundle them with the onboard context payload. Mirrors
+ * Python's ``policy_docs`` field.
+ */
+function collectPolicyDocs(root: string): { path: string; content: string }[] {
+  const docs: { path: string; content: string }[] = [];
+  const candidates = ["security.md", "SECURITY.md", "policy.md", "POLICY.md"];
+  const seen = new Set<string>();
+  for (const name of candidates) {
+    const p = join(root, name);
+    if (!existsSync(p)) continue;
+    try {
+      const real = realpathSync(p);
+      if (seen.has(real)) continue;
+      seen.add(real);
+      docs.push({ path: name, content: readFileSync(p, "utf-8") });
+    } catch {
+      // skip unreadable
+    }
+  }
+  return docs;
+}
+
+/**
+ * Run the deterministic stages of onboard (framework detection + AST
+ * scan + pack auto-select + policy doc discovery) and emit the
+ * structured payload as JSON. Mirrors Python's ``--emit-context``.
+ */
+async function runEmitContext(opts: OnboardOptions): Promise<void> {
+  const { root, outPath, configRelForSnippet } = resolveOnboardPaths(opts.target);
+  if (!existsSync(root)) {
+    process.stderr.write(`[onboard] not a path: ${root}\n`);
+    process.exit(1);
+  }
+  const framework = detectFramework(root);
+  const patterns = defaultScanGlobs(root);
+  const so = await scan(patterns, { cwd: root });
+  const tools = so.tools.map((t) => t.function);
+  const wrapSnippet = wrapSnippetFor(framework, opts.agent, configRelForSnippet);
+  let existingYaml = "";
+  if (existsSync(outPath)) {
+    try {
+      existingYaml = readFileSync(outPath, "utf-8");
+    } catch {
+      // ignore
+    }
+  }
+  const payload = {
+    framework: { name: framework, evidence: "from package.json dependencies" },
+    agent_id: opts.agent,
+    tool_inventory: tools,
+    auto_selected_packs: ["sponsio:core/universal"],
+    needs_workspace: false,
+    existing_yaml: existingYaml,
+    policy_docs: collectPolicyDocs(root),
+    wrap_snippet: wrapSnippet,
+    out_path: outPath,
+    next_steps_hint:
+      "Run `npx sponsio prompt onboard` to get the contract-authoring " +
+      "prompt template, apply it to this JSON in your own LLM context, " +
+      `then write the resulting YAML to ${outPath} via Edit/Write. ` +
+      "Validate with `npx sponsio validate`.",
+  };
+  process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
+}
+
+/**
  * ``main`` for ``sponsio onboard ...`` — *sync entry from cli.ts*.
  */
 export async function runOnboardCli(argv: string[]): Promise<void> {
   const p = parseOnboardArgs(argv);
   if (p.help) {
     process.stdout.write(ONBOARD_HELP);
+    return;
+  }
+  if (p.emitContext) {
+    await runEmitContext({
+      target: p.target,
+      agent: p.agent,
+      mode: p.mode,
+      force: p.force,
+      llm: p.llm,
+      pyNever: p.pyNever,
+    });
     return;
   }
   const res = await runOnboard({
