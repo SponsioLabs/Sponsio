@@ -2109,72 +2109,44 @@ def report(
 
 
 # ---------------------------------------------------------------------------
-# serve — local single-user dashboard backend (OSS).
-# Cloud installs override this with a multi-tenant, auth-gated variant.
+# serve (Sponsio Cloud feature stub in OSS)
 # ---------------------------------------------------------------------------
 
 
 @cli.command()
-@click.option("--host", default="127.0.0.1", help="Bind address (default: localhost)")
+@click.option("--host", default="127.0.0.1", help="Bind address")
 @click.option("--port", "-p", default=DASHBOARD_DEFAULT_PORT, type=int)
-@click.option(
-    "--reload",
-    is_flag=True,
-    help="Auto-reload on code changes (development).",
-)
-def serve(host: str, port: int, reload: bool):
-    """Start the local Sponsio dashboard backend.
+@click.option("--dev", is_flag=True)
+def serve(host: str, port: int, dev: bool):
+    """Start the Sponsio dashboard server (Sponsio Cloud feature).
 
-    Read-only FastAPI server that surfaces session-log JSONL files at
-    ``~/.sponsio/sessions/`` to a local web UI. Bound to localhost by
-    default, no auth, no hosted ingestion.
+    The OSS engine ships the contract runtime + CLI; the long-lived
+    HTTP backend that serves the web dashboard is a Sponsio Cloud
+    feature. To inspect contract activity locally, use:
 
     \b
-        sponsio serve                  # http://127.0.0.1:8000
-        sponsio serve --port 9000
-        SPONSIO_SESSIONS_DIR=/tmp/s sponsio serve
+        sponsio host trace --follow      # live coloured stream
+        sponsio report --since 1h        # session log summary
+        sponsio replay <session>         # re-render a recorded session
+        sponsio export-sessions --to ... # ship audit to your collector
 
-    For the multi-tenant hosted dashboard (cross-trace aggregation,
-    sto LLM judges, team views), install Sponsio Cloud:
+    To enable the dashboard, install the cloud package:
 
     \b
         pip install sponsio[cloud]
+
+    Or contact your Sponsio account team for hosted dashboard access.
     """
-    try:
-        from sponsio.serve import create_app
-    except ImportError as exc:
-        click.echo(
-            click.style("sponsio serve", bold=True) + " needs the [web] extra:\n"
-            "  pip install 'sponsio[web]'\n"
-            f"  ({exc})",
-            err=True,
-        )
-        raise SystemExit(2) from exc
-
-    try:
-        import uvicorn
-    except ImportError as exc:
-        click.echo(
-            "uvicorn missing — install the [web] extra:\n  pip install 'sponsio[web]'",
-            err=True,
-        )
-        raise SystemExit(2) from exc
-
-    if reload:
-        uvicorn.run(
-            "sponsio.serve:create_app",
-            host=host,
-            port=port,
-            reload=True,
-            factory=True,
-        )
-    else:
-        app = create_app()
-        click.echo(
-            click.style("Sponsio local dashboard", bold=True)
-            + f" → http://{host}:{port}  (Ctrl-C to stop)"
-        )
-        uvicorn.run(app, host=host, port=port)
+    click.echo(
+        click.style("sponsio serve", bold=True)
+        + " requires Sponsio Cloud (the OSS engine ships CLI + runtime only).\n"
+        "  pip install sponsio[cloud]   # for the dashboard backend + frontend\n"
+        "  sponsio host trace --follow  # live alternative in pure OSS\n"
+        "  sponsio replay <session>     # re-render a recorded session view\n"
+        "  sponsio report --since 1h    # session-log summary\n",
+        err=True,
+    )
+    raise SystemExit(2)
 
 
 # ---------------------------------------------------------------------------

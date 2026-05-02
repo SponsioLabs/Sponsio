@@ -76,16 +76,10 @@ commitment, not a "temporarily open" status.
 ### Local observability
 - `sponsio host trace --follow` — live coloured stream
 - `sponsio report --since` — session log summary
+- `sponsio replay <session>` — re-render a recorded session view
+- `sponsio explain <contract>` — show source + compiled formula + last violation
 - Session log writer (`~/.sponsio/sessions/<agent>/*.jsonl`)
 - Per-conversation trace state (`~/.sponsio/plugins/<bucket>/conv-*.shield-trace.jsonl`)
-- `sponsio serve` — **local single-user** dashboard backend (`sponsio/serve/`).
-  Read-only FastAPI app bound to `127.0.0.1`, no auth, no ingestion endpoint.
-  Surfaces session-log JSONL files to a local web UI for trace inspection.
-  Requires the `[web]` extra (`pip install sponsio[web]`).
-- `web/` — React + TypeScript + Vite frontend that pairs with `sponsio serve`.
-  Two pages (Monitor, Rulebook) read from the local FastAPI app at
-  `127.0.0.1:8000`. Build with `cd web && npm install && npm run build`;
-  during development use `npm run dev` alongside `sponsio serve --dev`.
 
 ---
 
@@ -114,10 +108,11 @@ commitment, not a "temporarily open" status.
   mining
 - `sponsio.discovery.store` — cross-customer pattern store
 - `api/` — full FastAPI backend (auth, multi-tenant, OTel ingest,
-  monitor / leaderboard / score / playground / discovery routers).
-  Cloud's `sponsio serve` (or equivalent) replaces the OSS single-user
-  app with this multi-tenant backend — adds hosted ingestion, sto
-  evaluators, cross-trace aggregation views, and team features.
+  monitor / leaderboard / score / playground / discovery routers)
+- `web/` — React + Vite frontend (Monitor / Rulebook / Playground /
+  Integrate / ScanAgent pages, design tokens, theming)
+- `sponsio serve` — dashboard backend + frontend launcher (in OSS this
+  is a stub pointing at the cloud install)
 
 ### Premium content packs
 - `sponsio/contracts/premium/*.yaml` — bespoke threat patterns from
@@ -138,8 +133,7 @@ commitment, not a "temporarily open" status.
 | Does it need cross-trace / cross-customer aggregation? | Cloud |
 | Is it a single-project static scan? | OSS |
 | Is it a per-host hook adapter (Cursor / Claude Code / OpenClaw)? | OSS |
-| Does it serve a multi-user web dashboard with auth? | Cloud |
-| Is it a single-user local dashboard reading `~/.sponsio/sessions/`? | OSS (`sponsio serve`) |
+| Does it serve a web dashboard (single- or multi-user)? | Cloud |
 | Does it accept hosted span ingestion from remote agents? | Cloud |
 | Is it a session-log ship-out to your own collector? | OSS (`sponsio export-sessions` + `sponsio.tracer.exporters`) |
 | Is it an in-process OTel exporter that POSTs to your endpoint? | OSS (`sponsio.tracer.exporters.OtlpHttpExporter`) |

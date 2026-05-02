@@ -88,19 +88,13 @@ scripts/               one-off maintenance utilities (e.g. plugin sync)
 tests/                 pytest suite
 ```
 
-OSS ships a **local single-user** dashboard: `sponsio serve`
-(`sponsio/serve/` — read-only FastAPI app, 127.0.0.1, no auth) plus the
-React frontend in `web/`. Together they surface session-log JSONL files
-to a local web UI for trace inspection. Requires the `[web]` extra
-(`pip install sponsio[web]`).
-
-The multi-tenant `api/` FastAPI backend (auth, hosted OTel ingest,
-monitor / score / leaderboard / playground routers, cross-trace
-aggregation) was moved to Sponsio Cloud (`pip install sponsio[cloud]`)
-and does **not** ship in OSS. CLI-side local observability without the
-web UI uses `sponsio host trace --follow` / `sponsio report` /
-`sponsio.tracer.exporters.OtlpHttpExporter`. See
-[docs/oss_scope.md](docs/oss_scope.md) for the full boundary.
+The `api/` FastAPI backend AND the `web/` React dashboard (multi-tenant
+auth, OTel ingest, monitor / score / leaderboard / playground routers
++ the matching frontend) were moved to Sponsio Cloud (`pip install
+sponsio[cloud]`); neither ships in OSS. Local single-user observability
+uses `sponsio host trace --follow` / `sponsio report` / `sponsio replay
+<session>` / `sponsio explain <contract>` /
+`sponsio.tracer.exporters.OtlpHttpExporter`.
 
 ## Core Invariants
 
