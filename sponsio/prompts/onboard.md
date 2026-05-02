@@ -87,7 +87,57 @@ their own source from the pack.
 
 ## What to do after
 
-After producing the YAML, write it to `sponsio.yaml` in the project
-root via the host's Edit/Write tool, then show the user the
-framework-specific wrap snippet (`run_onboard` returns this — your
-emit-context block has it under `wrap_snippet`).
+You produce **two** edits, in this order:
+
+### 1. Write `sponsio.yaml`
+
+Write the YAML you authored above to the path in `out_path` (default:
+project root). Use the host's Edit/Write tool. If `existing_yaml`
+was non-empty, merge — don't clobber.
+
+### 2. Patch the agent entry file
+
+`wrap_snippet` shows the imports and guard construction. Your job is
+to splice those into the actual entry file so Sponsio is wired into
+the runtime, not just printed in the docs.
+
+**Locate the entry file** (use `entry_file_candidates` if present in
+the context — the CLI's deterministic scan flagged files that import
+the framework). If absent, fall back to:
+
+  - Python: files that instantiate the framework's agent class
+    (e.g. `Agent(...)`, `LangGraph(...)`, `ClaudeAgent(...)`),
+    pointed at by `pyproject.toml`'s entry points or the project's
+    run script.
+  - TypeScript: files that call `generateText` / construct the
+    Anthropic / OpenAI client / build a LangChain ToolNode, pointed
+    at by `package.json`'s `main` / `bin` / `scripts.start`.
+
+If multiple candidates remain after that filter, **stop and ask the
+user** rather than guessing — picking wrong creates a duplicate
+guard or a partial wire-up that's worse than nothing.
+
+**Apply the wrap** (framework-specific):
+
+  - **Vercel AI SDK**: change every `model: <provider>("...")` site
+    to `model: wrapLanguageModel({ model: <provider>("..."),
+    middleware: sponsioMiddleware(guard) })`. Add the imports at the
+    top.
+  - **LangChain / LangGraph**: replace `tools` arrays passed to
+    `ToolNode` / `createReactAgent` with `wrapTools(tools, guard)`.
+  - **Claude Agent SDK / OpenAI Agents SDK**: wrap the underlying
+    client per the snippet.
+  - **Bare function-calling loop** (no framework): insert
+    `guard.guardBefore(toolName, args)` before the tool executes,
+    `guard.guardAfter(toolName, result)` after. Show the user the
+    diff before applying — this path edits more lines.
+
+**Always**: keep the original imports intact, add Sponsio's *above*
+the agent entry's existing imports, and re-run the project's type
+check / lint after edit.
+
+### 3. Hand off
+
+Show the user a short summary: which contracts you wrote, which file
+you patched (with line range), and the next command to run
+(`sponsio doctor`, then their normal `npm test` / `pytest`).

@@ -4167,6 +4167,56 @@ def onboard(
         except Exception:  # pragma: no cover — best-effort
             pass
 
+        # Locate likely agent entry files so the IDE agent doesn't have
+        # to re-discover them. Conservative regex grep over root-level
+        # .py files, ranked by signal density.
+        entry_file_candidates: list[dict] = []
+        try:
+            framework_signals: dict[str, list[re.Pattern]] = {
+                "langchain": [
+                    re.compile(r"from\s+langchain"),
+                    re.compile(r"create_react_agent\s*\("),
+                ],
+                "langgraph": [
+                    re.compile(r"from\s+langgraph"),
+                    re.compile(r"StateGraph\s*\("),
+                    re.compile(r"create_react_agent\s*\("),
+                ],
+                "crewai": [re.compile(r"from\s+crewai"), re.compile(r"\bAgent\s*\(")],
+                "autogen": [re.compile(r"from\s+autogen"), re.compile(r"AssistantAgent\s*\(")],
+                "openai_agents": [re.compile(r"from\s+agents"), re.compile(r"\bAgent\s*\(")],
+                "openai": [re.compile(r"from\s+openai"), re.compile(r"OpenAI\s*\(")],
+                "anthropic": [
+                    re.compile(r"from\s+anthropic"),
+                    re.compile(r"Anthropic\s*\("),
+                    re.compile(r"messages\.create\s*\("),
+                ],
+                "claude_agent_sdk": [re.compile(r"from\s+claude_agent_sdk")],
+                "google_adk": [re.compile(r"from\s+google\.adk")],
+            }
+            sigs = framework_signals.get(framework.framework, [])
+            if sigs:
+                from glob import glob as _glob
+
+                py_files = sorted(set(_glob(str(root / "*.py")) + _glob(str(root / "**/*.py"), recursive=True)))
+                py_files = [
+                    f for f in py_files
+                    if "/.venv/" not in f and "/__pycache__/" not in f and "/site-packages/" not in f
+                ]
+                scored = []
+                for f in py_files[:200]:  # cap to avoid scanning large monorepos
+                    try:
+                        text = Path(f).read_text(encoding="utf-8")
+                    except OSError:
+                        continue
+                    matches = [s.pattern for s in sigs if s.search(text)]
+                    if matches:
+                        scored.append({"path": str(Path(f).relative_to(root)), "reason": "matches: " + ", ".join(matches)})
+                scored.sort(key=lambda x: -len(x["reason"]))
+                entry_file_candidates = scored[:5]
+        except Exception:  # pragma: no cover — best-effort
+            entry_file_candidates = []
+
         click.echo(
             json.dumps(
                 {
@@ -4181,12 +4231,15 @@ def onboard(
                     "existing_yaml": existing_yaml_text,
                     "policy_docs": policy_docs,
                     "wrap_snippet": wrap_snippet_text,
+                    "entry_file_candidates": entry_file_candidates,
                     "out_path": str(existing_yaml_path),
                     "next_steps_hint": (
                         "Run ``sponsio prompt onboard`` to get the prompt "
                         "template, apply it to this JSON in your own LLM "
                         "context, then write the resulting YAML to "
-                        f"{existing_yaml_path} via Edit/Write."
+                        f"{existing_yaml_path} via Edit/Write, and patch "
+                        "the agent entry file (see entry_file_candidates) "
+                        "with the wrap_snippet."
                     ),
                 },
                 indent=2,
@@ -5067,8 +5120,7 @@ def _install_one(name: str, target: Path) -> dict | None:
       user-authored.
     * On upgrade, the default section is wholesale replaced with the
       new bundle's contracts; user-authored contracts and the agent's
-      ``customized:`` block (or its legacy aliases ``tweaks:`` /
-      ``overrides:``) are spliced back in unchanged.
+      ``customized:`` block are spliced back in unchanged.
     * Manual edits to a *default* contract (i.e. changing its body in
       place rather than adding a ``customized:`` entry) are wiped on
       upgrade — same model as ``brew upgrade`` over a hand-edited
@@ -5103,8 +5155,8 @@ def _install_one(name: str, target: Path) -> dict | None:
         # marker are shipped content for THIS bundle and get dropped;
         # the new bundle's freshly stamped contracts take their place.
         # Every entry under ``contracts:`` is a contract (``E:`` plus
-        # optional ``A:``); tweaks live in their own ``tweaks:`` /
-        # ``overrides:`` block, handled below.
+        # optional ``A:``); tweaks live in their own ``customized:``
+        # block, handled below.
         existing_contracts = existing_agent.get("contracts") or []
         kept = [
             c
@@ -5115,16 +5167,13 @@ def _install_one(name: str, target: Path) -> dict | None:
             new_agent.setdefault("contracts", []).extend(kept)
             user_contracts_kept += len(kept)
 
-        # ``customized:`` block (or its ``tweaks:`` / ``overrides:``
-        # legacy aliases) — always user-authored, preserve verbatim
-        # under whichever key the existing file used so we don't
-        # silently rewrite the user's vocabulary on upgrade.
-        for key in ("customized", "tweaks", "overrides"):
-            existing_block = existing_agent.get(key)
-            if existing_block:
-                new_agent[key] = existing_block
-                if isinstance(existing_block, list):
-                    tweaks_kept += len(existing_block)
+        # ``customized:`` block — always user-authored, preserve
+        # verbatim on upgrade.
+        existing_block = existing_agent.get("customized")
+        if existing_block:
+            new_agent["customized"] = existing_block
+            if isinstance(existing_block, list):
+                tweaks_kept += len(existing_block)
 
     target.write_text(yaml.safe_dump(new_doc, sort_keys=False), encoding="utf-8")
     return {"user_contracts": user_contracts_kept, "customized": tweaks_kept}
@@ -5279,6 +5328,166 @@ def plugin_show(name: str, root: Path | None):
         fg="red",
     )
     sys.exit(2)
+
+
+# ---------------------------------------------------------------------------
+# ``sponsio plugin append`` — additive merge from a staging YAML
+#
+# The "host bucket without an API key" path: the host agent does the
+# extraction in its own context, writes the proposed contracts to a
+# transient staging file outside Zone B, then runs this command to
+# merge them into ``~/.sponsio/plugins/<name>/sponsio.yaml``.
+#
+# Structurally additive — by construction this command can only ADD
+# new contracts.  All validation + merge logic lives in
+# :mod:`sponsio.plugin.append_ops` so the daemon RPC handler shares
+# the exact same checks (no drift between the two callers).
+#
+# Two execution paths:
+#
+# * **Direct file mode** (no daemon running): the CLI does the merge
+#   itself — fine in dev / single-user setups where the user owns
+#   the host bucket file.
+# * **Daemon mode** (daemon running at the resolved socket): the CLI
+#   sends the staging YAML over IPC and the daemon performs the
+#   merge.  This is the path that gives kernel-enforced self-modify
+#   protection: in a system install the daemon runs as a separate
+#   UID and the agent's user UID has no write access to the file at
+#   all, so the only legitimate write goes through the daemon.
+# ---------------------------------------------------------------------------
+
+
+@plugin.command(name="append")
+@click.option(
+    "--from",
+    "from_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    required=True,
+    help="Staging YAML file with the contracts to append.",
+)
+@click.option(
+    "--target",
+    "target_name",
+    required=True,
+    help=(
+        "Plugin id (e.g. `_host_cursor`, `github`).  Resolves to "
+        "``<root>/<target>/sponsio.yaml``."
+    ),
+)
+@click.option(
+    "--root",
+    "root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Override the per-plugin library root "
+        "(default: $SPONSIO_PLUGIN_ROOT or ~/.sponsio/plugins)."
+    ),
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Print the staging file's contracts as they would be appended; do not write.",
+)
+@click.option(
+    "--no-daemon",
+    is_flag=True,
+    default=False,
+    help=(
+        "Skip the daemon route even if a daemon is reachable; do the "
+        "merge in this process via direct file write.  Used for tests "
+        "and dev setups where the user explicitly wants in-process behaviour."
+    ),
+)
+def plugin_append(
+    from_path: Path,
+    target_name: str,
+    root: Path | None,
+    dry_run: bool,
+    no_daemon: bool,
+):
+    """Atomically append agent-authored contracts to a host bucket library.
+
+    Use this from the ``sponsio`` skill instead of ``cat staging >>
+    host.yaml``: the redirect-form is denied by Zone B's self-modify
+    pack on host bucket paths, while this command performs the same
+    semantic add through validated, atomic Python code.
+
+    The command is **structurally additive**:
+
+    \b
+      * Only `contracts:` entries pass through; `customized:`,
+        `include:`, `tool_rename:`, etc. are rejected.
+      * No `disabled:` on contracts (that's `customized:` territory).
+      * Each appended contract must have a `desc:` that does not
+        collide with any contract already in the target.
+      * The merged file is validated via the loader before write.
+
+    Examples:
+
+    \b
+        sponsio plugin append --from .sponsio.staging.yaml --target _host_cursor
+        sponsio plugin append --from /tmp/policy-rules.yaml --target github --dry-run
+    """
+    from sponsio.daemon.client import DaemonClient, DaemonError, daemon_is_running
+    from sponsio.plugin.append_ops import (
+        AppendError,
+        AppendResult,
+        merge_staging_into_target,
+    )
+
+    if root is None:
+        env = os.environ.get("SPONSIO_PLUGIN_ROOT")
+        root = Path(env).expanduser() if env else Path.home() / ".sponsio" / "plugins"
+
+    staging_text = from_path.read_text(encoding="utf-8")
+
+    # Daemon route: when a daemon is reachable AND --no-daemon is not
+    # set, send the merge over IPC.  This is the only write path that
+    # works in a system install (where the host bucket is owned by a
+    # privileged UID and direct in-process file I/O would EACCES).
+    if not no_daemon and daemon_is_running():
+        client = DaemonClient()
+        try:
+            result_dict = client.call(
+                "plugin.append",
+                {
+                    "target": target_name,
+                    "staging_yaml": staging_text,
+                    "dry_run": dry_run,
+                    "root": str(root),
+                },
+            )
+        except DaemonError as e:
+            # Surface the daemon's structured error code as a normal
+            # CLI failure; the user shouldn't have to know about IPC.
+            raise click.ClickException(f"{e} (code={e.code})") from e
+        result = AppendResult(**result_dict)
+    else:
+        # Direct mode: dev / single-user / explicit --no-daemon.
+        target = root / target_name / "sponsio.yaml"
+        try:
+            result = merge_staging_into_target(
+                target, staging_text, dry_run=dry_run
+            )
+        except AppendError as e:
+            raise click.ClickException(str(e)) from e
+
+    if result.dry_run:
+        click.secho(
+            f"DRY RUN — would append {result.appended_count} contract(s) "
+            f"to agent {result.agent_id!r} in {result.target_path}",
+            fg="yellow",
+        )
+        for desc in result.descs:
+            click.echo(f"  + {desc}")
+    else:
+        click.secho(
+            f"✓ appended {result.appended_count} contract(s) to agent "
+            f"{result.agent_id!r} in {result.target_path}",
+            fg="green",
+        )
 
 
 @plugin.command(name="scan")
@@ -6462,6 +6671,125 @@ def host_guard(name: str, hook_event: str | None, use_stdin: bool):
 
     code = host_spec.runtime_fn(host_spec, hook_event, None)
     sys.exit(code)
+
+
+# ---------------------------------------------------------------------------
+# Sponsio control daemon
+# ---------------------------------------------------------------------------
+
+
+@cli.group()
+def daemon():
+    """Sponsio control daemon — privileged-process side of the IPC split.
+
+    The daemon owns the host bucket / per-plugin yaml files and is the
+    only entity the host agent can reach to write them.  Running as a
+    separate process (and ideally a separate UID under launchd /
+    systemd) makes self-modify protection an OS-level guarantee instead
+    of a regex-on-tool-args guarantee.
+
+    Subcommands:
+
+    \b
+    * ``sponsio daemon run``  — start the daemon in the foreground
+      (used by launchd / systemd plists, or by hand for dev work).
+    * ``sponsio daemon ping`` — round-trip health check.
+    * ``sponsio daemon status`` — show socket path + reachability.
+    """
+
+
+@daemon.command(name="run")
+@click.option(
+    "--socket",
+    "socket_path_arg",
+    type=click.Path(path_type=Path),
+    default=None,
+    help=(
+        "Override the Unix socket path (default: $SPONSIO_DAEMON_SOCKET, "
+        "/var/run/sponsio.sock if writable, else ~/.sponsio/sponsio.sock)."
+    ),
+)
+@click.option(
+    "--mode",
+    "socket_mode",
+    type=str,
+    default="0600",
+    help="chmod for the socket file (octal). Default 0600 keeps it owner-only.",
+)
+def daemon_run(socket_path_arg: Path | None, socket_mode: str):
+    """Start the daemon in the foreground.  Blocks until SIGINT/SIGTERM."""
+    from sponsio.daemon import default_socket_path
+    from sponsio.daemon.handlers import register_default_handlers
+    from sponsio.daemon.server import serve_forever
+
+    path = socket_path_arg or default_socket_path()
+    try:
+        mode = int(socket_mode, 8)
+    except ValueError as e:
+        raise click.ClickException(
+            f"invalid --mode {socket_mode!r}: must be octal like 0600 / 0666"
+        ) from e
+    click.echo(f"sponsio daemon listening at {path} (mode {socket_mode})")
+    try:
+        serve_forever(
+            path,
+            handler_registry=register_default_handlers,
+            socket_mode=mode,
+        )
+    except RuntimeError as e:
+        raise click.ClickException(str(e)) from e
+    click.echo("daemon stopped")
+
+
+@daemon.command(name="ping")
+@click.option(
+    "--socket",
+    "socket_path_arg",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Override the daemon socket path.",
+)
+@click.option(
+    "--echo",
+    "echo_value",
+    default="ping",
+    help="Value to round-trip through the daemon.",
+)
+def daemon_ping(socket_path_arg: Path | None, echo_value: str):
+    """Round-trip a ping RPC; print pid + version on success."""
+    from sponsio.daemon import DaemonClient, DaemonError
+
+    client = DaemonClient(socket_path=socket_path_arg)
+    try:
+        result = client.call("ping", {"echo": echo_value})
+    except DaemonError as e:
+        raise click.ClickException(f"{e} (code={e.code})") from e
+    click.echo(
+        f"✓ pong from {client.socket_path} "
+        f"(pid={result['pid']}, version={result['version']}, echo={result['echo']!r})"
+    )
+
+
+@daemon.command(name="status")
+@click.option(
+    "--socket",
+    "socket_path_arg",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Override the daemon socket path.",
+)
+def daemon_status(socket_path_arg: Path | None):
+    """Show the resolved socket path and whether the daemon answers."""
+    from sponsio.daemon import default_socket_path
+    from sponsio.daemon.client import daemon_is_running
+
+    path = socket_path_arg or default_socket_path()
+    running = daemon_is_running(path)
+    click.echo(f"socket: {path}")
+    click.echo(f"running: {'yes' if running else 'no'}")
+    if not running:
+        click.echo("\nStart the daemon with: sponsio daemon run")
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------

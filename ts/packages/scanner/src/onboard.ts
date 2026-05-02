@@ -26,6 +26,7 @@ import { tmpdir } from "os";
 import { join, resolve, dirname } from "path";
 import { spawnSync } from "child_process";
 import { dump } from "js-yaml";
+import fgImport from "fast-glob";
 import { scan } from "./index";
 
 /* ----------------------------------------------------------------- */
@@ -466,6 +467,58 @@ const ONBOARD_HELP = [
 ].join("\n");
 
 /**
+ * Find files that look like agent entry points — the ones that import
+ * the model/framework and call it. The IDE agent uses this to avoid
+ * a second discovery pass. Conservative scan: top-level + a few
+ * common dirs only.
+ */
+async function detectEntryFileCandidates(
+  root: string,
+  framework: TsOnboardFramework,
+): Promise<{ path: string; reason: string }[]> {
+  // Provider/framework signals to grep for, by detected framework.
+  const signals: Record<string, RegExp[]> = {
+    vercel: [
+      /\bgenerateText\s*\(/,
+      /from\s+["']ai["']/,
+      /from\s+["']@ai-sdk\//,
+    ],
+    claude: [/from\s+["']@anthropic-ai\/claude-agent-sdk["']/, /from\s+["']claude-agent-sdk["']/],
+    langgraph: [/from\s+["']@langchain\/langgraph["']/, /createReactAgent\s*\(/],
+    mcp: [/from\s+["']@modelcontextprotocol\/sdk\//],
+    google_adk: [/from\s+["']@google\/adk["']/],
+    openai: [/from\s+["']openai["']/, /\bnew\s+OpenAI\s*\(/],
+    none: [],
+  };
+  const fwSignals = signals[framework] ?? [];
+  if (fwSignals.length === 0) return [];
+
+  const patterns = ["*.ts", "*.tsx", "*.js", "*.jsx", "src/**/*.{ts,tsx,js,jsx}", "app/**/*.{ts,tsx,js,jsx}"];
+  const files = await fgImport(patterns, {
+    cwd: root,
+    onlyFiles: true,
+    ignore: ["**/node_modules/**", "**/dist/**", "**/build/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*"],
+  });
+  const out: { path: string; reason: string }[] = [];
+  for (const rel of files) {
+    let text: string;
+    try {
+      text = readFileSync(join(root, rel), "utf-8");
+    } catch {
+      continue;
+    }
+    const matched: string[] = [];
+    for (const re of fwSignals) {
+      if (re.test(text)) matched.push(re.source);
+    }
+    if (matched.length > 0) out.push({ path: rel, reason: `matches: ${matched.join(", ")}` });
+  }
+  // Prefer fewer, deeper signals first (more matches usually = real entry).
+  out.sort((a, b) => b.reason.length - a.reason.length);
+  return out.slice(0, 5);
+}
+
+/**
  * Discover root-level policy docs (security.md / policy.md and case
  * variants) and bundle them with the onboard context payload. Mirrors
  * Python's ``policy_docs`` field.
@@ -513,6 +566,7 @@ async function runEmitContext(opts: OnboardOptions): Promise<void> {
       // ignore
     }
   }
+  const entryCandidates = await detectEntryFileCandidates(root, framework);
   const payload = {
     framework: { name: framework, evidence: "from package.json dependencies" },
     agent_id: opts.agent,
@@ -522,12 +576,14 @@ async function runEmitContext(opts: OnboardOptions): Promise<void> {
     existing_yaml: existingYaml,
     policy_docs: collectPolicyDocs(root),
     wrap_snippet: wrapSnippet,
+    entry_file_candidates: entryCandidates,
     out_path: outPath,
     next_steps_hint:
       "Run `npx sponsio prompt onboard` to get the contract-authoring " +
       "prompt template, apply it to this JSON in your own LLM context, " +
-      `then write the resulting YAML to ${outPath} via Edit/Write. ` +
-      "Validate with `npx sponsio validate`.",
+      `then write the resulting YAML to ${outPath} via Edit/Write, ` +
+      "and patch the agent entry file (see `entry_file_candidates`) " +
+      "with the wrap_snippet. Validate with `npx sponsio validate`.",
   };
   process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
 }
