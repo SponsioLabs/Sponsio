@@ -1,0 +1,16 @@
+{
+  "name": "@sponsio/example-bec-backoffice",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Backoffice agent under a Business Email Compromise (BEC) attack — vulnerable baseline. Use Sponsio to harden it.",
+  "type": "module",
+  "dependencies": {
+    "@ai-sdk/anthropic": "^1.0.0",
+    "ai": "^4.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

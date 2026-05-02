@@ -5,7 +5,8 @@
   "description": "Workspace root for Sponsio's TypeScript packages: @sponsio/sdk (runtime) and @sponsio/scan-ts (static scanner). Not published; the two child packages are.",
   "license": "Apache-2.0",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "examples/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

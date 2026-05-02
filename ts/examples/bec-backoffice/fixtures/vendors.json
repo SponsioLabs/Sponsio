@@ -1,0 +1,32 @@
+{
+  "ACME-001": {
+    "vendorId": "ACME-001",
+    "name": "Acme Industrial Supplies",
+    "primaryEmail": "billing@acme-industrial.com",
+    "phoneOnFile": "+1-415-555-0142",
+    "bank": {
+      "accountNumber": "XXXXXX4521",
+      "routingNumber": "121000248",
+      "bankName": "Wells Fargo",
+      "lastVerifiedAt": "2025-11-03T14:22:00Z"
+    },
+    "openInvoices": [
+      { "invoiceId": "INV-7841", "amount": 12500, "dueDate": "2026-05-02" }
+    ]
+  },
+  "GLOBEX-014": {
+    "vendorId": "GLOBEX-014",
+    "name": "Globex Logistics",
+    "primaryEmail": "ap@globex-logistics.io",
+    "phoneOnFile": "+1-312-555-0188",
+    "bank": {
+      "accountNumber": "XXXXXX9034",
+      "routingNumber": "121000248",
+      "bankName": "Wells Fargo",
+      "lastVerifiedAt": "2026-02-17T09:11:00Z"
+    },
+    "openInvoices": [
+      { "invoiceId": "INV-2210", "amount": 4200, "dueDate": "2026-05-02" }
+    ]
+  }
+}
