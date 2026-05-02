@@ -37,6 +37,8 @@ import {
 } from "./pattern-factory.js";
 import { parseRepr, ParseError } from "./parser.js";
 import { And, G, Implies, type Formula } from "./formula.js";
+import { loadPackContracts } from "./pack-loader.js";
+import { dirname, resolve as resolvePath } from "node:path";
 
 // Use createRequire so we can lazily load the optional `yaml` package
 // without breaking non-yaml users (ESM dynamic import would force the
@@ -173,13 +175,41 @@ export function loadSponsoConfig(path: string, agentId: string): LoadedConfig {
     extractAgentContracts(agentBlock, contracts, stoSpecs, skipped);
   }
 
-  // `include:` may live at the agent or top level in some packs;
-  // either way we don't support it yet, so note it.
+  // `include:` resolution. Both placements are supported (agent-level
+  // and top-level) for legacy reasons; agent-level takes precedence
+  // since it scopes pack additions to a specific agent. Each pack's
+  // contracts are projected through the same pipeline as user-yaml
+  // contracts.
+  const baseDir = dirname(resolvePath(path));
   const agentIncludes = agentBlock?.["include"];
-  recordIncludes(agentIncludes, skipped);
-  recordIncludes(parsed["include"], skipped);
+  expandIncludes(agentIncludes, baseDir, contracts, stoSpecs, skipped);
+  expandIncludes(parsed["include"], baseDir, contracts, stoSpecs, skipped);
 
   return { contracts, stoSpecs, judge, mode, dashboard, skipped };
+}
+
+function expandIncludes(
+  raw: unknown,
+  baseDir: string,
+  detOut: (string | DetFormula)[],
+  stoOut: StoContractSpec[],
+  skipped: SkippedItem[],
+): void {
+  if (!Array.isArray(raw)) return;
+  for (const spec of raw) {
+    if (typeof spec !== "string") {
+      skipped.push({ kind: "pack", detail: `include entry must be a string, got ${typeof spec}` });
+      continue;
+    }
+    const items = loadPackContracts(spec, baseDir, new Set(), skipped);
+    for (const item of items) {
+      const projected = projectContract(item.raw);
+      if (projected.kind === "nl") detOut.push(projected.value);
+      else if (projected.kind === "det") detOut.push(projected.value);
+      else if (projected.kind === "sto") stoOut.push(projected.value);
+      else skipped.push(projected.reason);
+    }
+  }
 }
 
 function extractJudge(raw: unknown): JudgeConfigSpec | undefined {

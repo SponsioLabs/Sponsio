@@ -1,0 +1,43 @@
+# =============================================================================
+# sponsio/contracts/core/runaway.yaml
+#
+# Tier 0 — Runaway defense.  Targets the "while(true) with a credit
+# card" failure class: infinite tool loops, uncapped delegation
+# chains, session token budgets.
+#
+# Status: **intentionally empty**.  The previous version of this
+# pack hard-coded threshold defaults (200k total tokens, 150k input,
+# 50k output, delegation depth 5, 10-consecutive-tool loop cap).
+# Those numbers are arbitrary — the right value depends on which
+# model the agent runs against, the team's budget, the workflow
+# length, and the tools.  Shipping picked-out-of-the-air defaults
+# that fire silently against every project's traffic was net-
+# negative: users either ignored the noise or hit them mid-task with
+# no good way to tune.
+#
+# What replaces this pack:
+#
+#   * For token budgets, use ``pattern: token_budget`` directly in
+#     your own ``contracts:`` block with a number tied to your
+#     billing constraint, e.g. ``args: [50000, "total"]`` for a hard
+#     $1.50 cap on gpt-4o-mini.
+#   * For loop detection, use the per-tool ``pattern: loop_detection``
+#     entries in ``capability/shell.yaml`` etc., or write your own
+#     ``pattern: loop_detection args: [<tool>, <N>]`` against the
+#     specific tool you want capped.
+#   * For delegation-depth, use ``pattern: delegation_depth_limit``
+#     with your team's actual maximum sub-agent depth.
+#
+# The pack file is kept (rather than deleted) so existing
+# ``include: sponsio:core/runaway`` lines in user yaml don't error
+# out — they just resolve to zero contracts.
+#
+# Source tag convention (when contracts return):
+#   library:tier0.runaway
+# =============================================================================
+
+version: "1"
+
+agents:
+  "*":
+    contracts: []

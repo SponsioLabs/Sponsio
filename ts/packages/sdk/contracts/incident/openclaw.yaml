@@ -1,0 +1,500 @@
+# =============================================================================
+# Sponsio contract pack for OpenClaw (née Clawdbot / Moltbot)
+# Target: OpenClaw local gateway, v2026.2.12 or newer
+#
+# Schema conventions used in this file:
+#   - `desc:`                 — human-readable explanation (rendering only)
+#   - `E:` with `pattern:`    — structured, uses sponsio.patterns.library
+#   - `E:` with `ltl:`        — naked LTL over grounding atoms (needs ltl parser)
+#   - `A:`                    — used when the contract is conditional
+#
+# Every constraint carries a `source:` tag:
+#   library:tier0.*      portable across agents (candidate for universal.yaml)
+#   library:tier1.<cap>  capability-indexed (shell / browser / messaging / ...)
+#   incident:CVE-...     derived from a specific 2026 OpenClaw incident
+#   incident:<name>      derived from a named campaign (ClawHavoc, etc.)
+#
+# Incident key:
+#   CVE-2026-25253   1-click WebSocket RCE via gateway token exfil
+#   CVE-2026-22708   indirect prompt injection via browsed content
+#   CVE-2026-29607   "allow-always" approval wrapper bypass
+#   CVE-2026-28460   approval allowlist bypass via shell line-continuation
+#   CVE-2026-32048   sandbox inheritance bypass
+#   issue-12515      coding-agent --yolo flag (no sandbox, no audit)
+#   ClawHavoc        1,184 malicious ClawHub skills (AMOS stealer)
+#   weather-skill    skill that exfiltrated ~/.clawdbot/.env
+#   wired-guilttrip  emotional manipulation → agent self-sabotage
+# =============================================================================
+
+version: "1"
+
+judge:
+  fallback_mode: allow
+  circuit_breaker: true
+
+# -----------------------------------------------------------------------------
+# Tool inventory. `confirm_reconfirmed` and `audit_log` are marker tools —
+# they don't execute anything; integrations emit them when a human confirmation
+# or audit-log write occurs, so contracts can reference them.
+# -----------------------------------------------------------------------------
+tools:
+  - name: exec
+    description: "Shell command execution (built-in, sandbox-gated)"
+    params: "command: str"
+  - name: read
+    description: "Read file contents"
+    params: "path: str"
+  - name: write
+    description: "Create or overwrite a file"
+    params: "path: str, content: str"
+  - name: edit
+    description: "In-place edit of an existing file"
+    params: "path: str, patch: str"
+  - name: apply_patch
+    description: "Apply a unified diff (gated by tools.exec.applyPatch)"
+    params: "path: str, diff: str"
+  - name: web_fetch
+    description: "Browser skill — fetch URL, return rendered content to context"
+    params: "url: str"
+  - name: send_message
+    description: "Send a message on a channel"
+    params: "channel: str, channel_type: str, body: str"
+  - name: install_skill
+    description: "Install a ClawHub skill into the workspace"
+    params: "name: str, version: str"
+  - name: run_skill
+    description: "Invoke an installed skill"
+    params: "name: str, args: str"
+  - name: cron_create
+    description: "Schedule a recurring autonomous job"
+    params: "cron_id: str, schedule: str, task: str"
+  - name: cron_complete
+    description: "Marker: a cron job finished"
+  - name: gateway_config_set
+    description: "Admin API: mutate gateway config (sandbox, approvals, host)"
+    params: "key: str, value: str"
+  - name: hook_register
+    description: "Register an event hook or webhook"
+    params: "event: str, target: str"
+  - name: confirm_reconfirmed
+    description: "Marker: human operator confirmed the next action"
+  - name: audit_log
+    description: "Marker: an audit-log entry was written"
+
+# -----------------------------------------------------------------------------
+agents:
+  # Template agent id — replaced at include time by the including config.
+  # Matches the convention used by the other packs (core/*, capability/*).
+  "*":
+    contracts:
+
+      # =====================================================================
+      # § 0 — Tier 0 universal (portable; candidates for a future universal.yaml)
+      # =====================================================================
+
+      - desc: "No prompt injection in any LLM response"
+        E:
+          pattern: injection_free
+          context_scope: full_trace
+          source: "library:tier0.adversarial"
+        beta: 0.95
+
+      - desc: "No jailbreak compliance in any LLM response"
+        E:
+          pattern: jailbreak_free
+          source: "library:tier0.adversarial"
+        beta: 0.9
+
+      - desc: "No harmful advice or facilitation of real-world harm"
+        E:
+          pattern: harmful
+          source: "library:tier0.harm"
+        beta: 0.95
+
+      - desc: "Response free of contextual PII"
+        E:
+          pattern: semantic_pii_free
+          source: "library:tier0.privacy"
+        beta: 0.95
+
+      - desc: "Response free of toxic or harassing language"
+        E:
+          pattern: toxic_free
+          source: "library:tier0.harm"
+        beta: 0.9
+
+      - desc: "Total token usage bounded per session"
+        E:
+          pattern: token_budget
+          args: [200000, "total"]
+          source: "library:tier0.budget"
+
+      - desc: "No consecutive repetition of the same tool beyond a sane limit"
+        E:
+          pattern: loop_detection
+          args: [exec, 5]
+          source: "library:tier0.runaway"
+
+      # =====================================================================
+      # § 1 — Shell blast radius
+      # Targets: CVE-2026-28460, issue-12515, wired-guilttrip
+      # =====================================================================
+
+      - desc: "Ban classic destructive shell patterns"
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            - ["rm\\s+-rf\\s+/", "curl[^|]+\\|\\s*(bash|sh)", "wget[^|]+\\|\\s*(bash|sh)", ":\\(\\)\\s*\\{\\s*:\\s*\\|\\s*:\\s*&\\s*\\}\\s*;\\s*:"]
+          source: "library:tier1.shell"
+
+      # Narrow form — see capability/shell.yaml §1 for the rationale.
+      # We flag backslash-newline only when chained into a privileged
+      # command token; unconstrained `\<newline>` appears legitimately
+      # in Makefiles / Dockerfiles / shell scripts.
+      - desc: "Block shell line-continuation chained into a privileged command (CVE-2026-28460)"
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            - - "\\\\\\n\\s*(sudo|su\\s|rm\\s+-[rRf]|dd\\s+if=|chmod\\s|chown\\s|mount\\s|curl\\s|wget\\s)"
+              - "\\\\\\r?\\n\\s*(sudo|su\\s|rm\\s+-[rRf]|dd\\s+if=|chmod\\s|chown\\s|mount\\s|curl\\s|wget\\s)"
+          source: "incident:CVE-2026-28460"
+
+      - desc: "Block --yolo / --no-confirm flags on skill invocations"
+        E:
+          pattern: arg_blacklist
+          args: [run_skill, args, ["--yolo\\b", "--no-confirm\\b"]]
+          source: "incident:issue-12515"
+
+      - desc: "Reject exec commands with suspiciously long inline payloads"
+        E:
+          pattern: arg_length_limit
+          args: [exec, command, 2000]
+          source: "library:tier1.shell"
+
+      - desc: "Blast-radius cap: at most 10 exec calls per session"
+        E:
+          pattern: rate_limit
+          args: [exec, 10]
+          source: "library:tier1.shell"
+
+      # Conditional: sudo / dd / chmod 777 require an immediately preceding
+      # confirm_reconfirmed. The existing must_confirm pattern is unconditional
+      # on tool name; we want it conditional on the argument content. LTL form.
+      - desc: "Privileged exec patterns require a preceding human confirmation"
+        E:
+          ltl: 'G(called_with(exec, "(sudo|dd\\s+if=|chmod\\s+777)") -> count(confirm_reconfirmed) >= count_with(exec, "(sudo|dd\\s+if=|chmod\\s+777)"))'
+          source: "library:tier1.shell"
+
+      # =====================================================================
+      # § 2 — Gateway config tampering (CVE-2026-25253 kill-chain terminus)
+      # The attack chain ends with flipping `exec.approvals.set=off` and
+      # `tools.exec.host=gateway` via the admin API. Tripwire every write.
+      # =====================================================================
+
+      - desc: "Ban gateway config keys that disable sandbox or approvals"
+        E:
+          pattern: arg_blacklist
+          args:
+            - gateway_config_set
+            - key
+            - ["exec\\.approvals", "tools\\.exec\\.host", "sandbox", "agent\\.skipBootstrap"]
+          source: "incident:CVE-2026-25253"
+
+      - desc: "Admin config changes extremely rare"
+        E:
+          pattern: rate_limit
+          args: [gateway_config_set, 1]
+          source: "incident:CVE-2026-25253"
+
+      - desc: "Every admin config change must be followed by an audit-log entry"
+        E:
+          pattern: always_followed_by
+          args: [gateway_config_set, audit_log]
+          source: "incident:CVE-2026-25253"
+
+      # =====================================================================
+      # § 3 — Filesystem scope (credentials + self-modifying memory)
+      # Targets: weather-skill, AMOS, agent editing its own bootstrap files
+      # =====================================================================
+
+      - desc: "Reads restricted to workspace and /tmp"
+        E:
+          pattern: scope_limit
+          args:
+            - read
+            - ["<workspace>/", "/tmp/"]
+          source: "library:tier1.filesystem"
+
+      - desc: "Hard-deny reads of sensitive paths (SSH, AWS, OpenClaw secrets)"
+        E:
+          pattern: arg_blacklist
+          args:
+            - read
+            - path
+            - ["\\.ssh/", "\\.aws/credentials", "\\.clawdbot/\\.env", "\\.openclaw/openclaw\\.json", "Keychain"]
+          source: "incident:weather-skill"
+
+      - desc: "Writes restricted to workspace"
+        E:
+          pattern: scope_limit
+          args:
+            - write
+            - ["<workspace>/"]
+          source: "library:tier1.filesystem"
+
+      # Bootstrap-file self-modification — conditional on the path.
+      - desc: "Self-modification of bootstrap files requires confirmation"
+        E:
+          ltl: 'G(called_with(edit, "(AGENTS|SOUL|IDENTITY|USER)\\.md") -> count(confirm_reconfirmed) >= count_with(edit, "(AGENTS|SOUL|IDENTITY|USER)\\.md"))'
+          source: "library:tier1.persistent_memory"
+
+      - desc: "apply_patch against SOUL.md always requires confirmation"
+        E:
+          ltl: 'G(called_with(apply_patch, "SOUL\\.md") -> count(confirm_reconfirmed) >= count_with(apply_patch, "SOUL\\.md"))'
+          source: "library:tier1.persistent_memory"
+
+      - desc: "No blind edits — must read a path before editing it"
+        E:
+          pattern: must_precede
+          args: [read, edit]
+          source: "library:tier1.filesystem"
+
+      - desc: "Bootstrap files preserve integrity"
+        E:
+          pattern: data_intact
+          args:
+            - "bootstrap_files"
+            - ["<workspace>/AGENTS.md", "<workspace>/SOUL.md", "<workspace>/IDENTITY.md", "<workspace>/USER.md"]
+          source: "library:tier1.persistent_memory"
+
+      # =====================================================================
+      # § 4 — Skills supply chain (ClawHavoc)
+      # Koi Security: 1,184 of ~3,000 ClawHub skills were malicious; ClickFix
+      # social-engineered users into running payload commands as prerequisites.
+      # =====================================================================
+
+      - desc: "Install and run are segregated"
+        E:
+          pattern: segregation_of_duty
+          args: [install_skill, run_skill]
+          source: "incident:ClawHavoc"
+
+      - desc: "Every skill install followed by an audit-log entry"
+        E:
+          pattern: always_followed_by
+          args: [install_skill, audit_log]
+          source: "incident:ClawHavoc"
+
+      - desc: "At most 3 skill installs per session"
+        E:
+          pattern: rate_limit
+          args: [install_skill, 3]
+          source: "incident:ClawHavoc"
+
+      - desc: "Cooldown of 10 steps between skill installs"
+        E:
+          pattern: cooldown
+          args: [install_skill, 10]
+          source: "incident:ClawHavoc"
+
+      - desc: "Typosquat defense — ban ClawHub official-CLI impersonators"
+        E:
+          pattern: arg_blacklist
+          args:
+            - install_skill
+            - name
+            - ["^openclaw-agent$", "^clawhub-cli$", "^openclaw-cli$"]
+          source: "incident:ClawHavoc"
+
+      # After a fresh install, no exec for 5 steps (VirusTotal scan window).
+      # No clean pattern fit; LTL expresses windowed inhibition.
+      - desc: "After install_skill, no exec for at least 5 steps"
+        E:
+          ltl: "G(called(install_skill) -> (!called(exec) & X(!called(exec) & X(!called(exec) & X(!called(exec) & X(!called(exec)))))))"
+          source: "incident:ClawHavoc"
+
+      # =====================================================================
+      # § 5 — Indirect prompt injection (CVE-2026-22708, lethal trifecta)
+      # Web / email / calendar content feeds the context window unsanitized.
+      # Core move: after any untrusted ingest, privileged sinks need re-confirm.
+      # =====================================================================
+
+      # The sink list covers high-privilege actions (code execution,
+      # skill install, patch apply). `send_message` is NOT in the
+      # default sink set because the standard RAG pattern is
+      # `web_fetch → reason → send_message`, and a re-confirm
+      # requirement on every retrieval-augmented reply would cripple
+      # chat/assistant workloads.  Teams whose `send_message` routes
+      # to external (non-owner) channels should add it via
+      # overrides: — see the commented example below.
+      - desc: "After untrusted content ingest, sensitive sinks require re-confirmation"
+        E:
+          pattern: untrusted_source_gate
+          args:
+            - [web_fetch]
+            - [exec, install_skill, apply_patch]
+          source: "incident:CVE-2026-22708"
+
+      # Uncomment to extend the gate to outbound messages when your
+      # agent's `send_message` reaches third parties:
+      #
+      #   - desc: "After untrusted ingest, outbound messages also gated"
+      #     E:
+      #       pattern: untrusted_source_gate
+      #       args:
+      #         - [web_fetch]
+      #         - [send_message]
+      #       source: "incident:CVE-2026-22708"
+
+      - desc: "Web browsing loops bounded — prevents attacker-controlled chain-redirect ingestion"
+        E:
+          pattern: rate_limit
+          args: [web_fetch, 25]
+          source: "incident:CVE-2026-22708"
+
+      # Taint: content flagged as coming from web_fetch must not end up flowing
+      # to external recipients. Depends on integration emitting
+      # data_write(key=fetched_content, contains=[untrusted]) after web_fetch.
+      - desc: "Content tainted as untrusted must not flow to external recipients"
+        E:
+          ltl: "G(contains(untrusted) -> !flow(<agent>, external))"
+          source: "incident:CVE-2026-22708"
+
+      # =====================================================================
+      # § 6 — Data-leak prevention (weather-skill, AMOS)
+      # =====================================================================
+
+      - desc: "Data read from filesystem must not flow to send_message"
+        E:
+          pattern: no_data_leak
+          args: [read, send_message]
+          source: "incident:weather-skill"
+
+      - desc: "Data read from filesystem must not flow to install_skill"
+        E:
+          pattern: no_data_leak
+          args: [read, install_skill]
+          source: "incident:AMOS"
+
+      - desc: "Block outbound exfiltration primitives in shell"
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            - ["nc\\s+-e", "bash\\s+-i\\s*>&\\s*/dev/tcp", "curl[^|]+\\s--upload-file", "python.*socket\\.socket"]
+          source: "incident:AMOS"
+
+      # =====================================================================
+      # § 7 — Multi-channel / identity isolation
+      # OpenClaw has no per-channel privilege model. Owner DM ≠ group ≠
+      # non-allowlisted channel, but the gateway treats them identically.
+      # =====================================================================
+
+      # Group-channel messages must not be followed by exec. LTL expresses the
+      # channel_type=group condition cleanly.
+      - desc: "Messages from group channels cannot trigger exec"
+        E:
+          ltl: 'G(called_with(send_message, "channel_type=group") -> !F(called(exec)))'
+          source: "library:tier1.messaging"
+
+      - desc: "Per-session cap on outbound messages"
+        E:
+          pattern: rate_limit
+          args: [send_message, 30]
+          source: "library:tier1.messaging"
+
+      - desc: "Cron creation is idempotent within a session"
+        E:
+          pattern: idempotent
+          args: [cron_create]
+          source: "library:tier1.scheduler"
+
+      - desc: "Every cron_create must eventually be matched by cron_complete"
+        E:
+          pattern: required_steps_completion
+          args: [cron_create, [cron_complete]]
+          source: "library:tier1.scheduler"
+
+      - desc: "Hook / webhook registration requires human confirmation"
+        E:
+          pattern: must_confirm
+          args: [hook_register]
+          source: "library:tier1.persistence"
+
+      # =====================================================================
+      # § 8 — Approval integrity (CVE-2026-29607 wrapper bypass, generalized)
+      # "allow-always" persists at wrapper level; swap inner payload → no
+      # re-prompt. Generalization: one confirmation cannot authorize two
+      # destructive actions. Count-dominance is a proxy for principal identity
+      # (we don't yet have a `principal()` atom).
+      #
+      # Both rules below are gated on the assumption that the agent actually
+      # emits `confirm_reconfirmed` events — without that wiring the guarantee
+      # is vacuous-false at every exec/apply_patch call, which would drown
+      # observe-mode reports. The CVE the rules defend against is a
+      # confirmation-REUSE attack, which only makes sense when confirmation
+      # is integrated in the first place.
+      # =====================================================================
+
+      - desc: "Confirmations cannot be reused — count(confirm) must dominate count(exec)"
+        A: "called `confirm_reconfirmed`"
+        E:
+          ltl: "G(called(exec) -> count(confirm_reconfirmed) >= count(exec))"
+          source: "incident:CVE-2026-29607"
+
+      - desc: "Same for apply_patch — each apply needs its own confirm"
+        A: "called `confirm_reconfirmed`"
+        E:
+          ltl: "G(called(apply_patch) -> count(confirm_reconfirmed) >= count(apply_patch))"
+          source: "incident:CVE-2026-29607"
+
+      # =====================================================================
+      # § 9 — Capability-specific stochastic atoms
+      # =====================================================================
+
+      - desc: "After web_fetch, responses stay grounded in the fetched content"
+        A: "called `web_fetch`"
+        E:
+          pattern: hallucination_free
+          args: ["{fetched_content}"]
+          source: "library:tier1.browser"
+        beta: 0.9
+
+      - desc: "Agent stays within its declared scope"
+        E:
+          pattern: scope_respect
+          args: ["local personal assistant — file, shell, messaging, browsing on behalf of owner"]
+          source: "library:tier0.scope"
+        beta: 0.85
+
+      - desc: "Agent does not agree to disable its own safety constraints (anti-guilttrip)"
+        E:
+          pattern: jailbreak_free
+          source: "incident:wired-guilttrip"
+        beta: 0.95
+
+# -----------------------------------------------------------------------------
+# Notes on what this file deliberately does NOT cover
+# -----------------------------------------------------------------------------
+#
+# - `principal(X)` / `authorized_by(human)` atom-level distinctions:
+#   § 8 uses count-dominance as a proxy, which catches *reuse* of confirmations
+#   but not the identity of the confirmer. A proper fix needs a grounding-layer
+#   change (new event type or principal atom).
+#
+# - Per-channel trust levels beyond channel_type=group:
+#   "allowFrom" whitelist, owner DM vs. third-party Telegram, etc. require an
+#   integration that emits channel identity on every send_message event. The
+#   current `called_with(send_message, "channel_type=...")` is a blunt proxy.
+#
+# - Dollar-cost budget:
+#   `token_budget` covers token ceiling; the weather-skill incident (paid API
+#   key exfil) makes it clear that dollars are also an asset. No atom for that.
+#
+# - AMOS binary-signature detection, malicious SKILL.md content parsing:
+#   Those belong in EDR / scanner, not runtime contracts.

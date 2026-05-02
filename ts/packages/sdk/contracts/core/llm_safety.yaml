@@ -1,0 +1,130 @@
+# =============================================================================
+# sponsio/contracts/core/llm_safety.yaml
+#
+# Stochastic output-safety contracts for LLM responses.  Default-OFF —
+# users opt in by adding this to their config:
+#
+#     include:
+#       - sponsio:core/llm_safety
+#
+# Why opt-in: every contract here is a stochastic atom, which means the
+# runtime calls a judge LLM on each evaluation.  That's the right default
+# for response-quality work but the wrong default for tool-call-only
+# agents (no LLM responses to score → judge calls add latency without
+# value).  Splitting out of ``core/universal`` was the user-driven fix
+# for "why is the SRE tool-call demo running prompt-injection scoring".
+#
+# Source tag convention for this file:
+#   library:tier0.<category>  where category ∈
+#     adversarial | harm | privacy | scope
+# =============================================================================
+
+version: "1"
+
+# NOTE: no `tools:` section here because these contracts are response-scoped.
+# They evaluate against llm_response events, not tool calls.  Agents that
+# include this file will add their own `tools:` inventory separately.
+
+agents:
+  # Template agent id — replaced at include time by the including config.
+  # The include mechanism substitutes this section under the real agent id.
+  "*":
+    contracts:
+
+      # -- Adversarial resistance ----------------------------------------
+      #
+      # `beta` weights the cost of a *missed* violation in the contract
+      # score.  Higher beta = a missed violation hurts the score more,
+      # so the judge has to be near-certain the response is *clean*
+      # before allowing it.  We ship the values below as defaults
+      # calibrated for the threat profile (slip-through cost) of each
+      # category.  Override per-agent in your config if your workload
+      # has different stakes.
+
+      # 0.95 — prompt-injection slip-throughs cause downstream tool
+      # misuse with full agent privileges.  High slip-through cost.
+      - desc: "Every LLM response must be free of prompt-injection compliance"
+        E:
+          pattern: injection_free
+          context_scope: full_trace
+          source: "library:tier0.adversarial"
+        beta: 0.95
+
+      # 0.90 — jailbreak compliance is bad but mostly self-contained
+      # (response-level harm, not tool-level harm).
+      - desc: "LLM must not comply with jailbreak attempts (DAN, roleplay, hypothetical bypass)"
+        E:
+          pattern: jailbreak_free
+          source: "library:tier0.adversarial"
+        beta: 0.9
+
+      # -- Harm avoidance -----------------------------------------------
+
+      # 0.95 — real-world-harm enablement (CSAM, weapons, self-harm
+      # methods) carries the same high slip-through cost as injection.
+      - desc: "Response must not encourage or enable real-world harm"
+        E:
+          pattern: harmful
+          source: "library:tier0.harm"
+        beta: 0.95
+
+      # 0.90 — toxic language is corrosive but not safety-critical;
+      # match the jailbreak weight rather than the harm weight.
+      - desc: "Response free of toxic / harassing language"
+        E:
+          pattern: toxic_free
+          source: "library:tier0.harm"
+        beta: 0.9
+
+      # -- Privacy ------------------------------------------------------
+
+      # 0.95 — PII slip-throughs are regulatory issues (GDPR / CCPA)
+      # not just trust issues.  High slip-through cost.
+      - desc: "Response free of contextual PII (names tied to conditions, inferable identity)"
+        E:
+          pattern: semantic_pii_free
+          source: "library:tier0.privacy"
+        beta: 0.95
+
+      # -- Scope --------------------------------------------------------
+      #
+      # `scope_respect` is deliberately NOT shipped on by default.  It
+      # needs a concrete, agent-specific scope string to be useful —
+      # something like "respond only to loan-origination questions for
+      # the approved product catalogue".  A generic default like "do
+      # not act beyond the task" is irredeemably abstract: the judge
+      # has nothing to anchor on and will either flag everything or
+      # pass everything, depending on model temperament.  Shipping
+      # such a rule as default-on produces noise, not signal.
+      #
+      # Add it to your own agent config once you have a concrete scope
+      # statement, e.g.::
+      #
+      #     agents:
+      #       support_bot:
+      #         contracts:
+      #           - desc: "Stays within customer-support remit"
+      #             E:
+      #               pattern: scope_respect
+      #               args: ["answer questions about order status,
+      #                       refunds, and shipping — no legal advice,
+      #                       no medical advice, no code execution"]
+      #             beta: 0.85
+      #
+      # The β=0.85 default acknowledges that "out of scope" is fuzzier
+      # than "contains PII"; a higher beta flags too aggressively on
+      # responses that drift only slightly.
+
+# -----------------------------------------------------------------------------
+# What this file deliberately does NOT include
+# -----------------------------------------------------------------------------
+#
+# - Token / loop budgets — those live in core/budget.yaml and core/runaway.yaml
+#   respectively, so an agent with a custom budget can include only that.
+#
+# - Tool-specific protections — any constraint that mentions a specific tool
+#   name (exec, web_fetch, ...) belongs in capability/*.yaml.
+#
+# - Hallucination / faithfulness atoms — those require a retrieval source
+#   argument and are not universally applicable.  See docs/sto-atoms.md §1
+#   for when to add them per-agent.

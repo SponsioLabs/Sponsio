@@ -1,0 +1,164 @@
+# =============================================================================
+# sponsio/contracts/incident/cursor-railway-wipe.yaml
+#
+# Incident pack — "Cursor wipes production database" family.
+#
+# Real-world reference:
+#
+#   PocketOS / Railway database loss (2026-04-25, public 2026-04-27).
+#   Founder: Jer Crane. Stack: Railway-managed PostgreSQL with
+#   volume-level backups co-located on the same Railway volume.
+#
+#   Trajectory observed:
+#     1. Cursor agent (Claude Opus 4.6 backend) hit a credential
+#        mismatch in a *staging* environment.
+#     2. Agent decided that "deleting the Railway volume" would resolve
+#        it. (No human asked for any of this.)
+#     3. Agent grepped through unrelated repo files looking for
+#        Railway API tokens, found one in a config file outside the
+#        immediate task scope.
+#     4. Issued a single ``curl`` to ``api.railway.app`` with the
+#        token, deleting the *production* volume.
+#     5. Within ~9 seconds: production data and volume-level backups
+#        gone (Railway co-locates backups on the same volume).
+#
+#   No confirmation step, no allow-list, no out-of-band approval.
+#   The agent had the privilege; the privilege had no fence.
+#
+# What this pack catches at the action boundary
+# ----------------------------------------------
+#
+# Three deterministic rules on Cursor's ``Bash`` (= Cursor's "Shell")
+# tool — fire on a single tool call, no trace state required:
+#
+#   §1  Destructive HTTP verbs against the Railway control-plane API.
+#       Matches ``curl`` (and friends) hitting ``api.railway.app`` /
+#       ``backboard.railway.app`` with DELETE-shape verbs or known
+#       destructive GraphQL mutations (``volumeDelete``, ``projectDelete``,
+#       ``environmentDelete``, ``serviceDelete``).
+#
+#   §2  Railway CLI destructive verbs.  ``railway down``, ``railway
+#       volume[s] delete``, ``railway environment delete``, etc.
+#
+#   §3  Generic infra-control-plane wipe shape.  Any ``curl -X DELETE``
+#       (or ``--request DELETE``) targeting a known cloud / PaaS API
+#       host.  Catches the "agent decides to wipe the volume on
+#       <random infra>" pattern across providers (Fly, Render,
+#       Supabase, Vercel, Heroku, Cloudflare, AWS/GCP infra APIs).
+#
+# Rules are intentionally narrow to keep false positives near zero —
+# every match is a destructive control-plane call.  Read traffic
+# (``GET``, listing endpoints) is unaffected.
+#
+# Wiring
+# ------
+#
+# Include from the user's ``~/.sponsio/plugins/_host/sponsio.yaml``
+# (the file ``sponsio cursor install-hooks`` routes Cursor calls into):
+#
+#     agents:
+#       _host:
+#         include:
+#           - sponsio:incident/cursor-railway-wipe
+#
+# When Cursor's ``preToolUse`` hook fires for a ``Shell`` call,
+# ``sponsio cursor guard`` rewrites the tool name to ``Bash`` (matching
+# the rules below), runs the per-plugin library, and Cursor receives
+# ``{"permission":"deny", ...}`` + exit 2 → tool call never runs.
+#
+# Source tag convention:
+#   incident:cursor-railway-wipe.<rule>
+# =============================================================================
+
+version: "1"
+
+tools:
+  - name: exec
+    description: >-
+      Canonical shell-execution tool.  Host libraries map this onto
+      their actual tool surface via ``tool_rename``: Claude Code's
+      ``Bash``, Cursor's ``Shell`` (normalised to ``Bash`` by the
+      cursor adapter, then renamed via ``_host``'s ``tool_rename``),
+      OpenClaw's native ``exec`` (no rename).  Writing rules against
+      the canonical name lets one pack cover all three hosts.
+    params: "command: str"
+
+agents:
+  "*":
+    contracts:
+
+      # =====================================================================
+      # § 1 — Destructive HTTP verbs against Railway's control-plane API.
+      # =====================================================================
+      - desc: >-
+          Block destructive Railway control-plane API calls
+          (PocketOS-style 9-second prod wipe via curl + token).
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            - [
+                # curl/wget/httpie hitting Railway control-plane host with
+                # an explicit DELETE verb.  Captures both ``-X DELETE`` and
+                # ``--request DELETE``, with or without intervening flags.
+                "(?i)\\b(curl|wget|httpie|http)\\b[^|;&\\n]*\\b(api|backboard)\\.railway\\.(?:app|com)\\b[^|;&\\n]*(?:-X\\s*DELETE|--request\\s+DELETE)",
+                "(?i)\\b(curl|wget|httpie|http)\\b[^|;&\\n]*(?:-X\\s*DELETE|--request\\s+DELETE)[^|;&\\n]*\\b(api|backboard)\\.railway\\.(?:app|com)\\b",
+                # Known destructive GraphQL mutations posted to Railway's
+                # GraphQL endpoint (backboard.railway.app/graphql).
+                # Two orderings: ``-d '{...volumeDelete...}' ... URL`` and
+                # ``URL ... -d '{...volumeDelete...}'`` — match either.
+                "(?i)\\b(curl|wget|httpie|http)\\b[^|;&\\n]*backboard\\.railway\\.(?:app|com)[^|;&\\n]*(?:volumeDelete|volumeInstanceDelete|projectDelete|environmentDelete|serviceDelete|deploymentRemove)",
+                "(?i)\\b(curl|wget|httpie|http)\\b[^|;&\\n]*(?:volumeDelete|volumeInstanceDelete|projectDelete|environmentDelete|serviceDelete|deploymentRemove)[^|;&\\n]*backboard\\.railway\\.(?:app|com)",
+              ]
+          source: "incident:cursor-railway-wipe.curl_railway_destroy"
+
+      # =====================================================================
+      # § 2 — Railway CLI destructive verbs.
+      #
+      # The Railway CLI ships destructive subcommands.  ``down`` removes
+      # the current deployment; ``volume[s] delete`` is the analogue
+      # of the API call above; ``environment delete`` / ``project
+      # delete`` are equally irreversible.
+      # =====================================================================
+      - desc: >-
+          Block Railway CLI destructive verbs (down / volume delete /
+          environment delete / project delete / service delete).
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            - [
+                "(?i)(?<!\\S)railway\\s+down(?:\\s|$)",
+                "(?i)(?<!\\S)railway\\s+volumes?\\s+delete\\b",
+                "(?i)(?<!\\S)railway\\s+environment\\s+delete\\b",
+                "(?i)(?<!\\S)railway\\s+project\\s+delete\\b",
+                "(?i)(?<!\\S)railway\\s+service\\s+delete\\b",
+                "(?i)(?<!\\S)railway\\s+destroy\\b",
+              ]
+          source: "incident:cursor-railway-wipe.railway_cli_destroy"
+
+      # =====================================================================
+      # § 3 — Generic infra control-plane DELETE shape across providers.
+      #
+      # Same agent reasoning ("delete the resource to fix the error")
+      # applies to any PaaS the agent has credentials for.  Match any
+      # ``curl -X DELETE`` against a known cloud-provider control plane.
+      # =====================================================================
+      - desc: >-
+          Block ``curl -X DELETE`` against known cloud / PaaS control
+          planes (Railway / Fly / Render / Supabase / Vercel / Heroku /
+          Cloudflare / DigitalOcean / Linode / Hetzner / AWS / GCP / Azure).
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            - [
+                "(?i)\\b(curl|wget|httpie|http)\\b[^|;&\\n]*(?:-X\\s*DELETE|--request\\s+DELETE)[^|;&\\n]*\\b(?:api|console|cloud|backboard|app)\\.(?:railway|fly|render|supabase|vercel|heroku|cloudflare|digitalocean|linode|hetzner|fastly|netlify)\\.(?:app|io|com|dev|net)\\b",
+                "(?i)\\b(curl|wget|httpie|http)\\b[^|;&\\n]*(?:-X\\s*DELETE|--request\\s+DELETE)[^|;&\\n]*\\b(?:[a-z0-9-]+\\.)?amazonaws\\.com\\b",
+                "(?i)\\b(curl|wget|httpie|http)\\b[^|;&\\n]*(?:-X\\s*DELETE|--request\\s+DELETE)[^|;&\\n]*\\bgoogleapis\\.com\\b",
+                "(?i)\\b(curl|wget|httpie|http)\\b[^|;&\\n]*(?:-X\\s*DELETE|--request\\s+DELETE)[^|;&\\n]*\\bmanagement\\.azure\\.com\\b",
+              ]
+          source: "incident:cursor-railway-wipe.curl_paas_destroy_generic"

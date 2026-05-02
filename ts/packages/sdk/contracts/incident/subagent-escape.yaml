@@ -1,0 +1,177 @@
+# =============================================================================
+# sponsio/contracts/incident/subagent-escape.yaml
+#
+# Incident pack — sub-agent privilege escape via parent-config rewrite.
+# Include in your sub-agent host library (default ``_host_subagent``)
+# so a Task-spawned child cannot reach UP into the parent's sponsio
+# configuration tree to read, modify, or replace the rules
+# constraining its sibling main agent.
+#
+# Threat model:
+#
+# A sub-agent runs with a more restrictive ruleset than the main
+# agent (see ``sponsio:capability/subagent`` for the privilege
+# boundary rationale).  The most direct way to defeat that
+# boundary is for the sub-agent to:
+#
+#   1. ``cat ~/.sponsio/plugins/_host_subagent/sponsio.yaml`` —
+#      reconnaissance: learn which rules are about to fire.
+#   2. ``Edit ~/.sponsio/plugins/_host_subagent/sponsio.yaml`` —
+#      add an ``overrides:`` block disabling the inconvenient rules.
+#   3. Proceed with the previously-blocked action.
+#
+# Same sequence works against the parent's ``_host/sponsio.yaml``
+# (escalation: weaken main-agent rules so the work product
+# survives), per-plugin libraries (lateral: weaken a plugin the
+# main agent uses), and the user's project ``sponsio.yaml``
+# (project-level escalation: rewrite the contracts the user just
+# carefully authored via ``sponsio onboard``).
+#
+# Sub-agents have no legitimate reason to touch any file under
+# ``~/.sponsio/``: their job is the task description handed to
+# them, not Sponsio configuration management.  This pack denies
+# the entire tree.
+#
+# Threat model boundary:
+#
+#   - This pack relies on Claude Code's PreToolUse payload field
+#     ``agent_id`` (present iff the call originates from a
+#     sub-agent).  Sponsio's ``derive_plugin_id`` reads this and
+#     routes to ``_host_subagent``; rules in this pack therefore
+#     only ever evaluate against sub-agent calls, never against the
+#     main session.
+#   - It denies READ as well as WRITE.  Reconnaissance precedes
+#     attack — letting a sub-agent read the parent's rule list
+#     gives it the information needed to construct a targeted
+#     bypass via some other side channel (e.g. a non-blocked
+#     filesystem path the agent now knows about).  Defense-in-
+#     depth: take the recon channel away too.
+#
+# Real-world incidents this pack defends against:
+#
+#   - Self-defeating safety:  agent-mediated session edits
+#     ``_host/sponsio.yaml`` to disable the rule that just blocked
+#     it.  Observed during this pack's own development; the
+#     ``capability/self-modify`` pack covers the main-agent side,
+#     this pack covers sub-agents.
+#   - Sub-agent reconnaissance: parent dispatches "fix the build",
+#     sub-agent reads ``_host_subagent/sponsio.yaml`` to plan
+#     around the install-blocking rules, then fans out destructive
+#     actions through the gaps.
+#
+# Include via:
+#   include:
+#     - sponsio:incident/subagent-escape
+#
+# Pair with: ``sponsio:capability/self-modify`` for the matching
+# main-agent-side rule (parent can't edit its OWN config either).
+#
+# Source tag convention:
+#   library:tier1.subagent-escape
+# =============================================================================
+
+version: "1"
+
+agents:
+  "*":
+    contracts:
+
+      # =================================================================
+      # § 1 — Sub-agents may not edit any sponsio config
+      # =================================================================
+
+      - desc: "Sub-agents may not edit sponsio configuration files"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Edit
+            - file_path
+            # Three categories of sponsio config the sub-agent must
+            # leave alone:
+            #   1. ``~/.sponsio/`` — host plugin libraries (parent's
+            #      ``_host``, sibling ``_host_subagent``, sibling
+            #      ``_host_openclaw``, every per-plugin library).
+            #   2. ``sponsio.yaml`` — project-level contract config
+            #      that ``sponsio onboard`` writes; modifying it is
+            #      the main agent's job, never a sub-agent's.
+            #   3. ``.sponsiorc`` — project-level extractor / judge /
+            #      framework hints; same rationale as (2).
+            - - "(^|/)\\.sponsio/"
+              - "(^|/)sponsio\\.yaml$"
+              - "(^|/)\\.sponsiorc$"
+          source: "library:tier1.subagent-escape"
+
+      # =================================================================
+      # § 2 — Sub-agents may not write any sponsio config
+      # =================================================================
+
+      - desc: "Sub-agents may not write sponsio configuration files"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Write
+            - file_path
+            - - "(^|/)\\.sponsio/"
+              - "(^|/)sponsio\\.yaml$"
+              - "(^|/)\\.sponsiorc$"
+          source: "library:tier1.subagent-escape"
+
+      # =================================================================
+      # § 3 — Sub-agents may not multi-edit any sponsio config
+      # =================================================================
+
+      - desc: "Sub-agents may not multi-edit sponsio configuration files"
+        E:
+          pattern: arg_blacklist
+          args:
+            - MultiEdit
+            - file_path
+            - - "(^|/)\\.sponsio/"
+              - "(^|/)sponsio\\.yaml$"
+              - "(^|/)\\.sponsiorc$"
+          source: "library:tier1.subagent-escape"
+
+      # =================================================================
+      # § 4 — Sub-agents may not even READ the parent's host config
+      # =================================================================
+      #
+      # Reconnaissance precedes attack.  Reading the parent's rule
+      # list lets the sub-agent plan around it.  Reading its OWN
+      # rules (``_host_subagent/sponsio.yaml``) is also denied for
+      # the same reason: the sub-agent doesn't need to know which
+      # specific deny patterns apply, only that an action either
+      # works or doesn't.
+      #
+      # Per-plugin libraries (``<plugin-id>/sponsio.yaml``) and the
+      # user's project ``sponsio.yaml`` are NOT denied for read —
+      # those carry domain context the sub-agent might legitimately
+      # need (e.g. understanding which tools are available in a
+      # plugin it's working through).  The narrow read-deny stays
+      # focused on the actual attack surface: the host plugin's
+      # own rule lists.
+
+      - desc: "Sub-agents may not read host plugin guard rules (recon defence)"
+        E:
+          pattern: arg_blacklist
+          args:
+            - Read
+            - file_path
+            - - "(^|/)\\.sponsio/plugins/_host/sponsio\\.yaml$"
+              - "(^|/)\\.sponsio/plugins/_host_subagent/sponsio\\.yaml$"
+              - "(^|/)\\.sponsio/plugins/_host_openclaw/sponsio\\.yaml$"
+          source: "library:tier1.subagent-escape"
+
+# -----------------------------------------------------------------------------
+# Integration requirements
+# -----------------------------------------------------------------------------
+#
+# - This pack assumes the host plugin routes sub-agent tool calls
+#   into a separate library (``_host_subagent``).  Hosts that
+#   don't expose an agent_id distinction can't usefully include
+#   this pack — the rules would either apply to the main agent
+#   too (over-block) or to nothing (no protection).
+#
+# - The ``"*"`` agent scope is intentional.  It means "whatever
+#   agent_id this library is loaded under, apply these rules" —
+#   so sub-agent libraries with non-default names still get
+#   protected.

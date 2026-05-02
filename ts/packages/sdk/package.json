@@ -38,12 +38,14 @@
   "files": [
     "dist/",
     "!dist/__tests__/**",
+    "contracts/",
     "README.md"
   ],
   "scripts": {
     "build": "tsc",
     "test": "node --test dist/__tests__/*.test.js",
-    "test:src": "npx tsx src/__tests__/core.test.ts"
+    "test:src": "npx tsx src/__tests__/core.test.ts",
+    "test:parity": "npx tsx src/__tests__/parity.test.ts && npx tsx src/__tests__/parity.scenarios.test.ts"
   },
   "dependencies": {
     "yaml": "^2.7.0"

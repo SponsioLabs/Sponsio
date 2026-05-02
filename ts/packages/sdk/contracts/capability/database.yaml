@@ -1,0 +1,141 @@
+# =============================================================================
+# sponsio/contracts/capability/database.yaml
+#
+# Capability pack — destructive database operations via shell.  Include
+# when your agent exposes a tool that runs arbitrary shell commands
+# (`exec`, `bash`, `Bash`, `run_command`, …) and the agent has database
+# credentials in its environment.
+#
+# Real-world incidents this pack defends against:
+#
+#   - Replit agent (Jul 2025): deleted live production DB during a code
+#     freeze, affecting 1,200+ companies.  The model executed
+#     ``psql -c "DROP DATABASE prod"`` after misinterpreting a
+#     freeze instruction.  Highest-profile data-loss incident from an
+#     LLM agent to date.
+#   - Anecdotal: agents running migration tools at the wrong scope —
+#     ``alembic downgrade base`` rolling back to an empty schema.
+#   - Anecdotal: agents using ``redis-cli FLUSHALL`` to "reset state"
+#     during debugging, wiping a shared dev cache.
+#
+# This pack is shell-only.  For per-MCP-server rules (e.g.
+# ``mcp__postgres__execute_sql.statement``), generate a per-plugin
+# library via ``sponsio plugin scan --introspect`` against that
+# server.
+#
+# Include via:
+#   include:
+#     - sponsio:capability/database
+#
+# Tool naming:
+#   The pack uses canonical ``exec``.  Rename if your agent's shell
+#   tool has a different name — Claude Code's ``Bash`` is auto-handled
+#   by the ``_host.yaml`` library's ``tool_rename:`` block.
+#
+# Source tag convention:
+#   library:tier1.database
+# =============================================================================
+
+version: "1"
+
+tools:
+  - name: exec
+    description: "Shell command execution (placeholder — replace with your tool's real name)"
+    params: "command: str"
+
+agents:
+  "*":
+    contracts:
+
+      # =================================================================
+      # § 1 — Destructive SQL via shell (psql / mysql / sqlite3 / ...)
+      # =================================================================
+
+      - desc: "Ban DROP DATABASE / DROP TABLE / DROP SCHEMA via shell"
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            # Word boundaries on either side to avoid matching prose
+            # like ``"how to drop a table"``; case-insensitive because
+            # SQL is conventionally uppercase but agents often emit
+            # lowercase.
+            - - "(?i)\\bdrop\\s+(database|table|schema|view|index)\\b"
+          source: "library:tier1.database"
+
+      - desc: "Ban TRUNCATE TABLE via shell (whole-table wipe)"
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            # Require the literal "TABLE" keyword to avoid colliding
+            # with the unrelated POSIX ``truncate`` command (which
+            # extends/shrinks files via ``truncate -s N file``).
+            - - "(?i)\\btruncate\\s+table\\s+\\w+"
+          source: "library:tier1.database"
+
+      - desc: "Ban unbounded DELETE FROM (no WHERE clause)"
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            # ``DELETE FROM users;`` matches; ``DELETE FROM users
+            # WHERE id=1;`` does not, because the table name isn't
+            # immediately followed by a terminator.  Catches the
+            # canonical "wipe a whole table" foot-gun without false-
+            # positing real DELETE-by-key statements.
+            - - "(?i)\\bdelete\\s+from\\s+\\w+\\s*;"
+          source: "library:tier1.database"
+
+      # =================================================================
+      # § 2 — Destructive DB CLI tools
+      # =================================================================
+
+      - desc: "Ban dropdb / mysqladmin drop / redis FLUSHALL / FLUSHDB"
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            - - "(?i)\\bdropdb\\b"
+              - "(?i)\\bmysqladmin\\b.{0,80}\\bdrop\\b"
+              - "(?i)\\bredis-cli\\b.{0,80}\\b(flushall|flushdb)\\b"
+              - "(?i)\\bmongo\\s.{0,80}\\bdropDatabase\\s*\\("
+          source: "library:tier1.database"
+
+      - desc: "Ban migration rollback to empty schema"
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            # ``downgrade base`` rolls schema back to the very
+            # beginning of migration history — irreversible without
+            # backups.  Single-step downgrades (``-1``) stay allowed.
+            - - "(?i)\\balembic\\s+downgrade\\s+base\\b"
+              - "(?i)\\bflask\\s+db\\s+downgrade\\s+base\\b"
+              - "(?i)\\bdjango-admin\\s+flush\\b"
+          source: "library:tier1.database"
+
+      # =================================================================
+      # § 3 — Deletion of database data directories
+      # =================================================================
+
+      - desc: "Ban deletion of database data directories"
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            # Common data-dir locations across distros; covers the
+            # "rm -rf /var/lib/postgresql/data" foot-gun that the
+            # capability/shell pack's ``rm -rf /`` rule misses
+            # because the path doesn't end at the root delimiter.
+            - - "rm\\s+-[rRf]+\\s+/var/lib/(postgresql|mysql|mongodb|redis|elasticsearch|cassandra|couchdb)\\b"
+              - "rm\\s+-[rRf]+\\s+/var/data/(postgresql|mysql|mongodb)\\b"
+              - "rm\\s+-[rRf]+\\s+/data/db\\b"
+              - "rm\\s+-[rRf]+\\s+/opt/(postgresql|mysql|mongodb)\\b"
+          source: "library:tier1.database"

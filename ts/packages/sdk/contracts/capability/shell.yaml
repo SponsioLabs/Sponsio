@@ -1,0 +1,246 @@
+# =============================================================================
+# sponsio/contracts/capability/shell.yaml
+#
+# Capability pack — shell execution.  Include when your agent exposes a
+# tool that runs arbitrary shell commands (`exec`, `bash`, `run_command`,
+# `execute`, Claude Code's Bash tool, etc.).  Rename the tool in your
+# config if it's not called `exec`.
+#
+# Real-world incidents this pack defends against:
+#
+#   - Claude Code Issue #10077 (Oct 2025): agent ran recursive delete,
+#     wiped user home directory.  The Reddit r/ClaudeAI post garnered
+#     1,500+ upvotes.
+#   - Claude Code Issue #49464: agent tried `rm -f ~/` when a file named
+#     literally "~" was present.  Requested fix: "pattern detection for
+#     dangerous commands."
+#   - Replit agent (Jul 2025): deleted live production DB during a code
+#     freeze, affecting 1,200+ companies.  Agent admitted "catastrophic
+#     error in judgment."
+#   - Ansible + undefined-variable expansion: `rm -rf {foo}/{bar}` → `rm
+#     -rf /` on 1,535 production servers (Server Fault / Marco Marsala).
+#   - OpenClaw ClawHavoc: ClickFix prereqs running curl|bash in users'
+#     terminals via malicious SKILL.md.
+#   - OpenClaw CVE-2026-28460: approval allowlist bypassed with shell
+#     line-continuation (`\\\n`).
+#
+# Every contract here targets a single tool name (`exec` by default).
+# If your agent calls it something else, do a find-and-replace before
+# including this file.
+#
+# Include via:
+#   include:
+#     - sponsio:capability/shell
+#
+# Source tag convention:
+#   library:tier1.shell
+# =============================================================================
+
+version: "1"
+
+tools:
+  - name: exec
+    description: "Shell command execution (placeholder — replace with your tool's real name)"
+    params: "command: str"
+
+agents:
+  "*":
+    contracts:
+
+      # =================================================================
+      # § 1 — Destructive command blacklist
+      # =================================================================
+
+      - desc: "Ban recursive deletes of sensitive roots"
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            # Targets:
+            #   rm -rf /          (Marsala / Ansible expansion)
+            #   rm -rf ~          (Claude Code #49464 tilde bug)
+            #   rm -rf $HOME      (env expansion variant)
+            #   rm -rf /*         (glob to root)
+            #   rm -rf /home/...  (direct home path)
+            #   rm -rf /root/...
+            #   rm -rf /Users/... (macOS home)
+            - - "rm\\s+-[rRf]+\\s+(/|\\$HOME|~)(\\s|;|&|\\||$)"
+              - "rm\\s+-[rRf]+\\s+/\\*"
+              - "rm\\s+-[rRf]+\\s+/(home|root|Users)"
+              - "rm\\s+-[rRf]+\\s+\\$\\{?HOME\\}?"
+          source: "library:tier1.shell"
+
+      - desc: "Ban fork-bomb and obvious denial-of-service patterns"
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            # Fork bomb:      :(){ :|:& };:
+            # dd if=/dev/zero  (disk fill)
+            # mkfs             (filesystem format)
+            # shred -vfz       (irrecoverable overwrite)
+            - - ":\\s*\\(\\)\\s*\\{\\s*:\\s*\\|\\s*:\\s*&\\s*\\}\\s*;\\s*:"
+              - "dd\\s+if=/dev/zero"
+              - "\\bmkfs\\."
+              - "shred\\s+-[vfz]+"
+          source: "library:tier1.shell"
+
+      - desc: "Ban curl-to-shell and wget-to-shell (ClawHavoc ClickFix vector)"
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            - - "curl[^|]+\\|\\s*(ba)?sh"
+              - "wget[^|]+\\|\\s*(ba)?sh"
+              - "curl[^|]+\\|\\s*python"
+              - "wget\\s+-O-[^|]*\\|"
+          source: "library:tier1.shell"
+
+      - desc: "Ban outbound reverse-shell / exfiltration primitives"
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            - - "nc\\s+-e"
+              - "bash\\s+-i\\s*>&\\s*/dev/tcp"
+              - "python.*socket\\.socket"
+              - "curl[^|]+--upload-file"
+          source: "library:tier1.shell"
+
+      # Line-continuation `\<newline>` is a common evasion for approval
+      # allowlists: the approver sees `ls` but the shell executes
+      # `ls\<newline>; rm -rf /`.  Rather than banning EVERY backslash-
+      # newline (multi-line Makefiles, Docker RUN blocks, shell scripts
+      # all use it legitimately), we only flag continuation followed by
+      # a privilege-sensitive command token.  Keeps the CVE coverage
+      # while eliminating the biggest day-1 false-positive source.
+      - desc: "Ban shell line-continuation chained into a privileged command (CVE-2026-28460)"
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            - - "\\\\\\n\\s*(sudo|su\\s|rm\\s+-[rRf]|dd\\s+if=|chmod\\s|chown\\s|mount\\s|curl\\s|wget\\s)"
+              - "\\\\\\r?\\n\\s*(sudo|su\\s|rm\\s+-[rRf]|dd\\s+if=|chmod\\s|chown\\s|mount\\s|curl\\s|wget\\s)"
+          source: "library:tier1.shell"
+
+      - desc: "Ban undefined-variable-looking patterns that expand to empty in shell"
+        # rm -rf {undefined}/{also_undefined} → rm -rf /
+        E:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            - - "rm\\s+-[rRf]+\\s+\\{[^}]*\\}/?"
+              - "rm\\s+-[rRf]+\\s+\\$\\{[^}]*\\}/?"
+          source: "library:tier1.shell"
+
+      # =================================================================
+      # § 2 — Blast-radius limits
+      # =================================================================
+
+      - desc: "Reject exec commands with suspiciously long inline payloads (injection indicator)"
+        E:
+          pattern: arg_length_limit
+          args: [exec, command, 2000]
+          source: "library:tier1.shell"
+
+      - desc: "Cap exec calls per session"
+        E:
+          pattern: rate_limit
+          args: [exec, 50]
+          source: "library:tier1.shell"
+
+      # Threshold tuned for shell specifically. Earlier 5 was inherited
+      # from narrow-tool defaults (apply_patch / merge_pr) where 5
+      # consecutive same-tool calls is genuinely suspicious. Shell is a
+      # swiss-army-knife — a normal coding agent doing a refactor will
+      # routinely run pytest → git status → git diff → git add → git
+      # commit → git push back-to-back without ever leaving the shell
+      # tool, which is 6 consecutive calls of legitimate work. 20 still
+      # trips on the runaway pattern (a genuinely stuck self-rewrite
+      # loop hits 20 in a few seconds) without false-positiving real
+      # development workflows. The session-wide rate_limit(exec, 50)
+      # below remains the harder backstop.
+      - desc: "No more than 20 consecutive exec calls (runaway loop cap)"
+        E:
+          pattern: loop_detection
+          args: [exec, 20]
+          source: "library:tier1.shell"
+
+      # =================================================================
+      # § 3 — Privileged commands require confirmation
+      #
+      # The pattern library's must_confirm gates an entire tool; we want
+      # the gate to fire only when the *argument* matches a dangerous
+      # pattern.  Count-dominance over a confirm_reconfirmed marker is
+      # the cleanest LTL form and doesn't require a new pattern.
+      # =================================================================
+
+      - desc: "Privileged exec patterns (sudo, chmod 777, dd if=) require preceding human confirmation"
+        E:
+          ltl: 'G(called_with(exec, "(sudo\\s|dd\\s+if=|chmod\\s+777|chown\\s+-R|mount\\s)") -> count(confirm_reconfirmed) >= count_with(exec, "(sudo\\s|dd\\s+if=|chmod\\s+777|chown\\s+-R|mount\\s)"))'
+          source: "library:tier1.shell"
+
+      # =================================================================
+      # § 4 — Approval integrity (CVE-2026-29607 wrapper bypass, general form)
+      #
+      # A single confirm_reconfirmed cannot authorize two exec actions.
+      # count-dominance is a proxy for principal identity until a
+      # principal() atom ships.
+      #
+      # NOTE on batch approvals: this rule enforces a strict 1:1
+      # confirmation-to-exec ratio.  Some workflows legitimately
+      # batch-approve (CI pipelines, planned migrations).  If your
+      # workflow does, override this rule in your config:
+      #
+      #     overrides:
+      #       - match: {desc: "Each exec call needs its own confirm_reconfirmed (no confirmation reuse)"}
+      #         disabled: true
+      #     contracts:
+      #       - desc: "Batch confirm — one confirm authorizes the next 5 execs"
+      #         E:
+      #           ltl: "G(called(exec) -> count(confirm_batch_5) > 0)"
+      #
+      # The batch marker (e.g. `confirm_batch_5`) must be emitted by
+      # your integration when the human signs off on a batch.
+      #
+      # ASSUMPTION gate: this rule only activates once the agent's
+      # integration has ever emitted `confirm_reconfirmed` in the
+      # current trace.  Agents that haven't wired the marker tool in
+      # at all (the common day-1 state) see this rule as vacuously
+      # true — otherwise every exec call would violate and drown the
+      # observe-mode report in noise.  When an integration adopts
+      # confirm_reconfirmed, the first emission flips the assumption
+      # true for that trace and the 1:1 guarantee begins applying.
+      # =================================================================
+
+      - desc: "Each exec call needs its own confirm_reconfirmed (no confirmation reuse)"
+        A: "called `confirm_reconfirmed`"
+        E:
+          ltl: "G(called(exec) -> count(confirm_reconfirmed) >= count(exec))"
+          source: "library:tier1.shell"
+
+# -----------------------------------------------------------------------------
+# Integration requirements
+# -----------------------------------------------------------------------------
+#
+# - `exec` is a placeholder tool name.  If your agent calls its shell
+#   tool something else (Bash, run_command, execute, etc.), rewrite the
+#   tool name at include time.
+#
+# - `confirm_reconfirmed` is a marker tool — your integration must emit
+#   a `tool_call` event with name="confirm_reconfirmed" whenever a human
+#   actually approves an action.  Without that emission, any contract
+#   using confirm_reconfirmed will fail closed (nothing is ever
+#   confirmed → everything requiring confirmation is blocked).
+#
+# - The LTL contracts in §3 and §4 depend on the `ltl:` schema field
+#   being supported by the config parser.  Until the LTL parser lands,
+#   these can be temporarily commented out; the arg_blacklist contracts
+#   in §1 and the rate_limit / loop_detection / arg_length_limit
+#   contracts in §2 work on current master.

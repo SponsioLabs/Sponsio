@@ -1,0 +1,34 @@
+# =============================================================================
+# sponsio/contracts/core/universal.yaml
+#
+# Pack stub — empty by design.
+#
+# This pack used to ship five stochastic output-safety contracts
+# (injection_free, jailbreak_free, harmful, toxic_free, semantic_pii_free)
+# and was auto-included by ``sponsio onboard``.  That was the wrong
+# default for tool-call-only agents: every step pulled the judge LLM
+# in, adding latency + cost for agents that never produce LLM
+# responses to score (the entire point of those contracts).
+#
+# The contracts are still shipped — they moved to
+# ``sponsio:core/llm_safety``.  Opt in from your config when your
+# agent does produce LLM responses you want graded:
+#
+#     include:
+#       - sponsio:core/llm_safety
+#
+# Auto-selection in ``sponsio onboard`` continues to mention this
+# pack name (it's the historical "applies to every agent" label),
+# but it now contributes zero contracts.  We keep the file rather
+# than deleting it so existing user configs that ``include:
+# sponsio:core/universal`` continue to load instead of erroring out
+# on a missing pack.
+# =============================================================================
+
+version: "1"
+
+agents:
+  # Template agent id — substituted at include time.  Empty contract
+  # list keeps the include path valid without injecting any rules.
+  "*":
+    contracts: []
