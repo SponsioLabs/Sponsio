@@ -39,6 +39,8 @@ import { runExplainCli } from "./explain";
 import { runReplayCli } from "./replay";
 import { runCheckCli } from "./check";
 import { runEvalCli } from "./eval";
+import { runExportCli } from "./export";
+import { runExportSessionsCli } from "./export-sessions";
 import { scan } from "./index";
 
 interface CliArgs {
@@ -274,6 +276,24 @@ async function main() {
   if (raw[0] === "eval") {
     try {
       await runEvalCli(raw.slice(1));
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
+      process.exit(1);
+    }
+    return;
+  }
+  if (raw[0] === "export") {
+    try {
+      await runExportCli(raw.slice(1));
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
+      process.exit(1);
+    }
+    return;
+  }
+  if (raw[0] === "export-sessions") {
+    try {
+      await runExportSessionsCli(raw.slice(1));
     } catch (err) {
       process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
       process.exit(1);
