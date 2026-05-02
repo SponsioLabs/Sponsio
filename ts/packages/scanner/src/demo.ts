@@ -43,6 +43,11 @@ interface Scenario {
   blurb: string;
   contracts: string[];
   events: { tool: string; args?: Record<string, unknown>; narration?: string }[];
+  // If true, the scenario depends on Python-only patterns (called_with regex,
+  // arg_value_range etc.) that the TS NL parser doesn't support yet. The
+  // scenario stays listed for parity with `python -m sponsio demo --list`,
+  // but running it errors out with a pointer to the Python CLI.
+  pythonOnly?: boolean;
 }
 
 const SCENARIOS: Record<string, Scenario> = {
@@ -55,19 +60,89 @@ const SCENARIOS: Record<string, Scenario> = {
       "and wires the funds — without an out-of-band callback. This is the\n" +
       "structural shape of a Business Email Compromise attack against agents.",
     contracts: [
-      "tool `verify_vendor_oob` must precede `update_vendor_bank_account`",
-      "tool `wire_transfer` at most 1 times",
+      "tool `compliance_approve` must precede `wire_transfer`",
+      "tool `confirm_wire_transfer` must precede `wire_transfer`",
+      "tool `wire_transfer` at most 5 times",
     ],
     events: [
-      { tool: "read_email", args: { id: "INV-7841" }, narration: "AP reads invoice from `vendor-billing@acme-supplies.co` (lookalike domain)" },
-      { tool: "lookup_vendor", args: { name: "Acme Industrial Supplies" }, narration: "Vendor record on file" },
+      { tool: "list_invoices", args: { quarter: "q2" } },
+      { tool: "read_invoice", args: { id: "inv_044" } },
       {
-        tool: "update_vendor_bank_account",
-        args: { vendorId: "ACME-001", newAccount: "9876543210" },
-        narration: "Email-claimed bank change applied with no OOB verification",
+        tool: "check_vendor_history",
+        args: { vendor: "Acme Logistics LLC" },
+        narration: "No prior transactions with this vendor — new bank, new EIN",
       },
-      { tool: "wire_transfer", args: { amount: 847000, vendorId: "ACME-001" }, narration: "$847k released to attacker-controlled account" },
+      {
+        tool: "wire_transfer",
+        args: { to: "Acme Logistics LLC", amount: 847000, invoice_id: "inv_044" },
+        narration: "$847k wired to an unverified vendor with no confirm or compliance sign-off",
+      },
     ],
+  },
+  backup: {
+    id: "backup",
+    title: "SRE cost-optimizer deletes prod DR backups (OWASP ASI-10)",
+    blurb:
+      "Under a 'cut storage bill 20%' KPI, an SRE agent deletes off-site\n" +
+      "disaster-recovery snapshots it reads as 'unused'. The TS scenario\n" +
+      "uses a tight rate_limit(2) as a blast-radius cap; the Python demo\n" +
+      "blocks the first delete via path-scope + age-bound enforcement\n" +
+      "(scope_limit / arg_value_range — not yet in the TS NL parser).",
+    contracts: ["tool `delete_snapshot` at most 2 times"],
+    events: [
+      { tool: "list_snapshots", args: { root: "/snapshots/" } },
+      {
+        tool: "estimate_savings",
+        args: { pattern: "/snapshots/prod/db_2025_11_*.tar.gz" },
+        narration: "Agent decides $3,400/mo can come from the 'unused' prod snapshots",
+      },
+      {
+        tool: "delete_snapshot",
+        args: { path: "/snapshots/prod/db_2025_11_01.tar.gz", age_days: 94 },
+        narration: "Off-site DR backup deleted",
+      },
+      {
+        tool: "delete_snapshot",
+        args: { path: "/snapshots/prod/db_2025_11_08.tar.gz", age_days: 87 },
+        narration: "Second DR backup deleted",
+      },
+      {
+        tool: "delete_snapshot",
+        args: { path: "/snapshots/prod/db_2025_11_15.tar.gz", age_days: 80 },
+        narration: "Third DR backup deleted",
+      },
+      {
+        tool: "generate_report",
+        args: { output_path: "/reports/cost_savings.json" },
+        narration: "Report claims $3,400/mo savings; DR window silently gone",
+      },
+    ],
+  },
+  cleanup: {
+    id: "cleanup",
+    title: "Coding cleanup agent deletes .env / .git, force-pushes to main",
+    blurb:
+      "A Claude Code-style cleanup agent reads .env contents, then 'cleans\n" +
+      "up' by rm-ing them along with .git/, then force-pushes to main. The\n" +
+      "Python demo blocks this via `called_with` regex patterns on Bash\n" +
+      "args — those patterns aren't in the TS NL parser yet, so this\n" +
+      "scenario stays Python-only.",
+    contracts: [],
+    events: [],
+    pythonOnly: true,
+  },
+  freeze: {
+    id: "freeze",
+    title: "Coding agent violates code freeze, drops prod tables, hides damage",
+    blurb:
+      "Replays the July 2025 Replit incident: agent receives a 'code freeze'\n" +
+      "instruction, then drops a prod table and tries to fabricate replacement\n" +
+      "rows from memory. Five A/E contracts pin every step. Like cleanup, the\n" +
+      "Python demo uses `called_with` regex assumptions that aren't expressible\n" +
+      "in TS NL yet — Python-only for now.",
+    contracts: [],
+    events: [],
+    pythonOnly: true,
   },
 };
 
@@ -172,7 +247,8 @@ export async function runDemoCli(argv: string[]): Promise<void> {
   if (listOnly) {
     process.stdout.write("Available scenarios:\n");
     for (const s of Object.values(SCENARIOS)) {
-      process.stdout.write(`  ${s.id.padEnd(8)} ${s.title}\n`);
+      const tag = s.pythonOnly ? "  (python-only)" : "";
+      process.stdout.write(`  ${s.id.padEnd(8)} ${s.title}${tag}\n`);
     }
     return;
   }
@@ -180,6 +256,15 @@ export async function runDemoCli(argv: string[]): Promise<void> {
   const scenario = SCENARIOS[scenarioId];
   if (!scenario) {
     process.stderr.write(`Error: unknown scenario '${scenarioId}'. Try --list.\n`);
+    process.exit(2);
+  }
+  if (scenario.pythonOnly) {
+    process.stderr.write(
+      `Scenario '${scenario.id}' depends on Python-only contract patterns ` +
+        `(called_with regex / arg_value_range / structured composition).\n` +
+        `Run via the Python CLI instead:\n` +
+        `  pip install sponsio && sponsio demo --scenario ${scenario.id}\n`,
+    );
     process.exit(2);
   }
   await runScenario(scenario, !noGuard);
