@@ -189,7 +189,7 @@ Override targets: `desc`, `pack_source`, or `pattern`.
 | What's gated | **Every** tool call in the host session — host's own + sub-agents + MCP | Tool calls inside your framework integration |
 | What you write | YAML libraries under `~/.sponsio/plugins/` | `sponsio.yaml` in your project + a 2-line agent-entry patch |
 | Install command | `pip install sponsio` + `sponsio plugin init` | `pip install sponsio` + `sponsio onboard .` |
-| Skill assistant | `/sponsio-claude-code:setup` (host-shipped) | [`sponsio` skill](../sponsio/skills/sponsio/SKILL.md) (`sponsio skill install`) |
+| Skill assistant | `/sponsio-claude-code:configure` (host-shipped) | [`sponsio` skill](../sponsio/skills/sponsio/SKILL.md) (`sponsio skill install`) |
 
 Both modes share the same engine, contract library format, and
 `SPONSIO_MODE` enforce / observe dial. They're complementary — a

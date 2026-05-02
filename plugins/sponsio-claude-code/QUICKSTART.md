@@ -165,7 +165,7 @@ slash command:
 
 | Slash command / skill | What it does |
 |---|---|
-| `/sponsio-claude-code:setup` | Bootstrap `~/.sponsio/plugins/`, pick + install bundled starters, generate starters for unbundled plugins via `sponsio plugin scan`, tune the rules to the user's environment, smoke-test the deny path. |
+| `/sponsio-claude-code:configure` | Bootstrap `~/.sponsio/plugins/`, pick + install bundled starters, generate starters for unbundled plugins via `sponsio plugin scan`, tune the rules to the user's environment, smoke-test the deny path. Run after `/plugin install`. |
 
 Or just say it in plain English ("set up sponsio-claude-code",
 "generate sponsio rules for this MCP server I just installed",
@@ -240,7 +240,7 @@ Sponsio/
 │   ├── .claude-plugin/plugin.json             — required Claude Code manifest
 │   ├── hooks/hooks.json                       — PreToolUse → `sponsio plugin guard --stdin`
 │   ├── skills/
-│   │   └── setup/SKILL.md                     — auto-invokable + /sponsio-claude-code:setup
+│   │   └── configure/SKILL.md                 — auto-invokable + /sponsio-claude-code:configure
 │   │                                            (covers bundled install + scan + tuning)
 │   ├── libraries/
 │   │   ├── _host/sponsio.yaml                 — mirror copy for --plugin-dir users
