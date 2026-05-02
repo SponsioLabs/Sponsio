@@ -113,12 +113,14 @@ paths are:
 
 For overrides the user agreed to during a tuning conversation:
 
-1. Print the override as a YAML snippet, grouped by target file.
-2. Tell the user to open the file and paste the block under the
-   agent's `overrides:` key. Save.
-3. Once they confirm, run
+1. Tell the user the file path and *suggest* what to add as a YAML
+   snippet — guidance, not a template they must paste verbatim. The
+   user owns the file; let them edit it however they want (paste
+   your snippet, rewrite it, or restructure things on their own).
+2. When the user says they're done, run
    `sponsio validate --config ~/.sponsio/plugins/<id>/sponsio.yaml`.
-   On error, surface it and re-print the snippet.
+   On error, surface it and help them debug. Don't assume their
+   edits matched your snippet.
 
 ### Forbidden write modes (universal)
 
