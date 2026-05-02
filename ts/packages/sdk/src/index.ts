@@ -342,6 +342,11 @@ export class Sponsio {
    * but not reported as blocks — the method always returns ``allowed: true``.
    * In **enforce mode**, the first violation blocks the call.
    */
+  /** Read the human-readable descs of all compiled contracts (det only). */
+  contractDescs(): string[] {
+    return this._contracts.map((c) => c.desc);
+  }
+
   guardBefore(toolName: string, args: Record<string, unknown> = {}): CheckResult {
     const event: ToolEvent = { tool: toolName, args };
     const snapshot = this._snapshotState();
