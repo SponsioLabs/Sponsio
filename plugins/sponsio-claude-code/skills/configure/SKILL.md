@@ -391,15 +391,15 @@ install). The user's customisations sit beside them in the same file:
   block: `match: { desc: "..." }` plus `disabled: true` /
   re-tuned `args:` / narrowed `A:`.
 
-`sponsio plugin install <id> --force` (used for re-install or to
-pull a new bundle after `pip install -U sponsio`) does a smart
-merge: shipped contracts are wholesale replaced from the new
-bundle, but everything user-authored — every contract without the
-bundle source tag, plus the entire `customized:` block — is preserved
-verbatim. Hand-editing a shipped contract's body in place is the
-one thing that doesn't survive upgrade (same model as
-`brew upgrade` clobbering a hand-edited formula); always express
-changes as a `customized:` entry instead.
+`sponsio plugin install <id>` (or `sponsio host install <host>`)
+is idempotent — re-run it any time to pull a new bundle (e.g. after
+`pip install -U sponsio`) without losing customisations. Default
+contracts are wholesale replaced from the new bundle; everything
+user-authored — every contract without the bundle source tag, plus
+the entire `customized:` block — is preserved verbatim. Hand-editing
+a default contract's body in place is the one thing that doesn't
+survive (same model as `brew upgrade` clobbering a hand-edited
+formula); always express changes as a `customized:` entry instead.
 
 The agent must NOT use `Edit`, `Write`, `MultiEdit`, or shell
 redirects on this file — the runtime self-modify pack blocks

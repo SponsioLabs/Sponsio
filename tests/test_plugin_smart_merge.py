@@ -1,11 +1,12 @@
-"""Tests for ``sponsio plugin install --force`` smart-merge upgrade.
+"""Tests for ``sponsio plugin install`` smart-merge upgrade.
 
 Single-file model: the per-plugin library at
 ``~/.sponsio/plugins/<id>/sponsio.yaml`` houses both default rules
-(from the bundle) and the user's customisations. On upgrade we
-partition by the ``source: bundle:<name>`` tag — default contracts
-are replaced wholesale, user-authored contracts and the
-``customized:`` block survive.
+(from the bundle) and the user's customisations. ``install`` is
+idempotent — a re-run partitions by the ``source: bundle:<name>``
+tag, replaces default contracts wholesale from the new bundle, and
+preserves user-authored contracts and the ``customized:`` block.
+No ``--force`` flag required (it stays as a back-compat no-op).
 
 These tests lock the user-facing promise: a re-install never
 silently drops a customized contract or entry.
@@ -91,7 +92,7 @@ def test_existing_source_tags_are_not_clobbered(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# §2 — ``--force`` smart merge: user content survives, shipped content
+# §2 — Re-install smart merge: user content survives, default content
 #       gets replaced
 # ---------------------------------------------------------------------------
 
@@ -131,12 +132,12 @@ def _add_user_content(target: Path) -> None:
     target.write_text(yaml.safe_dump(doc, sort_keys=False))
 
 
-def test_force_upgrade_preserves_user_contracts_and_tweaks(tmp_path):
+def test_reinstall_preserves_user_contracts_and_customized(tmp_path):
     _run_install("github", "--root", str(tmp_path))
     target = tmp_path / "github" / "sponsio.yaml"
     _add_user_content(target)
 
-    proc = _run_install("github", "--root", str(tmp_path), "--force")
+    proc = _run_install("github", "--root", str(tmp_path))
     assert proc.returncode == 0
     assert "kept 1 customized contract(s) and 1 customized entry" in proc.stdout
 
@@ -160,7 +161,7 @@ def test_force_upgrade_preserves_user_contracts_and_tweaks(tmp_path):
     assert customized[0]["disabled"] is True
 
 
-def test_force_upgrade_replaces_shipped_contracts(tmp_path):
+def test_reinstall_replaces_default_contracts(tmp_path):
     """Shipped contracts get re-written from the new bundle on
     upgrade — old shipped contract bodies don't accumulate. Test by
     hand-mutating a shipped rule's body and confirming the upgrade
@@ -178,7 +179,7 @@ def test_force_upgrade_replaces_shipped_contracts(tmp_path):
             break
     target.write_text(yaml.safe_dump(doc, sort_keys=False))
 
-    _run_install("github", "--root", str(tmp_path), "--force")
+    _run_install("github", "--root", str(tmp_path))
     bundled = yaml.safe_load(read_bundled("github"))
     bundled_branch_rule = next(
         c
@@ -194,14 +195,14 @@ def test_force_upgrade_replaces_shipped_contracts(tmp_path):
     assert upgraded_branch_rule["E"]["args"] == bundled_branch_rule["E"]["args"]
 
 
-def test_force_upgrade_runtime_behaviour(tmp_path, monkeypatch):
+def test_reinstall_runtime_behaviour(tmp_path, monkeypatch):
     """End-to-end: after upgrade, the user's tweak still disables a
     shipped hard deny, and the user's custom contract still fires."""
     monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
     _run_install("github", "--root", str(tmp_path))
     target = tmp_path / "github" / "sponsio.yaml"
     _add_user_content(target)
-    _run_install("github", "--root", str(tmp_path), "--force")
+    _run_install("github", "--root", str(tmp_path))
 
     # Tweak applied — shipped delete_repository hard deny is silenced.
     out = _evaluate("mcp__github__delete_repository", {"name": "x"})
@@ -215,14 +216,13 @@ def test_force_upgrade_runtime_behaviour(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# §3 — ``--force`` is a no-op (in terms of preservation accounting) when
-#       the user hasn't customised anything
+# §3 — Re-install with no user content reports zero kept
 # ---------------------------------------------------------------------------
 
 
-def test_force_upgrade_with_no_user_content_reports_zero_kept(tmp_path):
+def test_reinstall_with_no_user_content_reports_zero_kept(tmp_path):
     _run_install("github", "--root", str(tmp_path))
-    proc = _run_install("github", "--root", str(tmp_path), "--force")
+    proc = _run_install("github", "--root", str(tmp_path))
     assert proc.returncode == 0
     assert "kept 0 customized contract(s) and 0 customized" in proc.stdout
 
@@ -346,7 +346,7 @@ def test_host_install_writes_per_host_bundle(tmp_path):
     """
     from sponsio.cli import _refresh_per_host_bundles
 
-    out = _refresh_per_host_bundles("cursor", tmp_path, force=False)
+    out = _refresh_per_host_bundles("cursor", tmp_path)
     # Two buckets, two "wrote" entries:
     assert len(out) == 2
     assert all("wrote" in line for line, _ in out)
@@ -361,7 +361,7 @@ def test_host_install_force_smart_merges_per_host_bundle(tmp_path):
     from sponsio.cli import _refresh_per_host_bundles
 
     # Fresh install
-    _refresh_per_host_bundles("cursor", tmp_path, force=False)
+    _refresh_per_host_bundles("cursor", tmp_path)
     target = tmp_path / "_host_cursor" / "sponsio.yaml"
 
     # User customization — disable the first shipped rule by desc.
@@ -374,7 +374,7 @@ def test_host_install_force_smart_merges_per_host_bundle(tmp_path):
     target.write_text(yaml.safe_dump(doc, sort_keys=False))
 
     # --force re-install: customizations preserved
-    out = _refresh_per_host_bundles("cursor", tmp_path, force=True)
+    out = _refresh_per_host_bundles("cursor", tmp_path)
     assert any("upgraded" in line for line, _ in out)
     upgraded = yaml.safe_load(target.read_text())
     customized = upgraded["agents"][agent_id].get("customized") or []
@@ -382,19 +382,29 @@ def test_host_install_force_smart_merges_per_host_bundle(tmp_path):
     assert customized[0]["disabled"] is True
 
 
-def test_host_install_no_force_keeps_existing_per_host_bundle(tmp_path):
-    """Default (no ``--force``) is conservative: if the per-host bundle
-    already exists, leave it alone — don't even touch the timestamps.
+def test_host_install_second_run_is_idempotent_smart_merge(tmp_path):
+    """A bare second run does a smart-merge upgrade in place — no
+    ``--force`` flag, no special "kept existing" branch. Default and
+    customized contents both round-trip semantically (the rewrite
+    may re-serialise the YAML, but the loadable content is stable).
     """
     from sponsio.cli import _refresh_per_host_bundles
+    from sponsio.config import load_config
 
-    _refresh_per_host_bundles("cursor", tmp_path, force=False)
+    _refresh_per_host_bundles("cursor", tmp_path)
     target = tmp_path / "_host_cursor" / "sponsio.yaml"
-    original = target.read_text()
+    before = load_config(target)
 
-    out = _refresh_per_host_bundles("cursor", tmp_path, force=False)
-    assert all("kept existing" in line for line, _ in out)
-    assert target.read_text() == original
+    out = _refresh_per_host_bundles("cursor", tmp_path)
+    assert any("upgraded" in line for line, _ in out)
+    after = load_config(target)
+    # Same set of contracts after — second run didn't drop or
+    # duplicate anything.
+    assert set(after.agents.keys()) == set(before.agents.keys())
+    for agent_id, before_ac in before.agents.items():
+        before_descs = sorted(c.desc for c in before_ac.contracts)
+        after_descs = sorted(c.desc for c in after.agents[agent_id].contracts)
+        assert before_descs == after_descs
 
 
 def test_host_install_handles_host_with_no_subagent_bundle(tmp_path):
@@ -403,7 +413,7 @@ def test_host_install_handles_host_with_no_subagent_bundle(tmp_path):
     missing one silently rather than erroring."""
     from sponsio.cli import _refresh_per_host_bundles
 
-    out = _refresh_per_host_bundles("openclaw", tmp_path, force=False)
+    out = _refresh_per_host_bundles("openclaw", tmp_path)
     # One bucket exists, one doesn't — only one entry in the output.
     assert len(out) == 1
     assert (tmp_path / "_host_openclaw" / "sponsio.yaml").exists()

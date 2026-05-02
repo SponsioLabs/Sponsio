@@ -288,13 +288,14 @@ get appended (no source tag), and adjustments to shipped rules go
 into a `customized:` block (`disabled: true`, retuned `args:`, narrowed
 `A:`).
 
-`sponsio plugin install <id> --force` (used for re-install or to
-pull a new bundle after `pip install -U sponsio`) does a smart
-merge: shipped contracts are wholesale replaced from the new bundle,
-but every user-authored contract and the entire `customized:` block
-survive. Hand-editing a shipped contract's body in place is the one
-thing that doesn't survive upgrade — express changes as a `customized:`
-entry instead.
+`sponsio plugin install <id>` (or `sponsio host install <host>`)
+is idempotent — re-run any time to pull a new bundle (e.g. after
+`pip install -U sponsio`) without losing customisations. Default
+contracts are wholesale replaced from the new bundle; every
+user-authored contract and the entire `customized:` block survive.
+Hand-editing a default contract's body in place is the one thing
+that doesn't survive — express changes as a `customized:` entry
+instead.
 
 The agent must NOT use `Edit`, `Write`, `MultiEdit`, or shell
 redirects on this file — the runtime self-modify pack blocks those

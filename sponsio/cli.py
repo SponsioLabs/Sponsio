@@ -4916,7 +4916,11 @@ def _print_plugin_next_steps() -> None:
     "--force",
     is_flag=True,
     default=False,
-    help="Overwrite existing libraries without prompting.",
+    help=(
+        "Accepted for back-compat; no-op. ``install`` is always "
+        "idempotent — fresh install or smart-merge upgrade, never "
+        "destructive."
+    ),
 )
 def plugin_install(
     names: tuple[str, ...],
@@ -4979,20 +4983,22 @@ def plugin_install(
         env = os.environ.get("SPONSIO_PLUGIN_ROOT")
         root = Path(env).expanduser() if env else Path.home() / ".sponsio" / "plugins"
 
+    # ``install`` is always idempotent and non-destructive:
+    #
+    # * Library missing → fresh write of the bundled starter (source-
+    #   stamped so a later install can partition).
+    # * Library exists → ``_install_one`` smart merge (default
+    #   contracts replaced from the new bundled YAML; user-authored
+    #   contracts and the ``customized:`` block survive verbatim).
+    #
+    # ``--force`` used to gate the upgrade path; it's now a silent
+    # no-op kept for back-compat with existing scripts.
     written: list[Path] = []
-    skipped: list[Path] = []
+    skipped: list[Path] = []  # noqa: F841 - reserved for future skip semantics
+    del force  # accepted but no longer needed
     for name in names:
         target_dir = root / name
         target = target_dir / "sponsio.yaml"
-        if target.exists() and not force:
-            click.secho(
-                f"  skipped {target}: already exists "
-                f"(re-run with --force to upgrade in place — "
-                f"your customized contracts and `customized:` block are preserved)",
-                fg="yellow",
-            )
-            skipped.append(target)
-            continue
         target_dir.mkdir(parents=True, exist_ok=True)
         kept = _install_one(name, target)
         if kept is None:
@@ -5209,9 +5215,9 @@ def _render_plugin_digest(
     lines.append(
         f"  Customize by adding entries to a ``customized:`` block, or appending\n"
         f"  new ``contracts:`` entries in {yaml_path or 'the file'}.\n"
-        "  Don't hand-edit a default rule's body — ``sponsio plugin install --force``\n"
-        "  replaces default contracts on upgrade; only ``customized:`` and your own\n"
-        "  ``contracts:`` entries (without a ``source: bundle:*`` tag) survive."
+        "  Don't hand-edit a default rule's body — re-running ``sponsio plugin install``\n"
+        "  (or ``sponsio host install``) replaces default contracts; only ``customized:``\n"
+        "  and your own ``contracts:`` entries (without a ``source: bundle:*`` tag) survive."
     )
     return "\n".join(lines)
 
@@ -5986,7 +5992,7 @@ def _apply_install_mode_to_host_buckets(
 
 
 def _refresh_per_host_bundles(
-    host_name: str, plugin_root: Path, force: bool
+    host_name: str, plugin_root: Path
 ) -> list[tuple[str, str]]:
     """Install or smart-merge the ``_host_<host>`` + subagent bundles.
 
@@ -5996,14 +6002,13 @@ def _refresh_per_host_bundles(
     ``(message, colour)`` tuples for the caller to render — keeps
     this helper free of click side effects so it's testable.
 
-    Behaviour:
+    Idempotent and non-destructive — always safe to re-run:
 
-    * Bundle is missing on disk → fresh install (writes the bundled
-      starter, source-stamped).
-    * Bundle exists, no ``--force`` → leave it alone, report kept.
-    * Bundle exists, ``--force`` → ``_install_one`` does the smart
-      merge (default contracts replaced; customized contracts and
-      ``customized:`` block preserved verbatim).
+    * Bundle missing → fresh install (writes the bundled starter,
+      source-stamped so a later install can partition).
+    * Bundle exists → ``_install_one`` smart merge (default contracts
+      replaced from the new bundled YAML; user-authored contracts
+      and the ``customized:`` block survive verbatim).
     * Bundle name not in the registry (e.g. host has no shipped
       starter for the subagent slot) → silently skipped.
     """
@@ -6016,9 +6021,6 @@ def _refresh_per_host_bundles(
         if bucket not in bundled:
             continue
         target = plugin_root / bucket / "sponsio.yaml"
-        if target.exists() and not force:
-            out.append((f"○  {host_name} bundle: kept existing {target}", "yellow"))
-            continue
         target.parent.mkdir(parents=True, exist_ok=True)
         kept = _install_one(bucket, target)
         if kept is None:
@@ -6317,12 +6319,12 @@ def host_install(
         # ``_host_<name>`` / ``_host_<name>_subagent``. Without this
         # step a fresh ``host install cursor`` would only write the
         # hook config + the legacy ``_host`` fallback library, so
-        # Cursor would run on Claude-Code-shaped rules instead of
-        # its own. With ``--force`` we route through ``_install_one``
-        # so an existing bundle gets a smart-merge upgrade (default
+        # Cursor would run on Claude-Code-shaped rules instead of its
+        # own. ``_install_one`` is idempotent: missing bundle → fresh
+        # write; existing bundle → smart-merge upgrade (default
         # contracts replaced from the new bundled YAML; user-authored
         # contracts and the ``customized:`` block survive verbatim).
-        bundle_summary = _refresh_per_host_bundles(name, plugin_root, force)
+        bundle_summary = _refresh_per_host_bundles(name, plugin_root)
         for line, colour in bundle_summary:
             click.secho(line, fg=colour)
 

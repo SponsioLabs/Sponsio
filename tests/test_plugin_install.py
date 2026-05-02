@@ -367,19 +367,30 @@ def test_cli_install_no_args_errors(tmp_path):
     assert proc.returncode == 2
 
 
-def test_cli_install_force_overwrites(tmp_path):
+def test_cli_install_is_idempotent_without_force(tmp_path):
+    """``install`` is always non-destructive: a second run on an
+    existing library does a smart-merge upgrade in place — no
+    ``--force`` flag required (matches ``brew install`` /
+    ``pip install`` ergonomics)."""
+    first = _run_install("github", "--root", str(tmp_path))
+    assert first.returncode == 0
     target = tmp_path / "github" / "sponsio.yaml"
-    target.parent.mkdir(parents=True)
-    target.write_text("# user file")
+    assert target.exists()
 
-    no_force = _run_install("github", "--root", str(tmp_path))
-    # All requested names skipped → exit 1.
-    assert no_force.returncode == 1
-    assert target.read_text() == "# user file"
+    # Second run: no --force, must succeed (not skip with exit 1).
+    second = _run_install("github", "--root", str(tmp_path))
+    assert second.returncode == 0
+    # Reveal text shifts from "wrote" to "upgraded" once the bundle
+    # is already on disk.
+    assert "upgraded" in second.stdout
 
-    forced = _run_install("github", "--root", str(tmp_path), "--force")
-    assert forced.returncode == 0
-    assert target.read_text() != "# user file"
+
+def test_cli_install_force_flag_still_accepted_as_noop(tmp_path):
+    """``--force`` is a back-compat no-op so existing scripts that
+    pass it keep working."""
+    proc = _run_install("github", "--root", str(tmp_path), "--force")
+    assert proc.returncode == 0
+    assert (tmp_path / "github" / "sponsio.yaml").exists()
 
 
 # ---------------------------------------------------------------------------
