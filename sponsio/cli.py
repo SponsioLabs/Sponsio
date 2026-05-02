@@ -5985,6 +5985,56 @@ def _apply_install_mode_to_host_buckets(
     return out
 
 
+def _refresh_per_host_bundles(
+    host_name: str, plugin_root: Path, force: bool
+) -> list[tuple[str, str]]:
+    """Install or smart-merge the ``_host_<host>`` + subagent bundles.
+
+    Called from ``sponsio host install`` so a single command lays
+    down the per-host contract libraries (in addition to the hook
+    config and the ``_host`` legacy fallback). Returns a list of
+    ``(message, colour)`` tuples for the caller to render — keeps
+    this helper free of click side effects so it's testable.
+
+    Behaviour:
+
+    * Bundle is missing on disk → fresh install (writes the bundled
+      starter, source-stamped).
+    * Bundle exists, no ``--force`` → leave it alone, report kept.
+    * Bundle exists, ``--force`` → ``_install_one`` does the smart
+      merge (default contracts replaced; customized contracts and
+      ``customized:`` block preserved verbatim).
+    * Bundle name not in the registry (e.g. host has no shipped
+      starter for the subagent slot) → silently skipped.
+    """
+    from sponsio.plugin.registry import list_bundled
+
+    bundled = set(list_bundled())
+    main_bucket, sub_bucket = _bucket_for_host_name(host_name)
+    out: list[tuple[str, str]] = []
+    for bucket in (main_bucket, sub_bucket):
+        if bucket not in bundled:
+            continue
+        target = plugin_root / bucket / "sponsio.yaml"
+        if target.exists() and not force:
+            out.append((f"○  {host_name} bundle: kept existing {target}", "yellow"))
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        kept = _install_one(bucket, target)
+        if kept is None:
+            out.append((f"✔  {host_name} bundle: wrote {target}", "green"))
+        else:
+            out.append(
+                (
+                    f"✔  {host_name} bundle: upgraded {target} — kept "
+                    f"{kept['user_contracts']} customized contract(s) "
+                    f"and {kept['customized']} customized entry/entries",
+                    "green",
+                )
+            )
+    return out
+
+
 def _bucket_for_host_name(host_name: str) -> tuple[str, str]:
     """Bucket names baked into the per-host skill copy.
 
@@ -6262,6 +6312,19 @@ def host_install(
         if not result.written:
             # Existing-but-not-overwritten is informational, not a failure.
             pass
+
+        # Lay down (or refresh) the per-host contract bundles
+        # ``_host_<name>`` / ``_host_<name>_subagent``. Without this
+        # step a fresh ``host install cursor`` would only write the
+        # hook config + the legacy ``_host`` fallback library, so
+        # Cursor would run on Claude-Code-shaped rules instead of
+        # its own. With ``--force`` we route through ``_install_one``
+        # so an existing bundle gets a smart-merge upgrade (default
+        # contracts replaced from the new bundled YAML; user-authored
+        # contracts and the ``customized:`` block survive verbatim).
+        bundle_summary = _refresh_per_host_bundles(name, plugin_root, force)
+        for line, colour in bundle_summary:
+            click.secho(line, fg=colour)
 
         # Stamp the chosen mode onto the freshly-bootstrapped per-host
         # library, but never clobber a mode the user has already set.

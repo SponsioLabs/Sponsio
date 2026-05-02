@@ -330,6 +330,86 @@ agents:
     assert parsed.agents["github"].contracts == []
 
 
+# ---------------------------------------------------------------------------
+# §5 — ``sponsio host install <host> [--force]`` lays down / refreshes the
+#       per-host bundle (``_host_cursor`` / ``_host_cursor_subagent`` etc.)
+#
+# Without this, ``host install cursor`` would only create the hook config
+# and the legacy ``_host`` fallback library — Cursor would run on
+# Claude-Code-shaped rules instead of its own bundle.
+# ---------------------------------------------------------------------------
+
+
+def test_host_install_writes_per_host_bundle(tmp_path):
+    """Fresh per-host bundle install for ``cursor`` must produce both
+    ``_host_cursor/sponsio.yaml`` and ``_host_cursor_subagent/sponsio.yaml``.
+    """
+    from sponsio.cli import _refresh_per_host_bundles
+
+    out = _refresh_per_host_bundles("cursor", tmp_path, force=False)
+    # Two buckets, two "wrote" entries:
+    assert len(out) == 2
+    assert all("wrote" in line for line, _ in out)
+    assert (tmp_path / "_host_cursor" / "sponsio.yaml").exists()
+    assert (tmp_path / "_host_cursor_subagent" / "sponsio.yaml").exists()
+
+
+def test_host_install_force_smart_merges_per_host_bundle(tmp_path):
+    """``host install cursor --force`` upgrades the per-host bundle in
+    place: default contracts are replaced, the user's ``customized:``
+    block survives byte-for-byte."""
+    from sponsio.cli import _refresh_per_host_bundles
+
+    # Fresh install
+    _refresh_per_host_bundles("cursor", tmp_path, force=False)
+    target = tmp_path / "_host_cursor" / "sponsio.yaml"
+
+    # User customization — disable the first shipped rule by desc.
+    doc = yaml.safe_load(target.read_text())
+    agent_id = next(iter(doc["agents"]))
+    first_desc = doc["agents"][agent_id]["contracts"][0]["desc"]
+    doc["agents"][agent_id]["customized"] = [
+        {"match": {"desc": first_desc}, "disabled": True}
+    ]
+    target.write_text(yaml.safe_dump(doc, sort_keys=False))
+
+    # --force re-install: customizations preserved
+    out = _refresh_per_host_bundles("cursor", tmp_path, force=True)
+    assert any("upgraded" in line for line, _ in out)
+    upgraded = yaml.safe_load(target.read_text())
+    customized = upgraded["agents"][agent_id].get("customized") or []
+    assert len(customized) == 1
+    assert customized[0]["disabled"] is True
+
+
+def test_host_install_no_force_keeps_existing_per_host_bundle(tmp_path):
+    """Default (no ``--force``) is conservative: if the per-host bundle
+    already exists, leave it alone — don't even touch the timestamps.
+    """
+    from sponsio.cli import _refresh_per_host_bundles
+
+    _refresh_per_host_bundles("cursor", tmp_path, force=False)
+    target = tmp_path / "_host_cursor" / "sponsio.yaml"
+    original = target.read_text()
+
+    out = _refresh_per_host_bundles("cursor", tmp_path, force=False)
+    assert all("kept existing" in line for line, _ in out)
+    assert target.read_text() == original
+
+
+def test_host_install_handles_host_with_no_subagent_bundle(tmp_path):
+    """OpenClaw has ``_host_openclaw`` but no
+    ``_host_openclaw_subagent`` shipped — refresh must skip the
+    missing one silently rather than erroring."""
+    from sponsio.cli import _refresh_per_host_bundles
+
+    out = _refresh_per_host_bundles("openclaw", tmp_path, force=False)
+    # One bucket exists, one doesn't — only one entry in the output.
+    assert len(out) == 1
+    assert (tmp_path / "_host_openclaw" / "sponsio.yaml").exists()
+    assert not (tmp_path / "_host_openclaw_subagent").exists()
+
+
 def test_loader_rejects_multiple_customization_keys(tmp_path):
     cfg = tmp_path / "sponsio.yaml"
     cfg.write_text(
