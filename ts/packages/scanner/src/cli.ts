@@ -32,6 +32,8 @@ import { runDoctorCli } from "./doctor";
 import { runPacksCli } from "./packs";
 import { runSkillCli } from "./skill";
 import { runModeCli } from "./mode";
+import { runInitCli } from "./init";
+import { runScanCli } from "./scan";
 import { scan } from "./index";
 
 interface CliArgs {
@@ -75,6 +77,8 @@ const HELP =
   "  sponsio --config sponsio.yaml --pretty",
   "  sponsio ./src --out /tmp/inv.json && sponsio scan /tmp/inv.json -o sponsio.yaml",
   "  sponsio onboard .",
+  "  sponsio init --mode observe",
+  "  sponsio scan ./src --append",
   "  sponsio mode enforce",
   "  sponsio report --since 24h",
   "  sponsio validate ./sponsio.yaml",
@@ -200,6 +204,24 @@ async function main() {
   if (raw[0] === "mode") {
     try {
       await runModeCli(raw.slice(1));
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
+      process.exit(1);
+    }
+    return;
+  }
+  if (raw[0] === "init") {
+    try {
+      await runInitCli(raw.slice(1));
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
+      process.exit(1);
+    }
+    return;
+  }
+  if (raw[0] === "scan") {
+    try {
+      await runScanCli(raw.slice(1));
     } catch (err) {
       process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
       process.exit(1);
