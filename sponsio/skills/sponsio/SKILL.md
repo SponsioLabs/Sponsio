@@ -111,16 +111,30 @@ paths are:
   ```
 - **Hand-edit by the user** in their text editor.
 
-For overrides the user agreed to during a tuning conversation:
+For overrides the user agreed to during a tuning conversation, do
+NOT ghostwrite the YAML they should paste. Contract content in
+Zone B has exactly four legitimate sources: bundle libraries
+(`sponsio plugin install`), CLI extraction (`sponsio plugin scan`,
+`sponsio scan`, `sponsio onboard`), the user's own keystrokes, and
+`overrides:` blocks the user authors themselves. An LLM-composed
+snippet has none of those provenances — it's configuration with no
+audit trail.
 
-1. Tell the user the file path and *suggest* what to add as a YAML
-   snippet — guidance, not a template they must paste verbatim. The
-   user owns the file; let them edit it however they want (paste
-   your snippet, rewrite it, or restructure things on their own).
-2. When the user says they're done, run
-   `sponsio validate --config ~/.sponsio/plugins/<id>/sponsio.yaml`.
-   On error, surface it and help them debug. Don't assume their
-   edits matched your snippet.
+The flow:
+
+1. Restate the user's intent in plain English and identify the
+   shipped rule it affects. `sponsio plugin show <id>` prints the
+   `desc:` of every loaded rule; quote a desc verbatim from that
+   output if you need to refer to one — do NOT compose YAML around
+   it.
+2. Tell the user the file path and describe the change in words
+   ("add an `overrides:` entry beside `contracts:` whose
+   `match.desc` matches the rule you want to silence, with
+   `disabled: true`"). Point them at the existing pack's syntax for
+   reference. Let them write the YAML themselves.
+3. When they say they're done, run
+   `sponsio validate --config ~/.sponsio/plugins/<id>/sponsio.yaml`
+   and help debug if it doesn't parse.
 
 ### Forbidden write modes (universal)
 
