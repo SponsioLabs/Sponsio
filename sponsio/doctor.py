@@ -5,7 +5,7 @@ command:
 
     $ sponsio doctor
     • Python           3.11.8
-    ✓ sponsio import    0.1.0a0
+    ✓ sponsio import    0.2.0a0
     ✓ Optional SDKs     langchain, openai (crewai not installed — ok)
     ✓ LLM credentials   GOOGLE_API_KEY present (gemini-2.5-flash-lite, 1500/day free)
     ✓ Project scan      12 tools found in src/

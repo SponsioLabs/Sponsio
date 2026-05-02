@@ -1,73 +1,45 @@
-# React + TypeScript + Vite
+# Sponsio Web Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Local single-user dashboard for Sponsio. Pairs with `sponsio serve` to
+surface session-log JSONL files (`~/.sponsio/sessions/<agent>/*.jsonl`)
+and the active rulebook to a browser UI for trace inspection.
 
-Currently, two official plugins are available:
+This is the **OSS** dashboard — read-only, bound to `127.0.0.1`, no
+auth, no ingestion endpoint. The multi-tenant hosted dashboard with
+auth, OTel ingest, and cross-trace aggregation lives in Sponsio Cloud
+(`pip install sponsio[cloud]`). See
+[docs/oss_scope.md](../docs/oss_scope.md) for the full boundary.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Pages
 
-## React Compiler
+- **Monitor** — live session feed, contracts checked, violations,
+  per-tool latency.
+- **Rulebook** — the contracts loaded for the current agent, sourced
+  from `sponsio.yaml` plus any included capability/incident bundles.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Run it
 
-## Expanding the ESLint configuration
+```bash
+# Backend (from the repo root)
+pip install -e ".[web]"
+sponsio serve --dev          # http://127.0.0.1:8000
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# Frontend (this directory)
+npm install
+npm run dev                  # http://127.0.0.1:5173
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The frontend dev server proxies `/api/*` to the backend on port 8000.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Build for production
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run build
 ```
+
+Outputs to `web/dist/`. `sponsio serve` (without `--dev`) serves the
+built bundle directly, so you only need Python at runtime.
+
+## Stack
+
+React 19 · TypeScript · Vite 6 · Tailwind 4 · React Router 7.

@@ -82,6 +82,10 @@ commitment, not a "temporarily open" status.
   Read-only FastAPI app bound to `127.0.0.1`, no auth, no ingestion endpoint.
   Surfaces session-log JSONL files to a local web UI for trace inspection.
   Requires the `[web]` extra (`pip install sponsio[web]`).
+- `web/` — React + TypeScript + Vite frontend that pairs with `sponsio serve`.
+  Two pages (Monitor, Rulebook) read from the local FastAPI app at
+  `127.0.0.1:8000`. Build with `cd web && npm install && npm run build`;
+  during development use `npm run dev` alongside `sponsio serve --dev`.
 
 ---
 
