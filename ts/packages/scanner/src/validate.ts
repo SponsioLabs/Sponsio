@@ -1,5 +1,5 @@
 /**
- * ``sponsio-scan-ts validate`` — CI-friendly config check.
+ * ``sponsio validate`` — CI-friendly config check.
  *
  * Mirrors the first half of Python's ``sponsio validate`` command:
  * parse sponsio.yaml, surface structural errors, and report what
@@ -9,11 +9,11 @@
  *
  * Usage:
  *
- *   sponsio-scan-ts validate                    # validates ./sponsio.yaml
- *   sponsio-scan-ts validate ./config.yaml
- *   sponsio-scan-ts validate --agent support_bot
- *   sponsio-scan-ts validate --strict           # non-zero on any skip
- *   sponsio-scan-ts validate --format json      # machine-readable
+ *   sponsio validate                    # validates ./sponsio.yaml
+ *   sponsio validate ./config.yaml
+ *   sponsio validate --agent support_bot
+ *   sponsio validate --strict           # non-zero on any skip
+ *   sponsio validate --format json      # machine-readable
  */
 
 import { existsSync } from "node:fs";
@@ -29,10 +29,10 @@ interface ValidateArgs {
 
 const HELP =
   [
-    "sponsio-scan-ts validate — parse sponsio.yaml and report what the TS runtime will use",
+    "sponsio validate — parse sponsio.yaml and report what the TS runtime will use",
     "",
     "USAGE:",
-    "  sponsio-scan-ts validate [path] [options]",
+    "  sponsio validate [path] [options]",
     "",
     "ARGUMENTS:",
     "  [path]            Path to sponsio.yaml (default: ./sponsio.yaml)",

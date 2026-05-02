@@ -1,5 +1,5 @@
 /**
- * ``sponsio-scan-ts report`` — minimal shadow-mode report for TS projects.
+ * ``sponsio report`` — minimal shadow-mode report for TS projects.
  *
  * Reads ``~/.sponsio/sessions/<agent_id>/*.jsonl`` (the shared
  * session log written by both the Python and TypeScript runtimes)
@@ -10,9 +10,9 @@
  *
  * Usage:
  *
- *   sponsio-scan-ts report                              # last 7d, all agents
- *   sponsio-scan-ts report --agent support_bot --since 24h
- *   sponsio-scan-ts report --since all --format json
+ *   sponsio report                              # last 7d, all agents
+ *   sponsio report --agent support_bot --since 24h
+ *   sponsio report --since all --format json
  *
  * Accepts both Python-canonical action values (``blocked`` / ``observed``
  * / ``allowed``) and the TS logger's shorthand (``block`` / ``observe_log``
@@ -59,10 +59,10 @@ interface ReportArgs {
 
 const HELP =
   [
-    "sponsio-scan-ts report — shadow-mode summary of session logs",
+    "sponsio report — shadow-mode summary of session logs",
     "",
     "USAGE:",
-    "  sponsio-scan-ts report [options]",
+    "  sponsio report [options]",
     "",
     "OPTIONS:",
     "      --since <spec>    Time window (default: 7d). Accepts 'all', '30m', '24h', '7d'.",
@@ -72,9 +72,9 @@ const HELP =
     "  -h, --help            Show this help",
     "",
     "EXAMPLES:",
-    "  sponsio-scan-ts report",
-    "  sponsio-scan-ts report --since 24h --agent support_bot",
-    "  sponsio-scan-ts report --since all --format json",
+    "  sponsio report",
+    "  sponsio report --since 24h --agent support_bot",
+    "  sponsio report --since all --format json",
   ].join("\n") + "\n";
 
 function parseArgs(argv: string[]): ReportArgs {

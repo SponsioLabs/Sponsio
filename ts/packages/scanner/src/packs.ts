@@ -1,12 +1,12 @@
 /**
- * ``sponsio-scan-ts packs`` — informational listing of the built-in
+ * ``sponsio packs`` — informational listing of the built-in
  * pack library.
  *
  * Packs (pre-built bundles like ``sponsio:core/runaway``,
  * ``sponsio:capability/filesystem``) are Python-authored resource
  * files consumed by the Python runtime. The TS SDK doesn't ship
  * pack infra yet — pack ``include:`` entries get surfaced via
- * ``sponsio-scan-ts validate`` as skipped items. This command
+ * ``sponsio validate`` as skipped items. This command
  * documents what's available so a user can decide whether to
  * ``pip install sponsio`` alongside their TS agent (both languages
  * read the same ``sponsio.yaml``, so packs declared for Python
@@ -78,10 +78,10 @@ interface PacksArgs {
 
 const HELP =
   [
-    "sponsio-scan-ts packs — list pre-built contract packs",
+    "sponsio packs — list pre-built contract packs",
     "",
     "USAGE:",
-    "  sponsio-scan-ts packs [options]",
+    "  sponsio packs [options]",
     "",
     "OPTIONS:",
     "      --format <f>  'text' (default) or 'json'",

@@ -15,7 +15,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "sponsio-scan-ts": "bin/scan.js"
+    "sponsio": "bin/scan.js"
   },
   "files": [
     "dist/",

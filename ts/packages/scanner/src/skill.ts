@@ -1,5 +1,5 @@
 /**
- * ``sponsio-scan-ts skill install`` — drop the universal SKILL.md
+ * ``sponsio skill install`` — drop the universal SKILL.md
  * into Cursor / Claude Code / Codex skill directories so your
  * coding agent knows how to ``onboard`` / ``scan`` / ``refresh`` /
  * flip-to-enforce on every future project without re-pasting the
@@ -28,10 +28,10 @@ interface SkillArgs {
 
 const HELP =
   [
-    "sponsio-scan-ts skill install — install the Sponsio Agent Skill",
+    "sponsio skill install — install the Sponsio Agent Skill",
     "",
     "USAGE:",
-    "  sponsio-scan-ts skill install [options]",
+    "  sponsio skill install [options]",
     "",
     "OPTIONS:",
     "      --tool <name>  cursor | claude | codex | all  (default: all)",
@@ -48,7 +48,7 @@ const HELP =
 function parseArgs(argv: string[]): SkillArgs {
   const action = argv[0];
   if (action !== "install") {
-    throw new Error(`sponsio-scan-ts skill: unknown action '${action}' (expected 'install')`);
+    throw new Error(`sponsio skill: unknown action '${action}' (expected 'install')`);
   }
   const a: SkillArgs = {
     action: "install",

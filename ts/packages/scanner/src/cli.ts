@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ``sponsio-scan-ts`` — CLI frontend for ``@sponsio/scan-ts``.
+ * ``sponsio`` — CLI frontend for ``@sponsio/scan-ts``.
  *
  * Usage:
  *
@@ -31,6 +31,7 @@ import { runPatternsCli } from "./patterns";
 import { runDoctorCli } from "./doctor";
 import { runPacksCli } from "./packs";
 import { runSkillCli } from "./skill";
+import { runModeCli } from "./mode";
 import { scan } from "./index";
 
 interface CliArgs {
@@ -51,10 +52,10 @@ interface CliArgs {
 // strings is dull but unambiguous.
 const HELP =
   [
-    "sponsio-scan-ts — scan TypeScript/JavaScript for agent tool definitions",
+    "sponsio — scan TypeScript/JavaScript for agent tool definitions",
     "",
     "USAGE:",
-    "  sponsio-scan-ts <patterns...> [options]",
+    "  sponsio <patterns...> [options]",
     "",
     "ARGUMENTS:",
     '  <patterns...>       Files or glob patterns to scan (default: "src/**/*.{ts,tsx,js,jsx}")',
@@ -69,16 +70,17 @@ const HELP =
     "  -v, --version       Show version",
     "",
     "EXAMPLES:",
-    "  sponsio-scan-ts ./src",
-    '  sponsio-scan-ts "src/tools/**/*.ts" --out tools.json',
-  "  sponsio-scan-ts --config sponsio.yaml --pretty",
-  "  sponsio-scan-ts ./src --out /tmp/inv.json && sponsio scan /tmp/inv.json -o sponsio.yaml",
-  "  sponsio-scan-ts onboard .",
-  "  sponsio-scan-ts report --since 24h",
-  "  sponsio-scan-ts validate ./sponsio.yaml",
-  "  sponsio-scan-ts patterns",
-  "  sponsio-scan-ts doctor",
-  "  sponsio-scan-ts skill install",
+    "  sponsio ./src",
+    '  sponsio "src/tools/**/*.ts" --out tools.json',
+  "  sponsio --config sponsio.yaml --pretty",
+  "  sponsio ./src --out /tmp/inv.json && sponsio scan /tmp/inv.json -o sponsio.yaml",
+  "  sponsio onboard .",
+  "  sponsio mode enforce",
+  "  sponsio report --since 24h",
+  "  sponsio validate ./sponsio.yaml",
+  "  sponsio patterns",
+  "  sponsio doctor",
+  "  sponsio skill install",
     "",
     "SUBCOMMANDS:",
     "  onboard [.]                Generate sponsio.yaml + print integration snippet",
@@ -189,6 +191,15 @@ async function main() {
   if (raw[0] === "skill") {
     try {
       await runSkillCli(raw.slice(1));
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
+      process.exit(1);
+    }
+    return;
+  }
+  if (raw[0] === "mode") {
+    try {
+      await runModeCli(raw.slice(1));
     } catch (err) {
       process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
       process.exit(1);

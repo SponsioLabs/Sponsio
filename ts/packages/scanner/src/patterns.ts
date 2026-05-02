@@ -1,5 +1,5 @@
 /**
- * ``sponsio-scan-ts patterns`` — browse the deterministic pattern
+ * ``sponsio patterns`` — browse the deterministic pattern
  * library + built-in sto atoms. Parity with Python's ``sponsio patterns``.
  *
  * Output is grouped the same way the main README tabulates them so
@@ -87,10 +87,10 @@ interface PatternsArgs {
 
 const HELP =
   [
-    "sponsio-scan-ts patterns — list det patterns + sto atoms",
+    "sponsio patterns — list det patterns + sto atoms",
     "",
     "USAGE:",
-    "  sponsio-scan-ts patterns [options]",
+    "  sponsio patterns [options]",
     "",
     "OPTIONS:",
     "      --category <name>  Filter by category (Safety, Compliance, Sto …)",

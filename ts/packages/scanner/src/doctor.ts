@@ -1,5 +1,5 @@
 /**
- * ``sponsio-scan-ts doctor`` — pre-flight env + config sanity check.
+ * ``sponsio doctor`` — pre-flight env + config sanity check.
  *
  * Parity with Python's ``sponsio doctor``, tuned to the TS runtime:
  * verifies node version, the ``yaml`` peer dep, the session log dir,
@@ -26,10 +26,10 @@ interface DoctorArgs {
 
 const HELP =
   [
-    "sponsio-scan-ts doctor — env + config health check",
+    "sponsio doctor — env + config health check",
     "",
     "USAGE:",
-    "  sponsio-scan-ts doctor [options]",
+    "  sponsio doctor [options]",
     "",
     "OPTIONS:",
     "      --format <f>  'text' (default) or 'json'",
@@ -133,7 +133,7 @@ function checkYamlParses(): Check {
     return {
       label: "sponsio.yaml",
       status: "warn",
-      detail: `${path} not found — run 'sponsio-scan-ts onboard .' to create one`,
+      detail: `${path} not found — run 'sponsio onboard .' to create one`,
     };
   }
   try {
