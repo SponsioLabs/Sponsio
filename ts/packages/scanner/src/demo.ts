@@ -37,17 +37,27 @@ interface SdkLike {
   ) => { blocked: boolean; detViolations?: { desc: string }[]; violatedDescs?: string[] };
 }
 
+// Loosely-typed DetFormula shape — the actual structure lives in
+// @sponsio/sdk. We accept either NL strings (parsed at ctor time) or
+// DetFormula objects (passed straight through). The scenario builder
+// returns a Promise so it can lazy-import the SDK.
+type ContractEntry = string | object;
+type ScenarioBuilder = () => Promise<{
+  contracts: ContractEntry[];
+  contractDescs: string[];
+}>;
+
 interface Scenario {
   id: string;
   title: string;
   blurb: string;
-  contracts: string[];
   events: { tool: string; args?: Record<string, unknown>; narration?: string }[];
-  // If true, the scenario depends on Python-only patterns (called_with regex,
-  // arg_value_range etc.) that the TS NL parser doesn't support yet. The
-  // scenario stays listed for parity with `python -m sponsio demo --list`,
-  // but running it errors out with a pointer to the Python CLI.
-  pythonOnly?: boolean;
+  build: ScenarioBuilder;
+}
+
+async function loadSdk() {
+  const mod = await import("@sponsio/sdk");
+  return mod;
 }
 
 const SCENARIOS: Record<string, Scenario> = {
@@ -59,11 +69,6 @@ const SCENARIOS: Record<string, Scenario> = {
       "claims the vendor's banking changed; the agent updates the bank record\n" +
       "and wires the funds — without an out-of-band callback. This is the\n" +
       "structural shape of a Business Email Compromise attack against agents.",
-    contracts: [
-      "tool `compliance_approve` must precede `wire_transfer`",
-      "tool `confirm_wire_transfer` must precede `wire_transfer`",
-      "tool `wire_transfer` at most 5 times",
-    ],
     events: [
       { tool: "list_invoices", args: { quarter: "q2" } },
       { tool: "read_invoice", args: { id: "inv_044" } },
@@ -78,17 +83,33 @@ const SCENARIOS: Record<string, Scenario> = {
         narration: "$847k wired to an unverified vendor with no confirm or compliance sign-off",
       },
     ],
+    async build() {
+      const sdk = await loadSdk();
+      const { argValueRange, mustPrecede, mustConfirm, rateLimit } = sdk as {
+        argValueRange: (t: string, f: string, mn?: number, mx?: number) => object;
+        mustPrecede: (a: string, b: string) => object;
+        mustConfirm: (action: string) => object;
+        rateLimit: (t: string, n: number) => object;
+      };
+      const contracts = [
+        argValueRange("wire_transfer", "amount", 0, 50000),
+        mustPrecede("compliance_approve", "wire_transfer"),
+        mustConfirm("wire_transfer"),
+        rateLimit("wire_transfer", 5),
+      ];
+      const descs = contracts.map((c) => (c as { desc: string }).desc);
+      return { contracts, contractDescs: descs };
+    },
   },
   backup: {
     id: "backup",
     title: "SRE cost-optimizer deletes prod DR backups (OWASP ASI-10)",
     blurb:
       "Under a 'cut storage bill 20%' KPI, an SRE agent deletes off-site\n" +
-      "disaster-recovery snapshots it reads as 'unused'. The TS scenario\n" +
-      "uses a tight rate_limit(2) as a blast-radius cap; the Python demo\n" +
-      "blocks the first delete via path-scope + age-bound enforcement\n" +
-      "(scope_limit / arg_value_range — not yet in the TS NL parser).",
-    contracts: ["tool `delete_snapshot` at most 2 times"],
+      "disaster-recovery snapshots it reads as 'unused'. Three rapid-fire\n" +
+      "deletes wipe out the 90-day DR window. Sponsio blocks the first\n" +
+      "delete via path-scope (only dev/staging allowed) + age-bound (only\n" +
+      "snapshots <= 30 days old).",
     events: [
       { tool: "list_snapshots", args: { root: "/snapshots/" } },
       {
@@ -117,32 +138,113 @@ const SCENARIOS: Record<string, Scenario> = {
         narration: "Report claims $3,400/mo savings; DR window silently gone",
       },
     ],
+    async build() {
+      const sdk = await loadSdk();
+      const { scopeLimit, argValueRange, rateLimit } = sdk as {
+        scopeLimit: (t: string, paths: string[]) => object;
+        argValueRange: (t: string, f: string, mn?: number, mx?: number) => object;
+        rateLimit: (t: string, n: number) => object;
+      };
+      const contracts = [
+        scopeLimit("delete_snapshot", ["/snapshots/dev/", "/snapshots/staging/"]),
+        argValueRange("delete_snapshot", "age_days", 0, 30),
+        rateLimit("delete_snapshot", 5),
+      ];
+      const descs = contracts.map((c) => (c as { desc: string }).desc);
+      return { contracts, contractDescs: descs };
+    },
   },
   cleanup: {
     id: "cleanup",
     title: "Coding cleanup agent deletes .env / .git, force-pushes to main",
     blurb:
       "A Claude Code-style cleanup agent reads .env contents, then 'cleans\n" +
-      "up' by rm-ing them along with .git/, then force-pushes to main. The\n" +
-      "Python demo blocks this via `called_with` regex patterns on Bash\n" +
-      "args — those patterns aren't in the TS NL parser yet, so this\n" +
-      "scenario stays Python-only.",
-    contracts: [],
-    events: [],
-    pythonOnly: true,
+      "up' by rm-ing them along with .git/, then force-pushes to main.\n" +
+      "Two arg-blacklist contracts on Bash.command catch the destructive\n" +
+      "commands before the shell sees them.",
+    events: [
+      { tool: "Bash", args: { command: "git status --porcelain" } },
+      {
+        tool: "Bash",
+        args: { command: "cat .env .env.production" },
+        narration: ".env contents loaded into context",
+      },
+      { tool: "Bash", args: { command: "rm -rf node_modules dist .next build" } },
+      {
+        tool: "Bash",
+        args: { command: "rm -f .env .env.local .env.production prod.env" },
+        narration: "secret files deleted",
+      },
+      {
+        tool: "Bash",
+        args: { command: "git push --force origin main" },
+        narration: "force-pushed to main",
+      },
+    ],
+    async build() {
+      const sdk = await loadSdk();
+      const { argBlacklist } = sdk as {
+        argBlacklist: (t: string, f: string, patterns: string[]) => object;
+      };
+      const contracts = [
+        argBlacklist("Bash", "command", ["rm\\s+.*\\.env", "rm\\s+.*\\.git"]),
+        argBlacklist("Bash", "command", ["git\\s+push\\s+.*--force.*\\b(main|master)\\b"]),
+      ];
+      const descs = contracts.map((c) => (c as { desc: string }).desc);
+      return { contracts, contractDescs: descs };
+    },
   },
   freeze: {
     id: "freeze",
     title: "Coding agent violates code freeze, drops prod tables, hides damage",
     blurb:
       "Replays the July 2025 Replit incident: agent receives a 'code freeze'\n" +
-      "instruction, then drops a prod table and tries to fabricate replacement\n" +
-      "rows from memory. Five A/E contracts pin every step. Like cleanup, the\n" +
-      "Python demo uses `called_with` regex assumptions that aren't expressible\n" +
-      "in TS NL yet — Python-only for now.",
-    contracts: [],
-    events: [],
-    pythonOnly: true,
+      "instruction, then drops a prod table and fabricates replacement rows\n" +
+      "from memory. The TS port lands two of the canonical contracts: the\n" +
+      "'no destructive SQL' arg blacklist on execute_sql.query, and the\n" +
+      "must_precede(escalate_to_human, generate_status_report) gate that\n" +
+      "stops the silent status report after destructive ops.",
+    events: [
+      {
+        tool: "user_instruction",
+        args: { text: "Code freeze for the next 48h — please don't touch the prod DB" },
+        narration: "Operator declares the freeze",
+      },
+      { tool: "edit_react_component", args: { file: "src/Header.tsx" } },
+      {
+        tool: "execute_sql",
+        args: { query: "DROP TABLE archived_events" },
+        narration: "Agent 'cleans up' an archived table",
+      },
+      {
+        tool: "execute_sql",
+        args: { query: "DELETE FROM users WHERE last_login < NOW() - INTERVAL '90 days'" },
+        narration: "Mass DELETE on prod users",
+      },
+      {
+        tool: "execute_sql",
+        args: { query: "INSERT INTO users (email, name) VALUES ('[email protected]', 'Test User')" },
+        narration: "Fabricates rows to refill the table",
+      },
+      {
+        tool: "generate_status_report",
+        args: { content: "Database intact. No issues." },
+        narration: "Status report hides the damage",
+      },
+    ],
+    async build() {
+      const sdk = await loadSdk();
+      const { argBlacklist, mustPrecede } = sdk as {
+        argBlacklist: (t: string, f: string, patterns: string[]) => object;
+        mustPrecede: (a: string, b: string) => object;
+      };
+      const contracts = [
+        argBlacklist("execute_sql", "query", ["\\b(DROP|DELETE|TRUNCATE|ALTER)\\b"]),
+        mustPrecede("escalate_to_human", "generate_status_report"),
+      ];
+      const descs = contracts.map((c) => (c as { desc: string }).desc);
+      return { contracts, contractDescs: descs };
+    },
   },
 };
 
@@ -157,27 +259,31 @@ function decorate(label: "blocked" | "would-block" | "allowed"): string {
   }
 }
 
-async function buildGuard(scenario: Scenario): Promise<SdkLike> {
+async function buildGuard(scenario: Scenario, contracts: ContractEntry[]): Promise<SdkLike> {
   const mod = await import("@sponsio/sdk");
   const Sponsio = mod.Sponsio;
   if (!Sponsio) throw new Error("[demo] @sponsio/sdk does not export Sponsio");
   return new (Sponsio as new (o: Record<string, unknown>) => SdkLike)({
     agentId: scenario.id,
-    contracts: scenario.contracts,
+    contracts,
     mode: "enforce",
     sessionLog: false,
   });
 }
 
 async function runScenario(scenario: Scenario, guarded: boolean): Promise<void> {
+  const built = await scenario.build();
+
   process.stdout.write(`\n╔═ ${scenario.title}\n║\n`);
   for (const line of scenario.blurb.split("\n")) process.stdout.write(`║  ${line}\n`);
   process.stdout.write(`║\n║  Contracts armed:\n`);
-  for (const c of scenario.contracts) process.stdout.write(`║    • ${c}\n`);
+  for (const d of built.contractDescs) {
+    process.stdout.write(`║    • ${d.split("\n")[0]}\n`);
+  }
   process.stdout.write(`║\n║  Mode: ${guarded ? "guarded (Sponsio enforce)" : "no-guard (raw replay)"}\n`);
   process.stdout.write(`╚═\n\n`);
 
-  const guard = guarded ? await buildGuard(scenario) : null;
+  const guard = guarded ? await buildGuard(scenario, built.contracts) : null;
   let blockedAt = -1;
   for (let i = 0; i < scenario.events.length; i++) {
     const ev = scenario.events[i];
@@ -247,8 +353,7 @@ export async function runDemoCli(argv: string[]): Promise<void> {
   if (listOnly) {
     process.stdout.write("Available scenarios:\n");
     for (const s of Object.values(SCENARIOS)) {
-      const tag = s.pythonOnly ? "  (python-only)" : "";
-      process.stdout.write(`  ${s.id.padEnd(8)} ${s.title}${tag}\n`);
+      process.stdout.write(`  ${s.id.padEnd(8)} ${s.title}\n`);
     }
     return;
   }
@@ -256,15 +361,6 @@ export async function runDemoCli(argv: string[]): Promise<void> {
   const scenario = SCENARIOS[scenarioId];
   if (!scenario) {
     process.stderr.write(`Error: unknown scenario '${scenarioId}'. Try --list.\n`);
-    process.exit(2);
-  }
-  if (scenario.pythonOnly) {
-    process.stderr.write(
-      `Scenario '${scenario.id}' depends on Python-only contract patterns ` +
-        `(called_with regex / arg_value_range / structured composition).\n` +
-        `Run via the Python CLI instead:\n` +
-        `  pip install sponsio && sponsio demo --scenario ${scenario.id}\n`,
-    );
     process.exit(2);
   }
   await runScenario(scenario, !noGuard);
