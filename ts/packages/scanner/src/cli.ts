@@ -34,6 +34,8 @@ import { runSkillCli } from "./skill";
 import { runModeCli } from "./mode";
 import { runInitCli } from "./init";
 import { runScanCli } from "./scan";
+import { runPromptCli } from "./prompt";
+import { runExplainCli } from "./explain";
 import { scan } from "./index";
 
 interface CliArgs {
@@ -80,6 +82,8 @@ const HELP =
   "  sponsio init --mode observe",
   "  sponsio scan ./src --append",
   "  sponsio mode enforce",
+  "  sponsio explain C1",
+  "  sponsio prompt onboard",
   "  sponsio report --since 24h",
   "  sponsio validate ./sponsio.yaml",
   "  sponsio patterns",
@@ -222,6 +226,24 @@ async function main() {
   if (raw[0] === "scan") {
     try {
       await runScanCli(raw.slice(1));
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
+      process.exit(1);
+    }
+    return;
+  }
+  if (raw[0] === "prompt") {
+    try {
+      await runPromptCli(raw.slice(1));
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
+      process.exit(1);
+    }
+    return;
+  }
+  if (raw[0] === "explain") {
+    try {
+      await runExplainCli(raw.slice(1));
     } catch (err) {
       process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : err}\n`);
       process.exit(1);

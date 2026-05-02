@@ -21,6 +21,7 @@
     "dist/",
     "bin/",
     "skills/",
+    "prompts/",
     "README.md",
     "CHANGELOG.md"
   ],
