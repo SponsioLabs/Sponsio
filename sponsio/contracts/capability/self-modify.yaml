@@ -22,6 +22,17 @@
 # What this pack denies:
 #   - Edit / Write / MultiEdit on the legacy host guard config:
 #     ``~/.sponsio/plugins/_host/sponsio.yaml``
+#   - Edit / Write / MultiEdit on ANY per-plugin / per-MCP-server
+#     library (``~/.sponsio/plugins/<plugin-id>/sponsio.yaml``
+#     where ``<plugin-id>`` does NOT start with ``_host``).
+#     The legitimate way to add or update these bundles is the
+#     ``sponsio plugin install`` / ``sponsio plugin scan --apply``
+#     CLI — those write via Python subprocess, not the agent's
+#     Edit/Write tool surface, so they aren't blocked.  The user
+#     hand-editing the file in their text editor is also fine.
+#     What's denied is the IDE coding agent reaching in with its
+#     own Edit/Write tools to weaken or rewrite a bundle that's
+#     about to fire against it.
 #
 # Per-host buckets (``_host_cursor`` / ``_host_claude_code`` / etc.)
 # carry their own targeted self-modify rules INSIDE their starter
@@ -32,21 +43,25 @@
 # managing both Cursor and Claude Code from one IDE can edit the
 # OTHER host's bucket without being blocked.  Each agent only loses
 # write access to ITS OWN bucket — that's the privilege boundary
-# this pack family enforces.
+# this pack family enforces.  The ``[^_]...`` regex below excludes
+# every ``_host*`` bucket from the per-plugin rule precisely so this
+# parent-child workflow stays open.
 #
 # What this pack does NOT deny:
-#   - Edits to per-plugin libraries (``<plugin-id>/sponsio.yaml``).
-#     The host installing or tuning a plugin's contracts is normal
-#     ``sponsio plugin scan`` workflow.
+#   - Edits to per-host SUBAGENT buckets (``_host_*_subagent``).
+#     Parent tightening child policy is a sanctioned workflow.
+#   - Edits to a SIBLING host bucket (an operator on Claude Code
+#     editing ``_host_cursor/`` or vice versa).
 #   - Edits to the project's own ``sponsio.yaml`` (the one
 #     ``sponsio onboard`` writes into the user's repo).  That file
 #     IS supposed to evolve — onboard / scan / refresh all rewrite
 #     it.  Locking it would break the core happy path.
 #   - Direct edits via the user's IDE, terminal, or
-#     ``sponsio plugin init`` CLI — those don't go through the
-#     ``Edit`` / ``Write`` tool surface that this pack inspects.
-#     The legitimate path for "I really do want to change this"
-#     stays open; only the agent-mediated path is closed.
+#     ``sponsio plugin install`` / ``plugin scan --apply`` CLI —
+#     those don't go through the ``Edit`` / ``Write`` tool surface
+#     that this pack inspects.  The legitimate path for "I really
+#     do want to change this" stays open; only the agent-mediated
+#     path is closed.
 #
 # Pair with: ``sponsio:incident/subagent-escape`` for the matching
 # subagent-side rule (sub-agents can't reach UP into the parent's
@@ -70,7 +85,7 @@ agents:
       # § 1 — No agent-mediated Edit of own host guard config
       # =================================================================
 
-      - desc: "Host agent must not edit any sponsio host guard config"
+      - desc: "Host agent must not edit any sponsio guard config (host bucket or per-plugin bundle) — use `sponsio plugin install` / `plugin scan --apply`, or hand-edit"
         E:
           pattern: arg_blacklist
           args:
@@ -85,6 +100,7 @@ agents:
             # ``_host*``-prefixed and stay editable so the host can
             # still manage downstream plugin policy.
             - - "(^|/)\\.sponsio/plugins/_host/sponsio\\.yaml$"
+              - "(^|/)\\.sponsio/plugins/[^_/][^/]*/sponsio\\.yaml$"
           source: "library:tier1.self-modify"
 
       # =================================================================
@@ -96,26 +112,28 @@ agents:
       # rules removed" workaround a pure ``Edit`` block would leave
       # open.
 
-      - desc: "Host agent must not overwrite any sponsio host guard config"
+      - desc: "Host agent must not overwrite any sponsio guard config (host bucket or per-plugin bundle) — use the CLI or hand-edit"
         E:
           pattern: arg_blacklist
           args:
             - Write
             - file_path
             - - "(^|/)\\.sponsio/plugins/_host/sponsio\\.yaml$"
+              - "(^|/)\\.sponsio/plugins/[^_/][^/]*/sponsio\\.yaml$"
           source: "library:tier1.self-modify"
 
       # =================================================================
       # § 3 — No agent-mediated MultiEdit of own host guard config
       # =================================================================
 
-      - desc: "Host agent must not multi-edit any sponsio host guard config"
+      - desc: "Host agent must not multi-edit any sponsio guard config (host bucket or per-plugin bundle) — use the CLI or hand-edit"
         E:
           pattern: arg_blacklist
           args:
             - MultiEdit
             - file_path
             - - "(^|/)\\.sponsio/plugins/_host/sponsio\\.yaml$"
+              - "(^|/)\\.sponsio/plugins/[^_/][^/]*/sponsio\\.yaml$"
           source: "library:tier1.self-modify"
 
 # -----------------------------------------------------------------------------

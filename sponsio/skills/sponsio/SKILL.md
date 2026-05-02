@@ -37,36 +37,34 @@ sponsio --version
 
 ---
 
-## Editing contract YAML — additive-only protocol
+## Editing contract YAML — write rules by file
 
-This applies whenever you (the host agent) write to ANY of:
-- `<project>/sponsio.yaml`                                        (the user's project config)
-- `~/.sponsio/plugins/{{HOST_BUCKET}}/sponsio.yaml`               (this host's runtime library)
-- `~/.sponsio/plugins/{{HOST_BUCKET_SUBAGENT}}/sponsio.yaml`      (this host's subagent library)
-- `~/.sponsio/plugins/<plugin-id>/sponsio.yaml`                   (per-plugin / per-MCP-server library)
+Sponsio contract YAMLs split into **two trust zones** with different
+write rules. Pick the right zone before any edit; the runtime's
+self-modify pack enforces the host-zone rules, but cross-zone slips
+are still a config-correctness bug we'd rather avoid up-front.
 
-The `{{HOST_BUCKET}}` placeholders above are baked in at install time —
-when this skill is materialised under Cursor's skill dir they read
-`_host_cursor`, under Claude Code's they read `_host_claude_code`, and
-so on. There is one bucket per host so per-IDE rules don't bleed
-across runtimes.
+### Zone A — project YAML (you may add additively)
 
-These files house contracts that govern *your own future tool calls*.  Modifying or removing contracts in them is privilege escalation — you'd be weakening the very rule that's about to fire against you.  The runtime self-modify pack will already block non-additive writes against `~/.sponsio/plugins/{{HOST_BUCKET}}/sponsio.yaml`; this protocol applies the same discipline universally so behavior is consistent.
+Path: `<project>/sponsio.yaml` — the file `sponsio onboard` writes
+into the user's repo. This evolves through every onboard / scan /
+refresh cycle. **Adding** new contracts via `Edit` (extending
+`old_string`) is the supported workflow.
 
-### The three legal write modes — pick one
+Three legal write modes:
 
-1. **Add a new contract** (new entry under `contracts:`) — use **`Edit`** with `new_string` extending `old_string`:
+1. **Add a new contract** — `Edit` with `new_string` extending
+   `old_string` (the invariant: `old_string ⊆ new_string`):
 
    ```text
-   old_string  = the verbatim tail of the existing file ending at the
-                 last contract entry (or the last `contracts:` line if
-                 the list is empty)
+   old_string  = the verbatim tail of the existing file ending at
+                 the last contract entry (or the last `contracts:`
+                 line if the list is empty)
    new_string  = old_string + "\n      - <new contract YAML block>"
    ```
 
-   The invariant: `old_string` MUST appear verbatim inside `new_string`.  This guarantees you didn't change or remove anything.
-
-2. **Tune an existing pack-shipped rule** — never edit the rule directly.  Add an `overrides:` entry instead:
+2. **Tune an existing pack-shipped rule** — never edit the rule
+   directly; append an `overrides:` entry:
 
    ```yaml
    overrides:
@@ -76,24 +74,66 @@ These files house contracts that govern *your own future tool calls*.  Modifying
        # or disabled: true                                  # to silence (last resort)
    ```
 
-   This is itself an additive edit — you're appending an `overrides:` block, not modifying the rule.
-
-3. **Run `sponsio plugin scan`** for bulk additions from code / policy / traces.  This is the canonical way to add many rules at once; it merges additively, validates, and writes atomically:
+3. **Run `sponsio scan`** for bulk additions from code / policy /
+   traces — merges additively and writes atomically:
 
    ```bash
-   sponsio plugin scan <plugin-dir> -o ~/.sponsio/plugins/<plugin-id>/sponsio.yaml
    sponsio scan <paths> -o ./sponsio.yaml --append
    sponsio refresh --since 7d --apply --mode add-only
    ```
 
-   The `--append` / `--mode add-only` flags make the additive guarantee explicit.
+### Zone B — host bucket + plugin bundle YAMLs (user-only — never write directly)
 
-### Forbidden write modes
+Paths:
+- `~/.sponsio/plugins/{{HOST_BUCKET}}/sponsio.yaml`             (this host's runtime library)
+- `~/.sponsio/plugins/{{HOST_BUCKET_SUBAGENT}}/sponsio.yaml`    (this host's subagent library)
+- `~/.sponsio/plugins/<plugin-id>/sponsio.yaml`                 (per-plugin / per-MCP-server bundle — github, filesystem, my-plugin, …)
 
-- **`Write` on any of the yaml files above** — overwrites the entire file in one go; even if the new content happens to be a superset, you bypass the additive evidence and the runtime can't tell.
-- **`Edit` where `new_string` does NOT contain `old_string`** — that's a modification or deletion masquerading as an edit.
-- **`MultiEdit` on these files** — same as `Write` in spirit; multiple non-additive edits in one call.
-- **Bash with shell write operators** (`>`, `>>`, `tee`, `sed -i`, `cp`, `mv`, `rm`, `dd`) targeting these paths — the runtime blocks these against `{{HOST_BUCKET}}/sponsio.yaml` and you should treat them as forbidden against any contract yaml in the list above.
+These files govern *your own future tool calls*. The runtime
+self-modify pack blocks every Edit / Write / MultiEdit you'd attempt
+against them — for the host bucket because rewriting your own rules
+is privilege escalation, and for the per-plugin bundles for the same
+reason (they constrain the plugin tools you'll call later). The
+`{{HOST_BUCKET}}` placeholders above are baked in at skill install
+time (`_host_cursor`, `_host_claude_code`, `_host_openclaw`, …) so
+each host only loses write access to its own bucket.
+
+**You must NOT** use `Edit`, `Write`, `MultiEdit`, or `Bash` with
+shell redirects (`>`, `>>`, `tee`, `sed -i`, `cp`, `mv`, `rm`, `dd`)
+on any path under `~/.sponsio/plugins/`. The legitimate update
+paths are:
+
+- **CLI** (you can run via `Bash`):
+  ```bash
+  sponsio plugin install <name>            # copy a fresh bundled starter
+  sponsio plugin scan --apply              # regenerate per-plugin bundle
+  sponsio plugin show <name>               # surface what's loaded
+  ```
+- **Hand-edit by the user** in their text editor.
+
+For overrides the user agreed to during a tuning conversation:
+
+1. Print the override as a YAML snippet, grouped by target file.
+2. Tell the user to open the file and paste the block under the
+   agent's `overrides:` key. Save.
+3. Once they confirm, run
+   `sponsio validate --config ~/.sponsio/plugins/<id>/sponsio.yaml`.
+   On error, surface it and re-print the snippet.
+
+### Forbidden write modes (universal)
+
+- **`Write` on any contract YAML above** — overwrites the whole
+  file in one go; bypasses the additive evidence even when the
+  result happens to be a superset.
+- **`Edit` on a Zone-B path** — denied by the self-modify pack
+  regardless of additive intent.
+- **`Edit` on a Zone-A path where `new_string` does NOT contain
+  `old_string`** — a modification or deletion masquerading as an
+  edit; treat as forbidden.
+- **`MultiEdit` on any contract YAML** — same shape as `Write`.
+- **`Bash` with shell write operators** (`>`, `>>`, `tee`,
+  `sed -i`, `cp`, `mv`, `rm`, `dd`) targeting any of these paths —
+  the runtime blocks Zone B; treat Zone A the same way.
 
 ### Why this matters
 

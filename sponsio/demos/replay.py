@@ -1,8 +1,7 @@
 """Dependency-light demo replays for ``sponsio demo``.
 
 These demos intentionally use the framework-agnostic ``guard_before`` API so
-they work from a plain PyPI install. The full framework-specific examples live
-in ``examples/demo`` for contributors and integration docs.
+they work from a plain PyPI install — no extra SDKs required.
 
 Output is rendered via the shared :mod:`sponsio.render` palette so the
 demo narration matches the visual language of ``sponsio report`` /
@@ -45,9 +44,8 @@ def _printer(fast: bool):
     # sys.stdout — Click's CliRunner swaps stdout per-invocation and a
     # module-level Console would write past the redirect.
     #
-    # 0.35s default mirrors the framework demos under examples/demo/*.py;
-    # also paces the gif recordings (assets/demos/*.tape) so the contract
-    # banner and trajectory are readable instead of scroll-blurred.
+    # 0.35s default paces the gif recordings (assets/demos/*.tape) so the
+    # contract banner and trajectory are readable instead of scroll-blurred.
     console = Console(file=sys.stdout, soft_wrap=True, highlight=False)
 
     def emit(content: str | Text = "", delay: float = 0.35) -> None:
@@ -122,11 +120,9 @@ def _run_steps(
 
     guard = None
     if not no_guard:
-        # verbose=True (default) so the mock replay matches the output
-        # a user gets from the stand-alone scripts under
-        # examples/demo/*.py — one default CLI look across entry points.
-        # Sponsio itself prints the contract banner + per-event
-        # (assume-satisfied / contract-active / VIOLATED) lines.
+        # verbose=True (default) so the mock replay shows Sponsio's
+        # contract banner + per-event (assume-satisfied /
+        # contract-active / VIOLATED) lines just like a real run.
         #
         # ``mode="enforce"`` is pinned for the demos so the canonical
         # "Sponsio blocks unsafe action" visual is visible regardless

@@ -866,9 +866,9 @@ class BaseGuard:
         eval corpus: call this at session end (or on any
         human-reviewed turn) to capture a real trace into
         ``traces/safe_*.json`` / ``unsafe_*.json`` without leaving
-        the running process.  The resulting file is shape-identical
-        to what ``examples/eval/generate_corpus.py`` produces, so
-        mixing synthetic + real traces in one corpus Just Works.
+        the running process.  The file follows the eval-corpus shape
+        (one labelled trace per file) so mixing synthetic + real
+        traces in one corpus Just Works.
 
         Args:
             target_dir: Directory to write into.  Created if missing.

@@ -131,8 +131,6 @@ Blocked tool calls return an ADK-friendly error dict (`{"status": "error", "erro
 
 Both sync and `async` tools are supported; the wrapper detects coroutine functions with `inspect.iscoroutinefunction` and dispatches accordingly. For a manual check without wrapping, call `guard.check_tool_call(name, args)`.
 
-Runnable example: [`examples/integrations/python/google_adk_guard.py`](../../examples/integrations/python/google_adk_guard.py).
-
 ---
 
 ## OpenAI SDK

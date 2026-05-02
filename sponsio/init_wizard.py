@@ -8,7 +8,7 @@ the four decisions that actually matter on first run:
 3. **Runtime mode** — ``observe`` (safe default) vs ``enforce``.
 4. **Judge resilience** — ``allow`` (default) / ``deny`` / ``skip``.
 
-Why a wizard at all?  ``cp examples/sponsio.yaml .`` would
+Why a wizard at all?  Hand-copying a starter ``sponsio.yaml`` would
 technically work, but new users routinely don't know which provider
 they have credentials for, what an env-var interpolation looks like,
 or that ``observe`` is the safe first run.  CrabTrap and similar

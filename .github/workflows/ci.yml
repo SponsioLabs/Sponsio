@@ -91,10 +91,10 @@ jobs:
         run: pip install ruff -e .
 
       - name: Check formatting
-        run: ruff format --check sponsio/ tests/ examples/ scripts/
+        run: ruff format --check sponsio/ tests/ scripts/
 
       - name: Check linting
-        run: ruff check sponsio/ tests/ examples/ scripts/
+        run: ruff check sponsio/ tests/ scripts/
 
       - name: Check README/QUICKSTART command sync
         run: |

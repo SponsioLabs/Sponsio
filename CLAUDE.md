@@ -83,7 +83,6 @@ ts/                    TypeScript workspace (npm workspaces)
 └── packages/scanner/  @sponsio/scan-ts: AST static scanner CLI
 docs/                  user-facing documentation (see `docs/oss_scope.md`
                        for the OSS / Sponsio Cloud boundary)
-examples/              source-checkout demos and integration examples
 scripts/               one-off maintenance utilities (e.g. plugin sync)
 tests/                 pytest suite
 ```
@@ -189,8 +188,8 @@ The TS SDK covers deterministic runtime enforcement. Python currently has the br
 ```bash
 pip install -e ".[all]"
 pytest -v
-ruff check sponsio/ tests/ examples/ scripts/
-ruff format sponsio/ tests/ examples/ scripts/
+ruff check sponsio/ tests/ scripts/
+ruff format sponsio/ tests/ scripts/
 sponsio demo --scenario freeze --fast
 sponsio validate "tool `check_policy` must precede `issue_refund`"
 ```

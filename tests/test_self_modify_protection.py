@@ -216,16 +216,44 @@ class TestSelfModifyAllows:
         )
         _assert_allowed(out, code)
 
-    def test_edit_per_plugin_lib_allowed(self, host_home, capsys):
-        """Plugins (`<plugin-id>/sponsio.yaml`) are normal scan targets."""
-        out, code = _run(
+    def test_edit_per_plugin_lib_denied(self, host_home, capsys):
+        """Per-plugin bundles (`<plugin-id>/sponsio.yaml`) are user-only.
+
+        The legitimate add/update path is `sponsio plugin install`,
+        `sponsio plugin scan --apply`, or hand-editing in the user's
+        text editor — none of which go through the agent's Edit/Write
+        tool surface. The IDE coding agent reaching in directly to
+        rewrite a bundle that's about to fire against it is
+        privilege escalation, same shape as the host-bucket case.
+        """
+        out, _ = _run(
             _hook_event(
                 "Edit",
                 str(host_home / ".sponsio/plugins/my-plugin/sponsio.yaml"),
             ),
             capsys,
         )
-        _assert_allowed(out, code)
+        _assert_denied(out)
+
+    def test_write_per_plugin_lib_denied(self, host_home, capsys):
+        out, _ = _run(
+            _hook_event(
+                "Write",
+                str(host_home / ".sponsio/plugins/github/sponsio.yaml"),
+            ),
+            capsys,
+        )
+        _assert_denied(out)
+
+    def test_multiedit_per_plugin_lib_denied(self, host_home, capsys):
+        out, _ = _run(
+            _hook_event(
+                "MultiEdit",
+                str(host_home / ".sponsio/plugins/filesystem/sponsio.yaml"),
+            ),
+            capsys,
+        )
+        _assert_denied(out)
 
     def test_edit_project_sponsio_yaml_allowed(self, host_home, capsys, tmp_path):
         """The project-level yaml IS supposed to evolve via onboard / scan."""

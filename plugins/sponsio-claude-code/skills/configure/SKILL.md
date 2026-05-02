@@ -374,17 +374,55 @@ answer, write a targeted `overrides:` entry. Common cases:
 | `filesystem` "read_file must not exfiltrate dotenv" | dotenv rotators, secret-rotation agents | `disabled: true` only for `read_file` (keep `write_file` denied) |
 | `playwright` "browser_navigate must not target internal hosts" | Anyone testing their own internal app | replace with a narrower allowlist of the user's actual internal hostnames |
 
-### 4.5 — write the overrides + verify
+### 4.5 — hand the overrides to the user (don't write them yourself)
 
-After the walkthrough, write all agreed-upon overrides into the
-relevant `~/.sponsio/plugins/<id>/sponsio.yaml` files. **Do not edit
-the shipped library inline** — always add overrides under
-`overrides:` so future `sponsio plugin install --force` doesn't
-clobber the user's customisations.
+The `~/.sponsio/plugins/<id>/sponsio.yaml` bundle libraries are
+**user-only files**. You must NOT use `Edit`, `Write`, `MultiEdit`,
+or shell redirects (`>`, `>>`, `tee`, `sed -i`, …) to modify them
+— the runtime self-modify pack will block those calls anyway, and
+relying on the block is a worse experience than just doing the
+right thing first time.
 
-Run `sponsio validate --config ~/.sponsio/plugins/<id>/sponsio.yaml`
-on every file you touched. Any error means you wrote a malformed
-override; fix before continuing.
+The only legitimate paths to update a bundle:
+
+1. **CLI commands** that the user runs (or you run on their behalf
+   via `Bash`):
+   - `sponsio plugin install <name>` — copy a fresh bundled starter
+   - `sponsio plugin scan --apply` — regenerate from a tool inventory
+2. **Hand-edit by the user** in their text editor.
+
+For tuning, do this:
+
+1. Print every agreed-upon override as a YAML snippet, grouped by
+   target file:
+
+   ```yaml
+   # Append to ~/.sponsio/plugins/github/sponsio.yaml under the
+   # ``github`` agent's ``overrides:`` block (create the block if
+   # absent — it sits beside ``contracts:``):
+   overrides:
+     - match: { desc: "delete_repository is blocked outright (overrides: disabled: true to allow)" }
+       disabled: true
+   ```
+
+2. Tell the user: *"Open `~/.sponsio/plugins/github/sponsio.yaml` and
+   paste the block above under the agent's `overrides:` key. Save,
+   then I'll validate."*
+
+3. Once they confirm they've saved, run:
+
+   ```bash
+   sponsio validate --config ~/.sponsio/plugins/<id>/sponsio.yaml
+   ```
+
+   Any error means the paste went sideways; surface the error and
+   re-print the snippet for them to retry.
+
+The reason: if the IDE agent could rewrite the file that's about
+to fire against it, an attacker prompt-injecting the agent could
+disable the very rule blocking exfiltration. Keeping the human as
+the only writer is the privilege boundary that makes Sponsio's
+guarantees real.
 
 ### 4.6 — observe-mode dial for tuning runs
 

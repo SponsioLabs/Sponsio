@@ -274,6 +274,31 @@ Common cases:
 | `_host_openclaw` "Block reads of dotenv secrets" | dotenv rotators, secret-rotation agents | `disabled: true` for `read` only (keep `write`) |
 | `incident/openclaw` "navigation must not target internal hosts" | testing one's own internal app | replace with allowlist of actual internal hostnames |
 
+### 4.4 — hand the overrides to the user (don't write them yourself)
+
+The `~/.sponsio/plugins/<id>/sponsio.yaml` bundle libraries are
+**user-only files**. You must NOT use `Edit`, `Write`, `MultiEdit`,
+or shell redirects (`>`, `>>`, `tee`, `sed -i`, …) to modify them
+— the runtime self-modify pack will block those calls anyway.
+
+Workflow for every override the walkthrough above produces:
+
+1. Print the override as a YAML snippet, grouped by target file
+   (one block per `~/.sponsio/plugins/<id>/sponsio.yaml`).
+2. Tell the user to open the file in their editor and paste the
+   block under the agent's `overrides:` key (create the block if
+   absent — it sits beside `contracts:`). Save.
+3. Once they confirm save, run
+   `sponsio validate --config ~/.sponsio/plugins/<id>/sponsio.yaml`.
+   Any error means the paste went sideways; surface it and re-print
+   the snippet.
+
+The legitimate update paths for these bundles are CLI (`sponsio
+plugin install`, `sponsio plugin scan --apply`) and hand-editing
+by the user. The IDE coding agent reaching in directly to rewrite a
+bundle that's about to fire against it is privilege escalation; the
+runtime blocks it for the same reason.
+
 ## Step 5 — verify the deny path
 
 Run a synthetic event through the hook:

@@ -461,7 +461,7 @@ agents:
 
 **Threat.** The agent exploits misplaced user trust to authorize dangerous actions — cajoling confirmation, hiding risk, or reframing an irreversible step as routine.
 
-**Typical trajectory.** Under a "24-hour Q2 invoice SLA", the AP copilot processes a $847k invoice to a brand-new vendor — no prior transactions, EIN filed this week, new bank account. The agent skips the new-vendor onboarding workflow and wires directly. ([Packaged demo: `sponsio demo --scenario wire`.](../examples/demo/demo_wire_transfer.py))
+**Typical trajectory.** Under a "24-hour Q2 invoice SLA", the AP copilot processes a $847k invoice to a brand-new vendor — no prior transactions, EIN filed this week, new bank account. The agent skips the new-vendor onboarding workflow and wires directly. (Packaged demo: `sponsio demo --scenario wire`.)
 
 **Contract you write.**
 
@@ -514,7 +514,7 @@ Note the two `must_precede`-shaped formulas have identical structure: a boolean 
 
 **What this enforces.** Four structural barriers and one semantic belt. On a $847k wire to an unverified vendor, **three contracts fire on the same call**: amount exceeds cap, no `compliance_approve` beforehand, no `confirm_wire_transfer` on file. The `required_steps_completion` rule handles the specific "new vendor" case where the agent skips a known workflow.
 
-**See it in action.** The packaged [`wire` demo](../examples/demo/demo_wire_transfer.py) replays this exact trajectory — run `sponsio demo --scenario wire` for a 10-second visual.
+**See it in action.** The packaged `wire` demo replays this exact trajectory — run `sponsio demo --scenario wire` for a 10-second visual.
 
 📖 [OWASP reference →](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)
 
@@ -524,7 +524,7 @@ Note the two `must_precede`-shaped formulas have identical structure: a boolean 
 
 **Threat.** An agent drifts outside its scope, is silently reprogrammed by instruction injection, or exhibits emergent behavior beyond its charter — often under KPI pressure, without any attack being needed.
 
-**Typical trajectory.** An SRE "cost-optimizer" agent is given a KPI: cut storage bill 20%. It scans snapshot access patterns, decides 90-day-old snapshots are "unused", starts deleting them. The "unused" snapshots are the off-site disaster-recovery set. Two weeks later ransomware hits prod — no restore path. ([Packaged demo: `sponsio demo --scenario backup`.](../examples/demo/demo_backup_delete.py))
+**Typical trajectory.** An SRE "cost-optimizer" agent is given a KPI: cut storage bill 20%. It scans snapshot access patterns, decides 90-day-old snapshots are "unused", starts deleting them. The "unused" snapshots are the off-site disaster-recovery set. Two weeks later ransomware hits prod — no restore path. (Packaged demo: `sponsio demo --scenario backup`.)
 
 **Contract you write.**
 
@@ -574,8 +574,8 @@ contracts:
 
 **See it in action.** Two packaged demos cover the ASI-10 failure shape from different angles:
 
-- [`backup` demo](../examples/demo/demo_backup_delete.py) — SRE cost-optimizer deletes off-site DR backups to hit a storage-cost KPI. Run `sponsio demo --scenario backup`.
-- [`freeze` demo](../examples/demo/demo_freeze_violation.py) — recreates the [July 2025 Replit incident](https://x.com/jasonlk/status/1946069562723897802) cited in [OWASP GenAI's Q1 2026 round-up](https://genai.owasp.org/2026/04/14/owasp-genai-exploit-round-up-report-q1-2026/): agent violates a declared code freeze, drops prod tables, fabricates replacement rows, writes a clean status report. Four assume-guarantee contracts catch the chain. Run `sponsio demo --scenario freeze`.
+- `backup` demo — SRE cost-optimizer deletes off-site DR backups to hit a storage-cost KPI. Run `sponsio demo --scenario backup`.
+- `freeze` demo — recreates the [July 2025 Replit incident](https://x.com/jasonlk/status/1946069562723897802) cited in [OWASP GenAI's Q1 2026 round-up](https://genai.owasp.org/2026/04/14/owasp-genai-exploit-round-up-report-q1-2026/): agent violates a declared code freeze, drops prod tables, fabricates replacement rows, writes a clean status report. Four assume-guarantee contracts catch the chain. Run `sponsio demo --scenario freeze`.
 
 📖 [OWASP reference →](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)
 
