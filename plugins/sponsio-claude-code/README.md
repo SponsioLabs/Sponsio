@@ -1,4 +1,4 @@
-# sponsio-claude-code (Claude Code plugin) — prototype
+# sponsio-claude-code (Claude Code plugin)
 
 A Claude Code plugin that guards every `PreToolUse` event in your
 session against per-plugin Sponsio contract libraries.
@@ -6,12 +6,12 @@ session against per-plugin Sponsio contract libraries.
 > **Just want to install + use it?** See [QUICKSTART.md](QUICKSTART.md).
 > The README below is the architecture / internals reference.
 
-> **Status:** prototype. Argument-level contracts (`scope_limit`,
-> `arg_blacklist`, `arg_value_range`, `dangerous_bash_commands`, …)
-> work today. Trace-aware contracts (`must_precede`, `rate_limit`,
-> `cooldown`) are silent until the planned daemon mode lands —
-> they need cross-call session state that the stateless hook can't
-> see on its own.
+> **Note on trace-aware contracts.** Argument-level contracts
+> (`scope_limit`, `arg_blacklist`, `arg_value_range`,
+> `dangerous_bash_commands`, …) fire on every hook today.
+> Trace-aware contracts (`must_precede`, `rate_limit`, `cooldown`)
+> require cross-call session state and land with daemon mode; the
+> stateless hook can't see them on its own.
 
 ## Architecture (Mode A — host-installed plugin)
 

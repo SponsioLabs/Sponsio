@@ -14,11 +14,47 @@ Skim those first if you plan to touch the runtime or add a pattern.
 
 - **Apache 2.0.** By submitting a patch you agree your contribution is
   licensed under the repo's [LICENSE](LICENSE).
+- **DCO sign-off required.** See [Developer Certificate of
+  Origin](#developer-certificate-of-origin) below — every commit
+  must end with a `Signed-off-by:` line. `git commit -s` adds it
+  for you.
 - **Be kind.** See the [Code of Conduct](CODE_OF_CONDUCT.md).
+- **Trademarks.** Apache 2.0 covers the code. The Sponsio name and
+  logo are separate — see [BRAND.md](BRAND.md) for what you can do
+  without asking.
 - **Small PRs beat big PRs.** One concern per PR. If a change is
   unavoidably large, split it into a stack and link the commits.
-- **Tests are not optional** for any change that touches `sponsio/`,
-  `api/`, or `ts/packages/sdk/`. Docs-only and CI-only changes are exempt.
+- **Tests are not optional** for any change that touches `sponsio/`
+  or `ts/packages/sdk/`. Docs-only and CI-only changes are exempt.
+
+---
+
+## Developer Certificate of Origin
+
+Sponsio uses the [Developer Certificate of Origin (DCO)](https://developercertificate.org/)
+v1.1 to track contribution provenance. We do **not** require a CLA;
+the DCO is a lightweight per-commit attestation that you have the
+right to contribute the code under Apache 2.0.
+
+To sign off your commits, add `-s` to `git commit`:
+
+```bash
+git commit -s -m "feat(runtime): your change"
+```
+
+This appends a line like:
+
+```
+Signed-off-by: Your Name <your.email@example.com>
+```
+
+By signing off, you certify the [DCO terms](https://developercertificate.org/) —
+in short: you wrote it (or have rights to it) and you're contributing
+it under the project's open-source licence.
+
+If you forget the sign-off, amend the commit with `git commit --amend
+-s` and force-push to your branch. CI will block PRs that contain
+unsigned commits.
 
 ---
 
@@ -33,11 +69,10 @@ pip install -e ".[all]"          # core + every optional integration
 pip install ruff pytest pytest-cov
 ```
 
-Optional — if you'll be touching the dashboard or TypeScript SDK:
+Optional — if you'll be touching the TypeScript SDK:
 
 ```bash
-cd web && npm install            # React frontend
-cd ..//sdk && npm install      # TypeScript engine
+cd ts/packages/sdk && npm install
 ```
 
 Run the full suite before you start, to make sure your environment is
@@ -45,8 +80,8 @@ green:
 
 ```bash
 pytest -v                        # 789+ tests, ~30s
-ruff check sponsio/ api/ tests/  # lint
-ruff format --check sponsio/ api/ tests/
+ruff check sponsio/ tests/       # lint
+ruff format --check sponsio/ tests/
 ```
 
 If `ruff` is not on your `PATH`, `python -m ruff ...` works the same.
@@ -111,8 +146,8 @@ Three issue templates exist:
 git checkout -b feat/short-descriptive-name
 # ... make your change ...
 pytest -v
-ruff check sponsio/ api/ tests/
-ruff format sponsio/ api/ tests/
+ruff check sponsio/ tests/
+ruff format sponsio/ tests/
 ```
 
 Branch naming is loose; these prefixes help reviewers scan:
@@ -182,9 +217,12 @@ The mechanical path, end-to-end, for a det pattern:
    enforces" sentence. Add to the `[Unreleased]` `### Added` block in
    `CHANGELOG.md`.
 
-For a sto pattern, swap step 1 for a new evaluator in
-`sponsio/patterns/sto_catalog.py` and step 2 for the sto keyword list.
-The test path is `tests/test_sto_*.py`.
+Stochastic atoms (LLM-judge evaluators) are part of [Sponsio
+Cloud](docs/oss_scope.md#in-sponsio-cloud-commercial--pip-install-sponsiocloud);
+the OSS engine ships an empty sto registry plus a `Judge` extension
+point. Patches that add new sto evaluators land in the cloud repo
+and are not accepted here. Patches that improve the OSS extension
+point are very welcome.
 
 ---
 
@@ -199,8 +237,7 @@ The test path is `tests/test_sto_*.py`.
    `sponsio.Sponsio(framework="<name>")` picks up the new class.
 4. Add an optional dep to `[project.optional-dependencies]` in
    `pyproject.toml`.
-5. Add a runnable example under `examples/integrations/<framework>/`.
-6. Update the integrations table in `README.md` and
+5. Update the integrations table in `README.md` and
    `docs/integrations.md`.
 
 ---

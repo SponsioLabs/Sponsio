@@ -340,8 +340,8 @@ async function callGuard(
 
 /**
  * @deprecated Pass ``sponsioOpenClawPlugin`` (or the default export)
- * to ``definePluginEntry`` instead. Kept for the early-prototype consumer
- * who imported the register fn as the default export.
+ * to ``definePluginEntry`` instead. Kept for early consumers who
+ * imported the register fn as the default export.
  */
 export function register(api: OpenClawPluginApi): void {
   sponsioOpenClawPlugin.register(api);

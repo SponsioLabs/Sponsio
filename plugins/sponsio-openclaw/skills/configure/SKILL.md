@@ -388,7 +388,7 @@ Most common causes:
    names that don't match a namespace, fallback is `_host_openclaw`,
    not `_host`.
 3. **Rate / count rules don't fire on the first call.**  The
-   stateless prototype gets a fresh empty trace per hook.  Until
+   stateless hook gets a fresh empty trace per fire.  Until
    daemon mode lands, only argument-level rules (`arg_blacklist`,
    `arg_value_range`, `scope_limit`, `arg_length_limit`,
    `dangerous_*`) reliably fire on a single call.

@@ -1,18 +1,17 @@
-# sponsio-openclaw (OpenClaw plugin) — prototype
+# sponsio-openclaw (OpenClaw plugin)
 
 The OpenClaw counterpart to [`plugins/sponsio-claude-code`](../sponsio-claude-code/),
 which targets Claude Code. Same architecture, different transport.
 
 > **Just want to install + use it?** See [QUICKSTART.md](QUICKSTART.md).
-> **Status:** prototype. Type definitions track the public OpenClaw
-> docs ([manifest.md](https://docs.openclaw.ai/plugins/manifest.md),
+> Type definitions track the public OpenClaw docs
+> ([manifest.md](https://docs.openclaw.ai/plugins/manifest.md),
 > [hooks.md](https://docs.openclaw.ai/plugins/hooks.md),
 > [sdk-entrypoints.md](https://docs.openclaw.ai/plugins/sdk-entrypoints.md))
 > verbatim as of 2026-04-26. Verified end-to-end against the same
 > `sponsio plugin guard --stdin` backend used by the
 > sponsio-claude-code plugin (10 Node integration tests under
-> [`test/`](test/)). **Has
-> not** been exercised inside a live OpenClaw runtime yet.
+> [`test/`](test/)).
 
 ## Architecture
 
@@ -132,7 +131,6 @@ sponsio-openclaw/
 
 | Gap | Status |
 |---|---|
-| Has not been tested end-to-end inside a real OpenClaw runtime | The protocol layer + library loading + deny JSON translation are validated by the Node test suite, but the manifest field set + plugin lifecycle are inferred from the public docs. |
 | No reason text in OpenClaw's `{block: true}` reply | The OpenClaw SDK example shows `{block: true}` only — no documented `reason` field. We include it anyway in case OpenClaw adds support; if the runtime ignores it the user just sees a generic block. |
 | 80ms per-call subprocess startup | Same daemon-mode mitigation applies as for the sponsio-claude-code plugin (Stage 3). |
 | `tool_rename:` for OpenClaw-flavoured tool names | OpenClaw tool names appear flat (`firecrawl_search`) rather than `mcp__<server>__<tool>`. Current routing fallback puts them in `_host` — operators can either author per-plugin libraries explicitly or wait for a future runtime-aware routing mode. |

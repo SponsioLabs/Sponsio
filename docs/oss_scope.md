@@ -66,6 +66,10 @@ commitment, not a "temporarily open" status.
 - `sponsio/discovery/starter_pack.py` — static rule matching for
   starter-pack selection
 - `sponsio/discovery/trace_replay.py` — `sponsio eval` replay engine
+- `sponsio/refresh.py` + `sponsio refresh` CLI — local trace mining
+  over your own `~/.sponsio/sessions/*` (proposes new contracts from
+  patterns repeating in your traces). Cloud adds *cross-customer*
+  pattern intelligence on top of the same command.
 
 ### Generation
 - `sponsio/generation/nl_to_contract.py` — NL → contract parser
@@ -103,9 +107,12 @@ commitment, not a "temporarily open" status.
   Cloud installs replace the stub monitor with the full sto path.
 
 ### Cross-corpus mining + cloud backend
-- `sponsio refresh` CLI — re-mine contracts from accumulated traces
+- *Cross-customer* extension to `sponsio refresh` — anonymized
+  pattern intelligence drawn from the cross-deployment trace pool.
+  The local version of `sponsio refresh` (single-project mining
+  over your own session log) is **OSS** — see above.
 - `sponsio.discovery.extractors.trace_mining` — cross-trace pattern
-  mining
+  mining at the corpus level
 - `sponsio.discovery.store` — cross-customer pattern store
 - `api/` — full FastAPI backend (auth, multi-tenant, OTel ingest,
   monitor / leaderboard / score / playground / discovery routers)

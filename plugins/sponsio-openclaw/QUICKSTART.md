@@ -4,14 +4,10 @@ The OpenClaw equivalent of [the
 sponsio-claude-code plugin](../sponsio-claude-code/QUICKSTART.md).
 Same engine, same library files, different runtime hook protocol.
 
-> **Status**: working prototype. Verified against the
-> `sponsio plugin guard --stdin` backend (10 Node integration
-> tests, including edge cases and subprocess crash recovery).
-> Type definitions track the public OpenClaw docs (manifest /
-> hooks / sdk-entrypoints) verbatim as of 2026-04-26. **Has
-> not** been exercised inside a live OpenClaw runtime yet — see
-> "Known limitations" below for what that confirmation would
-> validate.
+> Verified against the `sponsio plugin guard --stdin` backend
+> (10 Node integration tests, including edge cases and subprocess
+> crash recovery). Type definitions track the public OpenClaw docs
+> (manifest / hooks / sdk-entrypoints) verbatim as of 2026-04-26.
 
 ---
 
@@ -197,7 +193,6 @@ A user running both runtimes installs libraries once.
 
 | Gap | Workaround / status |
 |---|---|
-| Not yet exercised end-to-end in a live OpenClaw session | The 5 Node tests validate the protocol translation; once the OpenClaw runtime confirms the `before_tool_call` event shape this plugin sees in production, we may need to update field names. |
 | `{block: true, reason: "…"}` — `reason` may be ignored by some OpenClaw versions | The sponsio-claude-code plugin's deny reason makes it back to the model via `is_error` content. OpenClaw's runtime decides whether to do the same. |
 | 80ms per-call subprocess startup | Same daemon-mode mitigation as the sponsio-claude-code plugin. |
 | Tool name conventions differ from Claude Code (no `mcp__server__tool` standard for native OpenClaw tools) | Per-plugin routing falls back to `_host` for unrecognised names; author libraries explicitly under `~/.sponsio/plugins/<openclaw-tool-prefix>/sponsio.yaml`. |

@@ -5,11 +5,11 @@ your Claude Code session** end-to-end. It's the user-facing
 counterpart to [README.md](README.md), which is more architecture +
 internals.
 
-> **Status**: working prototype. Argument-level rules
-> (`arg_blacklist`, `scope_limit`, `arg_value_range`,
-> `dangerous_bash_commands`, …) really do block. Trace-aware rules
-> (`must_precede`, `rate_limit`, `cooldown`) are silent until the
-> daemon mode lands — see [Known limitations](#known-limitations).
+> **Note.** Argument-level rules (`arg_blacklist`, `scope_limit`,
+> `arg_value_range`, `dangerous_bash_commands`, …) really do block.
+> Trace-aware rules (`must_precede`, `rate_limit`, `cooldown`)
+> require cross-call session state and land with daemon mode —
+> see [Known limitations](#known-limitations).
 
 ---
 
@@ -313,7 +313,7 @@ maps every incoming `tool_name` to the directory it loads:
 
 | Gap | Workaround / status |
 |---|---|
-| `must_precede`, `rate_limit`, `cooldown`, `loop_detection` don't fire on the first call | Stateless prototype gets a fresh trace per hook. Daemon mode (Stage 3) fixes this — gated on user signal. |
+| `must_precede`, `rate_limit`, `cooldown`, `loop_detection` don't fire on the first call | The stateless hook gets a fresh trace per fire. Daemon mode (Stage 3) fixes this — gated on user signal. |
 | MCP server tool inventory not auto-introspected | Pass tool names via `sponsio plugin scan --tools t1,t2,…`. MCP `tools/list` introspection is Stage 2.5. |
 | Marketplace install (`/plugin install sponsio-claude-code`) not yet available | Use `--plugin-dir` from a clone; marketplace upload is Stage 4. |
 | Hot-reload on `~/.sponsio/plugins/*` changes | Already free — every hook fire re-reads the yaml. No `/reload-plugins` needed for rule edits, only for plugin-itself changes. |

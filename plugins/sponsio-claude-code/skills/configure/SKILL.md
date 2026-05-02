@@ -532,7 +532,7 @@ Most common causes:
    `mcp__github__X` → `github`; `acme:fetch` → `acme`; bare `Bash` →
    `_host`.
 3. **Rate / count rules don't fire on the first call.** The
-   stateless prototype gets a fresh empty trace per hook. Until the
+   stateless hook gets a fresh empty trace per fire. Until the
    daemon mode lands, only argument-level rules (`arg_blacklist`,
    `arg_value_range`, `scope_limit`, `arg_length_limit`,
    `dangerous_*`, `tool_allowlist`) reliably fire on a single call.

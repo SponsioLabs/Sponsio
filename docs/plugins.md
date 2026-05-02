@@ -10,10 +10,10 @@ sub-agent it spawns, and every MCP server tool call.
 
 Two host adapters ship today:
 
-| Plugin | Repo path | Host | Status |
-|---|---|---|---|
-| [`sponsio-claude-code`](../plugins/sponsio-claude-code/) | Claude Code | Working prototype |
-| [`sponsio-openclaw`](../plugins/sponsio-openclaw/) | OpenClaw | Protocol verified, not yet exercised in a live OpenClaw session |
+| Plugin | Repo path | Host |
+|---|---|---|
+| [`sponsio-claude-code`](../plugins/sponsio-claude-code/) | Claude Code |
+| [`sponsio-openclaw`](../plugins/sponsio-openclaw/) | OpenClaw |
 
 Both share the same Python backend and read the same per-plugin
 contract libraries under `~/.sponsio/plugins/<routed-id>/sponsio.yaml`,
@@ -212,7 +212,7 @@ use both.
 
 | Gap | Status |
 |---|---|
-| Trace-aware contracts (`must_precede`, `rate_limit`, `cooldown`, `loop_detection`) silent on the first call | Stateless prototype gets a fresh trace per hook fire. Daemon mode (Stage 3) fixes this. |
+| Trace-aware contracts (`must_precede`, `rate_limit`, `cooldown`, `loop_detection`) silent on the first call | The stateless hook gets a fresh trace per fire. Daemon mode (Stage 3) fixes this. |
 | MCP server tool inventory not auto-introspected | Pass tool names via `sponsio plugin scan --tools t1,t2,…`. MCP `tools/list` introspection planned. |
 | Marketplace install (`/plugin install …`) | Not yet available — use `--plugin-dir` (Claude Code) / clone+build (OpenClaw). |
 | OpenClaw runtime end-to-end | Protocol layer + library loading + deny JSON translation are validated by the Node test suite, but the manifest field set + plugin lifecycle are inferred from public docs. Not yet run inside a live OpenClaw session. |

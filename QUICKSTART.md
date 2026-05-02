@@ -5,7 +5,7 @@ Get Sponsio blocking an unsafe tool call in under 60 seconds — no API key, no 
 > [!NOTE]
 > **Stability (v0.1.x).** Det engine + LangGraph / Claude Agent SDK / OpenAI / Vercel AI integrations are production-ready. OTEL export (`sponsio.tracer.exporters.OtlpHttpExporter` + `sponsio export-sessions`) is **beta**. CrewAI and OpenAI Agents SDK integrations are **alpha** — surface may shift before 0.2.
 >
-> **Sponsio Cloud features** (`pip install sponsio[cloud]`): the sto pipeline (LLM-judged atoms), the `sponsio serve --dev` dashboard (FastAPI backend + React frontend), `sponsio refresh` (cross-trace pattern mining). OSS engine logs-and-skips sto contracts; Cloud installs replace the stub with the full sto path. See [docs/oss_scope.md](docs/oss_scope.md) for the boundary.
+> **Sponsio Cloud features** (`pip install sponsio[cloud]`): the managed LLM-judge sto pipeline, the multi-tenant `sponsio serve --dev` dashboard (FastAPI + React), and *cross-customer* pattern intelligence layered on top of `sponsio refresh`. The OSS engine ships the full deterministic engine, every framework adapter, the local-mining version of `sponsio refresh`, and an HTML report renderer; OSS installs log-and-skip stochastic contracts with a one-time warning. See [docs/oss_scope.md](docs/oss_scope.md) and [OSS_PROMISE.md](OSS_PROMISE.md) for the boundary.
 
 ## Architecture overview
 

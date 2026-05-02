@@ -35,7 +35,7 @@
   <img src="assets/sponsio-architecture.png" alt="Sponsio architecture: Agent Flow + (Natural Language + Pattern Library) compile into Contracts (Assumption → Enforcement), enforced by a Fuzzy LTL Monitor (deterministic + stochastic) that decides Pass / Block · Warn · Escalate / Redirect for every function call, with full audit trail logs feeding back to the agent." width="900">
 </p>
 
-On [ODCV-Bench](https://arxiv.org/abs/2512.20798), 12 frontier LLMs × 80 trajectories (Claude-Opus-4.6 included), unguarded models cheat in **11.5%–66.7% of runs**. With Sponsio, **84.5% of misalignment is blocked on average**, while the next-best publicly announced solution only reaches 52%. On the `Financial-Audit-Fraud-Finding` scenario, **frontier models commit fraud in 67% of trials (16/24)**; with Sponsio, **100% blocked**.
+On [ODCV-Bench](https://arxiv.org/abs/2512.20798) — a third-party benchmark from [McGill DMaS](https://github.com/McGill-DMaS/ODCV-Bench) — 12 frontier LLMs × 80 trajectories (Claude-Opus-4.6 included), unguarded models cheat in **11.5%–66.7% of runs**. With Sponsio, **84.5% of misalignment is blocked on average**, while the next-best publicly announced runtime guardrail ([Salus, YC W26](https://www.ycombinator.com/companies/salus), [launch Feb 2026](https://yctierlist.com/w26/salus/)) reaches 52% on the same benchmark. On the `Financial-Audit-Fraud-Finding` scenario, **frontier models commit fraud in 67% of trials (16/24)**; with Sponsio, **100% blocked**.
 
 ### Why Sponsio
 
@@ -169,7 +169,8 @@ Run your agent in observe mode — contracts evaluate, nothing blocks. Would-hav
 
 ```bash
 # 3. After some traffic, review what would have been blocked
-sponsio report --since 1h
+sponsio report --since 1h                       # rich CLI summary
+sponsio report --format html -o report.html     # standalone HTML report
 
 # 4. Flip to enforce when confident — no code change
 export SPONSIO_MODE=enforce
@@ -199,7 +200,7 @@ This snippet inlines `contracts: [...]` for brevity. `new Sponsio({ config: "spo
 
 </details>
 
-> **Full walkthrough:** [QUICKSTART.md](QUICKSTART.md) — config reference, `sponsio refresh`, CI wiring, troubleshooting. Per-framework runnable examples: [examples/integrations/](examples/integrations/).
+> **Full walkthrough:** [QUICKSTART.md](QUICKSTART.md) — config reference, `sponsio refresh`, CI wiring, troubleshooting.
 
 ---
 
@@ -214,7 +215,7 @@ Sponsio is benchmarked on two public agent-safety suites covering two distinct f
 | **RedCode-Exec** (1,410 cases)             | Dangerous bash / python snippet detection | **95% bash · 90% python · 92% combined** · **0% utility FP** on 60-file clean-code audit |
 
 
-Both libraries ship as loadable contract packs (`sponsio:benchmark/redcode_exec`, `sponsio:benchmark/odcv_bench`). Semantic properties det can't fingerprint (tone, hallucination, scope drift in NL output) fall to the [stochastic pipeline](docs/sto-atoms.md) (beta).
+Both libraries ship as loadable contract packs (`sponsio:benchmark/redcode_exec`, `sponsio:benchmark/odcv_bench`). Semantic properties det can't fingerprint (tone, hallucination, scope drift in NL output) require an LLM judge — the OSS engine ships a `Judge` extension point you can plug; the managed stochastic pipeline is a [Sponsio Cloud](docs/oss_scope.md#in-sponsio-cloud-commercial--pip-install-sponsiocloud) feature.
 
 ### Logic-flaw failures are deterministically catchable too
 
@@ -252,7 +253,7 @@ production traces ──→ sponsio scan ──→ proposed contracts
 
 ## Contract Library
 
-Five **contract bundles** ship out of the box, organized by tier (always-on / per-tool / per-incident). Each bundle is a YAML pack composed from Sponsio's 29 det patterns and 12 sto atoms. Drop one into `sponsio.yaml` and your agent is guarded against a known failure class in one line, with no per-contract authoring.
+Seven **contract bundles** ship out of the box, organized by tier (always-on / per-tool / per-incident). Each bundle is a YAML pack composed from Sponsio's 29 det patterns and 12 sto atoms. Drop one into `sponsio.yaml` and your agent is guarded against a known failure class in one line, with no per-contract authoring.
 
 ### Starter bundles
 
@@ -261,9 +262,11 @@ Five **contract bundles** ship out of the box, organized by tier (always-on / pe
 | --- | --- | --- | --- |
 | `sponsio:core/universal` | Always-on | 5 sto | Any LLM agent. Response-scoped checks: prompt injection, jailbreak, harm, toxic, semantic PII. |
 | `sponsio:core/runaway` | Always-on | 5 det | Any agent with token use, delegation, or tool loops. The "while(true) with a credit card" defense: token budgets, delegation depth, loop caps. |
-| `sponsio:capability/shell` | Per-tool | 11 det | Agents exposing `exec` / `bash`. Catches `rm -rf /`, fork bombs, `curl \| bash`, reverse shells, line-continuation evasion. Inspired by Claude Code #10077, the Replit prod-DB wipe (Jul 2025), and the Ansible `rm -rf {foo}/{bar}` incident on 1,535 servers. |
-| `sponsio:capability/filesystem` | Per-tool | 13 det | Agents exposing `read` / `write` / `edit` / `apply_patch`. Sensitive-path denies, workspace scoping, bootstrap-file gates (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`). Inspired by the OpenClaw weather-skill `.env` exfil and the Cursor `.cursorignore` bypass. |
-| `sponsio:incident/openclaw` | Incident | 45 mixed | OpenClaw / ClawCode users. Covers CVE-2026-25253 (WebSocket RCE), ClawHavoc (1,184 malicious skills), the `--yolo` flag, and the weather-skill exfil. A worked example to fork rules from. |
+| `sponsio:capability/shell` | Per-tool | 11 det | Agents exposing `exec` / `bash`. Catches `rm -rf /`, fork bombs, `curl \| bash`, reverse shells, line-continuation evasion. Inspired by [Claude Code #10077](https://github.com/anthropics/claude-code/issues/10077) (rm -rf $HOME, Oct 2025), the [Replit prod-DB wipe](https://www.theregister.com/2025/07/21/replit_saastr_vibe_coding_incident/) ([Fortune coverage](https://fortune.com/2025/07/23/ai-coding-tool-replit-wiped-database-called-it-a-catastrophic-failure/), Jul 2025), and the [Ansible `rm -rf {foo}/{bar}` postmortem on 1,535 servers](https://developers.slashdot.org/story/16/04/14/1542246/man-deletes-his-entire-company-with-one-line-of-bad-code) (Marsala, 2016). |
+| `sponsio:capability/filesystem` | Per-tool | 13 det | Agents exposing `read` / `write` / `edit` / `apply_patch`. Sensitive-path denies, workspace scoping, bootstrap-file gates (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`). Inspired by the [OpenClaw weather-skill `.env` exfil](https://www.trendmicro.com/en_us/research/26/b/openclaw-skills-used-to-distribute-atomic-macos-stealer.html) and the [Cursor `.cursorignore` bypass (CVE-2025-64110 / GHSA-vhc2-fjv4-wqch)](https://github.com/cursor/cursor/security/advisories/GHSA-vhc2-fjv4-wqch). |
+| `sponsio:incident/openclaw` | Incident | 45 mixed | OpenClaw / ClawCode users. Covers [CVE-2026-25253](https://nvd.nist.gov/vuln/detail/CVE-2026-25253) (WebSocket 1-click RCE), [ClawHavoc — 1,184 malicious skills on ClawHub](https://cyberpress.org/clawhavoc-poisons-openclaws-clawhub-with-1184-malicious-skills/) (Koi Security disclosure, Feb 2026), the `--yolo` flag, and the weather-skill exfil. A worked example to fork rules from. |
+| `sponsio:incident/cursor-railway-wipe` | Incident | mixed | Replays the [PocketOS production-DB wipe (Apr 24, 2026)](https://www.theregister.com/2026/04/27/cursoropus_agent_snuffs_out_pocketos/) — Cursor + Claude Opus 4.6 deleted prod + backups in 9 seconds via an over-scoped Railway API token. ([Tom's Hardware](https://www.tomshardware.com/tech-industry/artificial-intelligence/claude-powered-ai-coding-agent-deletes-entire-company-database-in-9-seconds-backups-zapped-after-cursor-tool-powered-by-anthropics-claude-goes-rogue) · [Railway's own postmortem](https://blog.railway.com/p/your-ai-wants-to-nuke-your-database)) Catches credential-scope abuse + destructive-API gates. |
+| `sponsio:incident/claude-code-secret-bypass` | Incident | mixed | Replays [CVE-2025-55284](https://www.sentinelone.com/vulnerability-database/cve-2025-55284/) (overly broad safe-command allowlist → file-read confirmation bypass) and the [deny-rule cap bypass](https://adversa.ai/blog/claude-code-security-bypass-deny-rules-disabled/) (50-subcommand padding silently disables deny rules). Catches secret reads + arg-padding evasion. |
 
 
 ```yaml
@@ -280,7 +283,7 @@ agents:
 
 `sponsio onboard` auto-selects tier-0 bundles based on your detected tool inventory. You can disable or retune individual rules without forking the pack: `overrides:` lets you target rules by their `desc`, `pack_source`, or `pattern` field. Rename canonical tool names (`exec`, `read`, `edit`) to your agent's via `tool_rename:`.
 
-Full bundle reference is at [`docs/reference/contract-lib.md`](docs/reference/contract-lib.md). The underlying primitives that bundles compose are catalogued separately: 29 det patterns in [`docs/contracts.md`](docs/contracts.md), and 12+ sto atoms in [`docs/sto-atoms.md`](docs/sto-atoms.md).
+Full bundle reference is at [`docs/reference/contract-lib.md`](docs/reference/contract-lib.md). The underlying primitives that bundles compose are catalogued separately: 29 det patterns in [`docs/contracts.md`](docs/contracts.md). Sto atoms (LLM-judge evaluators for tone, hallucination, scope drift, etc.) are part of [Sponsio Cloud](docs/oss_scope.md#in-sponsio-cloud-commercial--pip-install-sponsiocloud) — the OSS engine ships a `Judge` extension point for bring-your-own-judge use.
 
 > **Want a bundle for your agent type?** This is currently the highest-leverage way to contribute. [Open an issue](https://github.com/SponsioLabs/Sponsio/issues/new) with your incident, CVE, or pattern.
 
@@ -319,7 +322,6 @@ if (!result.blocked) {
 }
 ```
 
-Runnable: [python](examples/integrations/python/vanilla_guard.py) · [typescript](examples/integrations/typescript/vanilla_guard.mjs)
 
 </details>
 
@@ -344,7 +346,6 @@ const guard = new Sponsio({ config: "sponsio.yaml", agentId: "hr_bot" });
 const toolNode = new ToolNode(wrapTools(tools, guard));
 ```
 
-Runnable: [python](examples/integrations/python/langgraph_guard.py) · [typescript](examples/integrations/typescript/langgraph_guard.mjs)
 
 </details>
 
@@ -372,7 +373,6 @@ const hooks = sponsioHooks(guard);
 // Pass `hooks` to ClaudeSDKClient options.
 ```
 
-Runnable: [python](examples/integrations/python/claude_agent_guard.py) · [typescript](examples/integrations/typescript/claude_agent_guard.mjs)
 
 </details>
 
@@ -397,9 +397,7 @@ const guard = new Sponsio({ config: "sponsio.yaml", agentId: "db_admin" });
 const client = wrapOpenAI(new OpenAI(), guard);
 ```
 
-For a quick no-YAML wire-up (handy in scripts / notebooks): `from sponsio.openai import patch_openai` — see [runnable example](examples/integrations/python/openai_guard.py).
-
-Runnable: [python](examples/integrations/python/openai_guard.py) · [typescript](examples/integrations/typescript/openai_guard.mjs)
+For a quick no-YAML wire-up (handy in scripts / notebooks): `from sponsio.openai import patch_openai`.
 
 </details>
 
@@ -423,8 +421,6 @@ result = Runner.run_sync(agent, "Deploy v2.1 now.")
 ```
 
 TypeScript: not yet supported.
-
-Runnable: [python](examples/integrations/python/agents_sdk_guard.py)
 
 </details>
 
@@ -456,7 +452,6 @@ const tools = wrapGoogleAdkTools([searchFlights, bookFlight, chargePayment], gua
 export const rootAgent = new LlmAgent({ name: "travel_agent", tools, model: "gemini-flash-latest" });
 ```
 
-Runnable: [python](examples/integrations/python/google_adk_guard.py) · [typescript](examples/integrations/typescript/google_adk_guard.mjs)
 
 </details>
 
@@ -481,7 +476,6 @@ const guard = new Sponsio({ config: "sponsio.yaml", agentId: "publish_bot" });
 const middleware = sponsioMiddleware(guard);
 ```
 
-Runnable: [python](examples/integrations/python/vercel_ai_guard.py) · [typescript](examples/integrations/typescript/vercel_ai_guard.mjs)
 
 </details>
 
@@ -506,8 +500,6 @@ result = crew.kickoff()
 
 TypeScript: not yet supported.
 
-Runnable: [python](examples/integrations/python/crewai_guard.py)
-
 </details>
 
 <details>
@@ -526,8 +518,6 @@ result = await proxy.call_tool("write_external_api", {"data": "batch_1"})
 
 TypeScript: not yet supported.
 
-Runnable: [python](examples/integrations/python/mcp_guard.py)
-
 </details>
 
 
@@ -541,12 +531,14 @@ Runnable: [python](examples/integrations/python/mcp_guard.py)
 ## Docs
 
 - [Quick start](QUICKSTART.md)
-- [Contract DSL](docs/contracts.md) · [Stochastic atoms](docs/sto-atoms.md)
+- [Contract DSL](docs/contracts.md)
 - [CLI Reference](docs/cli.md)
 - [Integrations](docs/integrations.md)
 - [Architecture](docs/architecture.md)
+- [Benchmarks](docs/BENCHMARKS.md)
 - [OWASP Agentic Top 10 coverage](docs/owasp-agentic-top-10.md)
 - [Formal methods primer](docs/formal-methods.md)
+- [**OSS Promise**](OSS_PROMISE.md) · [OSS / Cloud boundary](docs/oss_scope.md) · [Brand & trademark](BRAND.md)
 - [Changelog](CHANGELOG.md)
 
 *AI agents reading this repo: [`llms.txt`](llms.txt) lists canonical doc paths; [`llms-full.txt`](llms-full.txt) is the concatenated full context dump.*
@@ -573,6 +565,10 @@ Det contracts give you machine-checkable enforcement at the action boundary. The
 
 ---
 
-## License
+## License & open source promise
 
 Apache 2.0 — see [LICENSE](LICENSE).
+
+Sponsio Labs is a commercial company; Sponsio Cloud (`pip install sponsio[cloud]`) opens mid-May 2026 and adds the managed LLM-judge pipeline, cross-customer pattern intelligence, and a hosted multi-tenant dashboard. The OSS engine is complete and production-ready for self-hosted use — see [OSS_PROMISE.md](OSS_PROMISE.md) for what stays in OSS forever, what we sell, and what we promise about the boundary.
+
+Sponsio™ is a trademark of Sponsio Labs — see [BRAND.md](BRAND.md).
