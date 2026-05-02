@@ -36,6 +36,36 @@ host plugin, delegate to the `sponsio` skill (`sponsio onboard .`).
 This skill is only for the host-plugin case where the user is gating
 tool calls inside an OpenClaw session.
 
+## Routing rules from a policy document
+
+Sponsio has two layers, and rules must land in the right YAML or they
+do nothing. When the user hands you a policy document / instruction
+file / "list of things the agent must not do" and asks you to encode
+it, classify **each rule** before writing anywhere.
+
+| Signal | → Layer 1 (this skill — write to `~/.sponsio/plugins/<id>/sponsio.yaml`) | → Layer 2 (delegate to `sponsio` skill — writes `<project>/sponsio.yaml`) |
+|---|---|---|
+| Tool names mentioned | `exec`, `read`, `write`, `edit`, `apply_patch`, `web_fetch`, `send_message` (OpenClaw primitives), `mcp__*` | tool names from the user's project's tool inventory |
+| Path form | absolute or `~/...` paths outside the user's project | paths relative to the project (`src/...`) |
+| Subject of the rule | "OpenClaw must not…", "the coding agent must not…" | "the loan agent must…", "the chatbot should…" |
+| Domain language | shell, git, file system, MCP server primitives | AML, KYC, refund, PII, approval, faithfulness, hallucination |
+| `./sponsio.yaml` exists in cwd | weaker signal — Layer 2 is in play, but rule may still be Layer 1 | stronger signal — most rules belong here |
+
+Process:
+1. For each rule, score by the signals above.
+2. Route unambiguously-Layer-1 rules to this skill's flow.
+3. For Layer-2 rules, **stop writing here** and tell the user
+   "rules X, Y look like rules for the agent you're building, not
+   the OpenClaw host — switching to the `sponsio` skill (`sponsio
+   onboard`) for those". Do not silently dump them into a host-plugin
+   YAML.
+4. For genuinely ambiguous rules ("PII must not leak"), ask the user
+   which layer they mean before writing.
+
+The default failure mode is over-writing to Layer 1 because that's
+this skill's home turf. Cross-layer leakage is a worse user error
+than the extra clarification round.
+
 ## Step 1 — bootstrap the library root
 
 Run:
@@ -188,6 +218,21 @@ sponsio plugin scan <plugin-dir> --target-host openclaw \
 
 This writes one yaml per routed group under
 `~/.sponsio/plugins/<plugin-id>/`.
+
+### 3.8 — show the user what got loaded
+
+After every successful apply, render the contract digest so the
+user sees what's now enforced before any later tuning:
+
+```bash
+sponsio plugin show <plugin-id>
+```
+
+The digest groups rules by category (hard denies, rate limits, arg
+blocks, …). **Surface it verbatim** — paraphrasing strips the
+detail the operator needs to spot misroutes. `sponsio plugin
+install <bundled-name>` already calls this digest internally; for
+`scan --apply`, you call it manually.
 
 ## Step 4 — tune the rules
 

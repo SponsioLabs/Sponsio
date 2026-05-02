@@ -380,3 +380,67 @@ def test_cli_install_force_overwrites(tmp_path):
     forced = _run_install("github", "--root", str(tmp_path), "--force")
     assert forced.returncode == 0
     assert target.read_text() != "# user file"
+
+
+# ---------------------------------------------------------------------------
+# CLI: install reveal + ``plugin show``
+# ---------------------------------------------------------------------------
+#
+# After ``plugin install`` the user has zero idea what 8 rules just
+# landed.  Without the digest we'd be the bundle equivalent of
+# ``pip install`` printing only ``Successfully installed`` — useless
+# for "should I now flip to enforce?".  Lock the categories that real
+# operators look for so a future drift in pattern naming doesn't
+# silently hide the reveal.
+
+
+def _run_show(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, "-m", "sponsio.cli", "plugin", "show", *args],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+def test_cli_install_prints_digest_with_categories(tmp_path):
+    """``plugin install github`` must reveal the rules grouped by category."""
+    proc = _run_install("github", "--root", str(tmp_path))
+    assert proc.returncode == 0
+    out = proc.stdout
+    # The 8 github rules cover hard denies, arg blocks, rate limits,
+    # loop guards.  At least three categories must appear so the user
+    # sees the shape of what's enforced, not just a count.
+    categories_found = sum(
+        1
+        for cat in ("Hard denies", "Argument blocks", "Rate limits", "Loop guards")
+        if cat in out
+    )
+    assert categories_found >= 3, f"digest missing categories: {out!r}"
+    # And the actual rule descriptions surface verbatim.
+    assert "delete_repository" in out
+
+
+def test_cli_show_reads_installed_library(tmp_path):
+    _run_install("filesystem", "--root", str(tmp_path))
+    proc = _run_show("filesystem", "--root", str(tmp_path))
+    assert proc.returncode == 0
+    # filesystem starter is all arg_blacklist rules → "Argument blocks".
+    assert "Argument blocks" in proc.stdout
+    assert str(tmp_path / "filesystem" / "sponsio.yaml") in proc.stdout
+
+
+def test_cli_show_falls_back_to_bundled_when_not_installed(tmp_path):
+    """Asking for a bundled name that isn't installed must still
+    render its digest so the user can preview before installing."""
+    proc = _run_show("github", "--root", str(tmp_path))
+    assert proc.returncode == 0
+    assert "not installed" in proc.stdout
+    assert "Hard denies" in proc.stdout
+
+
+def test_cli_show_unknown_name_errors(tmp_path):
+    proc = _run_show("does-not-exist", "--root", str(tmp_path))
+    assert proc.returncode == 2
+    combined = proc.stdout + proc.stderr
+    assert "no installed or bundled library" in combined.lower()

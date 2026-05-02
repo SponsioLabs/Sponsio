@@ -4985,6 +4985,164 @@ def plugin_install(
     if not written:
         sys.exit(1)
 
+    # Surface what was just loaded so the operator knows what's now
+    # enforced before flipping to enforce mode. Without this, the user
+    # sees ``✓ wrote …`` and has no idea what 8 rules just landed.
+    for target in written:
+        name = target.parent.name
+        click.echo()
+        click.echo(
+            _render_plugin_digest(name, target.read_text(encoding="utf-8"), target)
+        )
+
+
+_PATTERN_LABEL = {
+    "rate_limit": "Rate limits",
+    "arg_blacklist": "Argument blocks",
+    "arg_allowlist": "Argument allowlists",
+    "must_precede": "Ordering",
+    "always_followed_by": "Ordering",
+    "must_confirm": "Confirmation gates",
+    "no_data_leak": "Data-leak guards",
+    "loop_detection": "Loop guards",
+    "bounded_retry": "Retry caps",
+    "cooldown": "Cooldowns",
+    "scope_limit": "Scope limits",
+    "arg_length_limit": "Length limits",
+    "destructive_action_gate": "Destructive-action gates",
+    "idempotent": "Idempotency",
+    "segregation_of_duty": "Segregation of duty",
+    "no_reversal": "No-reversal",
+    "mutual_exclusion": "Mutual exclusion",
+    "requires_permission": "Permission gates",
+}
+
+
+def _render_plugin_digest(
+    name: str,
+    yaml_text: str,
+    yaml_path: Path | None = None,
+) -> str:
+    """Pretty-print the contracts loaded from a sponsio.yaml.
+
+    Groups rules by friendly category (rate limits, hard denies, arg
+    blocks, …) so the operator sees what the bundle actually enforces.
+    Used by ``plugin install`` (for post-write reveal) and ``plugin show``
+    (for ad-hoc inspection).
+    """
+    import yaml
+
+    raw = yaml.safe_load(yaml_text) or {}
+    agents = raw.get("agents", {})
+    lines: list[str] = []
+
+    total = sum(len(a.get("contracts", []) or []) for a in agents.values())
+    header = f"  {name} — {total} contract{'s' if total != 1 else ''}"
+    lines.append(click.style(header, bold=True))
+    if yaml_path is not None:
+        lines.append(f"  {yaml_path}")
+    lines.append("")
+
+    if total == 0:
+        lines.append("  (no contracts in this library yet)")
+        return "\n".join(lines)
+
+    for agent_id, agent_cfg in agents.items():
+        contracts = agent_cfg.get("contracts", []) or []
+        if not contracts:
+            continue
+        if len(agents) > 1:
+            lines.append(f"  agent: {agent_id}")
+
+        groups: dict[str, list[str]] = {}
+        for c in contracts:
+            enforce_block = c.get("E") or {}
+            pattern = enforce_block.get("pattern", "?")
+            args = enforce_block.get("args") or []
+            # rate_limit with cap=0 is a hard deny — surface separately.
+            if pattern == "rate_limit" and len(args) >= 2 and args[1] == 0:
+                category = "Hard denies"
+            else:
+                category = _PATTERN_LABEL.get(pattern, pattern)
+            groups.setdefault(category, []).append(c.get("desc", "(no desc)"))
+
+        # Stable category order: hard denies first, then alphabetical.
+        ordered = sorted(
+            groups.keys(),
+            key=lambda k: (k != "Hard denies", k.lower()),
+        )
+        for category in ordered:
+            descs = groups[category]
+            lines.append(f"  {click.style(category, fg='cyan')} ({len(descs)})")
+            for d in descs:
+                lines.append(f"    • {d}")
+            lines.append("")
+
+    lines.append(
+        f"  Tune by appending to ``overrides:`` in {yaml_path or 'the file'}.\n"
+        "  Don't edit shipped rules in place — overrides survive re-install."
+    )
+    return "\n".join(lines)
+
+
+@plugin.command(name="show")
+@click.argument("name")
+@click.option(
+    "--root",
+    "root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Override the per-plugin library root "
+        "(default: $SPONSIO_PLUGIN_ROOT or ~/.sponsio/plugins)."
+    ),
+)
+def plugin_show(name: str, root: Path | None):
+    """Print a digest of contracts loaded for ``<name>``.
+
+    After ``sponsio plugin install github``, this is the
+    "what did I just get?" command — lists each rule by category
+    (hard denies, rate limits, arg blocks, …) so the operator
+    knows what's enforced.
+
+    Examples:
+
+    \b
+        sponsio plugin show github               # installed library
+        sponsio plugin show github --root ./tmp  # custom root
+    """
+    from sponsio.plugin.registry import list_bundled, read_bundled
+
+    if root is None:
+        env = os.environ.get("SPONSIO_PLUGIN_ROOT")
+        root = Path(env).expanduser() if env else Path.home() / ".sponsio" / "plugins"
+
+    yaml_path = root / name / "sponsio.yaml"
+    if yaml_path.exists():
+        click.echo(
+            _render_plugin_digest(
+                name, yaml_path.read_text(encoding="utf-8"), yaml_path
+            )
+        )
+        return
+
+    if name in list_bundled():
+        click.secho(
+            f"  {name} is not installed at {yaml_path}.\n"
+            f"  Showing the bundled starter (run "
+            f"`sponsio plugin install {name}` to install).\n",
+            fg="yellow",
+        )
+        click.echo(_render_plugin_digest(name, read_bundled(name)))
+        return
+
+    click.secho(
+        f"Error: no installed or bundled library named {name!r}.\n"
+        f"Bundled: {', '.join(list_bundled())}",
+        fg="red",
+    )
+    sys.exit(2)
+
 
 @plugin.command(name="scan")
 @click.argument(

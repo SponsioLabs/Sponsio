@@ -272,6 +272,35 @@ sponsio onboard .                    # uses OPENAI_API_KEY / ANTHROPIC_API_KEY /
 
 Goal: produce or improve a `sponsio.yaml` from code / policy docs / traces, and explain every contract in plain language.
 
+### Routing rules between layers
+
+A policy document can mix **two kinds of rules** that land in different
+YAMLs. Misrouting them (writing host rules to the project file, or
+agent rules to the host bucket) means the rule loads but never fires.
+
+Classify **each rule** before writing:
+
+| Signal | → Project YAML (`./sponsio.yaml`) | → Host YAML (`~/.sponsio/plugins/{{HOST_BUCKET}}/sponsio.yaml`) | → Per-plugin YAML (`~/.sponsio/plugins/<plugin-id>/sponsio.yaml`) |
+|---|---|---|---|
+| Subject of the rule | "the loan agent must…", "the chatbot should…" | "Cursor / Claude Code / OpenClaw must not…" (host's own tools) | "the GitHub MCP server must not…" (a specific plugin/MCP) |
+| Tool names mentioned | tool names from the user's project tool inventory | host primitives — `Bash`, `Edit`, `Write`, `Read`, `exec` | namespaced — `mcp__github__*`, `mcp__filesystem__*`, … |
+| Path form | paths relative to the project (`src/...`) | absolute / `~/...` paths outside the user's project | paths the named MCP server operates on |
+| Domain language | AML, KYC, refund, PII, approval, faithfulness, hallucination | shell, git, file system, FS primitives | the plugin's domain (issues, PRs, repos for github; pages, paths for filesystem) |
+| Trigger | the agent under development is the subject | the IDE / coding agent is the subject | a specific plugin or MCP server is the subject |
+
+Process:
+1. Score each rule by the signals above.
+2. Write each rule to its target YAML using the additive-only protocol
+   in the previous section.
+3. For genuinely ambiguous rules ("PII must not leak"), ask the user
+   *which agent* the rule is about before picking a target.
+4. After writing per-plugin rules, run `sponsio plugin show <plugin-id>`
+   and surface the digest verbatim so the user sees what's now active.
+
+The default failure mode is to dump everything into the file you
+were already editing. Cross-layer leakage is a worse user error than
+the extra clarification round.
+
 ### Decide which sources to use
 
 Sponsio contracts come from four sources, mixable in one yaml:
