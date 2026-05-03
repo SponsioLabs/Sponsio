@@ -39,6 +39,22 @@ interface GenerateResult {
   [k: string]: unknown;
 }
 
+function emitBanner(toolName: string, reason: string, agentId: string) {
+  if (process.env.SPONSIO_NO_BANNER) return;
+  const isTty = !!(process.stderr as unknown as { isTTY?: boolean }).isTTY;
+  const c = (code: string, text: string) => (isTty ? `\x1b[${code}m${text}\x1b[0m` : text);
+  const sep = "━".repeat(60);
+  const lines = [
+    "",
+    c("2;36", `  ${sep}`),
+    `  ${c("1;31", "BLOCKED")}  ${c("1", `${agentId}.${toolName}`)}`,
+    `  ${c("2", "rule")}    ${reason}`,
+    c("2;36", `  ${sep}`),
+    "",
+  ];
+  process.stderr.write(lines.join("\n"));
+}
+
 function parseArgs(raw: unknown): Record<string, unknown> {
   if (raw == null) return {};
   if (typeof raw === "object" && !Array.isArray(raw)) return raw as Record<string, unknown>;
@@ -81,7 +97,9 @@ export function sponsioMiddleware(guard: Sponsio) {
           const trimmed = msg
             .replace(/^[A-Z-]*BLOCKED:\s*[^—]+—\s*/, "")
             .replace(/^(?:det\s+constraint\s+)?violated:\s*/i, "");
-          blockedReasons.push(`${tc.toolName}: ${trimmed.split("\n")[0]}`);
+          const reason = trimmed.split("\n")[0];
+          emitBanner(tc.toolName, reason, guard.agentId);
+          blockedReasons.push(`${tc.toolName}: ${reason}`);
         } else {
           surviving.push(tc);
         }
