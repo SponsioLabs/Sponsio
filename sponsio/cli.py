@@ -332,32 +332,9 @@ def patterns():
         "cyan",
     )
 
-    # --- Soft evaluators (7) ---
-    _section(
-        "Soft Evaluators (7 sto)",
-        [
-            ("pii", "response must not contain PII", "regex-based, no LLM"),
-            ("length", "response must be under 200 words", "word/char count, no LLM"),
-            ("format", "output must be in JSON format", "structure validation, no LLM"),
-            (
-                "content_prohibition",
-                "response must not mention competitors",
-                "substring/regex check, no LLM",
-            ),
-            ("tone", "response must be empathetic", "LLM-scored evaluation"),
-            (
-                "relevance",
-                "response must be relevant to topic",
-                "LLM-scored evaluation",
-            ),
-            (
-                "llm_judge",
-                "response must follow company policy",
-                "generic LLM judge fallback",
-            ),
-        ],
-        "magenta",
-    )
+    # OSS ships only deterministic patterns. Stochastic / LLM-judged
+    # evaluators (tone, relevance, generic LLM judge, …) are a Sponsio
+    # Cloud feature; ``sponsio patterns`` shows det only.
 
 
 # ---------------------------------------------------------------------------
@@ -417,12 +394,8 @@ def packs():
                 contracts = (template or {}).get("contracts") or []
                 n = len(contracts)
 
-                # Rough kind count — sto-registered pattern names vs
-                # everything else.  Imported lazily so the command
-                # stays fast when sto catalog is heavy.
-                import sponsio.patterns.sto_catalog  # noqa: F401
-                from sponsio.patterns.sto_registry import _REGISTRY as _STO
-
+                # Rough kind count — det patterns vs raw LTL.  OSS ships
+                # no sto pipeline; the third bucket is gone.
                 kinds = Counter()
                 for c in contracts:
                     es = c.get("E") if isinstance(c, dict) else None
@@ -437,8 +410,6 @@ def packs():
                             continue
                         if "ltl" in e and "pattern" not in e:
                             kinds["raw"] += 1
-                        elif e.get("pattern") in _STO:
-                            kinds["sto"] += 1
                         elif e.get("pattern"):
                             kinds["det"] += 1
 
@@ -1118,8 +1089,6 @@ def validate(contracts, config_path, agent_id, as_json, trace_paths):
                 if isinstance(entry, ConstraintEntry):
                     if entry.is_structured:
                         try:
-                            from sponsio.patterns.sto import StoFormula
-
                             compiled = _compile_structured(entry)
                             ok = True
                             pattern = entry.pattern
@@ -1128,10 +1097,12 @@ def validate(contracts, config_path, agent_id, as_json, trace_paths):
                                 if hasattr(compiled, "formula")
                                 else ""
                             )
-                            kind = "STO" if isinstance(compiled, StoFormula) else "DET"
+                            # OSS only ships deterministic patterns;
+                            # ``_compile_structured`` raises on unknown
+                            # names rather than falling through to sto.
+                            kind = "DET"
                             nl = f"{entry.pattern}({', '.join(str(a) for a in entry.args)})"
-                            if kind == "DET":
-                                formula_for_replay = compiled
+                            formula_for_replay = compiled
                         except Exception as e:
                             ok = False
                             pattern = entry.pattern or ""
@@ -1178,11 +1149,6 @@ def validate(contracts, config_path, agent_id, as_json, trace_paths):
                             )
                             kind = "DET"
                             formula_for_replay = result.hard
-                        elif result.is_sto:
-                            ok = True
-                            pattern = getattr(result.sto, "desc", "")
-                            formula = ""
-                            kind = "STO"
                 else:
                     nl = str(entry)
                     try:
@@ -1207,10 +1173,6 @@ def validate(contracts, config_path, agent_id, as_json, trace_paths):
                         )
                         kind = "DET"
                         formula_for_replay = result.hard
-                    elif result.is_sto:
-                        pattern = getattr(result.sto, "desc", "")
-                        formula = ""
-                        kind = "STO"
                     else:
                         pattern = ""
                         formula = ""
@@ -1510,14 +1472,14 @@ def check(trace_path, contracts, config_path, agent_id, as_json):
                     {
                         "nl": nl,
                         "section": "assume",
-                        "passed": True,
-                        "note": "sto (skipped)",
+                        "passed": False,
+                        "note": "unparseable",
                     }
                 )
+                all_pass = False
                 if not as_json:
-                    dash = click.style("\u2013", dim=True)
-                    skip = click.style("(sto, skip)", dim=True)
-                    click.echo(f"    {dash} {nl}  {skip}")
+                    icon = click.style("\u2717", fg="red")
+                    click.echo(f"    {icon} {nl}  (unparseable)")
                 continue
 
             holds = eval_formula(parsed.hard.formula, valuations)
@@ -1548,14 +1510,14 @@ def check(trace_path, contracts, config_path, agent_id, as_json):
                     {
                         "nl": nl,
                         "section": "enforce",
-                        "passed": True,
-                        "note": "sto (skipped)",
+                        "passed": False,
+                        "note": "unparseable",
                     }
                 )
+                all_pass = False
                 if not as_json:
-                    dash = click.style("\u2013", dim=True)
-                    skip = click.style("(sto, skip)", dim=True)
-                    click.echo(f"    {dash} {nl}  {skip}")
+                    icon = click.style("\u2717", fg="red")
+                    click.echo(f"    {icon} {nl}  (unparseable)")
                 continue
 
             holds = eval_formula(parsed.hard.formula, valuations)

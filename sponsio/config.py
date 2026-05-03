@@ -144,7 +144,7 @@ class ContractEntry:
     pack_source: str | None = None
     """Origin of this entry — ``None`` for hand-written contracts,
     or the include spec (e.g. ``"sponsio:core/universal"``) for
-    contracts pulled in via ``include:``.  Used by ``overrides:`` to
+    contracts pulled in via ``include:``.  Used by ``customized:`` to
     target entries by their pack and by ``sponsio validate`` to surface
     where a contract came from."""
 
@@ -717,7 +717,7 @@ def _load_pack_contracts(
     ``"*"`` (see ``sponsio/contracts/core/universal.yaml`` for the
     canonical shape).  We pull that ``"*"`` block out and stamp every
     contract it contains with ``pack_source = spec`` so downstream
-    tooling (``overrides:``, ``sponsio validate`` source attribution)
+    tooling (``customized:``, ``sponsio validate`` source attribution)
     can address them.
 
     Args:
@@ -972,7 +972,7 @@ def _rewrite_contract_entry(
 
 @dataclass
 class OverrideRule:
-    """One ``overrides:`` entry — a match clause + an effect.
+    """One ``customized:`` entry — a match clause + an effect.
 
     Match fields are AND'd; a contract qualifies only when every key
     in ``match`` equals the corresponding contract field.  An empty
@@ -1021,7 +1021,7 @@ _OVERRIDE_EFFECT_KEYS = {"disabled", "threshold", "prompt_override", "context_sc
 
 
 def _parse_override_rule(raw: Any, agent_id: str, idx: int) -> OverrideRule:
-    """Validate a single ``overrides:`` entry.
+    """Validate a single ``customized:`` entry.
 
     Errors name the entry index so users can locate the offender in a
     long list quickly.  We also reject unknown keys outright — silently
@@ -1390,35 +1390,28 @@ def load_config(path: str | Path) -> SponsoConfig:
             for contract in ac.contracts:
                 _rewrite_contract_entry(contract, workspace_raw, tool_rename, agent_id)
 
-            # ``customized:`` (canonical) — a separate, agent-level
-            # block of ``match:`` + effect entries that adjust
-            # contracts loaded above (disable, retune args, narrow
-            # assumption, change threshold). Customized entries are
-            # NOT contracts and don't share the contract shape, so
-            # they stay in their own block.
+            # ``customized:`` — agent-level block of ``match:`` + effect
+            # entries that adjust contracts loaded above (disable,
+            # retune args, narrow assumption, change threshold).
+            # Customized entries are NOT contracts and don't share the
+            # contract shape, so they stay in their own block.
             #
-            # ``tweaks:`` and ``overrides:`` are accepted as silent
-            # legacy aliases so files written before the rename keep
-            # parsing. Reject if more than one of the three keys is
-            # present (a typo would ship a half-applied config).
-            present = {
-                k: agent_data.get(k)
-                for k in ("customized", "tweaks", "overrides")
-                if agent_data.get(k) is not None
-            }
-            if len(present) > 1:
-                raise ConfigError(
-                    f"Agent '{agent_id}': multiple customization keys "
-                    f"present {sorted(present)} — pick one "
-                    "('customized:' is the canonical key going forward; "
-                    "'tweaks:' / 'overrides:' remain for back-compat)."
-                )
-            block_raw = next(iter(present.values()), None)
-            if block_raw:
-                key_used = next(iter(present))
+            # The legacy aliases ``tweaks:`` and ``overrides:`` are no
+            # longer accepted — files using them must be migrated to
+            # ``customized:``.  Mention them in the error so older
+            # config files get an actionable diagnostic instead of a
+            # silent no-op.
+            for legacy in ("tweaks", "overrides"):
+                if agent_data.get(legacy) is not None:
+                    raise ConfigError(
+                        f"Agent '{agent_id}': '{legacy}:' is no longer "
+                        f"accepted — rename it to 'customized:'."
+                    )
+            block_raw = agent_data.get("customized")
+            if block_raw is not None:
                 if not isinstance(block_raw, list):
                     raise ConfigError(
-                        f"Agent '{agent_id}': '{key_used}' must be a list "
+                        f"Agent '{agent_id}': 'customized:' must be a list "
                         f"of customized entries, got {type(block_raw).__name__}"
                     )
                 customized = [
@@ -1440,115 +1433,54 @@ def load_config(path: str | Path) -> SponsoConfig:
 
 
 def _compile_structured(entry: ConstraintEntry) -> Any:
-    """Compile a structured constraint entry to a formula object.
+    """Compile a structured constraint entry to a deterministic formula.
 
-    Tries the deterministic pattern library first
+    Resolves ``entry.pattern`` against the deterministic pattern library
     (:func:`sponsio.generation.nl_to_contract.get_available_patterns`).
-    If the predicate isn't found there, falls back to the stochastic
-    atom registry (:mod:`sponsio.patterns.sto_registry`) and emits a
-    :class:`StoFormula` instead of a :class:`DetFormula`.
-
-    This dual-routing is what lets a YAML pack mix deterministic
-    patterns (``rate_limit``, ``must_precede``, …) and stochastic atoms
-    (``injection_free``, ``harmful``, ``scope_respect``, …) under a
-    single ``pattern:`` key without users needing to know which
-    registry their predicate lives in.
+    Stochastic / LLM-judged contracts are a Sponsio Cloud feature; the
+    OSS engine doesn't ship that pipeline, so an unknown pattern here
+    is a hard parse error rather than a silent fall-through.
     """
     from sponsio.generation.nl_to_contract import get_available_patterns
 
     det_registry = get_available_patterns()
-    if entry.pattern in det_registry:
-        fn = det_registry[entry.pattern]
-        coerced_args = []
-        for a in entry.args:
-            if isinstance(a, str) and a.isdigit():
-                coerced_args.append(int(a))
-            else:
-                coerced_args.append(a)
-        compiled = fn(*coerced_args)
-
-        # Many det patterns (``arg_blacklist``, ``called_with``,
-        # ``arg_field_has``-style derivatives, ...) inline regex args
-        # into the AST.  Pre-compile them now so an unsupported regex
-        # feature (variable-width lookbehind, unbalanced groups, ...)
-        # surfaces at config load instead of as a runtime ``re.error``
-        # the first time the relevant tool fires.
-        from sponsio.formulas.regex_check import (
-            RegexValidationError,
-            check_regexes,
-        )
-
-        formula_ast = getattr(compiled, "formula", None)
-        if formula_ast is not None:
-            try:
-                check_regexes(formula_ast)
-            except RegexValidationError as e:
-                raise ConfigError(
-                    f"Invalid regex in pattern={entry.pattern!r} "
-                    f"args={entry.args!r}: {e}"
-                ) from e
-        return compiled
-
-    return _compile_stochastic(entry, det_registry)
-
-
-def _compile_stochastic(entry: ConstraintEntry, det_registry: dict[str, Any]) -> Any:
-    """Compile a ``pattern:`` entry whose predicate is a registered sto atom.
-
-    Builds an :class:`~sponsio.formulas.formula.Atom` with
-    ``atom_type="sto"`` (forwarding ``context_scope`` /
-    ``output_type`` / ``prompt_override`` if the YAML supplied them,
-    falling back to the predicate's own catalog defaults otherwise),
-    wraps it in ``G(atom)`` so the invariant holds for every event, and
-    returns a :class:`StoFormula`.
-
-    Args:
-        entry: The constraint entry whose ``pattern`` named a sto atom.
-        det_registry: The det pattern registry — only used to build a
-            useful error message when the predicate is unknown to both
-            registries.
-
-    Raises:
-        ConfigError: If ``entry.pattern`` is unknown to the sto registry
-            (and, by virtue of falling through, the det registry too).
-    """
-    from sponsio.formulas.formula import Atom, G
-    from sponsio.patterns.sto import StoFormula
-    from sponsio.patterns.sto_registry import get_sto_atom_info
-
-    try:
-        info = get_sto_atom_info(entry.pattern)
-    except KeyError as e:
-        from sponsio.patterns.sto_registry import list_sto_atoms
-
+    if entry.pattern not in det_registry:
         raise ConfigError(
             f"Unknown pattern '{entry.pattern}'. "
-            f"Available det patterns: {sorted(det_registry.keys())}. "
-            f"Available sto atoms: {list_sto_atoms()}."
-        ) from e
-
-    if info.required_args and len(entry.args) < info.required_args:
-        raise ConfigError(
-            f"sto atom '{entry.pattern}' requires {info.required_args} "
-            f"positional arg(s); got {len(entry.args)}."
+            f"Available patterns: {sorted(det_registry.keys())}. "
+            f"(LLM-judged stochastic patterns require Sponsio Cloud — "
+            f"`pip install sponsio[cloud]`.)"
         )
 
-    atom_args = tuple(str(a) for a in entry.args)
-    atom = Atom(
-        entry.pattern,
-        *atom_args,
-        atom_type="sto",
-        output_type=entry.output_type or info.default_output_type,
-        context_scope=entry.context_scope or info.default_context_scope,
-        prompt_override=entry.prompt_override,
+    fn = det_registry[entry.pattern]
+    coerced_args = []
+    for a in entry.args:
+        if isinstance(a, str) and a.isdigit():
+            coerced_args.append(int(a))
+        else:
+            coerced_args.append(a)
+    compiled = fn(*coerced_args)
+
+    # Many det patterns (``arg_blacklist``, ``called_with``,
+    # ``arg_field_has``-style derivatives, ...) inline regex args
+    # into the AST.  Pre-compile them now so an unsupported regex
+    # feature (variable-width lookbehind, unbalanced groups, ...)
+    # surfaces at config load instead of as a runtime ``re.error``
+    # the first time the relevant tool fires.
+    from sponsio.formulas.regex_check import (
+        RegexValidationError,
+        check_regexes,
     )
-    return StoFormula(
-        desc=entry.pattern if not info.description else info.description,
-        category=entry.pattern,
-        formula=G(atom),
-        threshold=entry.threshold if entry.threshold is not None else 0.7,
-        requires_llm=True,
-    )
+
+    formula_ast = getattr(compiled, "formula", None)
+    if formula_ast is not None:
+        try:
+            check_regexes(formula_ast)
+        except RegexValidationError as e:
+            raise ConfigError(
+                f"Invalid regex in pattern={entry.pattern!r} args={entry.args!r}: {e}"
+            ) from e
+    return compiled
 
 
 def _compile_ltl(entry: ConstraintEntry) -> Any:

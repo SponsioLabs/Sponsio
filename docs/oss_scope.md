@@ -89,8 +89,8 @@ commitment, not a "temporarily open" status.
 
 ## In Sponsio Cloud (commercial) — `pip install sponsio[cloud]`
 
-### Sto (stochastic) pipeline
-- The full `sponsio.patterns.sto_catalog` — every built-in LLM-judge
+### Sto (stochastic) pipeline — Cloud only, not in OSS at all
+- `sponsio.patterns.sto_catalog` — every built-in LLM-judge
   evaluator (`no_pii`, `tone_polite`, `injection_free`,
   `jailbreak_free`, `toxic_free`, `semantic_pii_free`, `scope_respect`,
   `hallucination_free`, `harmful`, `faithfulness`, plus
@@ -103,8 +103,12 @@ commitment, not a "temporarily open" status.
 - `sponsio.runtime.judge` — judge harness
 - `sponsio.runtime.llm_client` — judge LLM call adapters
 - `sponsio.runtime.calibrator` — sto threshold calibration
-- The OSS monitor logs-and-skips sto contracts with a one-time warning;
-  Cloud installs replace the stub monitor with the full sto path.
+- The OSS engine ships **no** stochastic atoms or sto compilation
+  path. A YAML library that names a sto pattern (``pattern: tone_polite``,
+  ``pattern: injection_free``, …) raises ``ConfigError`` at load with a
+  pointer to ``pip install sponsio[cloud]``. The deterministic patterns
+  ``no_pii`` / ``max_length`` / ``no_keywords`` are intentionally
+  ship-as-det (regex against ``llm_said``) and remain available in OSS.
 
 ### Cross-corpus mining + cloud backend
 - *Cross-customer* extension to `sponsio refresh` — anonymized

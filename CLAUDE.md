@@ -17,7 +17,7 @@ import sponsio
 guard = sponsio.Sponsio(...)
 ```
 
-Sponsio also supports stochastic constraints for fuzzy properties such as tone, relevance, semantic PII, scope respect, hallucination, and metric integrity. **Stochastic constraints are a Sponsio Cloud feature** (`pip install sponsio[cloud]`); the OSS engine logs-and-skips them with a one-time per-contract warning. Deterministic contracts are the OSS hot path for blocking unsafe actions; stochastic contracts provide scored feedback/retry behavior for output and semantic checks. See [docs/oss_scope.md](docs/oss_scope.md) for the full OSS / Cloud boundary.
+Sponsio Cloud (`pip install sponsio[cloud]`) adds a separate stochastic pipeline for fuzzy properties (tone, relevance, semantic PII, scope respect, hallucination, metric integrity) backed by LLM-judged atoms. The OSS engine ships **only deterministic contracts** — a YAML library that names a sto pattern raises `ConfigError` at load with a pointer to the Cloud install. Deterministic patterns covering syntactic PII / response length / response keyword bans (`no_pii`, `max_length`, `no_keywords`) remain available in OSS; they're regex-against-`llm_said` and don't need a judge. See [docs/oss_scope.md](docs/oss_scope.md) for the full OSS / Cloud boundary.
 
 ## Positioning
 
