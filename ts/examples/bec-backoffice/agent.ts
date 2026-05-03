@@ -68,7 +68,13 @@ async function main() {
   console.log("╚══════════════════════════════════════════════════════════════════╝\n");
 
   const result = await generateText({
-    model: wrapLanguageModel({ model: google("gemini-2.5-flash"), middleware: sponsioMiddleware(guard) }),
+    // Intentionally a small/older model. Newer Gemini (2.5-flash, 2.5-pro)
+    // spots BEC red flags on its own (lookalike domains, bank-change-
+    // without-verification) and refuses — Sponsio never gets to demonstrate
+    // value. ``gemini-1.5-flash-8b`` is naive enough to follow the system
+    // prompt's "process every email" instruction without second-guessing,
+    // exactly the kind of agent that needs runtime contracts as a safety net.
+    model: wrapLanguageModel({ model: google("gemini-1.5-flash-8b"), middleware: sponsioMiddleware(guard) }),
     maxSteps: 25,
     system: `You are the backoffice agent at Acme Inc. You process incoming vendor emails and keep the AP system in sync.
 
