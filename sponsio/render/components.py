@@ -184,6 +184,10 @@ def contract_stats_table(
 # ---------------------------------------------------------------------------
 
 
+_TOOL_COL = 56
+_LAT_COL = 8
+
+
 def event_line(
     timestamp: str,
     tool: str,
@@ -192,7 +196,18 @@ def event_line(
     service: str,
     branch: str = "├─",
 ) -> Text:
-    """One ``├─ tool args  +Nms  service`` row in the trace tree."""
+    """One ``├─ tool args  +Nms  service`` row in the trace tree.
+
+    Tool+args is padded to ``_TOOL_COL`` visible chars and latency to
+    ``_LAT_COL`` so the latency and service columns line up across rows
+    with varying tool-name lengths. Rows whose tool+args naturally
+    exceeds the column just push the rest right (no truncation) —
+    uncommon enough not to matter for readability.
+    """
+    visible_tool = tool + (f" {args}" if args else "")
+    tool_pad = " " * max(1, _TOOL_COL - len(visible_tool))
+    lat_pad = " " * max(1, _LAT_COL - len(latency))
+
     parts: list[tuple[str, str]] = [
         (f"{timestamp:<6}", PALETTE["metadata"]),
         (f"  {branch} ", PALETTE["metadata"]),
@@ -200,9 +215,10 @@ def event_line(
     ]
     if args:
         parts.append((f" {args}", PALETTE["metadata"]))
+    parts.append((tool_pad, ""))
     if latency:
-        parts.append((f"  {latency}".rjust(8), PALETTE["metadata"]))
-    parts.append(("  ", ""))
+        parts.append((latency, PALETTE["metadata"]))
+    parts.append((lat_pad, ""))
     parts.append((service, service_color(service)))
     return Text.assemble(*parts)
 

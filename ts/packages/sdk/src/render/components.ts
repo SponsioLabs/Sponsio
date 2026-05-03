@@ -78,6 +78,13 @@ export interface TraceRow {
   body: string;
 }
 
+// Fixed visible-width target for the tool+args part of the trace row,
+// so the latency and service columns line up vertically. Rows whose
+// tool+args naturally exceed this just push the rest right (no
+// truncation) — uncommon enough not to matter.
+const TOOL_COL = 56;
+const LAT_COL = 8;
+
 export function eventLine(
   tsLabel: string,
   toolName: string,
@@ -94,9 +101,14 @@ export function eventLine(
   const summary = argsSummary
     ? `(${ansi(PALETTE.metadata, argsSummary, useColor)})`
     : "()";
-  const lat = latency ? `  ${ansi(PALETTE.metadata, latency, useColor)}` : "";
-  const svc = service ? `   ${ansi(serviceColor(service), service, useColor)}` : "";
-  return `${ts} ${br} ${tool}${summary}${lat}${svc}`;
+  // Visible width of the tool+args body (no ANSI), for column padding.
+  const visibleTool = toolName + (argsSummary ? `(${argsSummary})` : "()");
+  const toolPad = " ".repeat(Math.max(1, TOOL_COL - visibleTool.length));
+  const visibleLat = latency || "";
+  const latRight = " ".repeat(Math.max(1, LAT_COL - visibleLat.length));
+  const lat = latency ? `${ansi(PALETTE.metadata, latency, useColor)}` : pad("", LAT_COL);
+  const svc = service ? ansi(serviceColor(service), service, useColor) : "";
+  return `${ts} ${br} ${tool}${summary}${toolPad}${lat}${latRight}${svc}`;
 }
 
 export function assumeLine(alias: string, summary: string, useColor: boolean): string {
