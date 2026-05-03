@@ -31,6 +31,8 @@ from sponsio.patterns.library import (
     backup_before_destructive,
     confirm_after_source,
     cooldown,
+    ctx_matches_required,
+    ctx_required,
     dangerous_bash_commands,
     dangerous_sql_verbs,
     delegation_depth_limit,
@@ -159,6 +161,11 @@ _PATTERN_REGISTRY: dict[str, Callable[..., DetFormula]] = {
     "token_budget": token_budget,
     "delegation_depth_limit": delegation_depth_limit,
     "arg_value_range": arg_value_range,
+    # External-context gating (caller identity, content source, signed
+    # message metadata, …) — pairs with ``observe_context()``
+    # / hook ``context`` field.
+    "ctx_required": ctx_required,
+    "ctx_matches_required": ctx_matches_required,
     # Workflow hygiene
     "dry_run_before_commit": dry_run_before_commit,
     "backup_before_destructive": backup_before_destructive,

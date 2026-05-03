@@ -373,3 +373,114 @@ def test_run_stdin_observe_mode_does_not_block(tmp_path, monkeypatch, capsys):
     # Observe mode → no deny JSON, but the violation is still logged
     # to the session-log dir (not asserted here).
     assert captured.out == ""
+
+
+# ---------------------------------------------------------------------------
+# Hook-payload ``context`` field — bridges host-side caller identity /
+# tenant / signed-message metadata into the contract layer so ``ctx``-
+# based contracts (``ctx_required`` / ``ctx_matches_required``) fire.
+# ---------------------------------------------------------------------------
+
+
+def _ctx_required_library(tool: str, key: str, allowed: list[str]) -> str:
+    """Library that allows ``tool`` only when ``ctx[key]`` is one of
+    ``allowed`` — proves the hook payload's ``context`` field reaches
+    the contract layer."""
+    values = ", ".join(repr(v) for v in allowed)
+    return f"""
+version: "1"
+agents:
+  _host:
+    contracts:
+      - desc: "{tool} only when ctx[{key}] in [{values}]"
+        E:
+          pattern: ctx_required
+          args: [{tool}, {key}, [{values}]]
+"""
+
+
+def test_evaluate_context_field_allows_matching_caller(tmp_path, monkeypatch):
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
+    _write_library(
+        tmp_path, "_host", _ctx_required_library("Bash", "user_id", ["alice"])
+    )
+    outcome = evaluate_event(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "ls"},
+            "context": {"user_id": "alice"},
+        }
+    )
+    assert outcome.allowed is True
+
+
+def test_evaluate_context_field_denies_non_matching_caller(tmp_path, monkeypatch):
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
+    _write_library(
+        tmp_path, "_host", _ctx_required_library("Bash", "user_id", ["alice"])
+    )
+    outcome = evaluate_event(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "ls"},
+            "context": {"user_id": "bob"},
+        }
+    )
+    assert outcome.allowed is False
+
+
+def test_evaluate_missing_context_denies_when_ctx_required(tmp_path, monkeypatch):
+    """No ``context`` field at all → ctx[key] is unset → ``ctx_required``
+    can't be satisfied → deny. This is the safe-by-default behaviour: a
+    host that forgets to forward identity gets blocked, not silently
+    allowed."""
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
+    _write_library(
+        tmp_path, "_host", _ctx_required_library("Bash", "user_id", ["alice"])
+    )
+    outcome = evaluate_event(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "ls"},
+        }
+    )
+    assert outcome.allowed is False
+
+
+def test_evaluate_context_field_back_compat_for_unrelated_rules(tmp_path, monkeypatch):
+    """Hook payloads that do NOT carry a ``context`` field must still
+    work for non-ctx rules — this is the back-compat lock so existing
+    Cursor / Claude Code / OpenClaw integrations keep working without
+    a hook protocol bump."""
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
+    _write_library(tmp_path, "_host", _shell_library())
+    outcome = evaluate_event(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "ls -la"},
+            # no "context" field
+        }
+    )
+    assert outcome.allowed is True
+
+
+def test_evaluate_context_field_ignores_non_dict_value(tmp_path, monkeypatch):
+    """Defensive: a host that ships a malformed ``context`` field
+    (string, list, …) must not blow up the guard — the field is
+    silently ignored and evaluation falls back to the no-context
+    code path."""
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
+    _write_library(tmp_path, "_host", _shell_library())
+    outcome = evaluate_event(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "ls -la"},
+            "context": "alice",  # malformed — should be a dict
+        }
+    )
+    assert outcome.allowed is True

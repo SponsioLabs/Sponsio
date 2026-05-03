@@ -606,6 +606,23 @@ def evaluate_event(event: dict) -> GuardOutcome:
                 from sponsio.models.trace import Trace
 
                 guard._monitor.import_trace(Trace(events=list(prior_events)))
+            # Bridge any host-supplied context facts (caller identity,
+            # tenant, signed-message metadata, …) into the contract layer
+            # before the tool call is evaluated. The host plugin packs
+            # these into the ``context`` field of the PreToolUse payload;
+            # we forward them via ``observe_context`` so subsequent
+            # ``ctx(k, v)`` / ``ctx_matches`` atoms see them at the same
+            # timestep as the tool call. Non-dict values are ignored —
+            # defensive against future shape drift in host hook payloads.
+            context_facts = event.get("context")
+            if isinstance(context_facts, dict) and context_facts:
+                clean = {
+                    str(k): str(v)
+                    for k, v in context_facts.items()
+                    if k is not None and v is not None
+                }
+                if clean:
+                    guard.observe_context(clean)
             result = guard.guard_before(tool_name=tool_name, args=tool_input)
     except Exception as e:  # pragma: no cover - surfaced via stderr
         sys.stderr.write(f"sponsio plugin guard:evaluation error in {lib_path}: {e}\n")
