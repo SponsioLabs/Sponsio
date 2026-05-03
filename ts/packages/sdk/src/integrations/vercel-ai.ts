@@ -73,14 +73,14 @@ function parseArgs(raw: unknown): Record<string, unknown> {
 
 export function sponsioMiddleware(guard: Sponsio) {
   return {
-    transformParams: async ({ params }: { params: unknown }) => params,
+    transformParams: async ({ params }: { params: any }): Promise<any> => params,
 
     wrapGenerate: async ({
       doGenerate,
     }: {
-      doGenerate: () => Promise<GenerateResult>;
-      params: unknown;
-    }): Promise<GenerateResult> => {
+      doGenerate: () => any;
+      params: any;
+    }): Promise<any> => {
       const result = await doGenerate();
       const calls = result.toolCalls ?? [];
       if (calls.length === 0) return result;
@@ -117,7 +117,7 @@ export function sponsioMiddleware(guard: Sponsio) {
       };
     },
 
-    wrapStream: async ({ doStream }: { doStream: () => Promise<unknown> }) => {
+    wrapStream: async ({ doStream }: { doStream: () => any }): Promise<any> => {
       // Stream support is intentionally pass-through for now; the
       // stream parts API is more involved and the demo / OSS hot
       // path uses generateText. We can add full stream filtering in

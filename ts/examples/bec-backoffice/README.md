@@ -36,14 +36,29 @@ Vendor records on file ([fixtures/vendors.json](fixtures/vendors.json)) show Acm
 
 See [tools.ts](tools.ts) for schemas. Tools are mocked: bank changes and payments are written to `state.runtime.json` so you can see the blast radius after each run.
 
-## Running the vulnerable baseline
+## Two ways to run
 
-From the repo root:
+This folder has **two** runners:
+
+| Entry | What it does | When to use |
+|---|---|---|
+| [`demo.ts`](demo.ts) | Plays a fixed 11-step trajectory through the mock tools + Sponsio. **No LLM**. Always blocks the BEC at the same step, always shows the same trace. | Screenshots, docs, CI, showing Sponsio's value without LLM noise. |
+| [`agent.ts`](agent.ts) | Runs an actual LLM (Vercel AI SDK + Google Gemini by default) over the inbox. Sponsio guards the tool calls. | Realism. The LLM may or may not take the BEC bait — if it does, Sponsio catches it; if it sees the phishing on its own, you'll see a partial trace and Sponsio won't fire. |
+
+### Deterministic demo (recommended for first look)
 
 ```bash
 cd ts && npm install                      # workspace install (one-time)
 cd examples/bec-backoffice
-ANTHROPIC_API_KEY=sk-... npx tsx agent.ts
+npx tsx demo.ts                           # no API key needed
+```
+
+### LLM-driven run
+
+```bash
+cd ts && npm install
+cd examples/bec-backoffice
+GOOGLE_GENERATIVE_AI_API_KEY=AIza... npx tsx agent.ts
 ```
 
 Expected trace (the model's exact path varies, but the high-risk steps are deterministic):
