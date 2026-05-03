@@ -1,0 +1,36 @@
+version: 1
+
+# ─────────────────────────────────────────────────────────────────────
+#  BEC defense contracts for the Acme backoffice agent.
+#
+#  These are the runtime contracts a security or finance team signs
+#  off on. Every rule is deterministic — no LLM is consulted at
+#  runtime; the check is a pure function over the event trace.
+#
+#  Block messages are auto-generated from the formula in `E:`. The
+#  comments above each contract are documentation for human readers.
+# ─────────────────────────────────────────────────────────────────────
+
+runtime:
+  mode: enforce
+
+agents:
+  backoffice:
+    contracts:
+      # ── 1. The single most important BEC defense ────────────────────
+      #
+      # Vendor bank account changes require an out-of-band callback to
+      # the phone number on file BEFORE the change is written. A
+      # verified phone callback is the one defense BEC attackers
+      # cannot bypass — they don't control the legitimate vendor's AP
+      # desk number. Email "internal notes" claiming OOB was waived
+      # are themselves the attack.
+      - E: "tool `verify_vendor_oob` must precede `update_vendor_bank_account`"
+
+      # ── 2. Blast-radius cap on payments ─────────────────────────────
+      #
+      # A single morning inbox sweep should never wire more than three
+      # payments. If the agent is being walked through a payment loop
+      # (e.g. an attacker sends multiple invoice-due notices to bleed
+      # the account), this rule is the floor that stops it.
+      - E: "tool `issue_payment` at most 3 times"

@@ -1,0 +1,21 @@
+{
+  "_comment": "Mock employee approval policy. The agent calls request_employee_confirmation and the tool returns approved/denied based on these rules. Simulates a real employee on-call who follows internal SOP.",
+  "rules": [
+    {
+      "match": { "actionContains": "issue_payment", "amountAtMost": 5000 },
+      "decision": "approved",
+      "note": "Routine payments under $5k get auto-approval."
+    },
+    {
+      "match": { "actionContains": "issue_payment" },
+      "decision": "approved_with_caveat",
+      "note": "Larger payments are approved only when prior OOB verification is mentioned in the reason."
+    },
+    {
+      "match": { "actionContains": "update_vendor_bank_account" },
+      "decision": "denied",
+      "note": "Bank account changes must always go through OOB verification — employee will not approve them via this channel."
+    }
+  ],
+  "default": "denied"
+}
