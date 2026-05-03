@@ -32,41 +32,14 @@ PALETTE: dict[str, str] = {
 # overpower verdicts. Unknown services fall back to ``muted``.
 # ---------------------------------------------------------------------------
 
+# Transport color palette — the only labels ``service_for_tool`` ever
+# returns. ``function`` is the background-noise default (muted);
+# distinguished transports get a distinct hue so they pop in the trace.
 SERVICE_COLORS: dict[str, str] = {
-    # LLM providers
-    "openai": "#10A37F",
-    "anthropic": "#D97757",
-    "gemini": "#4285F4",
-    "mistral": "#FA520F",
-    # Databases
-    "postgres": "#336791",
-    "mysql": "#00758F",
-    "mongodb": "#47A248",
-    "redis": "#DC382D",
-    # Code & comms
-    "github": "#8B949E",
-    "gitlab": "#FC6D26",
-    "slack": "#611F69",
-    "gmail": "#EA4335",
-    # Cloud
-    "aws": "#FF9900",
-    "gcp": "#4285F4",
-    "azure": "#0078D4",
-    # Local / protocol — use the muted token directly so re-tinting the
-    # palette automatically re-tints these.
-    "fs": PALETTE["muted"],
-    "shell": PALETTE["muted"],
-    "mcp": PALETTE["muted"],
-    "http": PALETTE["muted"],
-    # Business-domain services (matched by ``_TOOL_KEYWORD_TO_SERVICE``
-    # in derive.py — covers vendor / payment / mail / hitl / ops tools
-    # that the per-provider prefix table can't enumerate).
-    "payments": "#D32F2F",  # red — high-risk financial actions
-    "banking": "#D32F2F",
-    "vendor": "#1976D2",  # blue
-    "mail": "#7B1FA2",  # magenta
-    "hitl": "#F57C00",  # orange — human in the loop
-    "ops": "#0097A7",  # teal
+    "func": PALETTE["muted"],
+    "shell": "#F57C00",  # orange — agent shelling out is high-risk
+    "mcp": "#7B1FA2",  # magenta
+    "http": "#1976D2",  # blue
 }
 
 

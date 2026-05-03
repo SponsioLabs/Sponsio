@@ -18,47 +18,30 @@ from sponsio.render.tokens import SERVICE_COLORS
 # Tool → service mapping.
 # ---------------------------------------------------------------------------
 
-# Ordered: more specific prefixes win. The last entry per service is a
-# catch-all keyword search performed only if no prefix matches.
+# Tool-name -> transport label. The session-view's ``service`` column
+# shows the **transport** the tool uses to actually run — one of
+# ``function`` / ``mcp`` / ``shell`` / ``http``. Other axes (resource,
+# business domain) belong in additional columns; folding them into
+# ``service`` makes the label semantics inconsistent across scenarios.
+#
+# Default for anything not on the table is ``function`` — the
+# overwhelmingly common case in modern agent SDKs (OpenAI, Anthropic,
+# Vercel AI SDK, Claude Agent SDK, LangChain) is in-process function-
+# call dispatch from a structured ``tool_use`` block.
 _TOOL_PREFIX_TO_SERVICE: list[tuple[str, str]] = [
-    ("execute_sql", "postgres"),
-    ("query_sql", "postgres"),
-    ("connect_db", "postgres"),
-    ("db_query", "postgres"),
-    ("db_execute", "postgres"),
-    ("postgres.", "postgres"),
-    ("psql.", "postgres"),
-    ("mysql.", "mysql"),
-    ("mongo.", "mongodb"),
-    ("redis.", "redis"),
-    ("github.", "github"),
-    ("gh.", "github"),
-    ("gitlab.", "gitlab"),
-    ("slack.", "slack"),
-    ("gmail.", "gmail"),
-    ("aws.", "aws"),
-    ("s3.", "aws"),
-    ("ec2.", "aws"),
-    ("gcp.", "gcp"),
-    ("azure.", "azure"),
-    ("openai.", "openai"),
-    ("anthropic.", "anthropic"),
-    ("gemini.", "gemini"),
-    ("mistral.", "mistral"),
-    ("read_file", "fs"),
-    ("write_file", "fs"),
-    ("edit_file", "fs"),
-    ("list_dir", "fs"),
-    ("file.", "fs"),
-    ("fs.", "fs"),
+    # Shell exec — runtime spawns a subprocess.
     ("bash", "shell"),
     ("shell.", "shell"),
     ("run_tests", "shell"),
     ("execute_command", "shell"),
+    # Model Context Protocol — runtime speaks JSON-RPC to a separate
+    # MCP server (stdio or HTTP+SSE).
     ("user_instruction", "mcp"),
     ("user_message", "mcp"),
     ("mcp.", "mcp"),
     ("mcp__", "mcp"),
+    # Raw HTTP fetch — thin wrapper around the network stack rather
+    # than a typed function-call handler.
     ("http.", "http"),
     ("fetch", "http"),
     ("web_fetch", "http"),
@@ -66,40 +49,20 @@ _TOOL_PREFIX_TO_SERVICE: list[tuple[str, str]] = [
 ]
 
 
-# Domain-keyword fallbacks — applied AFTER the prefix table when no
-# strict-prefix match is found. Catches business-domain tool names
-# (``update_vendor_bank_account``, ``issue_payment``, ``read_email``,
-# etc.) that the generic prefix table can't enumerate. Order matters:
-# more specific keywords first.
-import re as _re
-
-_TOOL_KEYWORD_TO_SERVICE: list[tuple[_re.Pattern, str]] = [
-    (_re.compile(r"wire|payment|\bpay_?|transfer|payout|invoice|refund"), "payments"),
-    (_re.compile(r"bank|account|treasury|remit"), "banking"),
-    (_re.compile(r"vendor|supplier|customer|merchant"), "vendor"),
-    (_re.compile(r"email|mail|inbox|message"), "mail"),
-    (_re.compile(r"employee|confirm|approv|escalate|human"), "hitl"),
-    (_re.compile(r"snapshot|backup|restore|dr_|disaster"), "ops"),
-]
-
-
 def service_for_tool(tool: str | None) -> str:
-    """Infer the service label for a tool name. Falls back to ``"unknown"``."""
+    """Infer the transport label for a tool name.
+
+    Returns one of ``func`` / ``mcp`` / ``shell`` / ``http``.
+    Default is ``func`` — short for in-process function-call dispatch
+    from a structured tool_use block (the modal SDK behaviour).
+    """
     if not tool:
         return "unknown"
     lowered = tool.lower()
-    for prefix, service in _TOOL_PREFIX_TO_SERVICE:
+    for prefix, transport in _TOOL_PREFIX_TO_SERVICE:
         if lowered.startswith(prefix):
-            return service
-    # Last-chance keyword search for SQL operations buried in args:
-    # e.g. ``run("DROP TABLE foo")`` looks like shell at first.
-    if "sql" in lowered:
-        return "postgres"
-    # Domain-keyword fallback for business-domain tool names.
-    for regex, service in _TOOL_KEYWORD_TO_SERVICE:
-        if regex.search(lowered):
-            return service
-    return "unknown"
+            return transport
+    return "func"
 
 
 def has_known_service(tool: str | None) -> bool:

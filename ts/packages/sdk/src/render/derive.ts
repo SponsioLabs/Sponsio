@@ -1,114 +1,57 @@
 /**
- * Tool-name → service label inference. Mirrors Python's
- * ``sponsio/render/derive.py``. Used by the session-view renderer
- * to colorise the service column on each event row (mcp / postgres
- * / fs / shell / etc.).
+ * Tool-name → transport label inference. Mirrors Python's
+ * ``sponsio/render/derive.py``. The session-view's ``service``
+ * column shows the **transport** the tool uses to actually run —
+ * one of ``function`` / ``mcp`` / ``shell`` / ``http``. Other axes
+ * (resource being acted on, business domain) belong in additional
+ * columns; folding them into ``service`` makes the label semantics
+ * inconsistent across scenarios.
  *
- * Ordered most-specific-first; the table is checked top-down and
- * the first matching prefix wins. Falls through to a keyword search
- * for SQL verbs buried in args, then to ``"unknown"``.
+ * Default for anything not on the table is ``function`` — the
+ * overwhelmingly common case in modern agent SDKs (Vercel AI SDK,
+ * Anthropic, OpenAI, Claude Agent SDK, LangChain) is in-process
+ * function-call dispatch from a structured ``tool_use`` block.
  */
 
-const TOOL_PREFIX_TO_SERVICE: [string, string][] = [
-  ["execute_sql", "postgres"],
-  ["query_sql", "postgres"],
-  ["connect_db", "postgres"],
-  ["db_query", "postgres"],
-  ["db_execute", "postgres"],
-  ["postgres.", "postgres"],
-  ["psql.", "postgres"],
-  ["mysql.", "mysql"],
-  ["mongo.", "mongodb"],
-  ["redis.", "redis"],
-  ["github.", "github"],
-  ["gh.", "github"],
-  ["gitlab.", "gitlab"],
-  ["slack.", "slack"],
-  ["gmail.", "gmail"],
-  ["aws.", "aws"],
-  ["s3.", "aws"],
-  ["ec2.", "aws"],
-  ["gcp.", "gcp"],
-  ["azure.", "azure"],
-  ["openai.", "openai"],
-  ["anthropic.", "anthropic"],
-  ["gemini.", "gemini"],
-  ["mistral.", "mistral"],
-  ["read_file", "fs"],
-  ["write_file", "fs"],
-  ["edit_file", "fs"],
-  ["list_dir", "fs"],
-  ["file.", "fs"],
-  ["fs.", "fs"],
+const TOOL_PREFIX_TO_TRANSPORT: [string, string][] = [
+  // Shell exec — the runtime spawns a subprocess.
   ["bash", "shell"],
   ["shell.", "shell"],
   ["run_tests", "shell"],
   ["execute_command", "shell"],
+  // Model Context Protocol — the runtime speaks JSON-RPC to a
+  // separate MCP server (stdio or HTTP+SSE).
   ["user_instruction", "mcp"],
   ["user_message", "mcp"],
   ["mcp.", "mcp"],
   ["mcp__", "mcp"],
+  // Raw HTTP fetch — a thin wrapper around the network stack rather
+  // than a typed function-call handler.
   ["http.", "http"],
   ["fetch", "http"],
   ["web_fetch", "http"],
   ["web_search", "http"],
 ];
 
-// Domain-keyword fallbacks — applied AFTER the prefix table when no
-// strict-prefix match is found. Catches business-domain tool names
-// (``update_vendor_bank_account``, ``issue_payment``, ``read_email``,
-// etc.) that the generic prefix table can't enumerate. Order matters:
-// more specific keywords first.
-const TOOL_KEYWORD_TO_SERVICE: [RegExp, string][] = [
-  [/wire|payment|\bpay_?|transfer|payout|invoice|refund/, "payments"],
-  [/bank|account|treasury|remit/, "banking"],
-  [/vendor|supplier|customer|merchant/, "vendor"],
-  [/email|mail|inbox|message/, "mail"],
-  [/employee|confirm|approv|escalate|human/, "hitl"],
-  [/snapshot|backup|restore|dr_|disaster/, "ops"],
-];
-
 export function serviceForTool(tool: string | undefined): string {
   if (!tool) return "unknown";
   const lowered = tool.toLowerCase();
-  for (const [prefix, service] of TOOL_PREFIX_TO_SERVICE) {
-    if (lowered.startsWith(prefix)) return service;
+  for (const [prefix, transport] of TOOL_PREFIX_TO_TRANSPORT) {
+    if (lowered.startsWith(prefix)) return transport;
   }
-  if (lowered.includes("sql")) return "postgres";
-  for (const [re, service] of TOOL_KEYWORD_TO_SERVICE) {
-    if (re.test(lowered)) return service;
-  }
-  return "unknown";
+  return "func";
 }
 
+// Transport color palette — only labels ``serviceForTool`` returns
+// ever appear here. Keep this minimal: ``function`` is the
+// background-noise default (dim), distinguished transports get a
+// distinct hue so they pop in the trace.
 const SERVICE_COLORS: Record<string, string> = {
-  postgres: "34", // blue
-  mysql: "34",
-  mongodb: "32",
-  redis: "31",
-  github: "35", // magenta
-  gitlab: "35",
-  slack: "35",
-  gmail: "35",
-  aws: "33", // yellow
-  gcp: "33",
-  azure: "36",
-  openai: "37",
-  anthropic: "37",
-  gemini: "37",
-  mistral: "37",
-  fs: "36", // cyan
-  shell: "33",
-  mcp: "35",
-  http: "37",
-  // Business-domain services (matched by TOOL_KEYWORD_TO_SERVICE).
-  payments: "31", // red — high-risk financial actions
-  banking: "31", // red
-  vendor: "34", // blue
-  mail: "35", // magenta
-  hitl: "33", // yellow — human in the loop
-  ops: "36", // cyan
-  unknown: "2", // dim
+  func: "2", // dim — the unmarked common case (in-process function call)
+  shell: "33", // yellow
+  mcp: "35", // magenta
+  http: "37", // white
+  unknown: "2",
 };
 
 export function serviceColor(service: string): string {
