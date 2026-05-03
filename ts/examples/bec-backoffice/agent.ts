@@ -68,13 +68,18 @@ async function main() {
   console.log("╚══════════════════════════════════════════════════════════════════╝\n");
 
   const result = await generateText({
-    // Intentionally a small/older model. Newer Gemini (2.5-flash, 2.5-pro)
+    // Intentionally an older model. Newer Gemini (2.5-flash, 2.5-pro)
     // spots BEC red flags on its own (lookalike domains, bank-change-
     // without-verification) and refuses — Sponsio never gets to demonstrate
-    // value. ``gemini-1.5-flash-8b`` is naive enough to follow the system
-    // prompt's "process every email" instruction without second-guessing,
-    // exactly the kind of agent that needs runtime contracts as a safety net.
-    model: wrapLanguageModel({ model: google("gemini-1.5-flash-8b"), middleware: sponsioMiddleware(guard) }),
+    // value. ``gemini-1.5-flash`` is from before the safety-tuning
+    // generation that aggressively refuses ambiguous requests; it follows
+    // the system prompt's "process every email" instruction without
+    // second-guessing, exactly the kind of agent that needs runtime
+    // contracts as a safety net.
+    //
+    // (Earlier we tried ``gemini-1.5-flash-8b``; that name is in the
+    // @ai-sdk/google types but the v1beta API endpoint returns 404 for it.)
+    model: wrapLanguageModel({ model: google("gemini-1.5-flash"), middleware: sponsioMiddleware(guard) }),
     maxSteps: 25,
     system: `You are the backoffice agent at Acme Inc. You process incoming vendor emails and keep the AP system in sync.
 
