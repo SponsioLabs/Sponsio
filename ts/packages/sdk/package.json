@@ -2,6 +2,16 @@
   "name": "@sponsio/sdk",
   "version": "0.1.0-alpha.3",
   "description": "Runtime contract enforcement for LLM agents — native TypeScript",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SponsioLabs/Sponsio.git",
+    "directory": "ts/packages/sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/SponsioLabs/Sponsio/issues"
+  },
+  "homepage": "https://github.com/SponsioLabs/Sponsio#readme",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
