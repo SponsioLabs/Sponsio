@@ -4183,8 +4183,14 @@ def onboard(
                     re.compile(r"create_react_agent\s*\("),
                 ],
                 "crewai": [re.compile(r"from\s+crewai"), re.compile(r"\bAgent\s*\(")],
-                "autogen": [re.compile(r"from\s+autogen"), re.compile(r"AssistantAgent\s*\(")],
-                "openai_agents": [re.compile(r"from\s+agents"), re.compile(r"\bAgent\s*\(")],
+                "autogen": [
+                    re.compile(r"from\s+autogen"),
+                    re.compile(r"AssistantAgent\s*\("),
+                ],
+                "openai_agents": [
+                    re.compile(r"from\s+agents"),
+                    re.compile(r"\bAgent\s*\("),
+                ],
                 "openai": [re.compile(r"from\s+openai"), re.compile(r"OpenAI\s*\(")],
                 "anthropic": [
                     re.compile(r"from\s+anthropic"),
@@ -4198,10 +4204,18 @@ def onboard(
             if sigs:
                 from glob import glob as _glob
 
-                py_files = sorted(set(_glob(str(root / "*.py")) + _glob(str(root / "**/*.py"), recursive=True)))
+                py_files = sorted(
+                    set(
+                        _glob(str(root / "*.py"))
+                        + _glob(str(root / "**/*.py"), recursive=True)
+                    )
+                )
                 py_files = [
-                    f for f in py_files
-                    if "/.venv/" not in f and "/__pycache__/" not in f and "/site-packages/" not in f
+                    f
+                    for f in py_files
+                    if "/.venv/" not in f
+                    and "/__pycache__/" not in f
+                    and "/site-packages/" not in f
                 ]
                 scored = []
                 for f in py_files[:200]:  # cap to avoid scanning large monorepos
@@ -4211,7 +4225,12 @@ def onboard(
                         continue
                     matches = [s.pattern for s in sigs if s.search(text)]
                     if matches:
-                        scored.append({"path": str(Path(f).relative_to(root)), "reason": "matches: " + ", ".join(matches)})
+                        scored.append(
+                            {
+                                "path": str(Path(f).relative_to(root)),
+                                "reason": "matches: " + ", ".join(matches),
+                            }
+                        )
                 scored.sort(key=lambda x: -len(x["reason"]))
                 entry_file_candidates = scored[:5]
         except Exception:  # pragma: no cover — best-effort
@@ -5468,9 +5487,7 @@ def plugin_append(
         # Direct mode: dev / single-user / explicit --no-daemon.
         target = root / target_name / "sponsio.yaml"
         try:
-            result = merge_staging_into_target(
-                target, staging_text, dry_run=dry_run
-            )
+            result = merge_staging_into_target(target, staging_text, dry_run=dry_run)
         except AppendError as e:
             raise click.ClickException(str(e)) from e
 

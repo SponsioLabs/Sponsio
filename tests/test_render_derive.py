@@ -21,41 +21,37 @@ from sponsio.render.derive import (
 
 
 # ---------------------------------------------------------------------------
-# service_for_tool — prefix matching + keyword fallback.
+# service_for_tool — transport-only inference (func / mcp / shell / http).
+# Resource and business-domain axes were removed; postgres / fs / etc.
+# now collapse into the default ``func`` transport label.
 # ---------------------------------------------------------------------------
-
-
-def test_service_for_tool_postgres_prefixes():
-    assert service_for_tool("execute_sql") == "postgres"
-    assert service_for_tool("postgres.connect") == "postgres"
-    assert service_for_tool("connect_db") == "postgres"
-    assert service_for_tool("db_query") == "postgres"
-
-
-def test_service_for_tool_fs_prefixes():
-    assert service_for_tool("read_file") == "fs"
-    assert service_for_tool("write_file") == "fs"
-    assert service_for_tool("edit_file") == "fs"
 
 
 def test_service_for_tool_shell_prefixes():
     assert service_for_tool("bash") == "shell"
     assert service_for_tool("run_tests") == "shell"
+    assert service_for_tool("execute_command") == "shell"
 
 
 def test_service_for_tool_mcp_double_underscore():
     """MCP host plugins use the ``mcp__server__tool`` flat layout."""
     assert service_for_tool("mcp__github__create_issue") == "mcp"
+    assert service_for_tool("user_instruction") == "mcp"
 
 
-def test_service_for_tool_keyword_fallback_for_sql():
-    """A tool whose name doesn't start with a known prefix but mentions
-    sql still resolves to postgres."""
-    assert service_for_tool("custom_run_sql_query") == "postgres"
+def test_service_for_tool_http_prefixes():
+    assert service_for_tool("fetch") == "http"
+    assert service_for_tool("web_fetch") == "http"
+    assert service_for_tool("web_search") == "http"
 
 
-def test_service_for_tool_unknown_returns_unknown():
-    assert service_for_tool("totally_made_up") == "unknown"
+def test_service_for_tool_defaults_to_func():
+    """Anything not matching shell/mcp/http is in-process function call —
+    the modal SDK behaviour."""
+    assert service_for_tool("execute_sql") == "func"
+    assert service_for_tool("read_file") == "func"
+    assert service_for_tool("update_vendor_bank_account") == "func"
+    assert service_for_tool("totally_made_up") == "func"
 
 
 def test_service_for_tool_handles_none():
@@ -63,9 +59,12 @@ def test_service_for_tool_handles_none():
     assert service_for_tool("") == "unknown"
 
 
-def test_has_known_service_distinguishes_branded_from_unknown():
-    assert has_known_service("execute_sql") is True
-    assert has_known_service("totally_made_up") is False
+def test_has_known_service_returns_true_for_transport_labels():
+    """All four transports (func/shell/mcp/http) are colored brands."""
+    assert has_known_service("bash") is True
+    assert has_known_service("execute_sql") is True  # → func
+    assert has_known_service("mcp__github__list") is True
+    assert has_known_service(None) is False  # unknown
 
 
 # ---------------------------------------------------------------------------

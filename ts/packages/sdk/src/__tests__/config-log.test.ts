@@ -108,7 +108,9 @@ agents:
     const cfg = loadSponsoConfig(p, "bot");
     // token_budget is a built-in det pattern → kept as a compiled
     // DetFormula. NL entry also kept. The sto-flag entry is skipped
-    // (no pattern:) and the pack is skipped (Python-only).
+    // (no pattern:). The ``sponsio:core/runaway`` include is now
+    // resolved by the pack loader; runaway is an empty stub so it
+    // contributes 0 contracts and adds nothing to ``skipped``.
     expect(cfg.contracts.length === 2, "keeps token_budget + NL-string");
     expect(
       cfg.contracts.some(
@@ -117,8 +119,8 @@ agents:
       "token_budget compiled via pattern factory",
     );
     expect(
-      cfg.skipped.some((s) => s.kind === "pack"),
-      "flags the pack include",
+      !cfg.skipped.some((s) => s.kind === "pack"),
+      "pack include resolved (no longer skipped)",
     );
     expect(
       cfg.skipped.some((s) => s.kind === "sto-contract"),

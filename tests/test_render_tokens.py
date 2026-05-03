@@ -56,15 +56,20 @@ def test_service_color_falls_back_to_muted():
     assert service_color("clearly_not_a_service") == PALETTE["muted"]
 
 
-def test_service_color_returns_brand_for_known():
-    assert service_color("postgres") == "#336791"
-    assert service_color("openai") == "#10A37F"
+def test_service_color_returns_brand_for_known_transports():
+    """The four transport labels (func / shell / mcp / http) all have
+    explicit palette entries."""
+    assert service_color("shell") == "#F57C00"
+    assert service_color("mcp") == "#7B1FA2"
+    assert service_color("http") == "#1976D2"
+    # ``func`` is the default — uses the muted token so it doesn't
+    # visually compete with the more interesting transports.
+    assert service_color("func") == PALETTE["muted"]
 
 
-def test_local_protocol_services_share_muted_token():
-    """fs/shell/mcp/http should resolve to the muted token, not a copy."""
-    for svc in ("fs", "shell", "mcp", "http"):
-        assert SERVICE_COLORS[svc] == PALETTE["muted"]
+def test_func_transport_uses_muted_token():
+    """``func`` is the unmarked common case; resolves to muted, not a copy."""
+    assert SERVICE_COLORS["func"] == PALETTE["muted"]
 
 
 def test_status_words_map_to_palette_tokens():

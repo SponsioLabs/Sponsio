@@ -172,7 +172,9 @@ def _run_steps(
 
         from sponsio.render.session_view import render_session
 
-        console = Console(file=sys.stderr, soft_wrap=True, highlight=False, force_terminal=True)
+        console = Console(
+            file=sys.stderr, soft_wrap=True, highlight=False, force_terminal=True
+        )
         # ``BaseGuard`` exposes ``_monitor`` and ``_system._contracts``;
         # access them via dotted private API for now (mirror of what
         # ``_try_print_rich_session_view`` does internally).

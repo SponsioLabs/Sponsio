@@ -288,18 +288,21 @@ def test_trace_tree_handles_observed_status():
     assert "OBSERVED" in plain
 
 
-def test_trace_tree_includes_service_label_for_known_tools():
+def test_trace_tree_includes_transport_label_for_shell_tool():
     contracts = []
-    t = _turn("execute_sql")
+    t = _turn("bash")
     _, plain = _render([t], contracts=contracts)
-    assert "postgres" in plain
+    assert "shell" in plain
 
 
-def test_trace_tree_falls_back_to_unknown_for_unmapped_tool():
+def test_trace_tree_defaults_to_func_for_unmapped_tool():
+    """Unmapped tool names collapse to the ``func`` transport — the
+    in-process function-call default that covers the modal SDK
+    behaviour (Vercel AI SDK / OpenAI / Anthropic etc.)."""
     contracts = []
     t = _turn("totally_made_up")
     _, plain = _render([t], contracts=contracts)
-    assert "unknown" in plain
+    assert "func" in plain
 
 
 # ---------------------------------------------------------------------------
