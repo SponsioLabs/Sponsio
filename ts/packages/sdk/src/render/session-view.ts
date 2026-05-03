@@ -87,12 +87,19 @@ function fmtUs(ms: number | null | undefined): string {
   return `${us.toFixed(0)}µs`;
 }
 
+/**
+ * Latency for the per-tool ``+Nµs`` / ``+Nms`` / ``+Ns`` column.
+ * Mirrors Python's ``derive.format_latency_ms``: integer in the
+ * largest unit that doesn't truncate to zero. No decimals — keeps
+ * the column visually aligned and avoids spurious precision (per-tool
+ * latency is wall-clock-ish; significant digits beyond the largest
+ * unit aren't meaningful here).
+ */
 function fmtLatency(ms: number | null | undefined): string {
-  if (ms == null || ms === 0) return "";
-  const us = ms * 1000;
-  if (us < 1000) return `+${Math.round(us)}µs`;
-  if (us < 1000_000) return `+${(us / 1000).toFixed(1)}ms`;
-  return `+${(us / 1_000_000).toFixed(1)}s`;
+  if (ms == null || ms <= 0) return "";
+  if (ms < 1) return `+${Math.round(ms * 1000)}µs`;
+  if (ms < 1000) return `+${Math.round(ms)}ms`;
+  return `+${Math.round(ms / 1000)}s`;
 }
 
 function fmtTs(elapsedMs: number): string {
