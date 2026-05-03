@@ -36,6 +36,14 @@ import {
   type JudgeConfigSpec,
 } from "./core/config-loader.js";
 import { SessionLogger } from "./core/session-log.js";
+import {
+  AgentTurnSpan,
+  ContractCheckSpan,
+  EnforcementSpan,
+  GuaranteeSpan,
+  SpanCollector,
+} from "./core/spans.js";
+import { renderSession } from "./render/session-view.js";
 import type { DetFormula } from "./core/patterns.js";
 import {
   createJudge,
@@ -251,6 +259,7 @@ export class Sponsio {
   private _contentAtoms: Record<string, Set<string>>;
   private _violations: string[];
   private _logger: SessionLogger | null;
+  private _turnSpans: AgentTurnSpan[] = [];
 
   constructor(options: SponsoOptions = {}) {
     this.agentId = options.agentId ?? "agent";
@@ -353,20 +362,27 @@ export class Sponsio {
     const valuation = groundEvent(event, this._state, this._contentAtoms);
     this._trace.push(valuation);
 
+    // Build a span tree for this turn (mirrors Python's RuntimeMonitor).
+    const collector = new SpanCollector(this.agentId, toolName);
+
     const violations: string[] = [];
     const violatedDescs: string[] = [];
     const detViolations: DetViolation[] = [];
     for (const contract of this._contracts) {
+      const checkSpan = new ContractCheckSpan(contract.desc, "hard");
+      collector.push(checkSpan);
       const result = evaluate(contract.formula, this._trace);
+      // The TS evaluator is currently a single-pass deterministic
+      // check; it doesn't separately track assumption vs guarantee
+      // sub-formulas. Synthesise a guarantee span so the renderer can
+      // surface failed contracts without refactoring the evaluator.
+      const guaranteeSpan = new GuaranteeSpan(contract.desc, result);
+      collector.add(guaranteeSpan, result ? "ok" : "violated");
       if (!result) {
         const verb = this.mode === "observe" ? "WOULD-BLOCK" : "BLOCKED";
         const msg = `${verb}: ${this.agentId}.${toolName} — det constraint violated: ${contract.desc}`;
         violations.push(msg);
         violatedDescs.push(contract.desc);
-        // Populate the structured fields the Python OutcomeBuilder
-        // sets — ruleId from the pattern, agentMsg phrased to make
-        // the model abandon (not parrot) the rejection. The legacy
-        // ``message`` stays as the log line.
         detViolations.push({
           desc: contract.desc,
           message: msg,
@@ -376,12 +392,22 @@ export class Sponsio {
             `(${contract.patternName || contract.desc}): ${contract.desc}. ` +
             `Choose a different approach.`,
         });
+        // Nest violation + enforcement spans under the failed
+        // guarantee so the renderer can pick up the verdict word.
+        const enforce = new EnforcementSpan("DetBlock", this.mode === "enforce" ? "blocked" : "blocked");
+        guaranteeSpan.children.push(enforce);
+        enforce.finish("violated");
       }
+      collector.pop(result ? "ok" : "violated");
     }
 
     const hasViolations = violations.length > 0;
+    const blocked = hasViolations && this.mode === "enforce";
+    this._turnSpans.push(
+      collector.finishRoot(blocked, this._contracts.length, violations.length),
+    );
 
-    if (hasViolations && this.mode === "enforce") {
+    if (blocked) {
       this._trace.pop();
       this._state = snapshot;
       this._violations.push(...violations);
@@ -417,6 +443,46 @@ export class Sponsio {
       detViolations,
       stoViolations: [],
     };
+  }
+
+  /**
+   * Snapshot of the per-turn span trees this guard has produced since
+   * construction (or the last ``resetSession``). One root
+   * ``AgentTurnSpan`` per ``guardBefore`` call, with nested
+   * ``ContractCheckSpan`` / ``GuaranteeSpan`` / ``EnforcementSpan``
+   * children. Mirrors Python's ``RuntimeMonitor.turn_spans``.
+   */
+  turnSpans(): AgentTurnSpan[] {
+    return [...this._turnSpans];
+  }
+
+  /** Drop accumulated turn spans (used between sessions in tests). */
+  resetSession(): void {
+    this._turnSpans = [];
+  }
+
+  /**
+   * Render the end-of-session view to ``out`` (defaults to stderr) —
+   * banner, contracts armed, trace tree, verdict, perf, CTA. Mirrors
+   * Python's ``RuntimeMonitor.finish_session`` + ``render_session``
+   * pipeline. Call this once at the end of the agent's run.
+   */
+  finishSession(opts: {
+    out?: NodeJS.WritableStream;
+    sessionId?: string;
+    tenant?: string;
+    env?: string;
+    sdk?: string;
+    ctas?: string[];
+    useColor?: boolean;
+  } = {}): void {
+    renderSession({
+      agentId: this.agentId,
+      mode: this.mode,
+      contracts: this._contracts,
+      turnSpans: this._turnSpans,
+      ...opts,
+    });
   }
 
   /** Deep-copy the grounding state so it can be restored on a blocked call. */

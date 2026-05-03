@@ -95,6 +95,10 @@ Process the entire inbox in one go, then stop.`,
   console.log(result.text || "(no text)");
 
   printSummary();
+
+  // End-of-session view — banner / contracts armed / trace tree / verdict.
+  console.log();
+  guard.finishSession();
 }
 
 main().catch((err) => {
