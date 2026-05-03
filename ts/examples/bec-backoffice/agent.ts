@@ -68,18 +68,19 @@ async function main() {
   console.log("╚══════════════════════════════════════════════════════════════════╝\n");
 
   const result = await generateText({
-    // Intentionally an older model. Newer Gemini (2.5-flash, 2.5-pro)
-    // spots BEC red flags on its own (lookalike domains, bank-change-
-    // without-verification) and refuses — Sponsio never gets to demonstrate
-    // value. ``gemini-1.5-flash`` is from before the safety-tuning
-    // generation that aggressively refuses ambiguous requests; it follows
-    // the system prompt's "process every email" instruction without
-    // second-guessing, exactly the kind of agent that needs runtime
-    // contracts as a safety net.
+    // Default to ``gemini-2.5-flash`` because it's the last model name
+    // we've confirmed widely works on the v1beta generateContent
+    // endpoint. Google has been aggressively retiring the 1.5 series
+    // — both ``gemini-1.5-flash-8b`` and ``gemini-1.5-flash`` returned
+    // 404 from v1beta on a fresh API key in 2026-05.
     //
-    // (Earlier we tried ``gemini-1.5-flash-8b``; that name is in the
-    // @ai-sdk/google types but the v1beta API endpoint returns 404 for it.)
-    model: wrapLanguageModel({ model: google("gemini-1.5-flash"), middleware: sponsioMiddleware(guard) }),
+    // Trade-off: 2.5-flash is BEC-savvy and may notice red flags on its
+    // own, refusing at lookup_vendor before Sponsio gets to fire on
+    // update_vendor_bank_account. If that happens, switch to a more
+    // naive model your key has access to (use the curl in the README
+    // to list available models), or run ``npx tsx demo.ts`` for the
+    // canned trajectory that always exercises the contract layer.
+    model: wrapLanguageModel({ model: google("gemini-2.5-flash"), middleware: sponsioMiddleware(guard) }),
     maxSteps: 25,
     system: `You are the backoffice agent at Acme Inc. You process incoming vendor emails and keep the AP system in sync.
 

@@ -61,6 +61,15 @@ cd examples/bec-backoffice
 GOOGLE_GENERATIVE_AI_API_KEY=AIza... npx tsx agent.ts
 ```
 
+The default is ``gemini-2.5-flash``. If you want a more naive model that's more likely to take the BEC bait (so Sponsio's wire-blocked path actually fires), list what your key has access to:
+
+```bash
+curl -s "https://generativelanguage.googleapis.com/v1beta/models?key=$GOOGLE_GENERATIVE_AI_API_KEY" \
+  | python3 -c "import json,sys; [print(m['name'].split('/')[-1]) for m in json.load(sys.stdin)['models'] if 'generateContent' in m.get('supportedGenerationMethods',[])]"
+```
+
+then edit the model name in ``agent.ts`` (e.g. ``gemini-2.0-flash-lite``).
+
 Expected trace (the model's exact path varies, but the high-risk steps are deterministic):
 
 ```
