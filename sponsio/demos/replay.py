@@ -106,55 +106,91 @@ def _run_steps(
     no_guard: bool,
     fast: bool,
 ) -> None:
+    """Replay a recorded trajectory through Sponsio and render the
+    runtime contract enforcement view.
+
+    The guarded path drives ``Sponsio.guard_before`` for each step, then
+    hands the accumulated turn-span tree to
+    :mod:`sponsio.render.session_view` — same B1 layout (header
+    banner, ``contracts armed``, trace tree with assume / enforce
+    sub-rows, ``VERDICT`` banner, perf line, CTA footer) a real agent
+    run produces. The unguarded path stays inline-narrated since
+    there are no spans to render.
+    """
     import sponsio
 
     emit = _printer(fast)
-    mode = "no Sponsio" if no_guard else "with Sponsio mock replay"
-    emit(_title_line(title, mode))
-    emit(
-        Text(
-            "Recorded unsafe trajectory, replayed locally with no API key.\n",
-            style=PALETTE["metadata"],
+
+    if no_guard:
+        # Unguarded replay — keep the inline-narration "live demo" style
+        # since there's no Sponsio span tree to summarise.
+        mode = "no Sponsio"
+        emit(_title_line(title, mode))
+        emit(
+            Text(
+                "Recorded unsafe trajectory, replayed locally with no API key.\n",
+                style=PALETTE["metadata"],
+            )
         )
-    )
-
-    guard = None
-    if not no_guard:
-        # verbose=True (default) so the mock replay shows Sponsio's
-        # contract banner + per-event (assume-satisfied /
-        # contract-active / VIOLATED) lines just like a real run.
-        #
-        # ``mode="enforce"`` is pinned for the demos so the canonical
-        # "Sponsio blocks unsafe action" visual is visible regardless
-        # of the user's ``SPONSIO_MODE`` env — the observe-mode default
-        # hides the VIOLATED line and makes the demo look like a no-op.
-        guard = sponsio.Sponsio(agent_id=agent_id, contracts=contracts, mode="enforce")
-        # The contract banner is printed in one chunk by ``print_banner``
-        # and would scroll past in the gif before a viewer can read it.
-        # Hold for ~1.5s so the contract list is legible before the
-        # trajectory starts firing. Skipped under ``--fast`` (CI smoke).
-        emit("", 1.5)
-
-    for step in steps:
-        emit(_narration_line(step.tool, _fmt_args(step.args)))
-        if no_guard:
+        for step in steps:
+            emit(_narration_line(step.tool, _fmt_args(step.args)))
             if step.note:
                 emit(_no_guard_breach_line(step.note), 0.25)
-            continue
+        emit("", 0.8)
+        emit("")
+        emit(_outcome_line(breach_outcome, blocked=True))
+        return
 
-        assert guard is not None
+    # Guarded replay — drive guard_before, then call session_view
+    # directly so the B1 layout always shows (bypasses
+    # print_summary's TTY gate, which fails under piped output / CI).
+    emit(_title_line(title, "with Sponsio runtime contract enforcement"))
+    emit("")
+
+    # ``mode="enforce"`` pins the canonical "Sponsio blocks unsafe
+    # action" visual regardless of the user's ``SPONSIO_MODE`` env;
+    # observe mode would hide the VIOLATED line.
+    guard = sponsio.Sponsio(
+        agent_id=agent_id,
+        contracts=contracts,
+        mode="enforce",
+        verbose=False,  # silence the legacy banner — session_view is canonical
+    )
+    # Suppress the auto atexit summary so we render exactly once below.
+    if hasattr(guard, "disable_auto_summary"):
+        guard.disable_auto_summary()
+
+    for step in steps:
         result = guard.guard_before(step.tool, step.args)
         if result.blocked:
             break
 
-    # Brief pause before the outcome line so the violation banner has
-    # time to settle and the verdict reads as a separate beat.
-    emit("", 0.8)
+    # Direct invocation — works in pipes / CI where stderr.isatty() is False.
+    try:
+        from rich.console import Console
+
+        from sponsio.render.session_view import render_session
+
+        console = Console(file=sys.stderr, soft_wrap=True, highlight=False, force_terminal=True)
+        # ``BaseGuard`` exposes ``_monitor`` and ``_system._contracts``;
+        # access them via dotted private API for now (mirror of what
+        # ``_try_print_rich_session_view`` does internally).
+        monitor = getattr(guard, "_monitor", None)
+        system = getattr(guard, "_system", None)
+        if monitor is not None and system is not None:
+            render_session(
+                console=console,
+                agent_id=guard.agent_id,
+                mode=getattr(guard, "_mode", "enforce"),
+                contracts=list(system._contracts),
+                turn_spans=list(monitor.turn_spans),
+            )
+    except Exception:
+        # Never let a render bug swallow the demo — fall back to print_summary.
+        if hasattr(guard, "print_summary"):
+            guard.print_summary()
     emit("")
-    if no_guard:
-        emit(_outcome_line(breach_outcome, blocked=True))
-    else:
-        emit(_outcome_line(guarded_outcome, blocked=False))
+    emit(_outcome_line(guarded_outcome, blocked=False))
 
 
 def _cleanup_demo(*, no_guard: bool, fast: bool) -> None:
