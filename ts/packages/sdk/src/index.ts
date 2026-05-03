@@ -364,6 +364,8 @@ export class Sponsio {
 
     // Build a span tree for this turn (mirrors Python's RuntimeMonitor).
     const collector = new SpanCollector(this.agentId, toolName);
+    // Stash args on the root for the renderer (it shows them in the trace).
+    collector.rootSpan().attributes.args = args;
 
     const violations: string[] = [];
     const violatedDescs: string[] = [];

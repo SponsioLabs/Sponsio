@@ -155,6 +155,7 @@ def _run_steps(
         contracts=contracts,
         mode="enforce",
         verbose=False,  # silence the legacy banner — session_view is canonical
+        init_banner=False,  # session_view at end already shows ``contracts armed``
     )
     # Suppress the auto atexit summary so we render exactly once below.
     if hasattr(guard, "disable_auto_summary"):

@@ -6,6 +6,7 @@
  * ``session-view.ts``.
  */
 import { PALETTE, STATUS, SYMBOLS, ansi, pad, truncate } from "./tokens.js";
+import { serviceColor } from "./derive.js";
 
 const RULE_WIDTH = 80;
 const ALIAS_WIDTH = 4;
@@ -92,7 +93,7 @@ export function eventLine(
   const summary = argsSummary
     ? `(${ansi(PALETTE.metadata, argsSummary, useColor)})`
     : "()";
-  const svc = service ? `   ${ansi(PALETTE.metadata, service, useColor)}` : "";
+  const svc = service ? `   ${ansi(serviceColor(service), service, useColor)}` : "";
   return `${ts} ${br} ${tool}${summary}${svc}`;
 }
 

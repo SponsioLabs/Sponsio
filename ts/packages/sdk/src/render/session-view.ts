@@ -38,6 +38,7 @@ import {
   verdictSummary,
 } from "./components.js";
 import { stderrUseColor } from "./tokens.js";
+import { argsSummary, serviceForTool } from "./derive.js";
 import type { AgentTurnSpan, SpanLike } from "../core/spans.js";
 import type { DetFormula } from "../core/patterns.js";
 
@@ -143,8 +144,11 @@ function renderTurn(
 ): string[] {
   const lines: string[] = [];
   const elapsedMs = turn.startTime - sessionStart;
+  const service = serviceForTool(turn.action);
+  const args = (turn.attributes.args as Record<string, unknown> | undefined) ?? undefined;
+  const argsSum = argsSummary(args);
   // First row: the tool call.
-  lines.push(eventLine(fmtTs(elapsedMs), turn.action, "", "", isLast, useColor));
+  lines.push(eventLine(fmtTs(elapsedMs), turn.action, service, argsSum, isLast, useColor));
 
   for (const child of turn.children) {
     if (child.spanType !== "sponsio.contract_check") continue;

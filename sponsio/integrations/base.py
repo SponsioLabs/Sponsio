@@ -351,6 +351,7 @@ class BaseGuard:
         verbose: bool = True,
         verbosity: int = 1,
         auto_summary: bool = True,
+        init_banner: bool = True,
         mode: str | None = None,
         session_log_dir: str | Path | None = None,
         tag_outputs: bool = True,
@@ -500,15 +501,19 @@ class BaseGuard:
             )
 
         # --- Contract banner + terminal reporter ---
-        # Always print the contract banner at init so users can visually
+        # Print the contract banner at init so users can visually
         # confirm Sponsio is loaded and which rules are active — even
         # with verbose=False, which otherwise looks identical to "no
         # Sponsio at all". Only the per-event reporter is gated by
-        # verbose.
+        # verbose. Callers that render a richer end-of-session view
+        # themselves (e.g. ``sponsio demo`` calling ``render_session``
+        # directly) can suppress this with ``init_banner=False`` to
+        # avoid duplicating the contracts-armed list.
         from sponsio.runtime.terminal import TerminalReporter, print_banner
 
         contracts_list = list(self._system._contracts)
-        print_banner(contracts_list)
+        if init_banner:
+            print_banner(contracts_list)
 
         if self._verbose:
             reporter = TerminalReporter(
