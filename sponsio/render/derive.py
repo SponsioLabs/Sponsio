@@ -66,6 +66,23 @@ _TOOL_PREFIX_TO_SERVICE: list[tuple[str, str]] = [
 ]
 
 
+# Domain-keyword fallbacks — applied AFTER the prefix table when no
+# strict-prefix match is found. Catches business-domain tool names
+# (``update_vendor_bank_account``, ``issue_payment``, ``read_email``,
+# etc.) that the generic prefix table can't enumerate. Order matters:
+# more specific keywords first.
+import re as _re
+
+_TOOL_KEYWORD_TO_SERVICE: list[tuple[_re.Pattern, str]] = [
+    (_re.compile(r"wire|payment|\bpay_?|transfer|payout|invoice|refund"), "payments"),
+    (_re.compile(r"bank|account|treasury|remit"), "banking"),
+    (_re.compile(r"vendor|supplier|customer|merchant"), "vendor"),
+    (_re.compile(r"email|mail|inbox|message"), "mail"),
+    (_re.compile(r"employee|confirm|approv|escalate|human"), "hitl"),
+    (_re.compile(r"snapshot|backup|restore|dr_|disaster"), "ops"),
+]
+
+
 def service_for_tool(tool: str | None) -> str:
     """Infer the service label for a tool name. Falls back to ``"unknown"``."""
     if not tool:
@@ -78,6 +95,10 @@ def service_for_tool(tool: str | None) -> str:
     # e.g. ``run("DROP TABLE foo")`` looks like shell at first.
     if "sql" in lowered:
         return "postgres"
+    # Domain-keyword fallback for business-domain tool names.
+    for regex, service in _TOOL_KEYWORD_TO_SERVICE:
+        if regex.search(lowered):
+            return service
     return "unknown"
 
 

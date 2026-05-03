@@ -58,6 +58,15 @@ SERVICE_COLORS: dict[str, str] = {
     "shell": PALETTE["muted"],
     "mcp": PALETTE["muted"],
     "http": PALETTE["muted"],
+    # Business-domain services (matched by ``_TOOL_KEYWORD_TO_SERVICE``
+    # in derive.py — covers vendor / payment / mail / hitl / ops tools
+    # that the per-provider prefix table can't enumerate).
+    "payments": "#D32F2F",  # red — high-risk financial actions
+    "banking": "#D32F2F",
+    "vendor": "#1976D2",  # blue
+    "mail": "#7B1FA2",  # magenta
+    "hitl": "#F57C00",  # orange — human in the loop
+    "ops": "#0097A7",  # teal
 }
 
 

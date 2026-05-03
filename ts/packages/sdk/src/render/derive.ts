@@ -54,6 +54,20 @@ const TOOL_PREFIX_TO_SERVICE: [string, string][] = [
   ["web_search", "http"],
 ];
 
+// Domain-keyword fallbacks — applied AFTER the prefix table when no
+// strict-prefix match is found. Catches business-domain tool names
+// (``update_vendor_bank_account``, ``issue_payment``, ``read_email``,
+// etc.) that the generic prefix table can't enumerate. Order matters:
+// more specific keywords first.
+const TOOL_KEYWORD_TO_SERVICE: [RegExp, string][] = [
+  [/wire|payment|\bpay_?|transfer|payout|invoice|refund/, "payments"],
+  [/bank|account|treasury|remit/, "banking"],
+  [/vendor|supplier|customer|merchant/, "vendor"],
+  [/email|mail|inbox|message/, "mail"],
+  [/employee|confirm|approv|escalate|human/, "hitl"],
+  [/snapshot|backup|restore|dr_|disaster/, "ops"],
+];
+
 export function serviceForTool(tool: string | undefined): string {
   if (!tool) return "unknown";
   const lowered = tool.toLowerCase();
@@ -61,6 +75,9 @@ export function serviceForTool(tool: string | undefined): string {
     if (lowered.startsWith(prefix)) return service;
   }
   if (lowered.includes("sql")) return "postgres";
+  for (const [re, service] of TOOL_KEYWORD_TO_SERVICE) {
+    if (re.test(lowered)) return service;
+  }
   return "unknown";
 }
 
@@ -84,6 +101,13 @@ const SERVICE_COLORS: Record<string, string> = {
   shell: "33",
   mcp: "35",
   http: "37",
+  // Business-domain services (matched by TOOL_KEYWORD_TO_SERVICE).
+  payments: "31", // red — high-risk financial actions
+  banking: "31", // red
+  vendor: "34", // blue
+  mail: "35", // magenta
+  hitl: "33", // yellow — human in the loop
+  ops: "36", // cyan
   unknown: "2", // dim
 };
 
