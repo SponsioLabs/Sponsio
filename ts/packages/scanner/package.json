@@ -54,7 +54,7 @@
   "dependencies": {
     "fast-glob": "^3.3.2",
     "js-yaml": "^4.1.1",
-    "ts-morph": "^23.0.0"
+    "ts-morph": "^28.0.0"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
