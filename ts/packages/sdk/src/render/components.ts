@@ -83,6 +83,7 @@ export function eventLine(
   toolName: string,
   service: string,
   argsSummary: string,
+  latency: string,
   isLast: boolean,
   useColor: boolean,
 ): string {
@@ -93,8 +94,9 @@ export function eventLine(
   const summary = argsSummary
     ? `(${ansi(PALETTE.metadata, argsSummary, useColor)})`
     : "()";
+  const lat = latency ? `  ${ansi(PALETTE.metadata, latency, useColor)}` : "";
   const svc = service ? `   ${ansi(serviceColor(service), service, useColor)}` : "";
-  return `${ts} ${br} ${tool}${summary}${svc}`;
+  return `${ts} ${br} ${tool}${summary}${lat}${svc}`;
 }
 
 export function assumeLine(alias: string, summary: string, useColor: boolean): string {

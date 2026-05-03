@@ -87,6 +87,14 @@ function fmtUs(ms: number | null | undefined): string {
   return `${us.toFixed(0)}µs`;
 }
 
+function fmtLatency(ms: number | null | undefined): string {
+  if (ms == null || ms === 0) return "";
+  const us = ms * 1000;
+  if (us < 1000) return `+${Math.round(us)}µs`;
+  if (us < 1000_000) return `+${(us / 1000).toFixed(1)}ms`;
+  return `+${(us / 1_000_000).toFixed(1)}s`;
+}
+
 function fmtTs(elapsedMs: number): string {
   const sec = elapsedMs / 1000;
   return sec.toFixed(3);
@@ -147,8 +155,9 @@ function renderTurn(
   const service = serviceForTool(turn.action);
   const args = (turn.attributes.args as Record<string, unknown> | undefined) ?? undefined;
   const argsSum = argsSummary(args);
+  const latency = fmtLatency(turn.durationMs());
   // First row: the tool call.
-  lines.push(eventLine(fmtTs(elapsedMs), turn.action, service, argsSum, isLast, useColor));
+  lines.push(eventLine(fmtTs(elapsedMs), turn.action, service, argsSum, latency, isLast, useColor));
 
   for (const child of turn.children) {
     if (child.spanType !== "sponsio.contract_check") continue;
