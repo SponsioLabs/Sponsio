@@ -11,7 +11,7 @@ Usage::
         contracts=[
             contract("refund needs policy check")
                 .assume("called `issue_refund`")
-                .enforce("must call `check_policy` before `issue_refund`"),
+                .guarantees("must call `check_policy` before `issue_refund`"),
         ],
     )
     agent = create_react_agent(model, guard.wrap(tools))

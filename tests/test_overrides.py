@@ -1,10 +1,10 @@
-"""Tests for the ``overrides:`` section — disable / tweak individual
+"""Tests for the ``customized:`` section — disable / tweak individual
 contracts pulled in via ``include:`` without forking the pack.
 
 Why overrides matter: the value prop of shipped contract packs
 (``sponsio:capability/shell`` etc.) collapses if the only way to
 disagree with a single rule is to copy-paste the whole pack.
-``overrides:`` keeps the pack as the source of truth and lets
+``customized:`` keeps the pack as the source of truth and lets
 each host say "all of that, except this one rule which I want
 disabled / tightened / scoped differently".
 
@@ -26,7 +26,7 @@ What's pinned here:
 
 Schema reminder::
 
-    overrides:
+    customized:
       - match: {desc: "Ban recursive deletes of sensitive roots"}
         disabled: true
       - match: {pack_source: "sponsio:capability/shell"}
@@ -63,7 +63,7 @@ def _ce(**kw) -> ConstraintEntry:
 
 
 def _ct(enforcement, **kw) -> ContractEntry:
-    return ContractEntry(enforcement=enforcement, **kw)
+    return ContractEntry(guarantee=enforcement, **kw)
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +216,7 @@ class TestApplyOverrides:
         c = _ct(_ce(pattern="injection_free"), desc="x")
         rule = OverrideRule({"desc": "x"}, threshold=0.95)
         out = _apply_overrides([c], [rule], "bot")
-        assert out[0].enforcement.threshold == 0.95
+        assert out[0].guarantee.threshold == 0.95
 
     def test_threshold_edit_writes_to_all_in_list_enforcement(self):
         """List-AND enforcement: the edit applies to every
@@ -293,7 +293,7 @@ class TestApplyOverrides:
             "bot",
         )
         assert [c.desc for c in out1] == [c.desc for c in out2] == ["b"]
-        assert out1[0].enforcement.threshold == out2[0].enforcement.threshold == 0.5
+        assert out1[0].guarantee.threshold == out2[0].guarantee.threshold == 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +315,7 @@ class TestLoadConfigOverrides:
               bot:
                 workspace: "/proj"
                 include: [sponsio:capability/shell]
-                overrides:
+                customized:
                   - match: {desc: "Ban recursive deletes of sensitive roots"}
                     disabled: true
             """,
@@ -339,7 +339,7 @@ class TestLoadConfigOverrides:
                 include:
                   - sponsio:core/llm_safety
                   - sponsio:capability/shell
-                overrides:
+                customized:
                   - match: {pack_source: "sponsio:capability/shell"}
                     disabled: true
             """,
@@ -361,7 +361,7 @@ class TestLoadConfigOverrides:
               bot:
                 workspace: "/proj"
                 include: [sponsio:capability/shell]
-                overrides:
+                customized:
                   - match: {pattern: rate_limit}
                     threshold: 0.42
             """,
@@ -370,13 +370,13 @@ class TestLoadConfigOverrides:
         rates = [
             c
             for c in cfg.agents["bot"].contracts
-            if c.enforcement
-            and not isinstance(c.enforcement, list)
-            and c.enforcement.pattern == "rate_limit"
+            if c.guarantee
+            and not isinstance(c.guarantee, list)
+            and c.guarantee.pattern == "rate_limit"
         ]
         assert rates, "expected at least one rate_limit rule in the shell pack"
         for c in rates:
-            assert c.enforcement.threshold == 0.42
+            assert c.guarantee.threshold == 0.42
 
     def test_unmatched_override_in_real_config_raises(self, tmp_path):
         """The drift catch in the full pipeline: a typo in `desc:`
@@ -391,7 +391,7 @@ class TestLoadConfigOverrides:
                   bot:
                     workspace: "/proj"
                     include: [sponsio:capability/shell]
-                    overrides:
+                    customized:
                       - match: {desc: "Ban recurzive deletes of sensitive roots"}
                         disabled: true
                 """,
@@ -415,7 +415,7 @@ class TestLoadConfigOverrides:
                 workspace: "/proj"
                 tool_rename: {exec: bash}
                 include: [sponsio:capability/shell]
-                overrides:
+                customized:
                   - match: {pattern: rate_limit}
                     threshold: 0.5
             """,
@@ -426,22 +426,22 @@ class TestLoadConfigOverrides:
         rate = next(
             c
             for c in cfg.agents["bot"].contracts
-            if c.enforcement
-            and not isinstance(c.enforcement, list)
-            and c.enforcement.pattern == "rate_limit"
+            if c.guarantee
+            and not isinstance(c.guarantee, list)
+            and c.guarantee.pattern == "rate_limit"
         )
-        assert rate.enforcement.args[0] == "bash"
-        assert rate.enforcement.threshold == 0.5
+        assert rate.guarantee.args[0] == "bash"
+        assert rate.guarantee.threshold == 0.5
 
     def test_overrides_must_be_list(self, tmp_path):
-        with pytest.raises(ConfigError, match="overrides.*must be a list"):
+        with pytest.raises(ConfigError, match="'customized:' must be a list"):
             load_config(
                 _write(
                     tmp_path,
                     """
                 agents:
                   bot:
-                    overrides: {match: {desc: x}, disabled: true}
+                    customized: {match: {desc: x}, disabled: true}
                 """,
                 )
             )

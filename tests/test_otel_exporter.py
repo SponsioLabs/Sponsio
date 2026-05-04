@@ -115,7 +115,7 @@ def _build_sample_tree() -> AgentTurnSpan:
 
     # Guarantee (violated)
     guar = GuaranteeSpan(
-        span_type="sponsio.guarantee",
+        span_type="sponsio.enforcement",
         start_time=now + 0.03,
         end_time=now + 0.05,
         status="violated",
@@ -136,7 +136,7 @@ def _build_sample_tree() -> AgentTurnSpan:
 
     # Enforcement
     enf = EnforcementSpan(
-        span_type="sponsio.enforcement",
+        span_type="sponsio.guarantee",
         start_time=now + 0.055,
         end_time=now + 0.06,
         status="ok",
@@ -206,9 +206,9 @@ class TestOTelExporter:
             "sponsio.agent_turn",
             "sponsio.contract_check",
             "sponsio.precondition",
-            "sponsio.guarantee",
-            "sponsio.violation",
             "sponsio.enforcement",
+            "sponsio.violation",
+            "sponsio.guarantee",
             "sponsio.sto_check",
             "sponsio.sto_eval",
         }
@@ -303,7 +303,7 @@ class TestOTelExporter:
         exporter.force_flush()
 
         span = next(
-            s for s in memory.get_finished_spans() if s.name == "sponsio.guarantee"
+            s for s in memory.get_finished_spans() if s.name == "sponsio.enforcement"
         )
         assert (
             span.attributes["sponsio.formula"]
@@ -408,7 +408,7 @@ class TestOTelExporter:
         exporter.force_flush()
 
         span = next(
-            s for s in memory.get_finished_spans() if s.name == "sponsio.enforcement"
+            s for s in memory.get_finished_spans() if s.name == "sponsio.guarantee"
         )
         assert span.attributes["sponsio.enforcement.strategy"] == "DetBlock"
         assert span.attributes["sponsio.enforcement.action"] == "blocked"
@@ -447,7 +447,7 @@ class TestOTelExporter:
             if s.name
             in (
                 "sponsio.agent_turn",
-                "sponsio.guarantee",
+                "sponsio.enforcement",
                 "sponsio.violation",
                 "sponsio.contract_check",
             )
@@ -472,7 +472,7 @@ class TestOTelExporter:
             if s.name
             in (
                 "sponsio.precondition",
-                "sponsio.enforcement",
+                "sponsio.guarantee",
                 "sponsio.sto_check",
                 "sponsio.sto_eval",
             )

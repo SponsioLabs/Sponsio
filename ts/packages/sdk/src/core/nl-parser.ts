@@ -167,6 +167,6 @@ export function parseNl(text: string): DetFormula | null {
     }
   }
 
-  // Fallback: single-atom phrasings used in A/E contract assumptions.
+  // Fallback: single-atom phrasings used in A/G contract assumptions.
   return parseBareCalledAtom(text, tools);
 }

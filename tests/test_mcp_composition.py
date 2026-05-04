@@ -134,13 +134,13 @@ def bundle_with_allowlists(tmp_path, monkeypatch):
                   - sponsio:incident/mcp-composition
                 contracts:
                   - desc: "GitHub MCP get_repo: repo restricted to my allowlist"
-                    E:
+                    G:
                       ltl: 'G(called(mcp__github__get_repo) -> arg_field_has(mcp__github__get_repo, repo, "^my-org/(public-repo|intended-repo)$"))'
                   - desc: "GitHub MCP get_file_contents: repo restricted to my allowlist"
-                    E:
+                    G:
                       ltl: 'G(called(mcp__github__get_file_contents) -> arg_field_has(mcp__github__get_file_contents, repo, "^my-org/(public-repo|intended-repo)$"))'
                   - desc: "GitHub MCP create_issue_comment: target repo restricted to my allowlist"
-                    E:
+                    G:
                       ltl: 'G(called(mcp__github__create_issue_comment) -> arg_field_has(mcp__github__create_issue_comment, repo, "^my-org/(public-repo|intended-repo)$"))'
             """
         ).lstrip(),
@@ -159,7 +159,7 @@ def bundle_with_allowlists(tmp_path, monkeypatch):
                   - sponsio:incident/mcp-composition
                 contracts:
                   - desc: "WhatsApp MCP send_message: recipient restricted to my allowlist"
-                    E:
+                    G:
                       ltl: 'G(called(mcp__whatsapp__send_message) -> arg_field_has(mcp__whatsapp__send_message, to, "^\+1415555[0-9]{4}$"))'
             """
         ).lstrip(),
@@ -180,13 +180,13 @@ def bundle_with_allowlists(tmp_path, monkeypatch):
                   - sponsio:incident/mcp-composition
                 contracts:
                   - desc: "GitHub Gist must be private (public: false)"
-                    E:
+                    G:
                       ltl: 'G(called(mcp__gh_gist__create_gist) -> arg_field_has(mcp__gh_gist__create_gist, public, "False|false"))'
                   - desc: "After reading work notes, gist must remain private"
                     activate_at: first_match
                     A:
                       ltl: 'F(arg_field_has(Read, file_path, "/work/notes/|/work/shared/"))'
-                    E:
+                    G:
                       ltl: 'G(called(mcp__gh_gist__create_gist) -> arg_field_has(mcp__gh_gist__create_gist, public, "False|false"))'
             """
         ).lstrip(),
@@ -205,7 +205,7 @@ def bundle_with_allowlists(tmp_path, monkeypatch):
                   - sponsio:incident/mcp-composition
                 contracts:
                   - desc: "Notion MCP create_page: parent workspace restricted to ws-user-private-7777"
-                    E:
+                    G:
                       ltl: 'G(called(mcp__notion__create_page) -> arg_field_has(mcp__notion__create_page, parent, "ws-user-private-7777"))'
             """
         ).lstrip(),
@@ -224,7 +224,7 @@ def bundle_with_allowlists(tmp_path, monkeypatch):
                   - sponsio:incident/mcp-composition
                 contracts:
                   - desc: "Filesystem MCP read_file: path restricted to my workspace"
-                    E:
+                    G:
                       ltl: 'G(called(mcp__filesystem__read_file) -> arg_field_has(mcp__filesystem__read_file, path, "^/workspace/project/.*"))'
             """
         ).lstrip(),

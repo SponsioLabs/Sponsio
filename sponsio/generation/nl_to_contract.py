@@ -1153,7 +1153,7 @@ def _try_bare_ordering_patterns(text: str, nl_line: str) -> ParsedConstraint | N
 #
 # Used as the assumption (``A`` side) of conditional contracts:
 #
-#     .assume("called `issue_refund`").enforce("must call `check_policy` before `issue_refund`")
+#     .assume("called `issue_refund`").guarantees("must call `check_policy` before `issue_refund`")
 #
 # Semantically "some time in the trace, X was invoked" — compiled to
 # ``F(Atom("called", X))``. Wrapping in ``F`` matches the hand-written
@@ -1328,7 +1328,7 @@ def parse_dsl(expr: str) -> ParsedConstraint:
         return ParsedConstraint(original_nl=nl_line, error="Empty input")
 
     # --- Trigger atoms (``called \`X\``` and variants) ---
-    # Used as the ``A`` side of .assume()/.enforce() A-E pairs: "once X
+    # Used as the ``A`` side of .assume()/.guarantees() A-G pairs: "once X
     # has been called, enforce E". These are short, standalone phrases
     # that don't compose with other DSL verbs, so we match them before
     # the heavier temporal patterns to avoid spurious false negatives.
@@ -2116,7 +2116,7 @@ def build_contracts(
     if not formulas:
         errors = "; ".join(e.error for e in result.errors)
         raise ValueError(f"No constraints parsed from NL input. Errors: {errors}")
-    return [Contract(agent=agent, enforcement=f) for f in formulas]
+    return [Contract(agent=agent, guarantee=f) for f in formulas]
 
 
 # Backward-compatible alias that returns a single Contract with a list
@@ -2129,8 +2129,8 @@ def build_contract(
     """Deprecated: returns a single Contract whose enforcement is the list
     of parsed formulas. Prefer :func:`build_contracts` (plural)."""
     contracts = build_contracts(nl_text, agent, llm_backend)
-    enforcements = [c.enforcement for c in contracts]
+    enforcements = [c.guarantee for c in contracts]
     return Contract(
         agent=agent,
-        enforcement=enforcements if len(enforcements) > 1 else enforcements[0],
+        guarantee=enforcements if len(enforcements) > 1 else enforcements[0],
     )

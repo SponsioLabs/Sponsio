@@ -93,44 +93,44 @@ agents:
       # =====================================================================
 
       - desc: "No prompt injection in any LLM response"
-        E:
+        G:
           pattern: injection_free
           context_scope: full_trace
           source: "library:tier0.adversarial"
         beta: 0.95
 
       - desc: "No jailbreak compliance in any LLM response"
-        E:
+        G:
           pattern: jailbreak_free
           source: "library:tier0.adversarial"
         beta: 0.9
 
       - desc: "No harmful advice or facilitation of real-world harm"
-        E:
+        G:
           pattern: harmful
           source: "library:tier0.harm"
         beta: 0.95
 
       - desc: "Response free of contextual PII"
-        E:
+        G:
           pattern: semantic_pii_free
           source: "library:tier0.privacy"
         beta: 0.95
 
       - desc: "Response free of toxic or harassing language"
-        E:
+        G:
           pattern: toxic_free
           source: "library:tier0.harm"
         beta: 0.9
 
       - desc: "Total token usage bounded per session"
-        E:
+        G:
           pattern: token_budget
           args: [200000, "total"]
           source: "library:tier0.budget"
 
       - desc: "No consecutive repetition of the same tool beyond a sane limit"
-        E:
+        G:
           pattern: loop_detection
           args: [exec, 5]
           source: "library:tier0.runaway"
@@ -141,7 +141,7 @@ agents:
       # =====================================================================
 
       - desc: "Ban classic destructive shell patterns"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - exec
@@ -154,7 +154,7 @@ agents:
       # command token; unconstrained `\<newline>` appears legitimately
       # in Makefiles / Dockerfiles / shell scripts.
       - desc: "Block shell line-continuation chained into a privileged command (CVE-2026-28460)"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - exec
@@ -164,19 +164,19 @@ agents:
           source: "incident:CVE-2026-28460"
 
       - desc: "Block --yolo / --no-confirm flags on skill invocations"
-        E:
+        G:
           pattern: arg_blacklist
           args: [run_skill, args, ["--yolo\\b", "--no-confirm\\b"]]
           source: "incident:issue-12515"
 
       - desc: "Reject exec commands with suspiciously long inline payloads"
-        E:
+        G:
           pattern: arg_length_limit
           args: [exec, command, 2000]
           source: "library:tier1.shell"
 
       - desc: "Blast-radius cap: at most 10 exec calls per session"
-        E:
+        G:
           pattern: rate_limit
           args: [exec, 10]
           source: "library:tier1.shell"
@@ -185,7 +185,7 @@ agents:
       # confirm_reconfirmed. The existing must_confirm pattern is unconditional
       # on tool name; we want it conditional on the argument content. LTL form.
       - desc: "Privileged exec patterns require a preceding human confirmation"
-        E:
+        G:
           ltl: 'G(called_with(exec, "(sudo|dd\\s+if=|chmod\\s+777)") -> count(confirm_reconfirmed) >= count_with(exec, "(sudo|dd\\s+if=|chmod\\s+777)"))'
           source: "library:tier1.shell"
 
@@ -196,7 +196,7 @@ agents:
       # =====================================================================
 
       - desc: "Ban gateway config keys that disable sandbox or approvals"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - gateway_config_set
@@ -205,13 +205,13 @@ agents:
           source: "incident:CVE-2026-25253"
 
       - desc: "Admin config changes extremely rare"
-        E:
+        G:
           pattern: rate_limit
           args: [gateway_config_set, 1]
           source: "incident:CVE-2026-25253"
 
       - desc: "Every admin config change must be followed by an audit-log entry"
-        E:
+        G:
           pattern: always_followed_by
           args: [gateway_config_set, audit_log]
           source: "incident:CVE-2026-25253"
@@ -222,7 +222,7 @@ agents:
       # =====================================================================
 
       - desc: "Reads restricted to workspace and /tmp"
-        E:
+        G:
           pattern: scope_limit
           args:
             - read
@@ -230,7 +230,7 @@ agents:
           source: "library:tier1.filesystem"
 
       - desc: "Hard-deny reads of sensitive paths (SSH, AWS, OpenClaw secrets)"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - read
@@ -239,7 +239,7 @@ agents:
           source: "incident:weather-skill"
 
       - desc: "Writes restricted to workspace"
-        E:
+        G:
           pattern: scope_limit
           args:
             - write
@@ -248,23 +248,23 @@ agents:
 
       # Bootstrap-file self-modification — conditional on the path.
       - desc: "Self-modification of bootstrap files requires confirmation"
-        E:
+        G:
           ltl: 'G(called_with(edit, "(AGENTS|SOUL|IDENTITY|USER)\\.md") -> count(confirm_reconfirmed) >= count_with(edit, "(AGENTS|SOUL|IDENTITY|USER)\\.md"))'
           source: "library:tier1.persistent_memory"
 
       - desc: "apply_patch against SOUL.md always requires confirmation"
-        E:
+        G:
           ltl: 'G(called_with(apply_patch, "SOUL\\.md") -> count(confirm_reconfirmed) >= count_with(apply_patch, "SOUL\\.md"))'
           source: "library:tier1.persistent_memory"
 
       - desc: "No blind edits — must read a path before editing it"
-        E:
+        G:
           pattern: must_precede
           args: [read, edit]
           source: "library:tier1.filesystem"
 
       - desc: "Bootstrap files preserve integrity"
-        E:
+        G:
           pattern: data_intact
           args:
             - "bootstrap_files"
@@ -278,31 +278,31 @@ agents:
       # =====================================================================
 
       - desc: "Install and run are segregated"
-        E:
+        G:
           pattern: segregation_of_duty
           args: [install_skill, run_skill]
           source: "incident:ClawHavoc"
 
       - desc: "Every skill install followed by an audit-log entry"
-        E:
+        G:
           pattern: always_followed_by
           args: [install_skill, audit_log]
           source: "incident:ClawHavoc"
 
       - desc: "At most 3 skill installs per session"
-        E:
+        G:
           pattern: rate_limit
           args: [install_skill, 3]
           source: "incident:ClawHavoc"
 
       - desc: "Cooldown of 10 steps between skill installs"
-        E:
+        G:
           pattern: cooldown
           args: [install_skill, 10]
           source: "incident:ClawHavoc"
 
       - desc: "Typosquat defense — ban ClawHub official-CLI impersonators"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - install_skill
@@ -313,7 +313,7 @@ agents:
       # After a fresh install, no exec for 5 steps (VirusTotal scan window).
       # No clean pattern fit; LTL expresses windowed inhibition.
       - desc: "After install_skill, no exec for at least 5 steps"
-        E:
+        G:
           ltl: "G(called(install_skill) -> (!called(exec) & X(!called(exec) & X(!called(exec) & X(!called(exec) & X(!called(exec)))))))"
           source: "incident:ClawHavoc"
 
@@ -332,7 +332,7 @@ agents:
       # to external (non-owner) channels should add it via
       # customized: — see the commented example below.
       - desc: "After untrusted content ingest, sensitive sinks require re-confirmation"
-        E:
+        G:
           pattern: untrusted_source_gate
           args:
             - [web_fetch]
@@ -351,7 +351,7 @@ agents:
       #       source: "incident:CVE-2026-22708"
 
       - desc: "Web browsing loops bounded — prevents attacker-controlled chain-redirect ingestion"
-        E:
+        G:
           pattern: rate_limit
           args: [web_fetch, 25]
           source: "incident:CVE-2026-22708"
@@ -360,7 +360,7 @@ agents:
       # to external recipients. Depends on integration emitting
       # data_write(key=fetched_content, contains=[untrusted]) after web_fetch.
       - desc: "Content tainted as untrusted must not flow to external recipients"
-        E:
+        G:
           ltl: "G(contains(untrusted) -> !flow(<agent>, external))"
           source: "incident:CVE-2026-22708"
 
@@ -369,19 +369,19 @@ agents:
       # =====================================================================
 
       - desc: "Data read from filesystem must not flow to send_message"
-        E:
+        G:
           pattern: no_data_leak
           args: [read, send_message]
           source: "incident:weather-skill"
 
       - desc: "Data read from filesystem must not flow to install_skill"
-        E:
+        G:
           pattern: no_data_leak
           args: [read, install_skill]
           source: "incident:AMOS"
 
       - desc: "Block outbound exfiltration primitives in shell"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - exec
@@ -398,30 +398,30 @@ agents:
       # Group-channel messages must not be followed by exec. LTL expresses the
       # channel_type=group condition cleanly.
       - desc: "Messages from group channels cannot trigger exec"
-        E:
+        G:
           ltl: 'G(called_with(send_message, "channel_type=group") -> !F(called(exec)))'
           source: "library:tier1.messaging"
 
       - desc: "Per-session cap on outbound messages"
-        E:
+        G:
           pattern: rate_limit
           args: [send_message, 30]
           source: "library:tier1.messaging"
 
       - desc: "Cron creation is idempotent within a session"
-        E:
+        G:
           pattern: idempotent
           args: [cron_create]
           source: "library:tier1.scheduler"
 
       - desc: "Every cron_create must eventually be matched by cron_complete"
-        E:
+        G:
           pattern: required_steps_completion
           args: [cron_create, [cron_complete]]
           source: "library:tier1.scheduler"
 
       - desc: "Hook / webhook registration requires human confirmation"
-        E:
+        G:
           pattern: must_confirm
           args: [hook_register]
           source: "library:tier1.persistence"
@@ -443,13 +443,13 @@ agents:
 
       - desc: "Confirmations cannot be reused — count(confirm) must dominate count(exec)"
         A: "called `confirm_reconfirmed`"
-        E:
+        G:
           ltl: "G(called(exec) -> count(confirm_reconfirmed) >= count(exec))"
           source: "incident:CVE-2026-29607"
 
       - desc: "Same for apply_patch — each apply needs its own confirm"
         A: "called `confirm_reconfirmed`"
-        E:
+        G:
           ltl: "G(called(apply_patch) -> count(confirm_reconfirmed) >= count(apply_patch))"
           source: "incident:CVE-2026-29607"
 
@@ -459,21 +459,21 @@ agents:
 
       - desc: "After web_fetch, responses stay grounded in the fetched content"
         A: "called `web_fetch`"
-        E:
+        G:
           pattern: hallucination_free
           args: ["{fetched_content}"]
           source: "library:tier1.browser"
         beta: 0.9
 
       - desc: "Agent stays within its declared scope"
-        E:
+        G:
           pattern: scope_respect
           args: ["local personal assistant — file, shell, messaging, browsing on behalf of owner"]
           source: "library:tier0.scope"
         beta: 0.85
 
       - desc: "Agent does not agree to disable its own safety constraints (anti-guilttrip)"
-        E:
+        G:
           pattern: jailbreak_free
           source: "incident:wired-guilttrip"
         beta: 0.95

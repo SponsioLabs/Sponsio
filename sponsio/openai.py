@@ -10,7 +10,7 @@ Usage::
         agent_id="chatbot",
         contracts=[
             contract("no PII in responses")
-                .enforce("response must not contain PII"),
+                .guarantees("response must not contain PII"),
         ],
     )
     client = guard.wrap(openai.OpenAI())

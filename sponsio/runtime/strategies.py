@@ -1,7 +1,9 @@
 """Enforcement strategies for runtime constraint violations.
 
-Det violations -> DetBlock | EscalateToHuman ONLY.
-Sto violations -> RetryWithConstraint | RedirectToSafe ONLY.
+OSS strategies are det-only: DetBlock | EscalateToHuman | WarnOnly.
+The sto-pipeline strategies (RetryWithConstraint, RedirectToSafe) and
+their feedback / lesson formatting live in
+``sponsio_cloud.sto.strategies`` — see ``pip install sponsio[cloud]``.
 """
 
 from __future__ import annotations
@@ -10,9 +12,6 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from sponsio.models.result import Violation
-# StoResult / FeedbackGenerator references moved to sponsio-cloud
-# along with RetryWithConstraint / RedirectToSafe. OSS strategies are
-# det-only.
 
 
 @dataclass
@@ -286,34 +285,7 @@ class WarnOnly:
 
 
 # Sto-pipeline strategies (RetryWithConstraint, RedirectToSafe) live
-# in the proprietary sponsio-cloud package. The OSS engine ships only
-# the deterministic strategies above (DetBlock / EscalateToHuman /
-# WarnOnly). See sponsio_cloud/sto/strategies.py.
-#
-# The names are still imported by ``sponsio.runtime.monitor`` for
-# isinstance() guard rails on the stochastic dispatch path.  Those
-# guards now never match (the path is unreachable in OSS) but the
-# import has to resolve to *something* — empty stubs below keep the
-# module loadable without re-introducing stochastic behaviour.
-# When the matching dead code in monitor.py gets removed alongside
-# the rest of the stochastic surface, drop these too.
-
-
-class RetryWithConstraint:
-    """OSS no-op stub.  Real implementation in sponsio-cloud."""
-
-    def __init__(self, *args, **kwargs) -> None:
-        raise NotImplementedError(
-            "RetryWithConstraint is a Sponsio Cloud feature; install "
-            "`sponsio[cloud]` to use stochastic enforcement strategies."
-        )
-
-
-class RedirectToSafe:
-    """OSS no-op stub.  Real implementation in sponsio-cloud."""
-
-    def __init__(self, *args, **kwargs) -> None:
-        raise NotImplementedError(
-            "RedirectToSafe is a Sponsio Cloud feature; install "
-            "`sponsio[cloud]` to use stochastic enforcement strategies."
-        )
+# in the proprietary ``sponsio-cloud`` package — see
+# ``sponsio_cloud/sto/strategies.py``. OSS exports only the
+# deterministic strategies above (DetBlock / EscalateToHuman /
+# WarnOnly).

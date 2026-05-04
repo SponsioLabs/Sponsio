@@ -10,7 +10,7 @@ Usage::
         agent_id="triage",
         contracts=[
             contract("no infinite handoffs")
-                .enforce("tool `handoff` at most 2 times"),
+                .guarantees("tool `handoff` at most 2 times"),
         ],
     )
     agent = Agent(name="triage", tools=guard.wrap(tools))

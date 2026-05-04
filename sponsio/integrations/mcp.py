@@ -342,7 +342,7 @@ def scan_mcp_tools(
                             )
                         )
 
-    contracts = [Contract(agent=agent, enforcement=e) for e in enforcements]
+    contracts = [Contract(agent=agent, guarantee=e) for e in enforcements]
     system = System(name=f"mcp_{agent_id}", contracts=contracts)
 
     return system

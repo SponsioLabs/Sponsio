@@ -42,7 +42,7 @@ class _Constraint:
 class _Contract:
     desc: str | None = None
     assumption: object | None = None
-    enforcement: object | None = None
+    guarantee: object | None = None
     alpha: float = 1.0
     beta: float = 1.0
     activate_at: str | None = None
@@ -247,7 +247,7 @@ def test_find_last_violation_skips_malformed_lines(tmp_path):
 def test_render_emits_all_zones():
     contract = _Contract(
         desc="rate limit: at most 1",
-        enforcement=_Constraint(pattern_name="rate_limit", args=("issue_refund", 1)),
+        guarantee=_Constraint(pattern_name="rate_limit", args=("issue_refund", 1)),
     )
     _, plain = _render(contract, 0)
     assert "Sponsio" in plain
@@ -263,7 +263,7 @@ def test_render_emits_all_zones():
 def test_render_shows_pattern_summary_when_available():
     contract = _Contract(
         desc="rate limit",
-        enforcement=_Constraint(pattern_name="rate_limit", args=("X", 50)),
+        guarantee=_Constraint(pattern_name="rate_limit", args=("X", 50)),
     )
     _, plain = _render(contract, 0)
     assert "rate_limit('X', 50)" in plain
@@ -271,7 +271,7 @@ def test_render_shows_pattern_summary_when_available():
 
 def test_render_unconditional_label_when_no_assumption():
     contract = _Contract(
-        desc="bare", enforcement=_Constraint(pattern_name="rate_limit", args=())
+        desc="bare", guarantee=_Constraint(pattern_name="rate_limit", args=())
     )
     _, plain = _render(contract, 0)
     assert "unconditional" in plain
@@ -281,20 +281,20 @@ def test_render_assumption_pattern_summary_when_present():
     contract = _Contract(
         desc="conditional",
         assumption=_Constraint(pattern_name="some_assume", args=()),
-        enforcement=_Constraint(pattern_name="rate_limit", args=()),
+        guarantee=_Constraint(pattern_name="rate_limit", args=()),
     )
     _, plain = _render(contract, 0)
     assert "some_assume" in plain
 
 
 def test_render_no_violation_section_text_when_clean():
-    contract = _Contract(desc="x", enforcement=_Constraint(pattern_name="rate_limit"))
+    contract = _Contract(desc="x", guarantee=_Constraint(pattern_name="rate_limit"))
     _, plain = _render(contract, 0, last_violation=None)
     assert "no recorded violations" in plain
 
 
 def test_render_violation_section_when_present():
-    contract = _Contract(desc="x", enforcement=_Constraint(pattern_name="rate_limit"))
+    contract = _Contract(desc="x", guarantee=_Constraint(pattern_name="rate_limit"))
     last = {
         "ts": 1730000000.0,
         "agent_id": "support_bot",
@@ -313,11 +313,9 @@ def test_render_violation_section_when_present():
 
 def test_render_resolution_hint_specialises_per_pattern():
     """Each pattern kind should produce a specific first hint."""
-    rate = _Contract(desc="x", enforcement=_Constraint(pattern_name="rate_limit"))
-    blacklist = _Contract(
-        desc="x", enforcement=_Constraint(pattern_name="arg_blacklist")
-    )
-    precede = _Contract(desc="x", enforcement=_Constraint(pattern_name="must_precede"))
+    rate = _Contract(desc="x", guarantee=_Constraint(pattern_name="rate_limit"))
+    blacklist = _Contract(desc="x", guarantee=_Constraint(pattern_name="arg_blacklist"))
+    precede = _Contract(desc="x", guarantee=_Constraint(pattern_name="must_precede"))
     _, p_rate = _render(rate, 0)
     _, p_black = _render(blacklist, 0)
     _, p_prec = _render(precede, 0)
@@ -328,7 +326,7 @@ def test_render_resolution_hint_specialises_per_pattern():
 
 def test_render_includes_config_path_hint_when_provided(tmp_path):
     """The 'source: <path>' line lets users open the yaml directly."""
-    contract = _Contract(desc="x", enforcement=_Constraint(pattern_name="rate_limit"))
+    contract = _Contract(desc="x", guarantee=_Constraint(pattern_name="rate_limit"))
     cfg = tmp_path / "sponsio.yaml"
     cfg.write_text("contracts: []\n", encoding="utf-8")
     _, plain = _render(contract, 0, config_path=cfg)
@@ -345,14 +343,14 @@ def test_render_includes_config_path_hint_when_provided(tmp_path):
 def test_explain_to_dict_basic_shape():
     contract = _Contract(
         desc="rate limit",
-        enforcement=_Constraint(pattern_name="rate_limit", args=("X", 1)),
+        guarantee=_Constraint(pattern_name="rate_limit", args=("X", 1)),
         alpha=1.0,
         beta=1.0,
     )
     out = explain_to_dict(contract, 0)
     assert out["alias"] == "C1"
     assert out["desc"] == "rate limit"
-    assert out["enforcement"]["pattern"] == "rate_limit('X', 1)"
+    assert out["guarantee"]["pattern"] == "rate_limit('X', 1)"
     assert out["assumption"]["pattern"] is None
     assert out["last_violation"] is None
     assert isinstance(out["resolution_hints"], list)
@@ -360,7 +358,7 @@ def test_explain_to_dict_basic_shape():
 
 
 def test_explain_to_dict_includes_last_violation_when_provided():
-    contract = _Contract(desc="x", enforcement=_Constraint(pattern_name="rate_limit"))
+    contract = _Contract(desc="x", guarantee=_Constraint(pattern_name="rate_limit"))
     last = {"ts": 1.0, "result": {"action": "blocked"}}
     out = explain_to_dict(contract, 0, last_violation=last)
     assert out["last_violation"] == last
@@ -370,7 +368,7 @@ def test_explain_to_dict_serializable():
     """The dict must round-trip through json.dumps for --format=json."""
     contract = _Contract(
         desc="rate limit",
-        enforcement=_Constraint(pattern_name="rate_limit", args=("X", 1)),
+        guarantee=_Constraint(pattern_name="rate_limit", args=("X", 1)),
     )
     out = explain_to_dict(contract, 0)
     serialized = json.dumps(out, default=str)

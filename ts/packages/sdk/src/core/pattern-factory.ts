@@ -55,7 +55,7 @@ import {
   argValueRange,
   delegationDepthLimit,
   type DetFormula,
-  type AssumptionEnforcementPair,
+  type AssumeGuaranteePair,
 } from "./patterns.js";
 import { Atom } from "./formula.js";
 
@@ -122,7 +122,7 @@ function atomAsFormula(
 export function buildPatternByName(
   pattern: string,
   args: unknown[],
-): DetFormula | AssumptionEnforcementPair | null {
+): DetFormula | AssumeGuaranteePair | null {
   switch (pattern) {
     // Atom-as-formula — used almost exclusively in A: / assumption.
     case "called": {
@@ -349,13 +349,13 @@ export function buildPatternByName(
   }
 }
 
-/** Type guard: is this an A/E pair (``untrusted_source_gate`` / ``confirm_after_source``)? */
-export function isAePair(
-  v: DetFormula | AssumptionEnforcementPair,
-): v is AssumptionEnforcementPair {
+/** Type guard: is this an A/G pair (``untrusted_source_gate`` / ``confirm_after_source``)? */
+export function isAgPair(
+  v: DetFormula | AssumeGuaranteePair,
+): v is AssumeGuaranteePair {
   return (
-    (v as AssumptionEnforcementPair).assumption !== undefined &&
-    (v as AssumptionEnforcementPair).enforcement !== undefined
+    (v as AssumeGuaranteePair).assumption !== undefined &&
+    (v as AssumeGuaranteePair).guarantee !== undefined
   );
 }
 

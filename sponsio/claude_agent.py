@@ -11,7 +11,7 @@ Usage::
         contracts=[
             contract("redact PII before send")
                 .assume("response contains PII")
-                .enforce("response must redact PII"),
+                .guarantees("response must redact PII"),
         ],
     )
     client = ClaudeSDKClient(options=guard.wrap(options))

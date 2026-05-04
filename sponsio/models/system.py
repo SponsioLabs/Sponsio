@@ -14,7 +14,7 @@ class AgentBuilder:
     Accumulates assumptions and enforcements on an agent, then emits one
     ``Contract`` per enforcement — each paired with the same assumption
     set (ANDed). This matches the new per-contract semantics where each
-    (A, E) pair is evaluated independently.
+    (A, G) pair is evaluated independently.
     """
 
     def __init__(self, agent_id: str) -> None:
@@ -52,7 +52,7 @@ class AgentBuilder:
             else (self._assumptions[0] if self._assumptions else None)
         )
         return [
-            Contract(agent=self._agent, enforcement=e, assumption=assumption)
+            Contract(agent=self._agent, guarantee=e, assumption=assumption)
             for e in self._enforcements
         ]
 

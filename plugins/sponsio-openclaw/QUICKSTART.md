@@ -140,7 +140,7 @@ The library format is identical to the sponsio-claude-code plugin's. See
 rules](../sponsio-claude-code/QUICKSTART.md#customising-rules) for:
 
 * direct yaml edits
-* `overrides:` blocks
+* `customized:` blocks
 * `sponsio plugin scan` for unbundled plugins
 * `SPONSIO_GUARD_MODE=observe` for shadow-mode rollout
 

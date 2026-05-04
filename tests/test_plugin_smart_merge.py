@@ -79,7 +79,7 @@ def test_existing_source_tags_are_not_clobbered(tmp_path):
         "    contracts:\n"
         "      - desc: r1\n"
         "        source: library:foo\n"
-        "        E: { pattern: rate_limit, args: [t, 0] }\n"
+        "        G: { pattern: rate_limit, args: [t, 0] }\n"
     )
     # Re-stamp via the helper directly (we don't have a 'custom' bundle
     # in the registry — exercise the stamping path on a hand-crafted
@@ -99,7 +99,7 @@ def test_existing_source_tags_are_not_clobbered(tmp_path):
 
 def _add_user_content(target: Path) -> None:
     """Mutate the installed YAML to add one user-authored contract
-    (a real ``E:``-shaped entry under ``contracts:``) and one
+    (a real ``G:``-shaped entry under ``contracts:``) and one
     customized entry (a ``match:`` entry under the agent's
     ``customized:`` block)."""
     doc = yaml.safe_load(target.read_text())
@@ -107,7 +107,7 @@ def _add_user_content(target: Path) -> None:
     g.setdefault("contracts", []).append(
         {
             "desc": "user-added: block staging-* deletions",
-            "E": {
+            "G": {
                 "pattern": "arg_blacklist",
                 "args": [
                     "mcp__github__delete_branch",
@@ -122,7 +122,7 @@ def _add_user_content(target: Path) -> None:
         {
             "match": {
                 "desc": (
-                    "delete_repository is blocked outright (overrides: "
+                    "delete_repository is blocked outright (customized: "
                     "disabled: true to allow)"
                 )
             },
@@ -145,15 +145,15 @@ def test_reinstall_preserves_user_contracts_and_customized(tmp_path):
     g = doc["agents"]["github"]
     contracts = g.get("contracts") or []
 
-    # User-added contract (E-shape) is preserved.
+    # User-added contract (G-shape) is preserved.
     descs = [c.get("desc") for c in contracts]
     assert "user-added: block staging-* deletions" in descs
     # Shipped rules are still present (not lost in the merge).
     assert any("delete_repository" in (d or "") for d in descs)
-    # Every entry in ``contracts:`` is a real contract (E + optional
+    # Every entry in ``contracts:`` is a real contract (G + optional
     # A) — no match-shape entries leaked in.
     for c in contracts:
-        assert "E" in c, f"non-contract entry in contracts:: {c!r}"
+        assert "G" in c, f"non-contract entry in contracts:: {c!r}"
 
     # Tweak block (match + effect) survives at the agent level.
     customized = g.get("customized") or []
@@ -175,7 +175,7 @@ def test_reinstall_replaces_default_contracts(tmp_path):
     # a proper tweak).
     for c in g["contracts"]:
         if c.get("source") == "bundle:github" and "delete_branch" in c.get("desc", ""):
-            c["E"]["args"][2] = ["^attacker-only$"]  # weakened regex
+            c["G"]["args"][2] = ["^attacker-only$"]  # weakened regex
             break
     target.write_text(yaml.safe_dump(doc, sort_keys=False))
 
@@ -192,7 +192,7 @@ def test_reinstall_replaces_default_contracts(tmp_path):
         for c in upgraded["agents"]["github"]["contracts"]
         if "delete_branch" in c["desc"]
     )
-    assert upgraded_branch_rule["E"]["args"] == bundled_branch_rule["E"]["args"]
+    assert upgraded_branch_rule["G"]["args"] == bundled_branch_rule["G"]["args"]
 
 
 def test_reinstall_runtime_behaviour(tmp_path, monkeypatch):
@@ -228,8 +228,8 @@ def test_reinstall_with_no_user_content_reports_zero_kept(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# §4 — Loader accepts ``customized:`` (canonical) plus ``tweaks:`` /
-#       ``overrides:`` as silent legacy aliases
+# §4 — Loader accepts ``customized:`` and rejects the dropped legacy
+#       aliases ``tweaks:`` / ``overrides:`` with an actionable error.
 # ---------------------------------------------------------------------------
 
 
@@ -270,7 +270,7 @@ agents:
   github:
     contracts:
       - desc: shipped
-        E: { pattern: rate_limit, args: [tool, 0] }
+        G: { pattern: rate_limit, args: [tool, 0] }
     customized:
       - match: { desc: shipped }
         disabled: true
@@ -285,8 +285,10 @@ agents:
     assert parsed.agents["github"].contracts == []
 
 
-def test_loader_accepts_legacy_overrides_key(tmp_path):
-    """Existing user configs using ``overrides:`` keep working."""
+def test_loader_rejects_dropped_overrides_key(tmp_path):
+    """``overrides:`` was the original key and is no longer accepted.
+    Configs using it must surface an actionable rename error rather
+    than silently ignoring the customizations."""
     cfg = tmp_path / "sponsio.yaml"
     cfg.write_text(
         """
@@ -295,21 +297,22 @@ agents:
   github:
     contracts:
       - desc: shipped
-        E: { pattern: rate_limit, args: [tool, 0] }
+        G: { pattern: rate_limit, args: [tool, 0] }
     overrides:
       - match: { desc: shipped }
         disabled: true
 """
     )
-    from sponsio.config import load_config
+    from sponsio.config import ConfigError, load_config
 
-    parsed = load_config(cfg)
-    assert parsed.agents["github"].contracts == []
+    import pytest
+
+    with pytest.raises(ConfigError, match="'overrides:' is no longer accepted"):
+        load_config(cfg)
 
 
-def test_loader_accepts_legacy_tweaks_key(tmp_path):
-    """Existing user configs using ``tweaks:`` (the prior rename
-    that didn't stick) keep working."""
+def test_loader_rejects_dropped_tweaks_key(tmp_path):
+    """``tweaks:`` was an interim rename and is no longer accepted."""
     cfg = tmp_path / "sponsio.yaml"
     cfg.write_text(
         """
@@ -318,16 +321,18 @@ agents:
   github:
     contracts:
       - desc: shipped
-        E: { pattern: rate_limit, args: [tool, 0] }
+        G: { pattern: rate_limit, args: [tool, 0] }
     tweaks:
       - match: { desc: shipped }
         disabled: true
 """
     )
-    from sponsio.config import load_config
+    from sponsio.config import ConfigError, load_config
 
-    parsed = load_config(cfg)
-    assert parsed.agents["github"].contracts == []
+    import pytest
+
+    with pytest.raises(ConfigError, match="'tweaks:' is no longer accepted"):
+        load_config(cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -420,7 +425,12 @@ def test_host_install_handles_host_with_no_subagent_bundle(tmp_path):
     assert not (tmp_path / "_host_openclaw_subagent").exists()
 
 
-def test_loader_rejects_multiple_customization_keys(tmp_path):
+def test_loader_rejects_legacy_alongside_canonical(tmp_path):
+    """When a config has both ``customized:`` (canonical) and a
+    dropped legacy key (``overrides:`` or ``tweaks:``), the loader
+    must fail on the legacy key with the rename guidance — not
+    silently merge them.  This is the migration-safety net for
+    files that were partially edited."""
     cfg = tmp_path / "sponsio.yaml"
     cfg.write_text(
         """
@@ -429,7 +439,7 @@ agents:
   github:
     contracts:
       - desc: shipped
-        E: { pattern: rate_limit, args: [tool, 0] }
+        G: { pattern: rate_limit, args: [tool, 0] }
     customized:
       - match: { desc: shipped }
         disabled: true
@@ -442,5 +452,5 @@ agents:
 
     import pytest
 
-    with pytest.raises(ConfigError, match="multiple customization keys"):
+    with pytest.raises(ConfigError, match="'overrides:' is no longer accepted"):
         load_config(cfg)

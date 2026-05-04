@@ -36,7 +36,7 @@ agents:
       # -----------------------------------------------------------------
 
       - desc: "browser_navigate must not target internal / private hosts"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__playwright__browser_navigate
@@ -59,7 +59,7 @@ agents:
       # -----------------------------------------------------------------
 
       - desc: "browser_evaluate must not exfil document content via fetch / sendBeacon"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__playwright__browser_evaluate
@@ -73,12 +73,12 @@ agents:
               - "sessionStorage\\.(getItem|key)"
 
       - desc: "no more than 30 browser_evaluate calls per session"
-        E:
+        G:
           pattern: rate_limit
           args: [mcp__playwright__browser_evaluate, 30]
 
       - desc: "no more than 5 consecutive browser_evaluate calls"
-        E:
+        G:
           pattern: loop_detection
           args: [mcp__playwright__browser_evaluate, 5]
 
@@ -87,7 +87,7 @@ agents:
       # -----------------------------------------------------------------
 
       - desc: "browser_type must not send credit-card-shaped strings"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__playwright__browser_type
@@ -95,7 +95,7 @@ agents:
             - - "\\b(?:\\d[ -]?){13,19}\\b"
 
       - desc: "browser_fill_form must not send credit-card-shaped strings"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__playwright__browser_fill_form
@@ -107,12 +107,12 @@ agents:
       # -----------------------------------------------------------------
 
       - desc: "no more than 50 navigations per session (loop / scrape cap)"
-        E:
+        G:
           pattern: rate_limit
           args: [mcp__playwright__browser_navigate, 50]
 
       - desc: "no more than 100 screenshots per session"
-        E:
+        G:
           pattern: rate_limit
           args: [mcp__playwright__browser_take_screenshot, 100]
 

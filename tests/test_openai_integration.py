@@ -288,7 +288,7 @@ class TestMalformedToolArguments:
             contracts=[
                 Contract(
                     agent=Agent(id="t"),
-                    enforcement=arg_blacklist("bash", "_raw_arguments", ["rm -rf"]),
+                    guarantee=arg_blacklist("bash", "_raw_arguments", ["rm -rf"]),
                 )
             ],
         )

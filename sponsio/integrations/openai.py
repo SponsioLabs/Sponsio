@@ -11,9 +11,9 @@ Usage::
     guard = patch_openai(contracts=[
         contract("policy gate before refund")
             .assume("called `issue_refund`")
-            .enforce("must call `check_policy` before `issue_refund`"),
+            .guarantees("must call `check_policy` before `issue_refund`"),
         contract("refund rate limit")
-            .enforce("tool `issue_refund` at most 1 times"),
+            .guarantees("tool `issue_refund` at most 1 times"),
     ])
 
     # All tool_calls are now auto-monitored
@@ -63,7 +63,7 @@ from typing import Any
 
 from sponsio.integrations.base import BaseGuard, CheckResult, select_agent_message
 from sponsio.models.system import System
-from sponsio.runtime.evaluators import StoEvaluator
+from sponsio.protocols.sto import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
 
 _original_create: Any = None

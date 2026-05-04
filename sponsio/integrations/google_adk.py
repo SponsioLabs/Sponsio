@@ -14,7 +14,7 @@ Usage::
     guard = Sponsio(contracts=[
         contract("must search before booking")
             .assume("called `book_flight`")
-            .enforce("must call `search_flights` before `book_flight`"),
+            .guarantees("must call `search_flights` before `book_flight`"),
     ])
 
     root_agent = Agent(
@@ -41,7 +41,7 @@ from sponsio.integrations.base import (
     select_agent_message,
 )
 from sponsio.models.system import System
-from sponsio.runtime.evaluators import StoEvaluator
+from sponsio.protocols.sto import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
 
 

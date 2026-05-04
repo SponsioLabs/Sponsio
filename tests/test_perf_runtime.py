@@ -33,7 +33,7 @@ def test_pure_det_contract_lands_in_pure_det_bucket():
     be classified ``pure_det`` and never touch ``sto_live``."""
     g = BaseGuard(
         agent_id="a",
-        contracts=[{"enforcement": tool_allowlist(["ok_tool"])}],
+        contracts=[{"guarantee": tool_allowlist(["ok_tool"])}],
         verbose=False,
     )
     for i in range(50):
@@ -55,7 +55,7 @@ def test_fresh_guard_reports_zero_checks():
     total_checks=0 summary — not None, not raise."""
     g = BaseGuard(
         agent_id="a",
-        contracts=[{"enforcement": tool_allowlist(["x"])}],
+        contracts=[{"guarantee": tool_allowlist(["x"])}],
         verbose=False,
     )
     stats = g.performance_stats()
@@ -70,7 +70,7 @@ def test_violation_check_still_records_sample():
     care about block-path latency too."""
     g = BaseGuard(
         agent_id="a",
-        contracts=[{"enforcement": tool_allowlist(["ok_tool"])}],
+        contracts=[{"guarantee": tool_allowlist(["ok_tool"])}],
         verbose=False,
     )
     g.guard_before("ok_tool", {})
@@ -85,7 +85,7 @@ def test_per_contract_labels_in_output():
     users can ``jq '.per_contract["my rule"]'`` from a perf dump."""
     g = BaseGuard(
         agent_id="a",
-        contracts=[{"enforcement": tool_allowlist(["x"])}],
+        contracts=[{"guarantee": tool_allowlist(["x"])}],
         verbose=False,
     )
     g.guard_before("x", {})
@@ -106,7 +106,7 @@ def test_performance_stats_callable_mid_session():
     counters — users probe it for dashboards between checks."""
     g = BaseGuard(
         agent_id="a",
-        contracts=[{"enforcement": tool_allowlist(["x"])}],
+        contracts=[{"guarantee": tool_allowlist(["x"])}],
         verbose=False,
     )
     g.guard_before("x", {})
@@ -138,7 +138,7 @@ performance:
 agents:
   a:
     contracts:
-      - E:
+      - G:
           pattern: tool_allowlist
           args: [[x]]
 """,
@@ -168,7 +168,7 @@ performance:
 agents:
   a:
     contracts:
-      - E:
+      - G:
           pattern: tool_allowlist
           args: [[x]]
 """,
@@ -198,7 +198,7 @@ performance:
 agents:
   a:
     contracts:
-      - E:
+      - G:
           pattern: tool_allowlist
           args: [[x]]
 """,
@@ -221,7 +221,7 @@ performance:
 agents:
   a:
     contracts:
-      - E:
+      - G:
           pattern: tool_allowlist
           args: [[x]]
 """,
@@ -245,7 +245,7 @@ performance:
 agents:
   a:
     contracts:
-      - E:
+      - G:
           pattern: tool_allowlist
           args: [[x]]
 """,
@@ -274,7 +274,7 @@ performance:
 agents:
   a:
     contracts:
-      - E:
+      - G:
           pattern: tool_allowlist
           args: [[x]]
 """,

@@ -1,26 +1,24 @@
-"""RuntimeMonitor -- intercepts agent actions and enforces contracts at runtime.
+"""RuntimeMonitor — intercepts agent actions and enforces det contracts.
 
 This is the central enforcement point.  Every agent action flows through
-``check_action()``, which runs two independent evaluation pipelines:
+``check_action()``, which runs the deterministic evaluation pipeline:
 
-Det pipeline (formal, binary):
     action -> append to trace -> ground(trace) -> for each Contract:
         eval assumption -> if holds, eval enforcement
     -> pass:  action allowed
-    -> fail:  DetBlock or EscalateToHuman
-
-Sto pipeline (probabilistic, graded):
-    action -> for each sto-enforcement Contract whose assumption holds:
-        StoEvaluator -> StoResult(score, evidence, suggestion)
-    -> score >= threshold:  pass
-    -> score <  threshold:  RetryWithConstraint or RedirectToSafe
-
-Det violations NEVER use sto strategies (and vice versa).  This is
-enforced in ``_check_det`` and ``_check_sto``.
+    -> fail:  DetBlock | EscalateToHuman | WarnOnly
 
 Each ``Contract`` is a single (assumption, enforcement) pair. Contracts
 are evaluated independently — an assumption on one contract never gates
 the enforcement of another contract.
+
+The OSS engine is det-only. The LLM-judged stochastic pipeline (sto
+evaluator + retry / redirect strategies + feedback generator + the
+sto-specific dispatch this module used to host) lives in the
+proprietary ``sponsio-cloud`` package. ``BaseGuard`` keeps a public
+``sto_evaluator: StoEvaluator | None`` hook (typed against
+:mod:`sponsio.protocols.sto`) and delegates to it through the
+``check_soft`` / ``refine`` surface; this monitor stays oblivious.
 """
 
 from __future__ import annotations
@@ -34,7 +32,6 @@ from sponsio.models.result import Violation
 from sponsio.models.spans import AgentTurnSpan, SpanCollector
 from sponsio.models.system import System
 from sponsio.models.trace import Event, Trace
-from sponsio.protocols.sto import StoEvaluator, StoResult
 from sponsio.runtime.evaluators import DetEvaluator
 from sponsio.runtime.perf import CheckTimer, PerformanceTracker
 from sponsio.runtime.strategies import (
@@ -43,8 +40,6 @@ from sponsio.runtime.strategies import (
     EnforcementResult,
     EnforcementStrategy,
     EscalateToHuman,
-    RedirectToSafe,
-    RetryWithConstraint,
 )
 from sponsio.runtime.verifier import TraceVerifier, Verdict
 
@@ -59,120 +54,35 @@ class MonitorEvent:
     Attributes:
         agent_id: Agent that triggered the check.
         action: Action/tool being checked.
-        pipeline: Which pipeline flagged it ("det" or "sto").
         constraint_name: Name of the violated constraint.
         result: The enforcement result.
-        sto_result: StoResult if from the sto pipeline.
+        pipeline: Which pipeline produced the event — always ``"det"``
+            from the OSS monitor. Cloud's ``StoEvaluator`` populates
+            ``"sto"`` on the events it emits through ``BaseGuard``.
+            Kept on the dataclass so dashboards / session-loggers /
+            OTel exporters can group events without sniffing the
+            ``StoResult`` payload.
+        sto_result: Cloud-only sidecar populated on sto violations
+            (score, evidence, suggestion). ``None`` for everything the
+            OSS monitor emits.
     """
 
     agent_id: str
     action: str
-    pipeline: str  # "det" or "sto"
     constraint_name: str
     result: EnforcementResult
-    sto_result: StoResult | None = None
-
-
-class LessonFormatter:
-    """Renders a contract-aware retry lesson from a failed sto verdict.
-
-    The lesson is the discriminative signal the model needs on retry:
-    which contract was violated, the measured confidence, the threshold
-    it missed, and any evaluator-supplied evidence / suggestion. Kept
-    as a class (vs a function) so each integration can subclass it to
-    render in the framework's native form — OpenAI system message,
-    LangGraph checkpoint-inject, CrewAI memory note — if plain text
-    isn't the right channel.
-    """
-
-    @staticmethod
-    def build(contract, verdict) -> str:
-        """Produce a plain-text lesson string for a ``retry_prompt`` field.
-
-        Args:
-            contract: The ``Contract`` whose enforcement was violated.
-            verdict: The sto ``Verdict`` with ``score`` and ``threshold``
-                populated.
-
-        Returns:
-            Multi-line plain text suitable for prepending to the next
-            user turn or injecting as a system message.
-        """
-        pieces: list[str] = []
-        label = contract.desc or verdict.desc
-        pieces.append(f"[Contract reminder: {label}]")
-        pieces.append("Your previous attempt did not meet this requirement.")
-        if verdict.score is not None and verdict.threshold is not None:
-            pieces.append(
-                f"Confidence score: {verdict.score:.2f} "
-                f"(needs ≥ {verdict.threshold:.2f})."
-            )
-        if verdict.evidence:
-            pieces.append(f"Evidence: {verdict.evidence}")
-        if verdict.suggestion:
-            pieces.append(f"Suggestion: {verdict.suggestion}")
-        pieces.append("Please revise and retry.")
-        return "\n".join(pieces)
-
-
-# Process-wide flag so the "sto pipeline is a cloud feature" warning
-# fires once total, not once per turn — long-running agents would
-# otherwise spam the operator's console for every check_action.
-_STO_WARNING_FIRED: set[str] = set()
-
-
-def _warn_sto_skipped(contract_label: str) -> None:
-    """Emit a single one-time warning per contract that would have used
-    the sto (probabilistic / LLM-judge) pipeline.
-
-    The OSS engine only enforces deterministic contracts. Contracts that
-    rely on stochastic atoms (``no_pii`` / ``tone_polite`` / ``injection_free`` …)
-    require Sponsio Cloud's atom catalog + judge harness; in the OSS
-    runtime they're skipped (vacuously satisfied) rather than blocked.
-    Operators who load a yaml mixing det + sto contracts should see
-    this warning once per contract so silent no-ops don't surprise
-    them at audit time.
-    """
-    if contract_label in _STO_WARNING_FIRED:
-        return
-    _STO_WARNING_FIRED.add(contract_label)
-    logger.warning(
-        "Skipping stochastic contract %r — the sto pipeline (LLM-judge "
-        "atoms) is a Sponsio Cloud feature, not bundled with the OSS "
-        "engine. Det contracts in the same library continue to enforce. "
-        "Install ``sponsio[cloud]`` or contact your account team to "
-        "enable the sto pipeline.",
-        contract_label,
-    )
-
-
-def _has_liftable_formulas(contract) -> bool:
-    """True iff every non-empty constraint in the contract wraps (or is)
-    a ``Formula`` AST — meaning it can be evaluated via
-    ``eval_sto_confidence``. Legacy :class:`StoFormula` (closure-based
-    ``evaluator_fn``) returns False; those are handled by
-    :meth:`_check_sto`.
-    """
-    from sponsio.formulas.formula import FormulaMixin
-
-    items = contract.assumptions + contract.enforcements
-    if not items:
-        return False
-    for item in items:
-        if isinstance(item, FormulaMixin):
-            continue
-        inner = getattr(item, "formula", None)
-        if not isinstance(inner, FormulaMixin):
-            return False
-    return True
+    pipeline: str = "det"
+    sto_result: Any = None
 
 
 class RuntimeMonitor:
     """Runtime enforcement monitor for multi-agent systems.
 
-    Intercepts agent actions, evaluates them against contracts using
-    dual pipelines (det/sto), and applies per-constraint enforcement
-    strategies.
+    Intercepts agent actions, evaluates them against det contracts,
+    and applies per-constraint enforcement strategies. Sto contracts
+    (LLM-judged atoms) are a Sponsio Cloud feature — this monitor
+    knows nothing about them; ``BaseGuard`` routes those through its
+    own ``StoEvaluator`` hook.
 
     Thread safety: ``check_action``, ``reset``, ``import_trace``, and
     the ``log`` / ``turn_spans`` snapshot accessors are serialised by
@@ -187,15 +97,14 @@ class RuntimeMonitor:
 
     Args:
         system: The System whose contracts are being enforced.
-        sto_evaluator: Optional StoEvaluator for sto constraints.
         policy: Mapping of constraint descriptions to enforcement strategies.
         mode: Enforcement mode. ``"enforce"`` (default) runs strategies
-            normally — det violations block, sto violations retry.
-            ``"observe"`` (shadow mode) evaluates every contract but
-            downgrades all violations to ``"observed"`` so nothing is
-            blocked; callbacks still fire, so a ``SessionLogger`` hooked
-            into the monitor captures the full record of what *would* have
-            happened under real enforcement.
+            normally — det violations block. ``"observe"`` (shadow mode)
+            evaluates every contract but downgrades all violations to
+            ``"observed"`` so nothing is blocked; callbacks still fire,
+            so a ``SessionLogger`` hooked into the monitor captures the
+            full record of what *would* have happened under real
+            enforcement.
         hard_evaluator: Deprecated. Previously accepted a ``DetEvaluator``
             for custom hard predicates; the value was stored but never
             consulted by any code path, so users who passed it got no
@@ -210,10 +119,8 @@ class RuntimeMonitor:
         self,
         system: System,
         hard_evaluator: DetEvaluator | None = None,
-        sto_evaluator: StoEvaluator | None = None,
         policy: dict[str, EnforcementStrategy] | None = None,
         mode: str = "enforce",
-        sto_judge: Any = None,
     ) -> None:
         if mode not in ("enforce", "observe"):
             raise ValueError(f"mode must be 'enforce' or 'observe', got {mode!r}")
@@ -235,13 +142,8 @@ class RuntimeMonitor:
                 stacklevel=2,
             )
         self._system = system
-        self._sto_evaluator = sto_evaluator
         self._policy = policy or {}
         self._mode = mode
-        # Per-monitor sto judge. None means "fall back to module-level
-        # set_default_judge(), or fail if neither is configured". See
-        # sponsio.patterns.sto_catalog._require_judge.
-        self._sto_judge = sto_judge
         # Persistent per-contract memo of sto atom evaluations, keyed by
         # ``(id(atom), position)`` inside each contract's sub-dict. Event
         # content at a given position is immutable once appended, so a
@@ -438,9 +340,6 @@ class RuntimeMonitor:
             # Clear the per-contract atom memo — entries are keyed by
             # (id(atom), position) and positions are about to be reused.
             self._atom_caches.clear()
-            for strategy in self._policy.values():
-                if isinstance(strategy, RetryWithConstraint):
-                    strategy.reset()
         # Intentionally DO NOT reset the perf tracker.  Perf is a
         # session-scoped aggregate; a user resetting the trace to
         # re-run doesn't want to lose the speed evidence.  If they do
@@ -564,23 +463,12 @@ class RuntimeMonitor:
                 hard_results = self._check_det(agent_id, context, collector)
                 results.extend(hard_results)
 
-                sto_results = self._check_sto(agent_id, context, collector)
-                results.extend(sto_results)
-
                 collector.root.total_contracts_checked = sum(
                     1
                     for c in collector.root.children
                     if c.span_type == "sponsio.contract_check"
                 )
-                for child in collector.root.children:
-                    if child.span_type == "sponsio.sto_check":
-                        collector.root.total_contracts_checked += sum(
-                            1
-                            for sc in child.children
-                            if sc.span_type == "sponsio.sto_eval"
-                        )
                 collector.root.det_violations = len(hard_results)
-                collector.root.sto_violations = len(sto_results)
                 collector.root.blocked = any(r.action == "blocked" for r in results)
                 if results:
                     collector.root.status = "violated"
@@ -619,35 +507,22 @@ class RuntimeMonitor:
                 continue
 
             a_count = len(contract.assumptions)
-            e_count = len(contract.enforcements)
+            e_count = len(contract.guarantees)
             label = contract.desc or f"{contract.agent.id}: {a_count}A/{e_count}E"
 
-            # Dispatch:
-            # - pure-det contracts go through the existing LTL evaluator
-            # - contracts whose formulas are Formula ASTs (possibly
-            #   containing sto atoms) take the new probabilistic-lifting
-            #   path with α / β
-            # - legacy StoFormula (closure-based evaluator_fn) are NOT
-            #   our business — they're handled by _check_sto later
-            if contract.is_pure_det:
-                collector.start_contract_check(label, pipeline="det")
-                # ``is_pure_det=True`` is the guarantee we can hand
-                # to the CheckTimer: this branch mathematically
-                # cannot make an LLM call, so the sample will end
-                # up in the ``pure_det`` bucket no matter what.
-                with CheckTimer(self._perf_tracker, label, is_pure_det=True):
-                    verdict = self._verifier.check_contract(contract)
-            elif _has_liftable_formulas(contract):
-                # Sto pipeline (probabilistic / LLM-judge contracts) is
-                # a Sponsio Cloud feature in this build; the OSS engine
-                # only enforces deterministic contracts. Skip and warn
-                # once per process so contracts authored against the
-                # cloud surface don't silently no-op.
-                _warn_sto_skipped(label)
+            # OSS is det-only. Non-det contracts (sto atoms, legacy
+            # StoFormula) are filtered out earlier in ``BaseGuard`` —
+            # if one slips through here we silently skip rather than
+            # crash the agent loop.
+            if not contract.is_pure_det:
                 continue
-            else:
-                # Legacy StoFormula contract — _check_sto handles it.
-                continue
+            collector.start_contract_check(label, pipeline="det")
+            # ``is_pure_det=True`` is the guarantee we can hand to the
+            # CheckTimer: this branch mathematically cannot make an LLM
+            # call, so the sample will end up in the ``pure_det`` bucket
+            # no matter what.
+            with CheckTimer(self._perf_tracker, label, is_pure_det=True):
+                verdict = self._verifier.check_contract(contract)
 
             # --- Assumption phase ---
             assumption_violated = False
@@ -683,7 +558,7 @@ class RuntimeMonitor:
 
             # --- Enforcement phase ---
             contract_violated = False
-            for e_verdict in verdict.enforcements:
+            for e_verdict in verdict.guarantees:
                 guar_span = collector.start_guarantee(e_verdict.desc)
 
                 if e_verdict.holds:
@@ -719,47 +594,19 @@ class RuntimeMonitor:
 
                 guar_span.result = False
                 collector.finish_span("violated")
-                if e_verdict.is_sto:
-                    # Sto violation: retry with confidence-aware lesson,
-                    # not a hard block. Matches the probabilistic
-                    # semantics of β — the model can plausibly fix its
-                    # output on retry.
-                    results.append(
-                        self._handle_sto_enforcement_failure(
-                            agent_id=agent_id,
-                            context=context,
-                            collector=collector,
-                            e_verdict=e_verdict,
-                            contract=contract,
-                        )
+                results.append(
+                    self._handle_enforcement_failure(
+                        agent_id=agent_id,
+                        context=context,
+                        collector=collector,
+                        e_verdict=e_verdict,
                     )
-                else:
-                    results.append(
-                        self._handle_enforcement_failure(
-                            agent_id=agent_id,
-                            context=context,
-                            collector=collector,
-                            e_verdict=e_verdict,
-                        )
-                    )
+                )
                 contract_violated = True
 
             collector.finish_span("violated" if contract_violated else "ok")
 
         return results
-
-    def _check_contract_with_confidence(self, contract):
-        """Stub: sto pipeline is a Sponsio Cloud feature.
-
-        OSS callers should never reach this method — the dispatch in
-        :meth:`_check_det` short-circuits on sto contracts and emits a
-        one-time warning via :func:`_warn_sto_skipped`. Kept as a typed
-        no-op so any in-tree caller that bypasses the dispatch still
-        gets a clean empty verdict instead of an attribute error.
-        """
-        from sponsio.runtime.verifier import ContractVerdict
-
-        return ContractVerdict()
 
     # -----------------------------------------------------------------
     # Det-pipeline helpers (side effects isolated from eval)
@@ -777,7 +624,6 @@ class RuntimeMonitor:
             MonitorEvent(
                 agent_id=agent_id,
                 action=action,
-                pipeline="det",
                 constraint_name=constraint_name,
                 result=EnforcementResult(action="allowed", message=pass_desc),
             )
@@ -819,7 +665,6 @@ class RuntimeMonitor:
         monitor_event = MonitorEvent(
             agent_id=agent_id,
             action=context.action,
-            pipeline="det",
             constraint_name=f"assumption: {a_verdict.desc}",
             result=enforcement_result,
         )
@@ -845,9 +690,6 @@ class RuntimeMonitor:
         strategy = self._policy.get(e_verdict.lookup_key)
         if strategy is None:
             strategy = DetBlock()
-        # Validate: det violations must use hard strategies
-        if isinstance(strategy, (RetryWithConstraint, RedirectToSafe)):
-            strategy = DetBlock()
 
         enf_result = self._maybe_downgrade(strategy.enforce(violation, context))
 
@@ -864,118 +706,8 @@ class RuntimeMonitor:
         monitor_event = MonitorEvent(
             agent_id=agent_id,
             action=context.action,
-            pipeline="det",
             constraint_name=e_verdict.desc,
             result=enf_result,
         )
         self._emit(monitor_event)
         return enf_result
-
-    def _handle_sto_enforcement_failure(
-        self,
-        agent_id: str,
-        context: ActionContext,
-        collector: SpanCollector,
-        e_verdict: Verdict,
-        contract,
-    ) -> EnforcementResult:
-        """Route a stochastic enforcement violation through RetryWithConstraint
-        with a confidence-aware lesson.
-
-        Unlike the det path (which uses ``DetBlock``), sto violations
-        give the model a chance to fix its output. The lesson explains
-        what the judge measured and by how much the response fell short.
-        """
-        violation = Violation(
-            agent_id=agent_id,
-            formula=e_verdict.formula,
-            kind="guarantee",
-            desc=e_verdict.desc,
-            details=(
-                f"Sto violation: {e_verdict.desc}. "
-                f"Confidence {e_verdict.score:.3f} fell short of β={e_verdict.threshold:.3f}."
-            ),
-        )
-
-        # Honor any user-configured strategy override; else default to
-        # RetryWithConstraint. Reject det strategies here — they would
-        # drop the retry prompt.
-        strategy = self._policy.get(e_verdict.lookup_key)
-        if strategy is None or isinstance(strategy, (DetBlock, EscalateToHuman)):
-            strategy = RetryWithConstraint(max_retries=2)
-
-        # Build the discriminative lesson.
-        lesson = LessonFormatter.build(
-            contract=contract,
-            verdict=e_verdict,
-        )
-
-        enf_result = strategy.enforce(violation, context)
-        # Overwrite the strategy's bland retry_prompt with our confidence-
-        # aware version, and attach score/threshold for reporters. We
-        # preserve the structured fields the strategy populated
-        # (rule_id, agent_msg, alternatives) and only overwrite
-        # retry_hint with the contract-aware lesson — the lesson is
-        # built from the actual contract description and verdict
-        # evidence, which the bare strategy doesn't have access to.
-        enf_result = EnforcementResult(
-            action=enf_result.action,
-            message=enf_result.message,
-            retry_prompt=lesson,
-            fallback_action=enf_result.fallback_action,
-            score=e_verdict.score,
-            threshold=e_verdict.threshold,
-            rule_id=enf_result.rule_id
-            or getattr(contract, "id", "")
-            or getattr(contract, "name", ""),
-            agent_msg=enf_result.agent_msg,
-            retry_hint=lesson,
-            alternatives=list(enf_result.alternatives),
-        )
-        enf_result = self._maybe_downgrade(enf_result)
-
-        collector.add_violation(
-            kind="guarantee",
-            severity="MEDIUM",
-            evidence=violation.details,
-        )
-        collector.add_enforcement(
-            strategy=type(strategy).__name__,
-            result_action=enf_result.action,
-        )
-
-        self._emit(
-            MonitorEvent(
-                agent_id=agent_id,
-                action=context.action,
-                pipeline="sto",
-                constraint_name=e_verdict.desc,
-                result=enf_result,
-                sto_result=StoResult(
-                    score=e_verdict.score if e_verdict.score is not None else 0.0,
-                    evidence=e_verdict.evidence or violation.details,
-                    suggestion=e_verdict.suggestion or "",
-                ),
-            )
-        )
-        return enf_result
-
-    # -----------------------------------------------------------------
-    # Sto pipeline
-    # -----------------------------------------------------------------
-
-    def _check_sto(
-        self,
-        agent_id: str,
-        context: ActionContext,
-        collector: SpanCollector,
-    ) -> list[EnforcementResult]:
-        """Stub: sto pipeline is a Sponsio Cloud feature.
-
-        Returns an empty result list so the per-turn aggregation in
-        :meth:`check_action` continues unchanged. Operators see the
-        per-contract sto-skipped warning via :func:`_warn_sto_skipped`
-        emitted from :meth:`_check_det`; this method has nothing to
-        add beyond that.
-        """
-        return []

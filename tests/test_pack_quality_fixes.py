@@ -142,11 +142,11 @@ class TestBatchApprovalDocumented:
 
     def test_batch_approval_workaround_documented(self):
         text = _read_pack("capability/shell.yaml")
-        # The doc must point to overrides: as the disable mechanism
+        # The doc must point to customized: as the disable mechanism
         # so users don't reach for "just delete the rule" or fork
         # the pack.
-        assert "overrides:" in text, (
-            "shell.yaml § 4 missing the overrides: workaround docs"
+        assert "customized:" in text, (
+            "shell.yaml § 4 missing the customized: workaround docs"
         )
         assert "batch" in text.lower(), (
             "shell.yaml § 4 missing 'batch' rationale — users shouldn't have "
@@ -344,7 +344,7 @@ class TestAgentPlaceholderRewrite:
         cfg = load_config(cfg_path)
         ltls = []
         for c in cfg.agents["myagent"].contracts:
-            es = c.enforcement if isinstance(c.enforcement, list) else [c.enforcement]
+            es = c.guarantee if isinstance(c.guarantee, list) else [c.guarantee]
             for ce in es:
                 if ce is not None and ce.ltl:
                     ltls.append(ce.ltl)
@@ -523,7 +523,7 @@ class TestUsabilityTuning:
         # Find the contract whose enforcement is scope_limit on `read`.
         prefixes = None
         for c in cfg.agents["bot"].contracts:
-            es = c.enforcement if isinstance(c.enforcement, list) else [c.enforcement]
+            es = c.guarantee if isinstance(c.guarantee, list) else [c.guarantee]
             for ce in es:
                 if ce is None or ce.pattern != "scope_limit" or not ce.args:
                     continue

@@ -225,7 +225,7 @@ def render_explain(
     # 3. Source / pattern section.
     console.print(indent(section_rule("contract")))
     pattern_a = _pattern_summary(contract.assumption) if contract.assumption else None
-    pattern_e = _pattern_summary(contract.enforcement)
+    pattern_e = _pattern_summary(contract.guarantee)
     if pattern_a:
         console.print(indent(_label_line("assume", pattern_a)))
     if pattern_e:
@@ -244,7 +244,7 @@ def render_explain(
     # 4. Compiled formula section.
     console.print(indent(section_rule("compiled (LTL)")))
     nl_a = _compile_to_nl(contract.assumption) if contract.assumption else None
-    nl_e = _compile_to_nl(contract.enforcement)
+    nl_e = _compile_to_nl(contract.guarantee)
     if nl_a:
         console.print(indent(_label_line("assume", nl_a, dim=True)))
     else:
@@ -355,9 +355,9 @@ def _resolution_hints(contract: Any) -> list[str]:
 def _detect_pattern_kind(contract: Any) -> str | None:
     """Pull the deterministic pattern name off the enforcement, if any."""
     items = (
-        contract.enforcement
-        if isinstance(contract.enforcement, list)
-        else [contract.enforcement]
+        contract.guarantee
+        if isinstance(contract.guarantee, list)
+        else [contract.guarantee]
     )
     for item in items:
         name = getattr(item, "pattern_name", None)
@@ -386,9 +386,9 @@ def explain_to_dict(
             if contract.assumption
             else None,
         },
-        "enforcement": {
-            "pattern": _pattern_summary(contract.enforcement),
-            "compiled_nl": _compile_to_nl(contract.enforcement),
+        "guarantee": {
+            "pattern": _pattern_summary(contract.guarantee),
+            "compiled_nl": _compile_to_nl(contract.guarantee),
         },
         "alpha": getattr(contract, "alpha", None),
         "beta": getattr(contract, "beta", None),

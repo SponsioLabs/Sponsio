@@ -63,8 +63,8 @@ class Verdict:
         holds: Whether the formula is satisfied on the current trace.
         desc: Human-readable description of the formula (from
             ``DetFormula.desc`` or ``str(formula)``).
-        kind: ``"assumption"`` or ``"enforcement"``. Defaults to
-            ``"enforcement"`` for free-standing ``Verifier.check`` calls.
+        kind: ``"assumption"`` or ``"guarantee"``. Defaults to
+            ``"guarantee"`` for free-standing ``Verifier.check`` calls.
         formula: The original constraint object (``DetFormula`` or
             raw ``Formula``) kept for reporting / ``Violation``
             construction. ``None`` for trivially-true results.
@@ -80,10 +80,11 @@ class Verdict:
             is augmented with ``[conf=…, β=…]`` for human display, but
             ``policy_key`` keeps the bare ``_describe(constraint, …)``
             string so ``self._policy[stable_key]`` still resolves the
-            user's RetryWithConstraint / RedirectToSafe overrides.
+            user's policy overrides (Cloud's RetryWithConstraint /
+            RedirectToSafe land on this same key).
             Empty string falls back to ``desc`` for backward compatibility.
         fresh: Whether the latest trace event itself caused this verdict's
-            outcome. Only meaningful for ``holds=False`` enforcements:
+            outcome. Only meaningful for ``holds=False`` guarantees:
             ``fresh=True`` means the just-appended event broke the rule and
             should be blocked; ``fresh=False`` means the violation was
             already present on the prefix (stale) and the current event is
@@ -96,7 +97,7 @@ class Verdict:
 
     holds: bool
     desc: str
-    kind: str = "enforcement"
+    kind: str = "guarantee"
     formula: Any = None
     score: float | None = None
     threshold: float | None = None
@@ -122,8 +123,12 @@ class Verdict:
     def is_sto(self) -> bool:
         """True iff this verdict came from the probabilistic-lifting path.
 
-        Used by the monitor to dispatch to sto-aware enforcement
-        (``RetryWithConstraint`` + lesson) vs the det ``DetBlock`` path.
+        Always ``False`` in OSS (the lifting path lives in
+        ``sponsio_cloud.sto.lifting``). Cloud sets ``score`` on verdicts
+        it produces so its own dispatch can pick the sto-aware
+        enforcement path (``RetryWithConstraint`` + lesson) over the
+        det ``DetBlock`` path. Kept in the OSS schema so callers /
+        reporters / session-loggers can branch consistently.
         """
         return self.score is not None
 
@@ -133,16 +138,16 @@ class ContractVerdict:
     """Result of evaluating a whole :class:`Contract`.
 
     Contains one :class:`Verdict` per assumption (short-circuited on
-    first failure) and one per enforcement (all evaluated if the
+    first failure) and one per guarantee (all evaluated if the
     assumption holds; empty list if assumption failed).
 
     Use the convenience properties ``holds`` / ``assumption_holds`` /
-    ``enforcement_violations`` instead of iterating the raw lists when
+    ``guarantee_violations`` instead of iterating the raw lists when
     you just want a yes/no.
     """
 
     assumptions: list[Verdict] = field(default_factory=list)
-    enforcements: list[Verdict] = field(default_factory=list)
+    guarantees: list[Verdict] = field(default_factory=list)
 
     @property
     def assumption_holds(self) -> bool:
@@ -158,14 +163,14 @@ class ContractVerdict:
         return None
 
     @property
-    def enforcement_violations(self) -> list[Verdict]:
-        """Enforcements that evaluated False."""
-        return [r for r in self.enforcements if not r.holds]
+    def guarantee_violations(self) -> list[Verdict]:
+        """Guarantees that evaluated False."""
+        return [r for r in self.guarantees if not r.holds]
 
     @property
     def holds(self) -> bool:
         """True iff assumption holds AND no enforcement is violated."""
-        return self.assumption_holds and not self.enforcement_violations
+        return self.assumption_holds and not self.guarantee_violations
 
     def __bool__(self) -> bool:
         return self.holds
@@ -208,7 +213,7 @@ def _desc(constraint: Any) -> str:
 def _collect_det_formulas(contracts: list[Contract]) -> list:
     out: list = []
     for c in contracts:
-        for constraint in c.enforcements + c.assumptions:
+        for constraint in c.guarantees + c.assumptions:
             if _is_det(constraint):
                 out.append(constraint)
     return out
@@ -530,8 +535,8 @@ class TraceVerifier:
         if result.is_sto:
             raise ValueError(
                 f"check_nl() only supports det (formal) rules; "
-                f"{nl!r} parsed as a sto constraint. "
-                f"Use a StoEvaluator for sto checking."
+                f"{nl!r} parsed as a sto constraint. Sto evaluation is "
+                f"a Sponsio Cloud feature — `pip install sponsio[cloud]`."
             )
         raise ValueError(
             f"check_nl() could not parse {nl!r} as a det rule. "
@@ -777,7 +782,7 @@ class TraceVerifier:
         contract: Contract,
         include_liveness: bool = False,
     ) -> ContractVerdict:
-        """Evaluate a whole contract: assumptions, then enforcements.
+        """Evaluate a whole contract: assumptions, then guarantees.
 
         Two semantics are supported, switched by ``contract.activate_at``:
 
@@ -822,7 +827,7 @@ class TraceVerifier:
 
         Args:
             contract: The contract to evaluate.
-            include_liveness: Whether to evaluate liveness enforcements.
+            include_liveness: Whether to evaluate liveness guarantees.
 
         Returns:
             A :class:`ContractVerdict` with per-constraint verdicts.
@@ -860,7 +865,7 @@ class TraceVerifier:
         # Enforcement phase (only if assumption holds)
         e_results: list[Verdict] = []
         if assumption_holds:
-            for e in contract.enforcements:
+            for e in contract.guarantees:
                 if not _is_det(e):
                     continue
                 is_liveness = _is_det_formula(e) and getattr(e, "liveness", False)
@@ -879,13 +884,13 @@ class TraceVerifier:
                     Verdict(
                         holds=holds,
                         desc=_desc(e),
-                        kind="enforcement",
+                        kind="guarantee",
                         formula=e,
                         fresh=fresh,
                     )
                 )
 
-        return ContractVerdict(assumptions=a_results, enforcements=e_results)
+        return ContractVerdict(assumptions=a_results, guarantees=e_results)
 
     def _check_contract_reactive(
         self,
@@ -899,7 +904,7 @@ class TraceVerifier:
         1. For each (det) assumption A, find the first position k_i
            where A's "evidence" first holds (atom or F-child).
         2. If any assumption never activates, return a ContractVerdict
-           where that assumption's ``holds=False`` and enforcements is
+           where that assumption's ``holds=False`` and guarantees is
            empty (vacuous — no violations reported).
         3. Otherwise activation point k = max(k_i) — the latest one to
            fire, since assumptions AND together.
@@ -957,7 +962,7 @@ class TraceVerifier:
                     )
                 )
                 # Short-circuit: no enforcement evaluation.
-                return ContractVerdict(assumptions=a_results, enforcements=[])
+                return ContractVerdict(assumptions=a_results, guarantees=[])
 
             activation_positions.append(k)
             a_results.append(
@@ -980,7 +985,7 @@ class TraceVerifier:
 
         # Enforcement phase at pos=k_star.
         e_results: list[Verdict] = []
-        for e in contract.enforcements:
+        for e in contract.guarantees:
             if not _is_det(e):
                 continue
             is_liveness = _is_det_formula(e) and getattr(e, "liveness", False)
@@ -998,13 +1003,13 @@ class TraceVerifier:
                 Verdict(
                     holds=holds,
                     desc=_desc(e),
-                    kind="enforcement",
+                    kind="guarantee",
                     formula=e,
                     fresh=fresh,
                 )
             )
 
-        return ContractVerdict(assumptions=a_results, enforcements=e_results)
+        return ContractVerdict(assumptions=a_results, guarantees=e_results)
 
     # -----------------------------------------------------------------
     # Introspection

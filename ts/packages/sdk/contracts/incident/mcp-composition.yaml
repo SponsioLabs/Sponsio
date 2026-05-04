@@ -137,7 +137,7 @@ agents:
       # =====================================================================
 
       - desc: "GitHub MCP comment body must not contain ≥3 KEY=VAL secret-shape pairs"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__github__create_issue_comment
@@ -146,7 +146,7 @@ agents:
           source: "incident:mcp-composition.github_comment_no_secret_shape"
 
       - desc: "GitHub MCP comment body must not contain command substitution"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__github__create_issue_comment
@@ -164,7 +164,7 @@ agents:
       # =====================================================================
 
       - desc: "WhatsApp MCP message body must not contain ≥3 KEY=VAL secret-shape pairs"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__whatsapp__send_message
@@ -173,7 +173,7 @@ agents:
           source: "incident:mcp-composition.whatsapp_body_no_secret_shape"
 
       - desc: "WhatsApp MCP message body must not contain command substitution"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__whatsapp__send_message
@@ -205,7 +205,7 @@ agents:
       # =====================================================================
 
       - desc: "Notion create_page children must not contain ≥3 KEY=VAL secret-shape pairs"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__notion__create_page
@@ -214,7 +214,7 @@ agents:
           source: "incident:mcp-composition.notion_create_no_secret_shape"
 
       - desc: "Notion append_block_children must not contain ≥3 KEY=VAL secret-shape pairs"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__notion__append_block_children
@@ -223,7 +223,7 @@ agents:
           source: "incident:mcp-composition.notion_append_no_secret_shape"
 
       - desc: "Notion create_page children must not contain command substitution"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__notion__create_page
@@ -258,7 +258,7 @@ agents:
       # =====================================================================
 
       - desc: "Gist files content must not contain ≥3 KEY=VAL secret-shape pairs"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__gh_gist__create_gist
@@ -267,7 +267,7 @@ agents:
           source: "incident:mcp-composition.gist_no_secret_shape"
 
       - desc: "Gist files content must not contain command substitution"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__gh_gist__create_gist
@@ -276,7 +276,7 @@ agents:
           source: "incident:mcp-composition.gist_no_subst"
 
       - desc: "Gist files content must not contain ≥2 salary amounts (typical employee-list leak)"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__gh_gist__create_gist
@@ -285,7 +285,7 @@ agents:
           source: "incident:mcp-composition.gist_no_multi_salary"
 
       - desc: "Gist files content must not contain employment-termination language (PIP / fired / exit-by)"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__gh_gist__create_gist
@@ -294,7 +294,7 @@ agents:
           source: "incident:mcp-composition.gist_no_termination_lang"
 
       - desc: "Gist files content must not contain ≥2 customer ARR/MRR figures (customer-list leak)"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__gh_gist__create_gist

@@ -37,7 +37,7 @@
 #           - sponsio:capability/filesystem
 #           - sponsio:incident/openclaw
 #
-# Override individual rules with `overrides:`.
+# Override individual rules with `customized:`.
 # =============================================================================
 
 version: "1"
@@ -54,7 +54,7 @@ agents:
     contracts:
       # ---------- Sensitive-path blocks for write / edit / apply_patch ----------
       - desc: "Block writes to dotenv / SSH keys / cloud creds / OS secrets"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - write
@@ -77,7 +77,7 @@ agents:
               - "(^|/)Library/LaunchAgents/"
 
       - desc: "Block edits to dotenv / SSH keys / cloud creds / OS secrets"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - edit
@@ -97,7 +97,7 @@ agents:
               - "(^|/)Library/Keychains/"
 
       - desc: "Block apply_patch to dotenv / SSH keys / cloud creds"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - apply_patch
@@ -114,7 +114,7 @@ agents:
       # AMOS payload) read ~/.clawdbot/.env then exfiltrated.  Blocking
       # the read removes the trigger entirely.
       - desc: "Block reads of SSH keys / cloud creds / dotenv secrets / keychains"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - read

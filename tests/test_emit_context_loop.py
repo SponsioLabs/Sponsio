@@ -177,7 +177,7 @@ agents:
       - sponsio:core/runaway
     contracts:
       - desc: "Block fetching repos that look like credential stores"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__github-mock__get_repo
@@ -186,12 +186,12 @@ agents:
               - ".*-keys$"
           source: agent-extracted
       - desc: "Cap issue comments per session"
-        E:
+        G:
           pattern: rate_limit
           args: [mcp__github-mock__create_issue_comment, 5]
           source: agent-extracted
       - desc: "Block credential-shaped strings in issue comment bodies"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__github-mock__create_issue_comment
@@ -304,17 +304,17 @@ agents:
       - sponsio:core/runaway
     contracts:
       - desc: "send_email rate-limited per security.md"
-        E:
+        G:
           pattern: rate_limit
           args: [send_email, 5]
           source: agent-extracted
       - desc: "delete_user is irreversible per security.md"
-        E:
+        G:
           pattern: irreversible_once
           args: [delete_user]
           source: agent-extracted
       - desc: "charge_card amount must be <= $5000 per security.md"
-        E:
+        G:
           pattern: arg_value_range
           args: [charge_card, amount, 0, 5000]
           source: agent-extracted

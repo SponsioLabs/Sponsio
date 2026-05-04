@@ -752,11 +752,11 @@ class TestEmitContextHealthAndPreExisting:
             "agents:\n"
             "  agent:\n"
             "    contracts:\n"
-            "      - E:\n"
+            "      - G:\n"
             "          pattern: idempotent\n"
             "          args: [delete_user]\n"
             "          source: scan\n"
-            "      - E:\n"
+            "      - G:\n"
             "          pattern: rate_limit\n"
             "          args: [send_email, 5]\n"
             "          source: agent-extracted\n"
@@ -814,10 +814,10 @@ class TestDedup:
             "agents:\n"
             "  agent:\n"
             "    contracts:\n"
-            "      - E:\n"
+            "      - G:\n"
             "          pattern: arg_blacklist\n"
             '          args: [bash_run, command, ["rm -rf"]]\n'
-            "      - E:\n"
+            "      - G:\n"
             "          pattern: idempotent\n"
             "          args: [delete_user]\n"
         )
@@ -840,7 +840,7 @@ class TestDedup:
         starter = starter_contracts(["delete_user"])
         scan_yaml = (
             "agents:\n  agent:\n    contracts:\n"
-            "      - E:\n          pattern: idempotent\n"
+            "      - G:\n          pattern: idempotent\n"
             "          args: [delete_user]\n"
         )
         filtered = _dedup_starter_proposals(starter, scan_yaml)
@@ -866,7 +866,7 @@ class TestDedup:
         # Build a fake scan YAML that already has a token_budget entry.
         scan_yaml = (
             "agents:\n  agent:\n    contracts:\n"
-            "      - E:\n          pattern: token_budget\n"
+            "      - G:\n          pattern: token_budget\n"
             "          args: [50000, total]\n"
         )
         filtered = _dedup_starter_proposals(starter, scan_yaml)
@@ -920,10 +920,10 @@ class TestCountContracts:
     def test_counts_both_E_only_and_A_E_pairs(self):
         yaml_text = (
             "agents:\n  agent:\n    contracts:\n"
-            '      - E: "no pii"\n'
+            '      - G: "no pii"\n'
             '      - A: "when send"\n'
-            '        E: "must redact"\n'
-            "      - E:\n"
+            '        G: "must redact"\n'
+            "      - G:\n"
             "          pattern: rate_limit\n"
             "          args: [send_email, 10]\n"
         )

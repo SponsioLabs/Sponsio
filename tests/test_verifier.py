@@ -46,22 +46,22 @@ class TestVerdict:
     def test_contract_verdict_bool_reflects_holds(self):
         cv = ContractVerdict(
             assumptions=[Verdict(holds=True, desc="a")],
-            enforcements=[Verdict(holds=True, desc="e")],
+            guarantees=[Verdict(holds=True, desc="e")],
         )
         assert bool(cv) is True
 
     def test_contract_verdict_false_on_enforcement_violation(self):
         cv = ContractVerdict(
             assumptions=[Verdict(holds=True, desc="a")],
-            enforcements=[Verdict(holds=False, desc="e")],
+            guarantees=[Verdict(holds=False, desc="e")],
         )
         assert bool(cv) is False
-        assert len(cv.enforcement_violations) == 1
+        assert len(cv.guarantee_violations) == 1
 
     def test_contract_verdict_false_on_assumption_failure(self):
         cv = ContractVerdict(
             assumptions=[Verdict(holds=False, desc="a")],
-            enforcements=[],
+            guarantees=[],
         )
         assert bool(cv) is False
         assert cv.first_assumption_failure is not None
@@ -104,51 +104,51 @@ class TestCheckContract:
     def test_unconditional_contract_passes(self):
         contract = Contract(
             agent=Agent(id="bot"),
-            enforcement=rate_limit("X", 3),
+            guarantee=rate_limit("X", 3),
         )
         v = TraceVerifier()
         v.sync(_trace("X", "X"))
         cv = v.check_contract(contract)
         assert cv.holds is True
         assert len(cv.assumptions) == 0
-        assert len(cv.enforcements) == 1
-        assert cv.enforcements[0].holds is True
+        assert len(cv.guarantees) == 1
+        assert cv.guarantees[0].holds is True
 
     def test_assumption_failure_skips_enforcements(self):
         contract = Contract(
             agent=Agent(id="bot"),
             assumption=must_precede("auth", "act"),
-            enforcement=rate_limit("act", 3),
+            guarantee=rate_limit("act", 3),
         )
         v = TraceVerifier()
         v.sync(_trace("act"))  # auth never called → assumption fails
         cv = v.check_contract(contract)
         assert cv.assumption_holds is False
         assert cv.first_assumption_failure is not None
-        assert len(cv.enforcements) == 0  # skipped
+        assert len(cv.guarantees) == 0  # skipped
 
     def test_assumption_and_enforcement_both_evaluated_when_a_holds(self):
         contract = Contract(
             agent=Agent(id="bot"),
             assumption=must_precede("auth", "act"),
-            enforcement=rate_limit("act", 1),  # will be violated
+            guarantee=rate_limit("act", 1),  # will be violated
         )
         v = TraceVerifier()
         v.sync(_trace("auth", "act", "act"))
         cv = v.check_contract(contract)
         assert cv.assumption_holds is True
         assert cv.holds is False
-        assert cv.enforcements[0].holds is False
+        assert cv.guarantees[0].holds is False
 
     def test_list_valued_enforcement_all_checked(self):
         contract = Contract(
             agent=Agent(id="bot"),
-            enforcement=[rate_limit("X", 3), rate_limit("Y", 3)],
+            guarantee=[rate_limit("X", 3), rate_limit("Y", 3)],
         )
         v = TraceVerifier()
         v.sync(_trace("X", "X", "Y", "Y"))
         cv = v.check_contract(contract)
-        assert len(cv.enforcements) == 2
+        assert len(cv.guarantees) == 2
         assert cv.holds is True
 
 
@@ -267,7 +267,7 @@ class TestCheckAssumption:
     def test_check_assumption_unconditional(self):
         contract = Contract(
             agent=Agent(id="bot"),
-            enforcement=rate_limit("X", 3),
+            guarantee=rate_limit("X", 3),
         )
         v = TraceVerifier()
         v.sync(_trace("X"))
@@ -282,7 +282,7 @@ class TestCheckAssumption:
                 must_precede("a", "b"),
                 must_precede("c", "d"),  # should not reach here
             ],
-            enforcement=rate_limit("X", 3),
+            guarantee=rate_limit("X", 3),
         )
         v = TraceVerifier()
         v.sync(_trace("b"))  # first assumption fails

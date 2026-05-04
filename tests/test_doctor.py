@@ -233,7 +233,7 @@ class TestCheckSponsioYaml:
 
     def test_directory_path_finds_yaml(self, tmp_path):
         (tmp_path / "sponsio.yaml").write_text(
-            'version: 1\nagents:\n  bot:\n    contracts:\n      - E: "tool `x` at most 0 times"\n'
+            'version: 1\nagents:\n  bot:\n    contracts:\n      - G: "tool `x` at most 0 times"\n'
         )
         r = check_sponsio_yaml(tmp_path)
         assert r.status == "ok"

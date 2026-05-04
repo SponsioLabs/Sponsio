@@ -381,7 +381,7 @@ agents:
     contracts:                       # hand-written + scan-inferred contracts
       # NL form (short keys)
       - A: "called `modify_order`"
-        E: "must call `get_order_details` before `modify_order`"
+        G: "must call `get_order_details` before `modify_order`"
       # Omit A for unconditional
       - E: "tool `send_email` is rate-limited to 5 per session"
       # Structured dict (what scan emits for det patterns)

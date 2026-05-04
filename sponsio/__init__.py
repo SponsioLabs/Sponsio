@@ -21,7 +21,7 @@ Recommended — fluent contract builder::
         contracts=[
             contract("refund needs policy check")
                 .assume("called `issue_refund`")
-                .enforce("must call `check_policy` before `issue_refund`"),
+                .guarantees("must call `check_policy` before `issue_refund`"),
         ],
     )
 
@@ -103,7 +103,7 @@ __all__ = [
     "Sponsio",
     "__version__",
     "load_config",
-    # Contract builder (recommended for (A, E) pairs)
+    # Contract builder (recommended for (A, G) pairs)
     "contract",
     "ContractBuilder",
     # Core models (for power users building custom integrations)

@@ -25,8 +25,8 @@ agents:
   bot:
     contracts:
       - A: "tool `check_policy` must precede `issue_refund`"
-        E: "tool `issue_refund` at most 1 times"
-      - E: "response must not contain PII"
+        G: "tool `issue_refund` at most 1 times"
+      - G: "response must not contain PII"
 """
     )
     return f
@@ -55,11 +55,11 @@ version: "1"
 agents:
   planner:
     contracts:
-      - E: "tool `plan` must precede `execute`"
+      - G: "tool `plan` must precede `execute`"
   executor:
     contracts:
       - A: "tool `plan` must precede `execute`"
-        E: "tool `execute` at most 5 times"
+        G: "tool `execute` at most 5 times"
 """
     )
     return f
@@ -76,7 +76,7 @@ agents:
       - A:
           - "tool `authn` must precede `act`"
           - "tool `authz` must precede `act`"
-        E:
+        G:
           - "tool `act` at most 2 times"
           - "tool `act` must precede `finalize`"
 """
@@ -162,7 +162,7 @@ agents:
 
 
 def test_yaml_accepts_long_name_keys(tmp_path):
-    """Long keys ``assumption`` / ``enforcement`` are accepted in YAML."""
+    """Long keys ``assumption`` / ``guarantee`` are accepted in YAML."""
     f = tmp_path / "fullname.yaml"
     f.write_text(
         """
@@ -170,7 +170,7 @@ agents:
   bot:
     contracts:
       - assumption: "tool `A` must precede `B`"
-        enforcement: "tool `X` at most 3 times"
+        guarantee: "tool `X` at most 3 times"
 """
     )
     config = load_config(f)
@@ -179,7 +179,7 @@ agents:
     c0 = bot.contracts[0]
     assert c0.assumption is not None
     assert "tool `A`" in c0.assumption.nl
-    assert "at most 3" in c0.enforcement.nl
+    assert "at most 3" in c0.guarantee.nl
 
 
 def test_yaml_mixed_short_and_long_keys_across_entries(tmp_path):
@@ -191,11 +191,11 @@ agents:
   bot:
     contracts:
       - A: "tool `X` must precede `Y`"
-        E: "tool `Y` at most 1 times"
+        G: "tool `Y` at most 1 times"
       - assumption: "tool `Z` must precede `W`"
-        enforcement: "tool `W` at most 2 times"
-      - E: "response must not contain PII"
-      - enforcement: "tool `sed` arg contains `-i` is banned"
+        guarantee: "tool `W` at most 2 times"
+      - G: "response must not contain PII"
+      - guarantee: "tool `sed` arg contains `-i` is banned"
 """
     )
     config = load_config(f)
@@ -217,31 +217,33 @@ agents:
     contracts:
       - A: "tool `X` must precede `Y`"
         assumption: "tool `X` must precede `Y`"
-        E: "tool `Y` at most 1 times"
+        G: "tool `Y` at most 1 times"
 """
     )
     with pytest.raises(ConfigError, match="both 'A' and 'assumption'"):
         load_config(f)
 
 
-def test_yaml_rejects_conflicting_short_and_long_enforcement(tmp_path):
-    """Using both ``E`` and ``enforcement`` in one entry is ambiguous."""
-    f = tmp_path / "conflict_e.yaml"
+def test_yaml_rejects_conflicting_short_and_long_guarantee(tmp_path):
+    """Using both ``G`` and ``guarantee`` in one entry is ambiguous."""
+    f = tmp_path / "conflict_g.yaml"
     f.write_text(
         """
 agents:
   bot:
     contracts:
-      - E: "tool `Y` at most 1 times"
-        enforcement: "tool `Y` at most 1 times"
+      - G: "tool `Y` at most 1 times"
+        guarantee: "tool `Y` at most 1 times"
 """
     )
-    with pytest.raises(ConfigError, match="both 'E' and 'enforcement'"):
+    with pytest.raises(ConfigError, match="both 'G' and 'guarantee'"):
         load_config(f)
 
 
 def test_yaml_cross_form_fields_in_one_entry(tmp_path):
-    """Mixing ``A`` with ``enforcement`` (or vice versa) is fine."""
+    """Mixing ``A`` (short) with ``guarantee`` (long), or vice versa,
+    is fine — the ambiguity-rejection only fires when the same field
+    is supplied twice."""
     f = tmp_path / "cross.yaml"
     f.write_text(
         """
@@ -249,9 +251,9 @@ agents:
   bot:
     contracts:
       - A: "tool `X` must precede `Y`"
-        enforcement: "tool `Y` at most 1 times"
+        guarantee: "tool `Y` at most 1 times"
       - assumption: "tool `Z` must precede `W`"
-        E: "tool `W` at most 2 times"
+        G: "tool `W` at most 2 times"
 """
     )
     config = load_config(f)
@@ -290,7 +292,7 @@ def test_enforcement_only_agent(tmp_path):
 agents:
   bot:
     contracts:
-      - E: "tool `X` at most 3 times"
+      - G: "tool `X` at most 3 times"
 """
     )
     config = load_config(f)
@@ -306,15 +308,15 @@ def test_and_list_assumption_and_enforcement(and_list_config):
     ce = bot.contracts[0]
     assert isinstance(ce.assumption, list)
     assert len(ce.assumption) == 2
-    assert isinstance(ce.enforcement, list)
-    assert len(ce.enforcement) == 2
+    assert isinstance(ce.guarantee, list)
+    assert len(ce.guarantee) == 2
 
     # Compiled through config_to_system, each contract is a single pair
     system = config_to_system(config)
     assert len(system.contracts) == 1
     c = system.contracts[0]
     assert isinstance(c.assumption, list)
-    assert isinstance(c.enforcement, list)
+    assert isinstance(c.guarantee, list)
 
 
 def test_langgraph_guard_alias():
@@ -349,9 +351,9 @@ defaults:
 agents:
   bot:
     contracts:
-      - E:
+      - G:
           ltl: "G(!(arg_field_has('Bash', 'command', 'rm\\\\s+.*\\\\.env')))"
-      - E:
+      - G:
           ltl: "{_BAD_REGEX_LTL}"
 """
 
@@ -425,7 +427,7 @@ defaults:
 agents:
   bot:
     contracts:
-      - E:
+      - G:
           ltl: "G(!(arg_field_has('Bash', 'command', 'rm\\\\s+')))"
 """
     f = tmp_path / "sponsio.yaml"

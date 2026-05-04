@@ -77,7 +77,7 @@ class TestInit:
             sponsio.Sponsio(framework="flask", contracts=["x"])
 
     def test_init_with_contract_dict(self):
-        """The canonical per-contract API: one dict = one A/E pair."""
+        """The canonical per-contract API: one dict = one A/G pair."""
         import sponsio
 
         guard = sponsio.Sponsio(
@@ -85,17 +85,17 @@ class TestInit:
             contracts=[
                 {
                     "assumption": "tool `A` must precede `B`",
-                    "enforcement": "tool `B` at most 2 times",
+                    "guarantee": "tool `B` at most 2 times",
                 }
             ],
             verbose=False,
         )
         contract = guard._system.contracts[0]
         assert len(contract.assumptions) == 1
-        assert len(contract.enforcements) == 1
+        assert len(contract.guarantees) == 1
 
     def test_init_with_contract_builder(self):
-        """Fluent Python contracts map to the same A/E model."""
+        """Fluent Python contracts map to the same A/G model."""
         import sponsio
 
         guard = sponsio.Sponsio(
@@ -103,38 +103,39 @@ class TestInit:
             contracts=[
                 sponsio.contract("refund gate")
                 .assume("tool `A` must precede `B`")
-                .enforce("tool `B` at most 2 times")
+                .guarantees("tool `B` at most 2 times")
             ],
             verbose=False,
         )
         contract = guard._system.contracts[0]
         assert contract.desc == "refund gate"
         assert len(contract.assumptions) == 1
-        assert len(contract.enforcements) == 1
+        assert len(contract.guarantees) == 1
 
     def test_contract_builder_threshold_alias(self):
+        # ``beta < 1.0`` makes the contract structurally non-pure-det (the
+        # threshold has to be evaluated by the Cloud sto-lifting pipeline).
+        # Exercise the builder directly so we don't trigger the OSS-side
+        # StoEvaluator gate that fires when a guard is instantiated with a
+        # non-pure-det contract — the gate itself is covered separately.
         import sponsio
 
-        guard = sponsio.Sponsio(
-            agent_id="bot",
-            contracts=[
-                sponsio.contract("scored rule")
-                .enforce("tool `B` at most 2 times")
-                .threshold(beta=0.8)
-            ],
-            verbose=False,
+        builder = (
+            sponsio.contract("scored rule")
+            .guarantees("tool `B` at most 2 times")
+            .threshold(beta=0.8)
         )
-        contract = guard._system.contracts[0]
-        assert contract.alpha == 1.0
-        assert contract.beta == 0.8
+        d = builder.to_dict()
+        assert d["alpha"] == 1.0
+        assert d["beta"] == 0.8
 
-    def test_contract_builder_requires_enforcement(self):
+    def test_contract_builder_requires_guarantee(self):
         import sponsio
 
-        with pytest.raises(ValueError, match=r"enforce"):
+        with pytest.raises(ValueError, match=r"guarantee"):
             sponsio.Sponsio(
                 agent_id="bot",
-                contracts=[sponsio.contract("missing E").assume("called `A`")],
+                contracts=[sponsio.contract("missing G").assume("called `A`")],
                 verbose=False,
             )
 
@@ -147,9 +148,9 @@ class TestInit:
             contracts=[
                 {
                     "assumption": "tool `A` must precede `B`",
-                    "enforcement": "tool `B` at most 2 times",
+                    "guarantee": "tool `B` at most 2 times",
                 },
-                {"enforcement": "tool `X` at most 5 times"},
+                {"guarantee": "tool `X` at most 5 times"},
             ],
             verbose=False,
         )
@@ -159,7 +160,7 @@ class TestInit:
         assert contracts[1].assumption is None
 
     def test_init_python_rejects_short_keys(self):
-        """Python contract dicts must use full names; A/E is YAML-only."""
+        """Python contract dicts must use full names; A/G is YAML-only."""
         import sponsio
 
         with pytest.raises(ValueError, match="YAML-only"):
@@ -168,7 +169,7 @@ class TestInit:
                 contracts=[
                     {
                         "A": "tool `A` must precede `B`",
-                        "E": "tool `B` at most 2 times",
+                        "G": "tool `B` at most 2 times",
                     }
                 ],
                 verbose=False,
@@ -182,7 +183,7 @@ class TestInit:
             agent_id="bot",
             contracts=[
                 {
-                    "enforcement": [
+                    "guarantee": [
                         "tool `X` at most 3 times",
                         "tool `Y` at most 2 times",
                     ]
@@ -191,7 +192,7 @@ class TestInit:
             verbose=False,
         )
         contract = guard._system.contracts[0]
-        assert len(contract.enforcements) == 2
+        assert len(contract.guarantees) == 2
 
     def test_init_list_valued_fields_parse_once(self):
         """List fields should not double-register parsed constraints."""
@@ -209,7 +210,7 @@ class TestInit:
             agent_id="bot",
             contracts=[
                 {
-                    "enforcement": [
+                    "guarantee": [
                         "tool `X` at most 3 times",
                         "tool `Y` at most 2 times",
                     ]
@@ -226,7 +227,7 @@ class TestInit:
 
         config = tmp_path / "sponsio.yaml"
         config.write_text(
-            'agents:\n  bot:\n    contracts:\n      - E: "tool `X` at most 3 times"\n'
+            'agents:\n  bot:\n    contracts:\n      - G: "tool `X` at most 3 times"\n'
         )
         guard = sponsio.Sponsio(config=str(config), agent_id="bot", verbose=False)
         assert guard.agent_id == "bot"
@@ -236,7 +237,7 @@ class TestInit:
 
         config = tmp_path / "sponsio.yaml"
         config.write_text(
-            'agents:\n  bot:\n    contracts:\n      - E: "tool `X` at most 3 times"\n'
+            'agents:\n  bot:\n    contracts:\n      - G: "tool `X` at most 3 times"\n'
         )
         guard = sponsio.Sponsio(
             framework="langgraph",
@@ -315,10 +316,10 @@ class TestPerContractSemantics:
                 # Contract 1: assumption A will fail (A is never called).
                 {
                     "assumption": "tool `never_called` must precede `dummy`",
-                    "enforcement": "tool `whatever` at most 1 times",
+                    "guarantee": "tool `whatever` at most 1 times",
                 },
                 # Contract 2: unconditional — must still catch violation.
-                {"enforcement": "tool `banned` at most 0 times"},
+                {"guarantee": "tool `banned` at most 0 times"},
             ],
             verbose=False,
         )
@@ -335,7 +336,7 @@ class TestPerContractSemantics:
             contracts=[
                 {
                     "assumption": "tool `banned` at most 3 times",
-                    "enforcement": "tool `banned` at most 0 times",
+                    "guarantee": "tool `banned` at most 0 times",
                 }
             ],
             verbose=False,
@@ -424,7 +425,7 @@ defaults:
 agents:
   sre_optimizer:
     contracts:
-      - E:
+      - G:
           pattern: rate_limit
           args: [delete_snapshot, 5]
 """
@@ -442,12 +443,12 @@ defaults:
 agents:
   alice:
     contracts:
-      - E:
+      - G:
           pattern: rate_limit
           args: [foo, 1]
   bob:
     contracts:
-      - E:
+      - G:
           pattern: rate_limit
           args: [bar, 1]
 """

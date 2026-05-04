@@ -128,7 +128,7 @@ export async function runValidateCli(argv: string[]): Promise<void> {
     //  - strings are NL that still needs ``parseNl`` (some rule
     //    factories might reject, count those separately);
     //  - objects are already-compiled DetFormula entries (structured
-    //    patterns, raw LTL, A/E composition) — those are det-valid by
+    //    patterns, raw LTL, A/G composition) — those are det-valid by
     //    construction.
     const unparseable: string[] = [];
     let preCompiled = 0;

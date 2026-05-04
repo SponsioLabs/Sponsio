@@ -13,27 +13,27 @@ The main entry point is the framework-specific factory function
     guard = Sponsio(
         agent_id="bot",
         contracts=[
-            # Conditional (A, E) pair — assumption triggers the enforcement
+            # Conditional (A, G) pair — assumption triggers the enforcement
             contract("policy gate before refund")
                 .assume("called `issue_refund`")
-                .enforce("must call `check_policy` before `issue_refund`"),
-            # Unconditional rule — no .assume(), only .enforce()
+                .guarantees("must call `check_policy` before `issue_refund`"),
+            # Unconditional rule — no .assume(), only .guarantees()
             contract("refund rate limit")
-                .enforce("tool `issue_refund` at most 1 times"),
+                .guarantees("tool `issue_refund` at most 1 times"),
         ],
         dashboard=True,
     )
     agent = create_react_agent(model, guard.wrap(tools))
 
-Every contract is built with ``contract(desc).enforce(...)``, with an
+Every contract is built with ``contract(desc).guarantees(...)``, with an
 optional ``.assume(...)`` in front for rules that have a trigger. Repeated
-``.assume(...)`` / ``.enforce(...)`` calls AND the arguments together::
+``.assume(...)`` / ``.guarantees(...)`` calls AND the arguments together::
 
     contract("multi-condition policy")
         .assume("A1")
         .assume("A2")                           # A1 AND A2
-        .enforce("E1")
-        .enforce("E2")                          # E1 AND E2
+        .guarantees("E1")
+        .guarantees("E2")                          # E1 AND E2
 
 Bare NL strings are still accepted at the parser level as a shortcut,
 but the fluent builder is the documented pattern because it always
@@ -303,7 +303,7 @@ def Sponsio(  # noqa: N802 — branded factory function
             - a bare NL string (unconditional shortcut), e.g.
               ``"tool `issue_refund` at most 1 times"``
             - a :class:`~sponsio.contract.ContractBuilder` from
-              :func:`sponsio.contract` — recommended for any (A, E) pair
+              :func:`sponsio.contract` — recommended for any (A, G) pair
             - a dict with ``assumption`` (optional) + ``enforcement``
               (legacy form, still supported)
 
@@ -321,19 +321,20 @@ def Sponsio(  # noqa: N802 — branded factory function
         verbosity: Detail level (0=violations, 1=all, 2=spans).
         otel_exporter: Optional OTEL exporter for span export.
         mode: Enforcement mode. ``"enforce"`` blocks on det violations
-            and retries on sto; ``"observe"`` (default) logs every
-            violation to ``~/.sponsio/sessions/<agent_id>/*.jsonl``
+            (Cloud adds sto-retry on top); ``"observe"`` (default) logs
+            every violation to ``~/.sponsio/sessions/<agent_id>/*.jsonl``
             without blocking — the recommended first-run setting when
             adopting Sponsio on a live agent. Falls back to
             ``SPONSIO_MODE`` env var, then to ``runtime.mode`` in
             ``sponsio.yaml`` when ``config=`` is given. Precedence:
             env > ctor arg > yaml > ``"observe"``.
         sto_judge: A :class:`BooleanJudge` (or compatible) used by sto
-            atom evaluators in this guard. Recommended over the legacy
-            module-level ``set_default_judge()``. Example::
+            atom evaluators. Sponsio Cloud only — OSS rejects sto
+            contracts at config load and never reaches the judge path.
+            With ``pip install sponsio[cloud]`` installed::
 
-                from sponsio.runtime.judge import BooleanJudge
-                from sponsio.runtime.llm_client import OpenAILogprobClient
+                from sponsio_cloud.sto.judge import BooleanJudge
+                from sponsio_cloud.sto.llm_client import OpenAILogprobClient
                 import openai
 
                 from sponsio.langgraph import Sponsio
@@ -346,7 +347,7 @@ def Sponsio(  # noqa: N802 — branded factory function
                 )
 
             If omitted, falls back to the global judge set by
-            :func:`sponsio.patterns.sto_catalog.set_default_judge` (or
+            :func:`sponsio_cloud.sto.catalog.set_default_judge` (or
             raises ``RuntimeError`` when a sto contract evaluates and
             neither is configured).
 

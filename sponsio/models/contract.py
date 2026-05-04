@@ -1,30 +1,30 @@
-"""Contract dataclass — one assume/enforcement pair for an agent.
+"""Contract dataclass — one Assume-Guarantee pair for an agent.
 
 A ``Contract`` binds a single ``assumption`` (precondition over the trace)
-to a single ``enforcement`` (what the agent must satisfy when the
+to a single ``guarantee`` (what the agent must satisfy when the
 assumption holds). An agent with multiple independent rules has multiple
 ``Contract`` entries — ``System.contracts`` is already a flat list, so
 no new container type is needed.
 
-Both ``assumption`` and ``enforcement`` accept either a single constraint
+Naming follows the standard A/G contract literature (Benveniste et al.,
+"Contracts for System Design," FnT EDA 2018; Nuzzo et al. CHASE / Pacti).
+The OSS engine ships only the boolean degenerate case; Sponsio Cloud
+adds probabilistic relaxation. Action-layer types (``EnforcementStrategy``,
+``DetBlock``, …) keep "Enforcement" in the name because they describe
+*how* the guarantee is enforced at runtime, not the property itself.
+
+Both ``assumption`` and ``guarantee`` accept either a single constraint
 or a list. A list is interpreted as the logical AND of its elements.
 ``assumption=None`` (the default) means the contract is unconditional.
 
-Stochastic semantics
---------------------
-
-Contracts carry two threshold fields for stochastic enforcement:
-
-* ``alpha`` (default 1.0) — the assumption triggers when
-  ``conf(A) ≥ alpha``. For pure det assumptions, ``conf(A)`` is strictly
-  0.0 or 1.0, so any ``alpha ∈ (0, 1]`` behaves the same.
-* ``beta`` (default 1.0) — the enforcement is satisfied when
-  ``conf(G) ≥ beta`` (given the assumption is triggered). Default 1.0
-  preserves existing det semantics — an enforcement that evaluates to
-  ``True`` (confidence 1.0) passes; anything less fails.
-
-See ``docs/cost-based-thresholds.md`` for how to pick ``(alpha, beta)``
-from operational costs.
+Threshold fields (``alpha``, ``beta``) are part of the schema for
+stochastic relaxation: a sto contract holds when ``conf(A) ≥ alpha``
+implies ``conf(G) ≥ beta``. The OSS engine exposes only the
+``alpha == beta == 1.0`` degenerate case (boolean det); ``BaseGuard``
+rejects non-default values at construction time with a pointer to
+``pip install sponsio[cloud]``. The probabilistic-lifting math
+(``conf(·)``, independent-product semantics, threshold composition)
+lives in ``sponsio_cloud.sto.lifting``.
 """
 
 from __future__ import annotations
@@ -77,6 +77,55 @@ def _unwrap(item: Any) -> Any:
     return None
 
 
+def _formula_is_pure_det(formula: Any) -> bool:
+    """Recursively check whether every ``Atom`` leaf has ``atom_type == "det"``.
+
+    Lives in OSS so ``Contract.is_pure_det`` doesn't need to reach into
+    the (Cloud-only) sto lifting module to decide dispatch. Mirrors the
+    canonical implementation in ``sponsio_cloud.sto.lifting._all_det``;
+    the two must stay in sync — Cloud's evaluator decides what to do
+    with non-pure-det contracts, but the structural classification is
+    the same on both sides.
+    """
+    from sponsio.formulas.formula import (
+        And,
+        Atom,
+        Const,
+        Eq,
+        F,
+        G,
+        Ge,
+        Gt,
+        Implies,
+        Le,
+        Lt,
+        Not,
+        Or,
+        Subset,
+        U,
+        Var,
+        X,
+    )
+
+    if isinstance(formula, Atom):
+        return formula.atom_type == "det"
+    # Arithmetic / set leaves are always det.
+    if isinstance(formula, (Le, Lt, Ge, Gt, Eq, Subset, Var, Const)):
+        return True
+    if isinstance(formula, Not):
+        return _formula_is_pure_det(formula.child)
+    if isinstance(formula, (And, Or, Implies, U)):
+        return _formula_is_pure_det(formula.left) and _formula_is_pure_det(
+            formula.right
+        )
+    if isinstance(formula, (G, F, X)):
+        return _formula_is_pure_det(formula.child)
+    # Unknown node — treat as non-det so dispatch routes it away from
+    # the det fast path. A future lifting-aware integrator (Cloud) can
+    # override the decision after construction.
+    return False
+
+
 # ``eq=False`` keeps Contract hashable by identity. The runtime monitor
 # uses Contracts as keys in a ``WeakKeyDictionary`` for the per-contract
 # atom cache (``RuntimeMonitor._atom_caches``), and a default
@@ -85,34 +134,38 @@ def _unwrap(item: Any) -> Any:
 # so falling back to ``object.__eq__`` is safe.
 @dataclass(eq=False)
 class Contract:
-    """A single assume/enforcement pair bound to an agent.
+    """A single Assume-Guarantee (A/G) pair bound to an agent.
 
     Attributes:
         agent: The agent this contract belongs to.
-        enforcement: What the agent must satisfy. Required. May be a
-            single constraint or a list (list = logical AND).
+        guarantee: What the agent must satisfy when the assumption
+            holds. Required. May be a single constraint or a list
+            (list = logical AND).
         assumption: Precondition over the trace. ``None`` means the
             contract is unconditional. May be a single constraint or a
             list (list = logical AND).
         desc: Optional human-readable label for this contract.
-        alpha: Assumption trigger threshold in [0, 1]. Default 1.0 —
-            preserves existing det semantics.
-        beta: Enforcement satisfaction threshold in [0, 1]. Default 1.0
-            — preserves existing det semantics.
+        alpha: Assumption trigger threshold in [0, 1]. OSS exposes only
+            ``alpha == 1.0`` (boolean det); Cloud relaxes this to a
+            stochastic threshold over ``conf(A)``. ``BaseGuard`` rejects
+            non-default values without a configured StoEvaluator.
+        beta: Guarantee satisfaction threshold in [0, 1]. Same
+            shape as ``alpha`` — OSS only uses 1.0; Cloud handles
+            ``conf(G) ≥ beta``. See ``sponsio_cloud.sto.lifting``.
         activate_at: When the assumption A is satisfied, *where* the
-            enforcement E should start being checked.
+            guarantee G should start being checked.
 
-            * ``None`` (default) — global semantics: A and E are each
+            * ``None`` (default) — global semantics: A and G are each
               evaluated as standalone LTL over the full trace from
-              position 0.  If A holds, every position must satisfy E
+              position 0.  If A holds, every position must satisfy G
               including positions before A's "evidence event".  This is
               the historical Sponsio semantic — appropriate for global
               invariants ("if user is admin throughout, then every
               read is logged").
             * ``"first_match"`` — reactive semantics: find the first
               position k where A becomes true (its evidence event), then
-              evaluate E starting at position k.  Events before k are
-              not subject to E.  Appropriate for trigger-then-enforce
+              evaluate G starting at position k.  Events before k are
+              not subject to G.  Appropriate for trigger-then-guarantee
               safety contracts ("after secret is read, no outbound
               POST" should not retroactively flag a POST that happened
               before the secret read).
@@ -129,7 +182,7 @@ class Contract:
     """
 
     agent: Agent
-    enforcement: Constraint = None
+    guarantee: Constraint = None
     assumption: Constraint | None = None
     desc: str | None = None
     alpha: float = 1.0
@@ -139,12 +192,12 @@ class Contract:
     _VALID_ACTIVATE_AT = (None, "first_match")
 
     def __post_init__(self) -> None:
-        if self.enforcement is None or (
-            isinstance(self.enforcement, list) and not self.enforcement
+        if self.guarantee is None or (
+            isinstance(self.guarantee, list) and not self.guarantee
         ):
             raise ValueError(
-                f"Contract(agent={self.agent.id!r}) requires a non-empty enforcement. "
-                f"Use Contract(..., enforcement=<constraint>) or provide a list."
+                f"Contract(agent={self.agent.id!r}) requires a non-empty guarantee. "
+                f"Use Contract(..., guarantee=<constraint>) or provide a list."
             )
         if not (0.0 <= self.alpha <= 1.0):
             raise ValueError(
@@ -207,33 +260,26 @@ class Contract:
 
     @property
     def is_pure_det(self) -> bool:
-        """True iff every atom in assumption and enforcement has
+        """True iff every atom in assumption and guarantee has
         ``atom_type == "det"`` AND ``alpha == beta == 1.0``.
 
         When true, the monitor can dispatch to the existing LTL/DFA
         evaluator without paying the probabilistic-lifting overhead.
+        Sto contracts (``atom_type == "sto"`` or non-default α / β)
+        return ``False`` so dispatch routes them away from the OSS det
+        pipeline.
         """
         if self.alpha != 1.0 or self.beta != 1.0:
             return False
-        # ``_all_det`` lives in the (cloud) sto-lifting module; the OSS
-        # engine ships only the deterministic pipeline. Best-effort
-        # import keeps the cloud path live when both packages are
-        # installed; absent it, every contract that reached this point
-        # is by definition pure-det (sto formula construction needs the
-        # cloud module too).
-        try:  # pragma: no cover - guarded import
-            from sponsio.runtime.sto_lifting import _all_det  # type: ignore[import-not-found]
-        except ImportError:
-            return True
-
-        for item in self.enforcements + self.assumptions:
+        for item in self.guarantees + self.assumptions:
             inner = _unwrap(item)
             if inner is None:
                 # Unknown / non-Formula constraint (e.g. raw NL string that
-                # hasn't been compiled yet) — conservatively force lifting
-                # path. Actual dispatch decision happens after compilation.
+                # hasn't been compiled yet) — conservatively force the
+                # non-det path. Actual dispatch decision happens after
+                # compilation.
                 return False
-            if not _all_det(inner):
+            if not _formula_is_pure_det(inner):
                 return False
         return True
 
@@ -252,14 +298,14 @@ class Contract:
         return _as_list(self.assumption)
 
     @property
-    def enforcements(self) -> list:
-        """Enforcement as a flat list.
+    def guarantees(self) -> list:
+        """Guarantee as a flat list.
 
-        The singular ``.enforcement`` field holds the canonical value
+        The singular ``.guarantee`` field holds the canonical value
         (scalar or list); this property normalizes it to a list for
         iteration.
         """
-        return _as_list(self.enforcement)
+        return _as_list(self.guarantee)
 
     @property
     def is_unconditional(self) -> bool:
@@ -270,7 +316,7 @@ class Contract:
     # -----------------------------------------------------------------
 
     def to_str(self, colorize: bool = False, show_compiled: bool = True) -> str:
-        """Human-readable A/E representation.
+        """Human-readable A/G representation.
 
         Args:
             colorize: Emit ANSI color codes.
@@ -341,10 +387,10 @@ class Contract:
                 if c is not None:
                     lines.append(c)
 
-        e_label = _ansi(_DIM, "enforce ", colorize)
-        for idx, e in enumerate(self.enforcements):
+        g_label = _ansi(_DIM, "guarantee ", colorize)
+        for idx, e in enumerate(self.guarantees):
             desc = getattr(e, "desc", str(e))
-            prefix = e_label if idx == 0 else blank
+            prefix = g_label if idx == 0 else blank
             lines.append(f"{bar} {prefix}{e_tri} {desc}")
             c = _compiled_line(e)
             if c is not None:
@@ -357,10 +403,10 @@ class Contract:
 
     def __repr__(self) -> str:
         a_count = len(self.assumptions)
-        e_count = len(self.enforcements)
+        g_count = len(self.guarantees)
         return (
             f"Contract(agent={self.agent.id!r}, "
-            f"assumption={a_count}, enforcement={e_count})"
+            f"assumption={a_count}, guarantee={g_count})"
         )
 
 
@@ -372,20 +418,22 @@ class Contract:
 def make_contracts(
     agent: Agent,
     *,
-    enforcements: list | None = None,
+    guarantees: list | None = None,
     contracts: list[dict] | None = None,
 ) -> list[Contract]:
     """Build a list of ``Contract`` objects from the two main input shapes.
 
     Args:
         agent: The agent all contracts belong to.
-        enforcements: Shortcut for unconditional contracts. Each item
-            becomes one ``Contract(agent, enforcement=item)`` with no
+        guarantees: Shortcut for unconditional contracts. Each item
+            becomes one ``Contract(agent, guarantee=item)`` with no
             assumption. Useful for the simple "list of rules" case.
         contracts: List of dicts, each with ``assumption`` (optional)
-            and ``enforcement`` (required). Each dict becomes one
-            ``Contract``. ``assumption`` / ``enforcement`` may be a
+            and ``guarantee`` (required). Each dict becomes one
+            ``Contract``. ``assumption`` / ``guarantee`` may be a
             scalar or a list; lists are preserved for later AND-combine.
+            YAML short keys ``A`` / ``G`` are equivalent to the long
+            keys.
 
     Returns:
         A flat list of ``Contract`` objects, ready for
@@ -393,18 +441,18 @@ def make_contracts(
     """
     out: list[Contract] = []
 
-    for item in enforcements or []:
-        out.append(Contract(agent=agent, enforcement=item))
+    for item in guarantees or []:
+        out.append(Contract(agent=agent, guarantee=item))
 
     for entry in contracts or []:
         if not isinstance(entry, dict):
             raise TypeError(
                 f"contracts[] entries must be dict, got {type(entry).__name__}: {entry!r}"
             )
-        enforcement = entry.get("enforcement") or entry.get("E")
-        if enforcement is None:
+        guarantee = entry.get("guarantee") or entry.get("G")
+        if guarantee is None:
             raise ValueError(
-                f"Contract entry missing 'enforcement' (or 'E'): {entry!r}"
+                f"Contract entry missing 'guarantee' (or short key 'G'): {entry!r}"
             )
         assumption = entry.get("assumption", entry.get("A"))
         desc = entry.get("desc")
@@ -413,7 +461,7 @@ def make_contracts(
         out.append(
             Contract(
                 agent=agent,
-                enforcement=enforcement,
+                guarantee=guarantee,
                 assumption=assumption,
                 desc=desc,
                 alpha=alpha,

@@ -26,7 +26,7 @@ def _all_descs(system):
     """Flatten enforcement descriptions across all contracts."""
     descs = []
     for c in system.contracts:
-        for e in c.enforcements:
+        for e in c.guarantees:
             descs.append(getattr(e, "desc", str(e)))
     return descs
 

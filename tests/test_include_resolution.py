@@ -3,7 +3,7 @@
 The include mechanism is the headline UX for the contract-library
 story: users name a pack (``sponsio:core/universal``) and every
 contract from that pack's ``"*"`` template gets injected under the
-host agent, with each entry source-tagged so ``overrides:`` and
+host agent, with each entry source-tagged so ``customized:`` and
 ``sponsio validate`` can address them by origin.
 
 What's pinned here:
@@ -110,7 +110,7 @@ class TestResolveIncludeSpec:
                 agents:
                   '*':
                     contracts:
-                      - E: {pattern: rate_limit, args: [exec, 10]}
+                      - G: {pattern: rate_limit, args: [exec, 10]}
                 """
             )
         )
@@ -209,7 +209,7 @@ class TestIncludeIntoAgent:
         """Hand-written contracts appear AFTER everything pulled from
         includes — so when a user reads the merged config they see
         their own rules at the bottom, where their cursor naturally
-        lands.  Also makes ``overrides:`` cleaner: local contracts
+        lands.  Also makes ``customized:`` cleaner: local contracts
         always have ``pack_source is None``."""
         cfg_path = _write_yaml(
             tmp_path,
@@ -223,7 +223,7 @@ class TestIncludeIntoAgent:
                   - sponsio:core/universal
                 contracts:
                   - desc: "my own thing"
-                    E: {pattern: rate_limit, args: [exec, 100]}
+                    G: {pattern: rate_limit, args: [exec, 100]}
             """,
         )
         cfg = load_config(cfg_path)
@@ -255,7 +255,7 @@ class TestIncludeIntoAgent:
         )
         cfg = load_config(cfg_path)
         for c in cfg.agents["bot"].contracts:
-            _compile_field(c.enforcement)
+            _compile_field(c.guarantee)
             if c.assumption is not None:
                 _compile_field(c.assumption)
 
@@ -270,7 +270,7 @@ class TestIncludeIntoAgent:
               '*':
                 contracts:
                   - desc: "internal rule"
-                    E: {pattern: must_precede, args: [auth, refund]}
+                    G: {pattern: must_precede, args: [auth, refund]}
             """,
         )
         cfg_path = _write_yaml(
@@ -315,7 +315,7 @@ class TestPackSchema:
             agents:
               concrete_agent:
                 contracts:
-                  - E: {pattern: rate_limit, args: [exec, 1]}
+                  - G: {pattern: rate_limit, args: [exec, 1]}
             """,
         )
         cfg_path = _write_yaml(
@@ -341,7 +341,7 @@ class TestPackSchema:
               '*': {contracts: []}
               other:
                 contracts:
-                  - E: {pattern: rate_limit, args: [x, 1]}
+                  - G: {pattern: rate_limit, args: [x, 1]}
             """,
         )
         cfg_path = _write_yaml(
@@ -387,7 +387,7 @@ class TestNestedInclude:
             agents:
               '*':
                 contracts:
-                  - E: {pattern: rate_limit, args: [exec, 5]}
+                  - G: {pattern: rate_limit, args: [exec, 5]}
             """,
         )
         _write_yaml(
@@ -398,7 +398,7 @@ class TestNestedInclude:
               '*':
                 include: ["./leaf.yaml"]
                 contracts:
-                  - E: {pattern: rate_limit, args: [exec, 50]}
+                  - G: {pattern: rate_limit, args: [exec, 50]}
             """,
         )
         cfg_path = _write_yaml(

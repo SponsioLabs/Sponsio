@@ -211,7 +211,7 @@ def _cleanup_demo(*, no_guard: bool, fast: bool) -> None:
     contracts = [
         Contract(
             agent=agent,
-            enforcement=DetFormula(
+            guarantee=DetFormula(
                 formula=G(Not(Atom("called_with", "Bash", r"rm\s+.*(\.env|\.git)"))),
                 desc="never remove `.env*` or `.git/`",
                 pattern_name="custom",
@@ -219,7 +219,7 @@ def _cleanup_demo(*, no_guard: bool, fast: bool) -> None:
         ),
         Contract(
             agent=agent,
-            enforcement=DetFormula(
+            guarantee=DetFormula(
                 formula=G(
                     Not(
                         Atom(
@@ -279,7 +279,7 @@ def _backup_demo(*, no_guard: bool, fast: bool) -> None:
     contracts = [
         Contract(
             agent=agent,
-            enforcement=scope_limit(
+            guarantee=scope_limit(
                 "delete_snapshot",
                 ["/snapshots/dev/", "/snapshots/staging/"],
             ),
@@ -287,14 +287,14 @@ def _backup_demo(*, no_guard: bool, fast: bool) -> None:
         ),
         Contract(
             agent=agent,
-            enforcement=arg_value_range(
+            guarantee=arg_value_range(
                 "delete_snapshot", "age_days", min_val=0, max_val=30
             ),
             desc="30-day DR window — older snapshots are off-limits",
         ),
         Contract(
             agent=agent,
-            enforcement=rate_limit("delete_snapshot", 5),
+            guarantee=rate_limit("delete_snapshot", 5),
             desc="no runaway deletion loop",
         ),
     ]
@@ -363,24 +363,24 @@ def _wire_demo(*, no_guard: bool, fast: bool) -> None:
     contracts = [
         Contract(
             agent=agent,
-            enforcement=arg_value_range(
+            guarantee=arg_value_range(
                 "wire_transfer", "amount", min_val=0, max_val=50000
             ),
             desc="single wire capped at $50k",
         ),
         Contract(
             agent=agent,
-            enforcement=must_precede("compliance_approve", "wire_transfer"),
+            guarantee=must_precede("compliance_approve", "wire_transfer"),
             desc="compliance_approve must precede wire_transfer",
         ),
         Contract(
             agent=agent,
-            enforcement=must_confirm("wire_transfer"),
+            guarantee=must_confirm("wire_transfer"),
             desc="wire_transfer needs an explicit confirm_wire_transfer",
         ),
         Contract(
             agent=agent,
-            enforcement=rate_limit("wire_transfer", 5),
+            guarantee=rate_limit("wire_transfer", 5),
             desc="no wire flood",
         ),
     ]
@@ -457,7 +457,7 @@ def _freeze_demo(*, no_guard: bool, fast: bool) -> None:
 
     agent = Agent(id="coding_agent")
     contracts = [
-        # A/E 1 — code freeze declared → no destructive SQL
+        # A/G 1 — code freeze declared → no destructive SQL
         Contract(
             agent=agent,
             assumption=DetFormula(
@@ -471,7 +471,7 @@ def _freeze_demo(*, no_guard: bool, fast: bool) -> None:
                 desc="user declared a code freeze in this session",
                 pattern_name="custom",
             ),
-            enforcement=DetFormula(
+            guarantee=DetFormula(
                 formula=G(
                     Not(
                         Atom(
@@ -486,7 +486,7 @@ def _freeze_demo(*, no_guard: bool, fast: bool) -> None:
             ),
             desc="code freeze: no destructive SQL",
         ),
-        # A/E 2 — destructive SQL fired → escalate before status report
+        # A/G 2 — destructive SQL fired → escalate before status report
         Contract(
             agent=agent,
             assumption=DetFormula(
@@ -496,10 +496,10 @@ def _freeze_demo(*, no_guard: bool, fast: bool) -> None:
                 desc="destructive SQL has fired in this session",
                 pattern_name="custom",
             ),
-            enforcement=must_precede("escalate_to_human", "generate_status_report"),
+            guarantee=must_precede("escalate_to_human", "generate_status_report"),
             desc="after destructive SQL, escalate to a human before any status report",
         ),
-        # A/E 3 — destructive SQL → no INSERT (no fabricated-row reconstruction)
+        # A/G 3 — destructive SQL → no INSERT (no fabricated-row reconstruction)
         Contract(
             agent=agent,
             assumption=DetFormula(
@@ -509,7 +509,7 @@ def _freeze_demo(*, no_guard: bool, fast: bool) -> None:
                 desc="destructive SQL has fired in this session",
                 pattern_name="custom",
             ),
-            enforcement=DetFormula(
+            guarantee=DetFormula(
                 formula=G(Not(Atom("called_with", "execute_sql", r"\bINSERT\b"))),
                 desc=(
                     "no INSERT after a destructive op "
@@ -519,7 +519,7 @@ def _freeze_demo(*, no_guard: bool, fast: bool) -> None:
             ),
             desc="no INSERT after DELETE/DROP",
         ),
-        # A/E 4 — prod connection → read-only only
+        # A/G 4 — prod connection → read-only only
         Contract(
             agent=agent,
             assumption=DetFormula(
@@ -529,7 +529,7 @@ def _freeze_demo(*, no_guard: bool, fast: bool) -> None:
                 desc="session has connected to the production database",
                 pattern_name="custom",
             ),
-            enforcement=DetFormula(
+            guarantee=DetFormula(
                 formula=G(
                     Implies(
                         Atom("called", "execute_sql"),
@@ -549,7 +549,7 @@ def _freeze_demo(*, no_guard: bool, fast: bool) -> None:
         # Structural — session-level SQL rate cap (runaway defense)
         Contract(
             agent=agent,
-            enforcement=rate_limit("execute_sql", 50),
+            guarantee=rate_limit("execute_sql", 50),
             desc="no SQL flood",
         ),
     ]

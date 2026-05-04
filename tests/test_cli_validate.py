@@ -24,7 +24,7 @@ def test_validate_lone_yaml_path_auto_treats_as_config(tmp_path: Path) -> None:
             agents:
               bot:
                 contracts:
-                  - E: "tool `a` must precede `b`"
+                  - G: "tool `a` must precede `b`"
             """
         ).lstrip(),
         encoding="utf-8",
@@ -54,7 +54,7 @@ def test_validate_explicit_config_unchanged(tmp_path: Path) -> None:
             agents:
               bot:
                 contracts:
-                  - E: "tool `a` must precede `b`"
+                  - G: "tool `a` must precede `b`"
             """
         ).lstrip(),
         encoding="utf-8",

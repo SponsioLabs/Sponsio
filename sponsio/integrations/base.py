@@ -402,13 +402,13 @@ class BaseGuard:
         agent_id: Logical agent identifier for trace/monitor.
         contracts: List of contract entries. Each entry is one of:
 
-            - **Dict** — ``{"assumption": <scalar|list|None>, "enforcement": <scalar|list>}``.
+            - **Dict** — ``{"assumption": <scalar|list|None>, "guarantee": <scalar|list>}``.
               ``assumption`` is optional (``None`` = unconditional). Lists
               are AND-combined. Becomes one :class:`Contract`.
-            - **ContractBuilder** — fluent ``contract(...).assume(...).enforce(...)``
+            - **ContractBuilder** — fluent ``contract(...).assume(...).guarantees(...)``
               values are normalized through ``to_dict()``.
             - **NL string** — shortcut for an unconditional contract
-              (``assumption=None``, ``enforcement=<string>``).
+              (``assumption=None``, ``guarantee=<string>``).
             - **Pre-built** :class:`Contract` — passed through as-is.
 
             Each entry becomes one independent ``Contract`` whose
@@ -417,8 +417,12 @@ class BaseGuard:
         system: Pre-built System (alternative to the above).
         policy: Per-constraint enforcement strategy overrides.
             Keys are constraint descriptions, values are strategy instances.
-            Defaults: det → DetBlock, sto → RetryWithConstraint.
-        sto_evaluator: Optional StoEvaluator for sto constraints.
+            OSS default: det → DetBlock. Cloud installs default sto rules
+            to ``RetryWithConstraint``.
+        sto_evaluator: Optional StoEvaluator for sto constraints. Sponsio
+            Cloud only — auto-discovered via the ``sponsio.evaluators``
+            entry-point group when ``pip install sponsio[cloud]`` is
+            present; explicit injection still wins.
         store: Optional PatternStore. If provided, user-written NL
             contracts are automatically registered as ``user_defined``.
     """
@@ -534,16 +538,35 @@ class BaseGuard:
         #      point group (Cloud / third-party packages register
         #      themselves at install time)
         #   3. Hard error pointing at the Cloud install
-        if soft_constraints:
+        #
+        # Two intake paths feed this gate:
+        #   * legacy ``StoFormula`` closures collected as
+        #     ``soft_constraints`` (YAML-driven sto-catalog patterns)
+        #   * Python-API contracts whose Formula AST contains an
+        #     ``Atom(atom_type="sto", ...)`` (built directly via
+        #     ``contract().guarantees(G(Atom(...)))``). Without this
+        #     check those contracts would slip past the dispatch in
+        #     ``RuntimeMonitor._check_det`` and silently no-op — see
+        #     ``Contract.is_pure_det`` for the structural decision.
+        non_pure_det = [c for c in self._system._contracts if not c.is_pure_det]
+        if soft_constraints or non_pure_det:
             if sto_evaluator is None:
                 sto_evaluator = _discover_sto_evaluator()
             if sto_evaluator is None:
+                offending = "; ".join((c.desc or "<unnamed>") for c in non_pure_det[:3])
+                if non_pure_det and len(non_pure_det) > 3:
+                    offending += f" (+{len(non_pure_det) - 3} more)"
+                detail = (
+                    f" Stochastic contracts in this guard: {offending}."
+                    if non_pure_det
+                    else ""
+                )
                 raise RuntimeError(
-                    "Soft (stochastic) constraints require a StoEvaluator "
+                    "Stochastic (sto) constraints require a StoEvaluator "
                     "implementation. The OSS engine ships none — install "
                     "the Cloud package with `pip install sponsio[cloud]`, "
                     "or pass an explicit `sto_evaluator=` matching the "
-                    "`sponsio.protocols.sto.StoEvaluator` Protocol."
+                    f"`sponsio.protocols.sto.StoEvaluator` Protocol.{detail}"
                 )
             for sc in soft_constraints:
                 sto_evaluator.register(
@@ -563,7 +586,7 @@ class BaseGuard:
         else:
             self._policy = {}
             for contract in self._system._contracts:
-                for e in contract.enforcements:
+                for e in contract.guarantees:
                     if not hasattr(e, "desc"):
                         continue
                     # Normalise desc to a string so dict-keying works
@@ -585,13 +608,21 @@ class BaseGuard:
                         self._policy[desc_key] = DetBlock()
 
         # --- Create monitor ---
+        # The OSS monitor is det-only — sto plumbing lives on this
+        # BaseGuard (``self._sto_evaluator``) and only fires through
+        # the ``check_soft`` / ``refine`` delegation surface. Cloud
+        # subclasses can ship their own monitor with a sto pipeline if
+        # they want it on the hot path.
         self._monitor = RuntimeMonitor(
             system=self._system,
-            sto_evaluator=sto_evaluator,
             policy=self._policy,
             mode=self._mode,
-            sto_judge=sto_judge,
         )
+        # Stash the (possibly Cloud-injected) sto evaluator on this
+        # guard so ``check_soft`` / ``refine`` can reach it without
+        # poking at monitor internals.
+        self._sto_evaluator = sto_evaluator
+        self._sto_judge = sto_judge
 
         # Resize the perf tracker's per-contract ring buffer if the
         # user configured a non-default histogram_size.  Done here
@@ -696,7 +727,7 @@ class BaseGuard:
 
             if isinstance(entry, Contract):
                 out.append(entry)
-                for e in entry.enforcements:
+                for e in entry.guarantees:
                     self._register_constraint(e, user_formulas, soft_constraints)
                 continue
 
@@ -705,7 +736,7 @@ class BaseGuard:
                 parsed = self._parse_constraint(entry, user_formulas, soft_constraints)
                 if parsed is None:
                     continue
-                out.append(Contract(agent=agent_model, enforcement=parsed))
+                out.append(Contract(agent=agent_model, guarantee=parsed))
                 continue
 
             if not isinstance(entry, dict):
@@ -715,16 +746,16 @@ class BaseGuard:
                 )
 
             # Reject YAML-style short keys in Python to keep the split clean.
-            if "A" in entry or "E" in entry:
+            if "A" in entry or "G" in entry:
                 raise ValueError(
                     f"Python contract dicts must use full keys "
-                    f"'assumption'/'enforcement'. Short keys 'A'/'E' are "
+                    f"'assumption'/'guarantee'. Short keys 'A'/'G' are "
                     f"YAML-only. Got: {entry!r}"
                 )
 
-            e_raw = entry.get("enforcement")
+            e_raw = entry.get("guarantee")
             if e_raw is None:
-                raise ValueError(f"Contract entry missing 'enforcement': {entry!r}")
+                raise ValueError(f"Contract entry missing 'guarantee': {entry!r}")
             a_raw = entry.get("assumption")
             desc = entry.get("desc")
             # R1 alpha/beta threading — read from dict entry (defaults
@@ -747,7 +778,7 @@ class BaseGuard:
             out.append(
                 Contract(
                     agent=agent_model,
-                    enforcement=parsed_e,
+                    guarantee=parsed_e,
                     assumption=parsed_a,
                     desc=desc,
                     alpha=alpha,
@@ -1161,13 +1192,13 @@ class BaseGuard:
         self._autotag_tool_output(tool_name, output)
 
         with self._lock:
-            if self._monitor._sto_evaluator is None:
+            if self._sto_evaluator is None:
                 return CheckResult(allowed=True)
 
             # Assumption gating — mirrors ``RuntimeMonitor._check_sto``
             # so that a sto constraint whose owning contract's det
             # *assumption* is currently unmet is skipped here too. Without
-            # this, a `contract("on refund").enforce(Atom("tone", ...))`
+            # this, a `contract("on refund").guarantees(Atom("tone", ...))`
             # kept flagging retries on turns where no refund was ever
             # mentioned — same behavioural bug `_check_sto` already guards
             # against but that `guard_after` didn't share. See #12
@@ -1190,7 +1221,7 @@ class BaseGuard:
                     assumption_holds = self._monitor._verifier.check_assumption(
                         contract
                     ).holds
-                for e in contract.enforcements:
+                for e in contract.guarantees:
                     # ``_is_det`` lives in the verifier module; pre-OSS-cut
                     # ``monitor`` re-exported it via an internal import that
                     # ruff pruned when the sto path was stubbed out. Import
@@ -1204,7 +1235,7 @@ class BaseGuard:
                     owned_by_contract.add(prop_name)
                     (gated_pass if assumption_holds else gated_fail).add(prop_name)
 
-            checked = self._monitor._sto_evaluator.check(self._monitor.trace)
+            checked = self._sto_evaluator.check(self._monitor.trace)
             sto_violations: list[EnforcementResult] = []
             feedback_parts: list[str] = []
 
@@ -1222,9 +1253,7 @@ class BaseGuard:
                 # provides it; third-party impls may not. ``getattr``
                 # fallback keeps the contract minimal.
                 template = None
-                getter = getattr(
-                    self._monitor._sto_evaluator, "get_feedback_template", None
-                )
+                getter = getattr(self._sto_evaluator, "get_feedback_template", None)
                 if getter is not None:
                     try:
                         template = getter(prop_name)
@@ -1971,7 +2000,7 @@ class BaseGuard:
                 c
                 for c in self._system.contracts
                 if c.agent.id == self.agent_id
-                and any(getattr(e, "liveness", False) for e in c.enforcements)
+                and any(getattr(e, "liveness", False) for e in c.guarantees)
             ]
             if not liveness_contracts:
                 return []
@@ -1993,7 +2022,7 @@ class BaseGuard:
                         continue
 
                     a_count = len(contract.assumptions)
-                    e_count = len(contract.enforcements)
+                    e_count = len(contract.guarantees)
                     label = (
                         contract.desc
                         or f"{contract.agent.id}: {a_count}A/{e_count}E (liveness)"
@@ -2001,7 +2030,7 @@ class BaseGuard:
                     collector.start_contract_check(label, pipeline="det")
                     contract_failed = False
 
-                    for e_verdict in verdict.enforcements:
+                    for e_verdict in verdict.guarantees:
                         formula = e_verdict.formula
                         if not getattr(formula, "liveness", False):
                             # Safety enforcements were already judged at

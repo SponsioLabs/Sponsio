@@ -9,7 +9,7 @@ Two integration patterns:
         guard = LangGraphGuard(contracts=[
             contract("policy gate before refund")
                 .assume("called `issue_refund`")
-                .enforce("must call `check_policy` before `issue_refund`"),
+                .guarantees("must call `check_policy` before `issue_refund`"),
         ])
         agent = create_react_agent(model, guard.wrap(tools))
         result = agent.invoke({"messages": [("user", input)]})
@@ -35,7 +35,7 @@ from sponsio.integrations.base import (
     select_agent_message,
 )
 from sponsio.models.system import System
-from sponsio.runtime.evaluators import StoEvaluator
+from sponsio.protocols.sto import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
 
 
@@ -293,7 +293,7 @@ class LangGraphGuard(BaseGuard):
             guard = Sponsio(
                 contracts=[
                     contract("response free of prompt injection")
-                        .enforce(Atom("injection_free", atom_type="sto"))
+                        .guarantees(Atom("injection_free", atom_type="sto"))
                         .threshold(beta=0.9)
                 ],
                 sto_judge=BooleanJudge(...),

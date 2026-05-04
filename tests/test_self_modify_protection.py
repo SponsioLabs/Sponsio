@@ -159,7 +159,7 @@ class TestSelfModifyDenies:
     literal ``~/.sponsio/plugins/_host/sponsio.yaml`` slot must DENY.
 
     These mirror the actual incident this pack defends against:
-    Claude Code in auto mode trying to add an ``overrides:`` block
+    Claude Code in auto mode trying to add an ``customized:`` block
     to disable a rule that just blocked it.
     """
 
@@ -401,4 +401,212 @@ class TestSubagentEscapeAllows:
             ),
             capsys,
         )
+        _assert_allowed(out, code)
+
+
+# ---------------------------------------------------------------------------
+# §4 / §5 — interpreter bypass (the "python file I/O" workaround)
+#
+# Observed in the wild during the cursor-live demo: when §1–§3 deny
+# Edit/Write of the host bucket, the agent recovers by writing a
+# small Python helper in the workspace whose content opens the host
+# bucket path in write mode, then runs ``python merge.py``.  The
+# ``Write`` of the helper is NOT in the host bucket so §1–§3 don't
+# fire; the ``Bash`` command line doesn't carry the host bucket
+# path so the bash-redirect rules (in the per-host bucket starters)
+# also don't fire.  §4 catches the script-creation step (content
+# mentions the path AND uses an open-for-write idiom); §5 catches
+# the inline interpreter form (`python -c "...sponsio/plugins..."`)
+# and the path-as-arg form (`python merge.py ~/.sponsio/...yaml`).
+# ---------------------------------------------------------------------------
+
+
+def _hook_event_with_content(tool_name: str, file_path: str, content: str) -> str:
+    """Hook event for Write/Edit with content / new_string.
+
+    Mirrors how Claude Code stamps the payload: ``tool_input`` carries
+    the same parameter names the underlying tool exposes (``content``
+    for Write, ``new_string`` for Edit, ``edits`` for MultiEdit).
+    """
+    if tool_name == "Write":
+        tool_input = {"file_path": file_path, "content": content}
+    elif tool_name == "Edit":
+        tool_input = {
+            "file_path": file_path,
+            "old_string": "",
+            "new_string": content,
+        }
+    else:
+        raise ValueError(f"unsupported tool for content event: {tool_name}")
+    return json.dumps(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": tool_name,
+            "tool_input": tool_input,
+        }
+    )
+
+
+def _hook_event_bash(command: str) -> str:
+    return json.dumps(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": command},
+        }
+    )
+
+
+class TestSelfModifyInterpreterBypassDenies:
+    """The bypass family: §4 (script creation) + §5 (interpreter
+    invocation) must DENY each shape the live agent has been observed
+    to produce.
+    """
+
+    # ---- §4: Write a script that targets host bucket --------------------
+
+    def test_write_python_script_targeting_host_bucket_denied(self, host_home, capsys):
+        """The exact shape the cursor-live demo produced: a `.py` file
+        whose content references the host bucket path AND opens it
+        for write."""
+        content = (
+            "from pathlib import Path\n"
+            "HOST = Path.home() / '.sponsio/plugins/_host_cursor/sponsio.yaml'\n"
+            "HOST.write_text('agents:\\n  _host_cursor:\\n    contracts: []\\n')\n"
+        )
+        out, _ = _run(
+            _hook_event_with_content(
+                "Write",
+                str(host_home / "merge_host_cursor_sponsio.py"),
+                content,
+            ),
+            capsys,
+        )
+        _assert_denied(out)
+
+    def test_write_python_script_using_open_w_denied(self, host_home, capsys):
+        """Variant using the lower-level ``open(..., 'w')`` form."""
+        content = (
+            "with open('/Users/x/.sponsio/plugins/_host_cursor/sponsio.yaml', 'w') as f:\n"
+            "    f.write('overwritten')\n"
+        )
+        out, _ = _run(
+            _hook_event_with_content("Write", str(host_home / "patch.py"), content),
+            capsys,
+        )
+        _assert_denied(out)
+
+    def test_write_node_script_using_fs_writefilesync_denied(self, host_home, capsys):
+        """The Node.js variant — same shape, different runtime."""
+        content = (
+            "const fs = require('fs');\n"
+            "fs.writeFileSync('/Users/x/.sponsio/plugins/_host_cursor/sponsio.yaml', '...');\n"
+        )
+        out, _ = _run(
+            _hook_event_with_content("Write", str(host_home / "patch.mjs"), content),
+            capsys,
+        )
+        _assert_denied(out)
+
+    def test_edit_inserting_host_bucket_write_denied(self, host_home, capsys):
+        """``Edit.new_string`` carrying the same shape as a Write."""
+        new_string = (
+            "from pathlib import Path\n"
+            "Path.home() / '.sponsio/plugins/_host_cursor/sponsio.yaml'\n"
+            "f.write(yaml.dump(doc))"
+        )
+        out, _ = _run(
+            _hook_event_with_content(
+                "Edit", str(host_home / "tools" / "patch.py"), new_string
+            ),
+            capsys,
+        )
+        _assert_denied(out)
+
+    # ---- §4 false-positive guards --------------------------------------
+
+    def test_write_docs_mentioning_path_no_write_shape_allowed(self, host_home, capsys):
+        """Docs / README mentioning the host bucket path but not
+        carrying any write-shape code must stay editable — the rule is
+        narrow on purpose."""
+        content = (
+            "# How Sponsio's host bucket works\n\n"
+            "The runtime library lives at "
+            "`~/.sponsio/plugins/_host_cursor/sponsio.yaml`. "
+            "Edit it via `sponsio plugin append` only.\n"
+        )
+        out, code = _run(
+            _hook_event_with_content("Write", str(host_home / "README.md"), content),
+            capsys,
+        )
+        _assert_allowed(out, code)
+
+    def test_write_python_with_write_shape_unrelated_path_allowed(
+        self, host_home, capsys
+    ):
+        """A script that uses ``write_text`` against an unrelated path
+        is fine — only the combination with a host-bucket path is bad."""
+        content = (
+            "from pathlib import Path\nPath('/tmp/output.txt').write_text('hello')\n"
+        )
+        out, code = _run(
+            _hook_event_with_content(
+                "Write", str(host_home / "src" / "tool.py"), content
+            ),
+            capsys,
+        )
+        _assert_allowed(out, code)
+
+    # ---- §5: Bash interpreter targeting host bucket --------------------
+
+    def test_bash_python_dash_c_targeting_host_bucket_denied(self, host_home, capsys):
+        """Inline ``python -c "..."`` whose script body references
+        the host bucket path."""
+        cmd = (
+            'python3 -c "'
+            "import yaml; "
+            "open('/Users/x/.sponsio/plugins/_host_cursor/sponsio.yaml', 'w').write('...')\""
+        )
+        out, _ = _run(_hook_event_bash(cmd), capsys)
+        _assert_denied(out)
+
+    def test_bash_python_script_with_path_arg_denied(self, host_home, capsys):
+        """``python merge.py ~/.sponsio/plugins/.../sponsio.yaml`` —
+        path passed as a positional arg.  Even when the script file
+        name is benign, the trailing path on the command line is a
+        clear signal."""
+        cmd = "python3 merge.py ~/.sponsio/plugins/_host_cursor/sponsio.yaml"
+        out, _ = _run(_hook_event_bash(cmd), capsys)
+        _assert_denied(out)
+
+    def test_bash_node_eval_targeting_host_bucket_denied(self, host_home, capsys):
+        cmd = (
+            "node -e \"require('fs').writeFileSync("
+            "'/Users/x/.sponsio/plugins/_host_cursor/sponsio.yaml', '...')\""
+        )
+        out, _ = _run(_hook_event_bash(cmd), capsys)
+        _assert_denied(out)
+
+    # ---- §5 false-positive guards --------------------------------------
+
+    def test_bash_sponsio_validate_on_host_bucket_allowed(self, host_home, capsys):
+        """``sponsio validate --config <host-path>`` is a legitimate
+        read-only command and must NOT be blocked.  The leading verb
+        is ``sponsio``, not an interpreter alias."""
+        cmd = "sponsio validate --config ~/.sponsio/plugins/_host_cursor/sponsio.yaml"
+        out, code = _run(_hook_event_bash(cmd), capsys)
+        _assert_allowed(out, code)
+
+    def test_bash_sponsio_plugin_append_allowed(self, host_home, capsys):
+        """The blessed CLI route — never carries the host-bucket
+        path on the command line, just the plugin id."""
+        cmd = "sponsio plugin append --from .sponsio.staging.yaml --target _host_cursor"
+        out, code = _run(_hook_event_bash(cmd), capsys)
+        _assert_allowed(out, code)
+
+    def test_bash_python_unrelated_script_allowed(self, host_home, capsys):
+        """``python anything.py`` with no host-bucket path mention is
+        ordinary scripting — must not be blocked."""
+        cmd = "python3 src/build_release.py --version 1.2.3"
+        out, code = _run(_hook_event_bash(cmd), capsys)
         _assert_allowed(out, code)

@@ -11,16 +11,16 @@
  *     contracts: [
  *       contract("refund policy gate")
  *         .assume("called `issue_refund`")
- *         .enforce("must call `check_policy` before `issue_refund`"),
+ *         .guarantees("must call `check_policy` before `issue_refund`"),
  *       contract("rate cap")
- *         .enforce("tool `issue_refund` at most 3 times"),
+ *         .guarantees("tool `issue_refund` at most 3 times"),
  *     ],
  *   });
  *
- * Repeated ``.assume`` / ``.enforce`` calls AND-combine (matching
+ * Repeated ``.assume`` / ``.guarantees`` calls AND-combine (matching
  * the Python builder). If ``.assume`` is omitted the contract is
- * unconditional and the enforcement formula is used as-is. If
- * ``.assume`` is present the formula is ``A -> E``.
+ * unconditional and the guarantee formula is used as-is. If
+ * ``.assume`` is present the formula is ``A -> G``.
  *
  * The builder satisfies ``DetFormula`` structurally, so it can be
  * passed directly to ``Sponsio({ contracts: [...] })`` — no ``build()``
@@ -37,12 +37,12 @@ export class ContractBuilder implements DetFormula {
   readonly liveness: boolean = false;
 
   private _assumption: Formula | null;
-  private _enforcement: Formula | null;
+  private _guarantee: Formula | null;
 
   constructor(desc?: string) {
     this.desc = desc ?? "contract";
     this._assumption = null;
-    this._enforcement = null;
+    this._guarantee = null;
   }
 
   /** Add an assumption clause (A side). Repeated calls AND-combine. */
@@ -53,41 +53,41 @@ export class ContractBuilder implements DetFormula {
     return next;
   }
 
-  /** Add an enforcement clause (E side). Repeated calls AND-combine. */
-  enforce(clause: string | DetFormula): ContractBuilder {
+  /** Add a guarantee clause (G side). Repeated calls AND-combine. */
+  guarantees(clause: string | DetFormula): ContractBuilder {
     const next = this._clone();
-    const f = toFormula(clause, "enforce");
-    next._enforcement = next._enforcement ? new And(next._enforcement, f) : f;
+    const f = toFormula(clause, "guarantees");
+    next._guarantee = next._guarantee ? new And(next._guarantee, f) : f;
     return next;
   }
 
   /**
    * The compiled LTL formula. Accessed at `Sponsio` construction time.
    *
-   * - If both A and E are set: ``G(A -> E)``. We wrap in ``G`` because
-   *   the evaluator runs from ``pos=0``; a bare ``Implies(A, E)`` would
+   * - If both A and G are set: ``G(A -> G_)``. We wrap in ``G`` because
+   *   the evaluator runs from ``pos=0``; a bare ``Implies(A, G_)`` would
    *   short-circuit whenever ``A`` was false at step 0 regardless of
    *   later events. ``G`` lifts the implication to every step so the
-   *   enforcement fires whenever the assumption holds.
-   * - If only E: ``E`` (unconditional; the pattern factories already
+   *   guarantee fires whenever the assumption holds.
+   * - If only G: ``G_`` (unconditional; the pattern factories already
    *   emit safety properties wrapped in ``G`` where needed).
-   * - If neither: throws — every contract needs an enforcement.
+   * - If neither: throws — every contract needs a guarantee.
    */
   get formula(): Formula {
-    if (!this._enforcement) {
+    if (!this._guarantee) {
       throw new Error(
-        `contract(${JSON.stringify(this.desc)}): .enforce(...) is required`,
+        `contract(${JSON.stringify(this.desc)}): .guarantees(...) is required`,
       );
     }
     return this._assumption
-      ? new G(new Implies(this._assumption, this._enforcement))
-      : this._enforcement;
+      ? new G(new Implies(this._assumption, this._guarantee))
+      : this._guarantee;
   }
 
   private _clone(): ContractBuilder {
     const next = new ContractBuilder(this.desc);
     next._assumption = this._assumption;
-    next._enforcement = this._enforcement;
+    next._guarantee = this._guarantee;
     return next;
   }
 }

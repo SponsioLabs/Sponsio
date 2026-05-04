@@ -52,7 +52,7 @@ agents:
       # =================================================================
 
       - desc: "Ban DROP DATABASE / DROP TABLE / DROP SCHEMA via shell"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - exec
@@ -65,7 +65,7 @@ agents:
           source: "library:tier1.database"
 
       - desc: "Ban TRUNCATE TABLE via shell (whole-table wipe)"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - exec
@@ -77,7 +77,7 @@ agents:
           source: "library:tier1.database"
 
       - desc: "Ban unbounded DELETE FROM (no WHERE clause)"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - exec
@@ -95,7 +95,7 @@ agents:
       # =================================================================
 
       - desc: "Ban dropdb / mysqladmin drop / redis FLUSHALL / FLUSHDB"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - exec
@@ -107,7 +107,7 @@ agents:
           source: "library:tier1.database"
 
       - desc: "Ban migration rollback to empty schema"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - exec
@@ -125,7 +125,7 @@ agents:
       # =================================================================
 
       - desc: "Ban deletion of database data directories"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - exec

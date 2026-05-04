@@ -70,9 +70,9 @@ agents:
   coding_agent:
     contracts:
       - desc: "confirm before destructive delete"
-        E: "must call \`confirm_delete\` before \`delete\`"
+        G: "must call \`confirm_delete\` before \`delete\`"
       - desc: "loop guard"
-        E: "tool \`delete\` at most 3 times"
+        G: "tool \`delete\` at most 3 times"
 `.trimStart(),
     );
 
@@ -95,13 +95,13 @@ agents:
       - sponsio:core/runaway
     contracts:
       - desc: "token budget"
-        E:
+        G:
           pattern: token_budget
           args: [200000, "total"]
       - desc: "tone"
         sto: true
-        E: "response must be empathetic"
-      - E: "must call \`A\` before \`B\`"
+        G: "response must be empathetic"
+      - G: "must call \`A\` before \`B\`"
 `.trimStart(),
     );
 
@@ -296,7 +296,7 @@ agents:
   bot:
     contracts:
       - desc: "confirm first"
-        E: "must call \`confirm\` before \`delete\`"
+        G: "must call \`confirm\` before \`delete\`"
 `.trimStart(),
   );
 

@@ -465,7 +465,7 @@ class TestAssumptionEmission:
         # fragile for raw LTL.
         assert "- A:" in yaml_text
         assert "ltl: \"called('modify_order')\"" in yaml_text
-        assert "E:" in yaml_text
+        assert "G:" in yaml_text
         assert "pattern: must_precede" in yaml_text
         assert "args: [get_order_details, modify_order]" in yaml_text
 
@@ -493,7 +493,7 @@ class TestAssumptionEmission:
         c = contracts[0]
         # Both fields populated — assumption was not dropped.
         assert c.assumption is not None
-        assert c.enforcement is not None
+        assert c.guarantee is not None
 
     def test_assumption_emission_falls_back_to_desc(self, monkeypatch):
         # When the assumption was constructed with a non-LLM
@@ -770,13 +770,12 @@ def run_shell(command: str) -> str:
         bl = [
             c
             for c in contracts
-            if c.enforcement
-            and getattr(c.enforcement, "pattern", "") == "arg_blacklist"
+            if c.guarantee and getattr(c.guarantee, "pattern", "") == "arg_blacklist"
         ]
         assert bl, "round-trip lost the arg_blacklist contract"
         # The third arg must be a list of regex strings, not a string
         # representation of a list.
-        third = bl[0].enforcement.args[2]
+        third = bl[0].guarantee.args[2]
         assert isinstance(third, list)
         assert all(isinstance(p, str) for p in third)
         assert any("rm" in p for p in third)

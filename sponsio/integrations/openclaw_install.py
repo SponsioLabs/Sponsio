@@ -494,14 +494,14 @@ def _parse_library(yaml_file: Path) -> dict:
                     "desc": contract.get("desc") or "(unnamed contract)",
                     "activate_at": contract.get("activate_at"),
                     "A": _summarise_formula(contract.get("A")),
-                    "E": _summarise_formula(contract.get("E")),
+                    "G": _summarise_formula(contract.get("G")),
                 }
                 contracts.append(entry)
     return {"contracts": contracts, "includes": includes}
 
 
 def _summarise_formula(formula) -> str | None:
-    """Render an A/E block (``{ltl: ...}`` or ``{pattern: ..., args: ...}``)
+    """Render an A/G block (``{ltl: ...}`` or ``{pattern: ..., args: ...}``)
     as a short single-line string, or ``None`` if the block is absent.
     """
     if not isinstance(formula, dict):

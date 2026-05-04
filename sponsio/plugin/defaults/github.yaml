@@ -12,7 +12,7 @@
 #
 # These rules are hand-curated, *tighter* than what
 # ``sponsio plugin scan`` would generate from name heuristics alone.
-# Override individual rules with ``overrides:`` rather than forking.
+# Override individual rules with ``customized:`` rather than forking.
 # =============================================================================
 
 version: "1"
@@ -26,17 +26,17 @@ agents:
       #
       # ``delete_repository`` is the single most blast-radius action
       # the MCP server exposes. We enforce-block it outright; the
-      # operator can ``overrides: - match: {desc: "..."}, disabled: true``
+      # operator can ``customized: - match: {desc: "..."}, disabled: true``
       # for a one-off if they really mean it.
       # -----------------------------------------------------------------
 
-      - desc: "delete_repository is blocked outright (overrides: disabled: true to allow)"
-        E:
+      - desc: "delete_repository is blocked outright (customized: disabled: true to allow)"
+        G:
           pattern: rate_limit
           args: [mcp__github__delete_repository, 0]
 
       - desc: "delete_branch on protected branch names blocked"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__github__delete_branch
@@ -53,7 +53,7 @@ agents:
       # -----------------------------------------------------------------
 
       - desc: "create_or_update_file must not touch dotenv / SSH / CI / GH config"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__github__create_or_update_file
@@ -66,7 +66,7 @@ agents:
               - "(^|/)\\.github/branch-protection\\.ya?ml$"
 
       - desc: "push_files must not touch dotenv / SSH / CI / GH config"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__github__push_files
@@ -86,22 +86,22 @@ agents:
       # -----------------------------------------------------------------
 
       - desc: "no more than 20 issue creations per session"
-        E:
+        G:
           pattern: rate_limit
           args: [mcp__github__create_issue, 20]
 
       - desc: "no more than 10 PR creations per session"
-        E:
+        G:
           pattern: rate_limit
           args: [mcp__github__create_pull_request, 10]
 
       - desc: "no more than 50 comment writes per session"
-        E:
+        G:
           pattern: rate_limit
           args: [mcp__github__add_issue_comment, 50]
 
       - desc: "no more than 5 consecutive PR merges (runaway loop cap)"
-        E:
+        G:
           pattern: loop_detection
           args: [mcp__github__merge_pull_request, 5]
 

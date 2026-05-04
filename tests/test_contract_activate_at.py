@@ -82,7 +82,7 @@ def test_global_default_flags_q_before_p_as_violation():
     contract = Contract(
         agent=agent,
         assumption=_det(F(Atom("called", "P")), "F(P)"),
-        enforcement=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
+        guarantee=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
         # activate_at=None  (default)
     )
     # Trace: Q happened before any P.
@@ -90,7 +90,7 @@ def test_global_default_flags_q_before_p_as_violation():
     verdict = _verdict_for(contract, trace)
     assert verdict.assumption_holds is True, "F(P) should hold (P appears at pos 1)"
     # Global semantic: Q at pos 0 violates G(!Q) checked from pos 0.
-    assert any(not e.holds for e in verdict.enforcements), (
+    assert any(not e.holds for e in verdict.guarantees), (
         "global semantic should flag the pre-P Q as a violation"
     )
 
@@ -106,13 +106,13 @@ def test_reactive_first_match_does_not_flag_pre_activation_q():
     contract = Contract(
         agent=agent,
         assumption=_det(F(Atom("called", "P")), "F(P)"),
-        enforcement=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
+        guarantee=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
         activate_at="first_match",
     )
     trace = _trace_of("Q", "P")
     verdict = _verdict_for(contract, trace)
     assert verdict.assumption_holds is True
-    assert all(e.holds for e in verdict.enforcements), (
+    assert all(e.holds for e in verdict.guarantees), (
         "reactive should NOT flag pre-activation Q"
     )
 
@@ -123,14 +123,14 @@ def test_reactive_first_match_flags_post_activation_q():
     contract = Contract(
         agent=agent,
         assumption=_det(F(Atom("called", "P")), "F(P)"),
-        enforcement=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
+        guarantee=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
         activate_at="first_match",
     )
     # Trace: P (activates), then Q (post-activation, illegal)
     trace = _trace_of("P", "Q")
     verdict = _verdict_for(contract, trace)
     assert verdict.assumption_holds is True
-    assert any(not e.holds for e in verdict.enforcements), (
+    assert any(not e.holds for e in verdict.guarantees), (
         "reactive should flag post-activation Q"
     )
 
@@ -147,7 +147,7 @@ def test_reactive_first_match_e2e_through_baseguard():
     contract = Contract(
         agent=agent,
         assumption=_det(F(Atom("called", "P")), "F(P)"),
-        enforcement=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
+        guarantee=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
         activate_at="first_match",
     )
     g = BaseGuard(
@@ -176,7 +176,7 @@ def test_invalid_activate_at_value_rejected():
         Contract(
             agent=agent,
             assumption=_det(F(Atom("called", "P")), "F(P)"),
-            enforcement=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
+            guarantee=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
             activate_at="whatever",
         )
 
@@ -186,7 +186,7 @@ def test_first_match_without_assumption_rejected():
     with pytest.raises(ValueError, match="requires a non-None assumption"):
         Contract(
             agent=agent,
-            enforcement=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
+            guarantee=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
             activate_at="first_match",
         )
 
@@ -198,7 +198,7 @@ def test_first_match_with_g_assumption_rejected():
         Contract(
             agent=agent,
             assumption=_det(G(Atom("called", "P")), "G(P)"),
-            enforcement=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
+            guarantee=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
             activate_at="first_match",
         )
 
@@ -209,7 +209,7 @@ def test_first_match_with_atomic_assumption_works():
     contract = Contract(
         agent=agent,
         assumption=_det(Atom("called", "P"), "called(P)"),
-        enforcement=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
+        guarantee=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
         activate_at="first_match",
     )
     trace = _trace_of("Q", "P", "Q")  # Q before, P activates, Q after
@@ -221,7 +221,7 @@ def test_first_match_with_atomic_assumption_works():
     # Then E checked at pos 1 onward: trace[1:] = [P, Q] — Q at pos 2
     # violates G(!Q).  → enforcement violation expected.
     assert verdict.assumption_holds is True
-    assert any(not e.holds for e in verdict.enforcements)
+    assert any(not e.holds for e in verdict.guarantees)
 
 
 # ---------------------------------------------------------------------------
@@ -229,8 +229,8 @@ def test_first_match_with_atomic_assumption_works():
 # ---------------------------------------------------------------------------
 
 
-def test_assumption_never_activates_means_no_enforcement_violations():
-    """If A's evidence never appears, no enforcement violations reported.
+def test_assumption_never_activates_means_no_guarantee_violations():
+    """If A's evidence never appears, no guarantee violations reported.
 
     Note on ``ContractVerdict.holds``: the verdict's ``holds`` property
     requires ``assumption_holds=True`` AND no violations.  When the
@@ -244,14 +244,14 @@ def test_assumption_never_activates_means_no_enforcement_violations():
     contract = Contract(
         agent=agent,
         assumption=_det(F(Atom("called", "P")), "F(P)"),
-        enforcement=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
+        guarantee=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
         activate_at="first_match",
     )
     trace = _trace_of("Q", "Q", "Q")  # only Q, no P
     verdict = _verdict_for(contract, trace)
     assert verdict.assumption_holds is False, "no P → assumption never activated"
-    assert verdict.enforcements == [], "no enforcement evaluation when never activated"
-    assert verdict.enforcement_violations == [], (
+    assert verdict.guarantees == [], "no enforcement evaluation when never activated"
+    assert verdict.guarantee_violations == [], (
         "vacuous — no violations means runtime won't block"
     )
 
@@ -274,7 +274,7 @@ def test_multi_assumption_activates_at_max_position():
             _det(F(Atom("called", "P1")), "F(P1)"),
             _det(F(Atom("called", "P2")), "F(P2)"),
         ],
-        enforcement=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
+        guarantee=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
         activate_at="first_match",
     )
     # Trace: P1 (pos 0), Q (pos 1), P2 (pos 2), Q (pos 3)
@@ -284,7 +284,7 @@ def test_multi_assumption_activates_at_max_position():
     trace = _trace_of("P1", "Q", "P2", "Q")
     verdict = _verdict_for(contract, trace)
     assert verdict.assumption_holds is True
-    assert any(not e.holds for e in verdict.enforcements), (
+    assert any(not e.holds for e in verdict.guarantees), (
         "post-activation Q should be flagged"
     )
 
@@ -303,13 +303,13 @@ def test_multi_assumption_one_never_activates_means_no_violations():
             _det(F(Atom("called", "P1")), "F(P1)"),
             _det(F(Atom("called", "P2_never")), "F(P2_never)"),
         ],
-        enforcement=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
+        guarantee=_det(G(Not(Atom("called", "Q"))), "G(!Q)"),
         activate_at="first_match",
     )
     trace = _trace_of("P1", "Q", "Q")  # P2_never never appears
     verdict = _verdict_for(contract, trace)
     assert verdict.assumption_holds is False
-    assert verdict.enforcement_violations == [], (
+    assert verdict.guarantee_violations == [], (
         "one assumption never activated → no violations, no block"
     )
 
@@ -335,12 +335,12 @@ def test_yaml_loads_activate_at(tmp_path):
                     activate_at: first_match
                     A:
                       ltl: 'F(called(P))'
-                    E:
+                    G:
                       ltl: 'G(!called(Q))'
                   - desc: "global rule"
                     A:
                       ltl: 'F(called(P))'
-                    E:
+                    G:
                       ltl: 'G(!called(Q))'
             """
         ).lstrip()
@@ -369,7 +369,7 @@ def test_yaml_rejects_invalid_activate_at_value(tmp_path):
                 contracts:
                   - desc: "bad"
                     activate_at: nonsense
-                    E:
+                    G:
                       ltl: 'G(!called(Q))'
             """
         ).lstrip()
@@ -394,7 +394,7 @@ def test_yaml_e2e_first_match_through_baseguard(tmp_path):
                     activate_at: first_match
                     A:
                       ltl: 'F(called(P))'
-                    E:
+                    G:
                       ltl: 'G(!called(Q))'
             """
         ).lstrip()

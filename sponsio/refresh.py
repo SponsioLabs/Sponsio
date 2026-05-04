@@ -3,7 +3,7 @@ surgically merge into an existing ``sponsio.yaml``.
 
 Design goals (see chat transcript for the design discussion):
 
-* **Preserve user tuning**:  ``overrides:``, ``include:``, ``runtime:``,
+* **Preserve user tuning**:  ``customized:``, ``include:``, ``runtime:``,
   ``judge:``, ``workspace:``, ``tool_rename:``, and every contract
   without a ``source: trace`` tag are left untouched.
 * **Only touch what we own**: MVP updates exclusively ``source: trace``
@@ -183,8 +183,8 @@ def _normalize_contract_entry(entry: Any) -> _NormalizedContract | None:
     a_raw = entry.get("A", entry.get("assumption"))
     assumption = _text_of(a_raw)
 
-    # Extract E / enforcement.
-    e_raw = entry.get("E", entry.get("enforcement"))
+    # Extract G / guarantee.
+    e_raw = entry.get("G", entry.get("guarantee"))
     pattern = None
     args: list | None = None
     source: str | None = None

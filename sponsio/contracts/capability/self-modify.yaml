@@ -9,7 +9,7 @@
 # Threat model:
 #
 # An agent that can edit its own ``~/.sponsio/plugins/_host/sponsio.yaml``
-# can append an ``overrides:`` block to disable the rule about to
+# can append an ``customized:`` block to disable the rule about to
 # fire against it.  This is privilege escalation by self-rewriting:
 # the safety mechanism becomes the agent's own debuggable resource.
 # Observed in the wild during the development of this very pack —
@@ -86,7 +86,7 @@ agents:
       # =================================================================
 
       - desc: "Host agent must not edit any sponsio guard config (host bucket or per-plugin bundle) — use `sponsio plugin install` / `plugin scan --apply`, or hand-edit"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - Edit
@@ -113,7 +113,7 @@ agents:
       # open.
 
       - desc: "Host agent must not overwrite any sponsio guard config (host bucket or per-plugin bundle) — use the CLI or hand-edit"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - Write
@@ -127,13 +127,91 @@ agents:
       # =================================================================
 
       - desc: "Host agent must not multi-edit any sponsio guard config (host bucket or per-plugin bundle) — use the CLI or hand-edit"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - MultiEdit
             - file_path
             - - "(^|/)\\.sponsio/plugins/_host/sponsio\\.yaml$"
               - "(^|/)\\.sponsio/plugins/[^_/][^/]*/sponsio\\.yaml$"
+          source: "library:tier1.self-modify"
+
+      # =================================================================
+      # § 4 — No agent-mediated creation of a *script* that writes to
+      #       the host guard config (the "Python file I/O bypass")
+      # =================================================================
+      #
+      # Observed bypass: agent's ``Write`` to the host bucket gets denied
+      # by §1–§3, agent recovers by writing a small ``merge_host_*.py``
+      # script in the workspace whose content opens the host bucket
+      # path in write mode and mutates it.  The script's file_path is a
+      # normal repo path so §1–§3 don't fire; the Bash invocation
+      # ``python merge.py`` doesn't carry the host bucket path on the
+      # command line so §5 below also doesn't fire.  The signal IS
+      # present: the script's *content* mentions the host bucket path
+      # AND uses an open-for-write idiom.
+      #
+      # The lookahead form ``(?s)(?=.*PATH).*(WRITE_SHAPE)`` requires
+      # both signals in the same content blob — pure docs that mention
+      # the path stay editable; only files that mention the path AND
+      # carry write-shaped code are denied.
+      #
+      # Tools covered: Write.content, Edit.new_string,
+      # MultiEdit.edits[*].new_string (the ``new_string`` projection
+      # that grounding extracts from MultiEdit's edit list).
+
+      - desc: "Host agent must not write a script that mutates a sponsio guard config — use `sponsio plugin append`/`install`"
+        G:
+          pattern: arg_blacklist
+          args:
+            - Write
+            - content
+            - - "(?s)(?=.*\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml).*(\\.write_text\\s*\\(|\\.write_bytes\\s*\\(|\\bf\\.write\\s*\\(|\\bopen\\s*\\([^)]*['\\\"][aw][\\+bxt]*['\\\"]\\s*\\)|\\bfs\\.(writeFileSync|appendFileSync|createWriteStream|writeFile)\\s*\\(|\\bFile\\.(open|write)\\s*\\(|\\b(IO|File)\\.write\\b)"
+          source: "library:tier1.self-modify"
+
+      - desc: "Host agent must not edit a script that mutates a sponsio guard config — use `sponsio plugin append`/`install`"
+        G:
+          pattern: arg_blacklist
+          args:
+            - Edit
+            - new_string
+            - - "(?s)(?=.*\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml).*(\\.write_text\\s*\\(|\\.write_bytes\\s*\\(|\\bf\\.write\\s*\\(|\\bopen\\s*\\([^)]*['\\\"][aw][\\+bxt]*['\\\"]\\s*\\)|\\bfs\\.(writeFileSync|appendFileSync|createWriteStream|writeFile)\\s*\\(|\\bFile\\.(open|write)\\s*\\(|\\b(IO|File)\\.write\\b)"
+          source: "library:tier1.self-modify"
+
+      # =================================================================
+      # § 5 — No interpreter invocation that targets a host guard config
+      # =================================================================
+      #
+      # Catches the inline form (``python -c "...sponsio/plugins..."``)
+      # and the path-as-argument form (``python merge.py
+      # ~/.sponsio/plugins/...sponsio.yaml``).  Pairs with §4 — that
+      # rule blocks the *creation* of bypass scripts, this rule blocks
+      # the *invocation* path that doesn't go through a separate file.
+      #
+      # The interpreter list is the common scripting set; add new ones
+      # via a project-local ``customized:`` extending the regex if your
+      # environment uses a less common runtime.  The trailing path
+      # regex is the same shape as §1–§3 so the privilege boundary
+      # stays consistent across tools.
+      #
+      # Legitimate sponsio CLIs that read the path
+      # (``sponsio validate --config <path>``, ``sponsio plugin
+      # show <name>``) are not blocked because the leading verb is
+      # ``sponsio``, not an interpreter alias.  ``sponsio plugin
+      # append --target <plugin-id>`` doesn't pass the path at all —
+      # it takes the plugin id and resolves the path internally.
+
+      - desc: "Host agent must not run an interpreter against a sponsio guard config — use `sponsio plugin append`/`install`"
+        G:
+          pattern: arg_blacklist
+          args:
+            - Bash
+            - command
+            # ``[^|\n]*`` excludes pipe + newline so we don't match
+            # across pipelines, but keeps ``;`` permitted because
+            # Python's ``-c "..."`` payloads commonly use it as a
+            # statement separator (``python -c "import x; x.do()"``).
+            - - "\\b(python|python2|python3|node|deno|bun|ruby|perl|php|lua|tclsh|R|Rscript)\\b[^|\\n]*\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml"
           source: "library:tier1.self-modify"
 
 # -----------------------------------------------------------------------------

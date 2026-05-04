@@ -124,7 +124,7 @@ agents:
   _host:
     contracts:
       - desc: "ban rm"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - Bash
@@ -254,7 +254,7 @@ agents:
   acme:
     contracts:
       - desc: "ban evil URLs"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__acme__fetch
@@ -358,7 +358,7 @@ agents:
   github:
     contracts:
       - desc: "ban delete_repo"
-        E:
+        G:
           pattern: rate_limit
           args: [mcp__github__delete_repository, 0]
 `);

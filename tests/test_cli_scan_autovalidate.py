@@ -22,9 +22,9 @@ def test_filter_drops_unparseable_nl_keeps_valid() -> None:
         agents:
           agent:
             contracts:
-              - E: "tool `check_policy` must precede `issue_refund`"
-              - E: "this is utter nonsense and matches no pattern at all whatsoever"
-              - E: "tool `issue_refund` at most 3 times"
+              - G: "tool `check_policy` must precede `issue_refund`"
+              - G: "this is utter nonsense and matches no pattern at all whatsoever"
+              - G: "tool `issue_refund` at most 3 times"
         """
     )
 
@@ -53,8 +53,8 @@ def test_filter_collapses_empty_contracts_to_empty_list() -> None:
         agents:
           agent:
             contracts:
-              - E: "complete gibberish here"
-              - E: "more gibberish over there"
+              - G: "complete gibberish here"
+              - G: "more gibberish over there"
         """
     )
 
@@ -75,10 +75,10 @@ def test_filter_handles_structured_entries() -> None:
         agents:
           agent:
             contracts:
-              - E:
+              - G:
                   pattern: must_precede
                   args: [check_policy, issue_refund]
-              - E:
+              - G:
                   pattern: this_pattern_does_not_exist
                   args: [foo, bar]
         """
@@ -92,11 +92,11 @@ def test_filter_handles_structured_entries() -> None:
     parsed = yaml_module.safe_load(cleaned)
     contracts = parsed["agents"]["agent"]["contracts"]
     assert len(contracts) == 1
-    assert contracts[0]["E"]["pattern"] == "must_precede"
+    assert contracts[0]["G"]["pattern"] == "must_precede"
 
 
 def test_filter_preserves_pair_a_e_entries() -> None:
-    """Conditional (A, E) entries should be kept as a unit when both
+    """Conditional (A, G) entries should be kept as a unit when both
     parts compile, and dropped as a unit when either part fails."""
     src = textwrap.dedent(
         """\
@@ -106,9 +106,9 @@ def test_filter_preserves_pair_a_e_entries() -> None:
           agent:
             contracts:
               - A: "called `modify_order`"
-                E: "tool `get_order_details` must precede `modify_order`"
+                G: "tool `get_order_details` must precede `modify_order`"
               - A: "totally meaningless precondition string"
-                E: "tool `a` must precede `b`"
+                G: "tool `a` must precede `b`"
         """
     )
 
@@ -130,9 +130,9 @@ def test_drop_indices_keeps_comments_and_confidence_tags() -> None:
         agents:
           agent:
             contracts:
-              - E: "tool `a` must precede `b`"  # confidence: 0.85
-              - E: "totally bogus"
-              - E: "tool `c` must precede `d`"  # confidence: 0.40 — review recommended
+              - G: "tool `a` must precede `b`"  # confidence: 0.85
+              - G: "totally bogus"
+              - G: "tool `c` must precede `d`"  # confidence: 0.40 — review recommended
         """
     )
 

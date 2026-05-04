@@ -108,7 +108,7 @@ class TestExtractorSection:
             agents:
               bot:
                 contracts:
-                  - E: "tool `foo` at most 3 times"
+                  - G: "tool `foo` at most 3 times"
             """,
         )
         cfg = load_config(path)
@@ -128,7 +128,7 @@ class TestExtractorSection:
             agents:
               bot:
                 contracts:
-                  - E: "tool `foo` at most 3 times"
+                  - G: "tool `foo` at most 3 times"
             """,
         )
         cfg = load_config(path)
@@ -170,7 +170,7 @@ class TestJudgeSection:
             agents:
               bot:
                 contracts:
-                  - E: "tool `foo` at most 3 times"
+                  - G: "tool `foo` at most 3 times"
             """,
         )
         cfg = load_config(path)
@@ -194,7 +194,7 @@ class TestJudgeSection:
             agents:
               bot:
                 contracts:
-                  - E: "tool `foo` at most 3 times"
+                  - G: "tool `foo` at most 3 times"
             """,
         )
         cfg = load_config(path)
@@ -258,7 +258,7 @@ def test_round_trip_with_env_vars(tmp_path, monkeypatch):
         agents:
           bot:
             contracts:
-              - E: "tool `transfer` at most 1 times"
+              - G: "tool `transfer` at most 1 times"
         """,
     )
     cfg = load_config(path)

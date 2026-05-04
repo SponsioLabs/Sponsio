@@ -31,9 +31,9 @@ export interface DetFormula {
   liveness: boolean;
 }
 
-export interface AssumptionEnforcementPair {
+export interface AssumeGuaranteePair {
   assumption: DetFormula;
-  enforcement: DetFormula;
+  guarantee: DetFormula;
 }
 
 // --- Helpers ---
@@ -508,7 +508,7 @@ export function untrustedSourceGate(
   source: string,
   sink: string,
   confirm: string = "",
-): AssumptionEnforcementPair {
+): AssumeGuaranteePair {
   ensureDistinct(source, sink, "untrustedSourceGate", "source", "sink");
   const confirmAction = confirm || `confirm_${sink}`;
   return {
@@ -518,7 +518,7 @@ export function untrustedSourceGate(
       patternName: "untrusted_source_gate_assumption",
       liveness: false,
     },
-    enforcement: mustPrecede(confirmAction, sink),
+    guarantee: mustPrecede(confirmAction, sink),
   };
 }
 
@@ -663,7 +663,7 @@ export function irreversibleOnce(action: string): DetFormula {
   };
 }
 
-export function confirmAfterSource(source: string, action: string): AssumptionEnforcementPair {
+export function confirmAfterSource(source: string, action: string): AssumeGuaranteePair {
   ensureDistinct(source, action, "confirmAfterSource", "source", "action");
   const confirm = `confirm_${action}`;
   return {
@@ -673,7 +673,7 @@ export function confirmAfterSource(source: string, action: string): AssumptionEn
       patternName: "confirm_after_source_assumption",
       liveness: false,
     },
-    enforcement: mustPrecede(confirm, action),
+    guarantee: mustPrecede(confirm, action),
   };
 }
 

@@ -182,7 +182,7 @@ class TestScanConfigWiring:
             agents:
               bot:
                 contracts:
-                  - E: "tool `x` at most 0 times"
+                  - G: "tool `x` at most 0 times"
             """,
         )
         captured, FakeAnalyzer = _capture_analyzer_init()

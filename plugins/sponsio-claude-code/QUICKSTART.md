@@ -184,7 +184,7 @@ agents:
   github:
     contracts:
       - desc: "block force-push to release branches"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__github__push_files
@@ -200,10 +200,10 @@ No reload needed — the next hook fire picks it up.
 agents:
   github:
     contracts: [...as shipped...]
-    overrides:
+    customized:
       # Allow `delete_repository` in this environment
       - match:
-          desc: "delete_repository is blocked outright (overrides: disabled: true to allow)"
+          desc: "delete_repository is blocked outright (customized: disabled: true to allow)"
         disabled: true
 ```
 

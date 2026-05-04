@@ -138,7 +138,7 @@ class TestEndToEnd:
         cfg = load_config(tmp_path / "sponsio.yaml")
         contracts: list[str] = []
         for ce in cfg.agents["customer_bot"].contracts:
-            ext = ce.enforcement
+            ext = ce.guarantee
             contracts.extend(ext if isinstance(ext, list) else [ext])
 
         cases = discover_cases(tmp_path / "traces")

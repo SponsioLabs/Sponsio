@@ -32,7 +32,7 @@ import { createRequire } from "node:module";
 import type { DetFormula } from "./patterns.js";
 import {
   buildPatternByName,
-  isAePair,
+  isAgPair,
   PatternFactoryError,
 } from "./pattern-factory.js";
 import { parseRepr, ParseError } from "./parser.js";
@@ -49,7 +49,7 @@ export interface LoadedConfig {
   /**
    * Det contracts the TS SDK can consume. NL strings get run through
    * ``parseNl`` in the ctor; pre-built ``DetFormula`` entries (from
-   * structured patterns, raw LTL, or A/E composition) are pushed
+   * structured patterns, raw LTL, or A/G composition) are pushed
    * straight onto the contract list — no NL parsing required.
    */
   contracts: (string | DetFormula)[];
@@ -313,16 +313,16 @@ function projectContract(entry: unknown): Projection {
     };
   }
 
-  // Accept both short-key (``A`` / ``E``) and long-key
-  // (``assumption`` / ``enforcement``) — matches Python's loader.
-  const eField = entry["E"] ?? entry["enforcement"];
+  // Canonical short-key ``G`` and long-key ``guarantee`` only — matches
+  // Python's loader (no legacy alias support).
+  const eField = entry["G"] ?? entry["guarantee"];
   const aField = entry["A"] ?? entry["assumption"];
   const desc = stringOr(entry["desc"], "");
 
   // Legacy ``sto: true`` flag without a structured pattern — caller
   // declared intent to run a stochastic rule but didn't pick an
   // atom. Skip with reason so the user knows to switch to
-  // ``E: { pattern: tone | llm_judge, args, threshold }``.
+  // ``G: { pattern: tone | llm_judge, args, threshold }``.
   if (entry["sto"] === true || entry["type"] === "sto") {
     if (!(isObject(eField) && "pattern" in eField)) {
       return {
@@ -337,7 +337,7 @@ function projectContract(entry: unknown): Projection {
     }
   }
 
-  // Sto takes priority — if ``E.pattern`` matches a known sto atom,
+  // Sto takes priority — if ``G.pattern`` matches a known sto atom,
   // route straight to the sto spec builder (no A-side composition
   // is supported for sto today, matching Python).
   if (isObject(eField) && typeof eField["pattern"] === "string") {
@@ -349,18 +349,18 @@ function projectContract(entry: unknown): Projection {
 
   // ``desc:`` as sole contract body — matches the old loader's
   // lossy-but-useful fallback when the user wrote only a human
-  // description. Runs before ``buildConstraint`` so the "missing E"
+  // description. Runs before ``buildConstraint`` so the "missing G"
   // error doesn't preempt it.
   if (eField === undefined && aField === undefined && desc) {
     return { kind: "nl", value: desc };
   }
 
-  // Build the enforcement formula. Possible shapes:
+  // Build the guarantee formula. Possible shapes:
   //  - string: NL
   //  - { pattern: X, args: [...] }: structured det
   //  - { ltl: "G(…)" }: raw LTL
   //  - list of any of the above: AND-combined
-  const eBuilt = buildConstraint(eField, "E", desc);
+  const eBuilt = buildConstraint(eField, "G", desc);
   if (eBuilt.kind === "skip") return eBuilt;
   if (eBuilt.kind === "nl-string") {
     // No A-side composition for NL strings — the NL parser already
@@ -391,7 +391,7 @@ function projectContract(entry: unknown): Projection {
     }
     // Both sides structured: compose as ``G(A -> E)``. ``G`` is
     // required because ``evaluate`` runs from ``pos=0``; a bare
-    // ``Implies(A, E)`` short-circuits to ``true`` whenever ``A`` is
+    // ``Implies(A, G)`` short-circuits to ``true`` whenever ``A`` is
     // false at step 0, regardless of later events. Lifting the
     // implication under ``G`` makes it fire at every state where the
     // assumption holds.
@@ -421,16 +421,16 @@ type ConstraintResult =
   | { kind: "formula"; formula: DetFormula }
   | { kind: "skip"; reason: SkippedItem };
 
-/** Parse one side (A or E) of a yaml contract into a DetFormula or
+/** Parse one side (A or G) of a yaml contract into a DetFormula or
  *  an NL string. Lists are AND-combined pairwise. */
 function buildConstraint(
   raw: unknown,
-  side: "A" | "E",
+  side: "A" | "G",
   parentDesc: string,
 ): ConstraintResult {
   if (raw === undefined || raw === null) {
     if (side === "A") {
-      // A is optional — caller falls through to plain-E path.
+      // A is optional — caller falls through to plain-G path.
       return {
         kind: "skip",
         reason: {
@@ -443,7 +443,7 @@ function buildConstraint(
       kind: "skip",
       reason: {
         kind: "unknown-contract",
-        detail: `${parentDesc || "contract"}: missing E: / enforcement:`,
+        detail: `${parentDesc || "contract"}: missing G: / guarantee:`,
       },
     };
   }
@@ -464,7 +464,7 @@ function buildConstraint(
 
   if (Array.isArray(raw)) {
     // AND-combine every item; every item must itself be structured
-    // (list of bare NL strings on the A/E side is unusual and would
+    // (list of bare NL strings on the A/G side is unusual and would
     // compose ambiguously through parseNl — defer to Python).
     const parts: DetFormula[] = [];
     for (const item of raw) {
@@ -554,7 +554,7 @@ function buildConstraint(
           },
         };
       }
-      const det = isAePair(built) ? built.enforcement : built;
+      const det = isAgPair(built) ? built.guarantee : built;
       return { kind: "formula", formula: det };
     } catch (err) {
       const msg =

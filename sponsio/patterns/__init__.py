@@ -26,10 +26,9 @@ from sponsio.patterns.library import (
     scope_limit,
 )
 
-# NOTE: sto_catalog is not imported here to avoid a circular import
-# (sto_catalog → runtime → models → patterns). Instead,
-# :func:`sponsio.patterns.sto_registry.resolve_sto_evaluator` does a
-# lazy one-shot import on first miss so decorators fire when needed.
+# NOTE: stochastic atom catalog / registry / evaluator live in the
+# proprietary ``sponsio-cloud`` package (``sponsio_cloud.sto.*``).
+# OSS exports only deterministic pattern factories from this module.
 
 __all__ = [
     "always_followed_by",

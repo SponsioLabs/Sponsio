@@ -9,7 +9,7 @@
 #
 # After installing the sponsio host plugin, copy this file (and
 # any sibling per-plugin libraries) into ``~/.sponsio/plugins/_host/``
-# to activate.  Override individual rules with ``overrides:``.
+# to activate.  Override individual rules with ``customized:``.
 #
 # Note on tool names + params:
 #   The shared `sponsio:capability/filesystem` pack uses canonical names
@@ -53,7 +53,7 @@ agents:
       # Mirrors the `sponsio:capability/filesystem` deny patterns but
       # uses Claude Code's actual `file_path` arg.
       - desc: "Block writes to dotenv / secrets / SSH keys / cloud creds"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - Write
@@ -75,7 +75,7 @@ agents:
               - "(^|/)Library/LaunchAgents/"
 
       - desc: "Block edits to dotenv / secrets / SSH keys / cloud creds"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - Edit
@@ -94,7 +94,7 @@ agents:
               - "(^|/)Library/Keychains/"
 
       - desc: "Block multi-file edits to dotenv / secrets / SSH keys / cloud creds"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - MultiEdit
@@ -137,7 +137,7 @@ agents:
       # merge); the Bash invocation that triggers it has no shell
       # write operator and never matches the regex below.
       - desc: "Claude Code: block Edit on own _host_claude_code sponsio guard config"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - Edit
@@ -145,7 +145,7 @@ agents:
             - - "(^|/)\\.sponsio/plugins/_host_claude_code/sponsio\\.yaml$"
 
       - desc: "Claude Code: block Write on own _host_claude_code sponsio guard config"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - Write
@@ -153,7 +153,7 @@ agents:
             - - "(^|/)\\.sponsio/plugins/_host_claude_code/sponsio\\.yaml$"
 
       - desc: "Claude Code: block MultiEdit on own _host_claude_code sponsio guard config"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - MultiEdit
@@ -161,7 +161,7 @@ agents:
             - - "(^|/)\\.sponsio/plugins/_host_claude_code/sponsio\\.yaml$"
 
       - desc: "Claude Code: block Bash write-shaped operators on own _host_claude_code sponsio guard config"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - Bash
@@ -174,7 +174,7 @@ agents:
 
       # ---------- Read protections for credentials exfiltration ----------
       - desc: "Block reads of SSH keys / cloud creds / dotenv secrets / keychains"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - Read

@@ -87,7 +87,7 @@ agents:
       - ...
     contracts:
       - desc: "..."
-        E:
+        G:
           pattern: ...
           args: [...]
         A:

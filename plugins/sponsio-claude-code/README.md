@@ -120,7 +120,7 @@ agents:
   acme:
     contracts:
       - desc: "mcp__acme__fetch may not call internal hosts"
-        E:
+        G:
           pattern: arg_blacklist
           args: [mcp__acme__fetch, url, ["^https?://(localhost|10\\.|192\\.168\\.)"]]
 YAML

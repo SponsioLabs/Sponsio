@@ -436,7 +436,7 @@ class TestTraceVerifierBackendSwitch:
         """check_contract works under dfa backend."""
         contract = Contract(
             agent=Agent(id="bot"),
-            enforcement=rate_limit("X", 2),
+            guarantee=rate_limit("X", 2),
         )
         v = TraceVerifier(backend="dfa")
         v.sync(_trace("X", "X"))
@@ -465,7 +465,7 @@ class TestLivenessFinalize:
         """Runtime semantics: ? is not a violation — don't block."""
         contract = Contract(
             agent=Agent(id="bot"),
-            enforcement=always_followed_by("A", "B"),
+            guarantee=always_followed_by("A", "B"),
         )
         v = TraceVerifier(backend="dfa")
         v.sync(_trace("A"))  # B never fired
@@ -473,27 +473,27 @@ class TestLivenessFinalize:
         # During runtime: liveness is skipped entirely, so contract holds.
         cv = v.check_contract(contract, include_liveness=False)
         assert cv.holds is True
-        assert len(cv.enforcements) == 0  # liveness skipped
+        assert len(cv.guarantees) == 0  # liveness skipped
 
     def test_liveness_pending_with_include_liveness_fails(self):
         """Session-end semantics: ? collapses to ⊥."""
         contract = Contract(
             agent=Agent(id="bot"),
-            enforcement=always_followed_by("A", "B"),
+            guarantee=always_followed_by("A", "B"),
         )
         v = TraceVerifier(backend="dfa")
         v.sync(_trace("A"))
 
         cv = v.check_contract(contract, include_liveness=True)
         assert cv.holds is False
-        assert len(cv.enforcements) == 1
-        assert cv.enforcements[0].holds is False
+        assert len(cv.guarantees) == 1
+        assert cv.guarantees[0].holds is False
 
     def test_liveness_discharged(self):
         """F(...) with a witness before session end → ⊤ on finalize."""
         contract = Contract(
             agent=Agent(id="bot"),
-            enforcement=always_followed_by("A", "B"),
+            guarantee=always_followed_by("A", "B"),
         )
         v = TraceVerifier(backend="dfa")
         v.sync(_trace("A", "B"))

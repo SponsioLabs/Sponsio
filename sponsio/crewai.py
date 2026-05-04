@@ -11,7 +11,7 @@ Usage::
         contracts=[
             contract("only delegate to whitelisted agents")
                 .assume("called `delegate`")
-                .enforce("delegate target in {researcher, writer}"),
+                .guarantees("delegate target in {researcher, writer}"),
         ],
     )
     crew = Crew(agents=guard.wrap(agents), tasks=tasks)

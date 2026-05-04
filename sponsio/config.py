@@ -27,12 +27,12 @@ Example::
         contracts:
           # short keys — recommended for terse hand-edited YAML
           - A: "called `cancel_order`"
-            E: "must call `get_order_details` before `cancel_order`"
-          - E: "tool `sed` arg contains `-i` is banned"
+            G: "must call `get_order_details` before `cancel_order`"
+          - G: "tool `sed` arg contains `-i` is banned"
           # long keys — accepted when users prefer them (e.g. copied
           # from Python code)
           - assumption: ["called `modify_order`", "verified_identity"]
-            enforcement:
+            guarantee:
               - "U(Not(called(modify_order)), called(get_order_details))"
               - "tool `modify_order` at most 3 times"
 
@@ -41,7 +41,7 @@ pattern dict::
 
     contracts:
       - A: {pattern: called, args: [cancel_order]}
-        E: {pattern: must_precede, args: [get_order_details, cancel_order]}
+        G: {pattern: must_precede, args: [get_order_details, cancel_order]}
 
 Usage::
 
@@ -119,10 +119,10 @@ class ConstraintEntry:
 
 @dataclass
 class ContractEntry:
-    """One (assumption, enforcement) pair from the YAML.
+    """One Assume-Guarantee (A/G) pair from the YAML.
 
     Each field may hold None, one ``ConstraintEntry``, or a list of
-    them (= logical AND). ``assumption`` is optional; ``enforcement`` is
+    them (= logical AND). ``assumption`` is optional; ``guarantee`` is
     required.
 
     ``alpha`` and ``beta`` are resolved at parse time from one of three
@@ -131,7 +131,7 @@ class ContractEntry:
     det semantics.
     """
 
-    enforcement: ConstraintEntry | list[ConstraintEntry] = None  # type: ignore[assignment]
+    guarantee: ConstraintEntry | list[ConstraintEntry] = None  # type: ignore[assignment]
     assumption: ConstraintEntry | list[ConstraintEntry] | None = None
     desc: str | None = None
     alpha: float = 1.0
@@ -177,16 +177,17 @@ class ExtractorSection:
 
 @dataclass
 class JudgeSection:
-    """Runtime sto-judge config (used by ``StoEvaluator``).
+    """Runtime sto-judge config (consumed by Cloud's StoEvaluator).
 
     Runtime judging happens on every guarded turn — latency, cost,
     and resilience matter.  Most users want a *cheaper, faster* model
     here (e.g. ``gpt-4o-mini``, ``gemini-2.5-flash``) and care about
     the fault-tolerance knobs.
 
-    Defaults match :class:`sponsio.runtime.evaluators.StoEvaluator`'s
-    own defaults so an empty section behaves exactly like the
-    programmatic default.
+    Sponsio Cloud only — OSS rejects sto contracts at config load
+    and never reaches a judge. Defaults match Cloud's
+    ``CloudStoEvaluator`` so an empty section behaves exactly like
+    the programmatic default once Cloud is installed.
     """
 
     provider: str | None = None
@@ -521,7 +522,7 @@ def _parse_constraint_entry(item: Any) -> ConstraintEntry:
 def _parse_constraint_field(
     value: Any,
 ) -> ConstraintEntry | list[ConstraintEntry] | None:
-    """Parse the assumption or enforcement field of a contract entry.
+    """Parse the assumption or guarantee field of a contract entry.
 
     Scalars return a single ``ConstraintEntry``; lists return a list
     (= AND). ``None`` stays ``None``.
@@ -536,38 +537,38 @@ def _parse_constraint_field(
 def _parse_contract_entry(item: Any, agent_id: str) -> ContractEntry:
     """Parse a single entry in the ``contracts:`` list.
 
-    Accepts both short keys (``A`` / ``E``) and long keys
-    (``assumption`` / ``enforcement``). Using both forms of the same
+    Accepts both short keys (``A`` / ``G``) and long keys
+    (``assumption`` / ``guarantee``). Using both forms of the same
     field in a single entry (e.g. both ``A`` and ``assumption``) is
     ambiguous and raises ``ConfigError``.
     """
     if not isinstance(item, dict):
         raise ConfigError(
             f"Agent '{agent_id}': each 'contracts' entry must be a mapping "
-            f"with 'A'/'assumption' (optional) and 'E'/'enforcement' "
+            f"with 'A'/'assumption' (optional) and 'G'/'guarantee' "
             f"(required); got {type(item).__name__}"
         )
 
     has_short_a = "A" in item
     has_long_a = "assumption" in item
-    has_short_e = "E" in item
-    has_long_e = "enforcement" in item
+    has_short_g = "G" in item
+    has_long_g = "guarantee" in item
 
     if has_short_a and has_long_a:
         raise ConfigError(
             f"Agent '{agent_id}': contract entry has both 'A' and "
             f"'assumption' — pick one. Got: {item!r}"
         )
-    if has_short_e and has_long_e:
+    if has_short_g and has_long_g:
         raise ConfigError(
-            f"Agent '{agent_id}': contract entry has both 'E' and "
-            f"'enforcement' — pick one. Got: {item!r}"
+            f"Agent '{agent_id}': contract entry has both 'G' and "
+            f"'guarantee' — pick one. Got: {item!r}"
         )
 
-    e_raw = item.get("E") if has_short_e else item.get("enforcement")
+    e_raw = item.get("G") if has_short_g else item.get("guarantee")
     if e_raw is None:
         raise ConfigError(
-            f"Agent '{agent_id}': contract entry missing 'E' / 'enforcement': {item!r}"
+            f"Agent '{agent_id}': contract entry missing 'G' / 'guarantee': {item!r}"
         )
     a_raw = item.get("A") if has_short_a else item.get("assumption")
     desc = item.get("desc")
@@ -582,7 +583,7 @@ def _parse_contract_entry(item: Any, agent_id: str) -> ContractEntry:
         )
 
     return ContractEntry(
-        enforcement=_parse_constraint_field(e_raw),  # type: ignore[arg-type]
+        guarantee=_parse_constraint_field(e_raw),  # type: ignore[arg-type]
         assumption=_parse_constraint_field(a_raw),
         desc=desc,
         alpha=alpha,
@@ -961,7 +962,7 @@ def _rewrite_contract_entry(
                 field, workspace, tool_rename, agent_id, enforce_check
             )
 
-    walk(contract.enforcement)
+    walk(contract.guarantee)
     walk(contract.assumption)
 
 
@@ -1128,7 +1129,7 @@ def _contract_constraints(contract: ContractEntry) -> list[ConstraintEntry]:
     a list) is opaque to overrides — they apply to every constraint
     in the AND group.  In practice pack rules are single-constraint
     so this distinction rarely matters."""
-    e = contract.enforcement
+    e = contract.guarantee
     if e is None:
         return []
     if isinstance(e, list):
@@ -1342,7 +1343,7 @@ def load_config(path: str | Path) -> SponsoConfig:
             for item in agent_data:
                 ac.contracts.append(
                     ContractEntry(
-                        enforcement=_parse_constraint_entry(item),
+                        guarantee=_parse_constraint_entry(item),
                     )
                 )
             config.agents[agent_id] = ac
@@ -1604,7 +1605,7 @@ def _resolve_strict_compile(mode: str | None) -> bool:
 def _short_constraint_label(value: Any) -> str:
     """Best-effort label for a skipped constraint shown in the warning.
 
-    ``value`` is the raw ``ce.enforcement`` field — a ``ConstraintEntry``,
+    ``value`` is the raw ``ce.guarantee`` field — a ``ConstraintEntry``,
     a list of them, or ``None``.  Returns the first non-empty handle we
     can find (pattern name + args / ltl text / nl text), truncated for
     readability.  Pure cosmetic; never raises.
@@ -1663,8 +1664,8 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
     for ce in ac.contracts:
         try:
             entry: dict[str, Any] = {
-                "enforcement": _compile_field(
-                    ce.enforcement, tool_inventory=tool_inventory
+                "guarantee": _compile_field(
+                    ce.guarantee, tool_inventory=tool_inventory
                 ),
             }
             if ce.assumption is not None:
@@ -1691,7 +1692,7 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
             # the yaml stays usable while reviewing.
             if strict:
                 raise
-            label = ce.desc or _short_constraint_label(ce.enforcement)
+            label = ce.desc or _short_constraint_label(ce.guarantee)
             skipped.append((label, str(exc)))
 
     if skipped:
@@ -1812,14 +1813,14 @@ def config_to_system(
     for agent_id, ac in config.agents.items():
         agent_obj = Agent(id=agent_id)
         for ce in ac.contracts:
-            e = _compile_field(ce.enforcement, llm_extractor, tool_inventory)
+            e = _compile_field(ce.guarantee, llm_extractor, tool_inventory)
             a = _compile_field(ce.assumption, llm_extractor, tool_inventory)
             if e is None:
                 continue
             contracts.append(
                 Contract(
                     agent=agent_obj,
-                    enforcement=e,
+                    guarantee=e,
                     assumption=a,
                     desc=ce.desc,
                     alpha=ce.alpha,

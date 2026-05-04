@@ -295,7 +295,7 @@ class TestCliEval:
             "agents:\n"
             "  bot:\n"
             "    contracts:\n"
-            '      - E: "tool `transfer` at most 0 times"\n'
+            '      - G: "tool `transfer` at most 0 times"\n'
         )
 
         runner = CliRunner()
@@ -319,7 +319,7 @@ class TestCliEval:
         _write(traces, "safe_a.json", "verify")
         cfg = tmp_path / "sponsio.yaml"
         cfg.write_text(
-            'version: 1\nagents:\n  bot:\n    contracts:\n      - E: "tool `x` at most 0 times"\n'
+            'version: 1\nagents:\n  bot:\n    contracts:\n      - G: "tool `x` at most 0 times"\n'
         )
 
         runner = CliRunner()

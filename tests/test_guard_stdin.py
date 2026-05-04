@@ -106,7 +106,7 @@ agents:
   _host:
     contracts:
       - desc: "Ban recursive deletes of sensitive roots"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - Bash
@@ -185,7 +185,7 @@ agents:
   acme:
     contracts:
       - desc: "mcp__acme__fetch must use https"
-        E:
+        G:
           pattern: arg_blacklist
           args: [mcp__acme__fetch, url, ["^http://"]]
 """,
@@ -238,7 +238,7 @@ agents:
   acme:
     contracts:
       - desc: "acme:fetch must use https"
-        E:
+        G:
           pattern: arg_blacklist
           args: ["acme:fetch", url, ["^http://"]]
 """,
@@ -393,7 +393,7 @@ agents:
   _host:
     contracts:
       - desc: "{tool} only when ctx[{key}] in [{values}]"
-        E:
+        G:
           pattern: ctx_required
           args: [{tool}, {key}, [{values}]]
 """

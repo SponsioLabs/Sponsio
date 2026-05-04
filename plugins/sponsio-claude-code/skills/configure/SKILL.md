@@ -291,7 +291,7 @@ The shipped libraries are templates with conservative defaults.
 Without this step, half the rules are either too strict (blocking
 legitimate work) or too loose (giving the user false confidence).
 Walk through the four parameter classes below and write any
-agreed-upon adjustments as `overrides:` blocks into the relevant
+agreed-upon adjustments as `customized:` blocks into the relevant
 library. **Don't skip this step on the assumption defaults are
 fine** — defaults are a starting point, not a fit.
 
@@ -459,7 +459,7 @@ sponsio report --since 24h
 ```
 
 Surface the would-have-blocked rules. For every cluster of
-legitimate-looking violations, tighten the matching `overrides:`.
+legitimate-looking violations, tighten the matching `customized:`.
 This is the data-driven counterpart to the questionnaire above — the
 questionnaire is the cold-start prior, the report is the posterior.
 
@@ -501,15 +501,15 @@ same shell still respect `SPONSIO_MODE` independently.
 
 **Operator wants per-plugin overrides instead of editing the library:**
 
-Add an `overrides:` block under the agent in
+Add an `customized:` block under the agent in
 `~/.sponsio/plugins/<plugin>/sponsio.yaml`:
 
 ```yaml
 agents:
   github:
     contracts: [...shipped...]
-    overrides:
-      - match: { desc: "delete_repository is blocked outright (overrides: disabled: true to allow)" }
+    customized:
+      - match: { desc: "delete_repository is blocked outright (customized: disabled: true to allow)" }
         disabled: true
 ```
 

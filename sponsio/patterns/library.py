@@ -956,7 +956,7 @@ def untrusted_source_gate(
         assumption, enforcement = untrusted_source_gate(
             ["web_fetch"], ["send_email"]
         )
-        Contract(agent=agent, assumption=assumption, enforcement=enforcement)
+        Contract(agent=agent, assumption=assumption, guarantee=enforcement)
 
     Args:
         sources: Untrusted input tools.
@@ -965,7 +965,7 @@ def untrusted_source_gate(
 
     Returns:
         A tuple of ``(assumption_formula, enforcement_formula)`` — both
-        ``DetFormula``. Use with ``Contract(assumption=..., enforcement=...)``.
+        ``DetFormula``. Use with ``Contract(assumption=..., guarantee=...)``.
     """
     if not sources:
         raise ValueError(
@@ -1471,7 +1471,7 @@ def confirm_after_source(
     Usage::
 
         assumption, enforcement = confirm_after_source("fetch_url", "file_write")
-        Contract(agent=agent, assumption=assumption, enforcement=enforcement)
+        Contract(agent=agent, assumption=assumption, guarantee=enforcement)
 
     Args:
         source: The untrusted input tool.
@@ -1608,7 +1608,7 @@ def arg_value_range(
 #
 # These were previously sto evaluators but don't need LLM judging — they
 # are precisely computable against llm_response events. Ship-as-det gives
-# them clean A/E composition and the fast LTL path.
+# them clean A/G composition and the fast LTL path.
 # ---------------------------------------------------------------------------
 
 

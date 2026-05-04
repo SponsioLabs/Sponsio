@@ -33,7 +33,7 @@ from typing import Any
 
 from sponsio.integrations.base import BaseGuard, CheckResult, select_agent_message
 from sponsio.models.system import System
-from sponsio.runtime.evaluators import StoEvaluator
+from sponsio.protocols.sto import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
 
 

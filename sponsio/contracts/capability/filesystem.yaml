@@ -67,7 +67,7 @@ agents:
       # `crontab` is end-anchored to avoid matching paths like
       # `/projects/crontab-tests/` or `mycrontab.txt`.
       - desc: "Deny reads of SSH keys, AWS credentials, browser keychains, dotenv secrets"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - read
@@ -96,7 +96,7 @@ agents:
           source: "library:tier1.filesystem"
 
       - desc: "Deny writes / edits into sensitive paths (prevent persistence or cred overwrite)"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - write
@@ -114,7 +114,7 @@ agents:
           source: "library:tier1.filesystem"
 
       - desc: "Same denial applies to in-place edits"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - edit
@@ -131,7 +131,7 @@ agents:
           source: "library:tier1.filesystem"
 
       - desc: "And to unified-diff patches"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - apply_patch
@@ -165,13 +165,13 @@ agents:
       # =================================================================
 
       - desc: "Must read a file before editing it (no blind patches)"
-        E:
+        G:
           pattern: must_precede
           args: [read, edit]
           source: "library:tier1.filesystem"
 
       - desc: "Must read a file before apply_patch (no blind diffs)"
-        E:
+        G:
           pattern: must_precede
           args: [read, apply_patch]
           source: "library:tier1.filesystem"
@@ -191,12 +191,12 @@ agents:
       # =================================================================
 
       - desc: "Editing bootstrap / system-prompt files requires human confirmation"
-        E:
+        G:
           ltl: 'G(called_with(edit, "(AGENTS|SOUL|IDENTITY|USER|CLAUDE|\\.cursorrules)\\.md?") -> count(confirm_reconfirmed) >= count_with(edit, "(AGENTS|SOUL|IDENTITY|USER|CLAUDE|\\.cursorrules)\\.md?"))'
           source: "library:tier1.filesystem"
 
       - desc: "apply_patch against bootstrap files requires confirmation"
-        E:
+        G:
           ltl: 'G(called_with(apply_patch, "(AGENTS|SOUL|IDENTITY|USER|CLAUDE|\\.cursorrules)\\.md?") -> count(confirm_reconfirmed) >= count_with(apply_patch, "(AGENTS|SOUL|IDENTITY|USER|CLAUDE|\\.cursorrules)\\.md?"))'
           source: "library:tier1.filesystem"
 
@@ -213,7 +213,7 @@ agents:
       # =================================================================
 
       - desc: "Data read from filesystem must not flow to outbound messages"
-        E:
+        G:
           pattern: no_data_leak
           args: [read, send_message]
           source: "library:tier1.filesystem"

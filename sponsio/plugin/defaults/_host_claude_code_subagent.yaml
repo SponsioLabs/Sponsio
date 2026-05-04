@@ -26,7 +26,7 @@
 # from the main agent (or, with user blessing, the main agent
 # explicitly re-runs a sub-agent recommendation).
 #
-# Override individual rules with `overrides:`.
+# Override individual rules with `customized:`.
 # =============================================================================
 
 version: "1"
@@ -68,7 +68,7 @@ agents:
       # apply ON TOP of the included packs — credentials pack
       # checks Write.content; these check Write.file_path.
       - desc: "Sub-agent: block writes to dotenv / SSH keys / cloud creds"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - Write
@@ -90,7 +90,7 @@ agents:
               - "(^|/)Library/LaunchAgents/"
 
       - desc: "Sub-agent: block reads of credential paths"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - Read

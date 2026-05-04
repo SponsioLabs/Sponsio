@@ -137,7 +137,7 @@ class TestTypedSpans:
 
     def test_guarantee_span(self):
         s = GuaranteeSpan(
-            span_type="sponsio.guarantee",
+            span_type="sponsio.enforcement",
             start_time=0,
             formula_desc="called(lookup) before called(refund)",
             result=False,
@@ -331,7 +331,7 @@ class TestRenderTree:
             evidence="lookup not in trace",
         )
         ee = EnforcementSpan(
-            span_type="sponsio.enforcement",
+            span_type="sponsio.guarantee",
             start_time=0.011,
             end_time=0.013,
             strategy="DetBlock",

@@ -970,58 +970,20 @@ def _compile_guard(guard_text: str, ir: ConstraintIR) -> Optional[Any]:
 def _compile_ir_sto(
     ir: ConstraintIR, result: IRCompilationResult
 ) -> IRCompilationResult:
-    """Compile a sto (soft) constraint from IR."""
-    from sponsio.patterns.sto import StoFormula
-    from sponsio.patterns.sto_catalog import _SOFT_CATALOG
+    """Compile a sto (soft) constraint from IR.
 
-    category = ir.sto_category or "custom"
-    params = ir.sto_params
-
-    factory = _SOFT_CATALOG.get(category)
-    if factory is None:
-        factory = _SOFT_CATALOG.get("custom")
-        category = "custom"
-
-    try:
-        if category == "custom":
-            evaluator_fn = factory(ir.nl)
-        elif category == "pii":
-            evaluator_fn = factory(fields=params.get("fields"))
-        elif category == "length":
-            evaluator_fn = factory(
-                max_words=params.get("max_words"),
-                max_chars=params.get("max_chars"),
-            )
-        elif category == "format":
-            evaluator_fn = factory(expected_format=params.get("format", "json"))
-        elif category == "tone":
-            evaluator_fn = factory(desired_tone=params.get("desired_tone", ir.nl))
-        elif category == "relevance":
-            evaluator_fn = factory(topic=params.get("topic", ir.nl))
-        elif category == "content_prohibition":
-            prohibited = params.get("prohibited", "")
-            if not prohibited:
-                result.error = "content_prohibition requires 'prohibited' param"
-                return result
-            evaluator_fn = factory(prohibited=prohibited)
-        else:
-            evaluator_fn = _SOFT_CATALOG["custom"](ir.nl)
-    except Exception as e:
-        result.error = f"Sto evaluator construction failed: {e}"
-        return result
-
-    requires_llm = category in ("tone", "relevance", "custom")
-
-    result.compiled = StoFormula(
-        desc=ir.nl,
-        category=category,
-        evaluator_fn=evaluator_fn,
-        threshold=params.get("threshold", 0.7),
-        pattern_name="sto",
-        requires_llm=requires_llm,
+    Stochastic compilation lives in Sponsio Cloud (the soft catalog +
+    ``StoFormula`` constructor). The OSS engine intentionally drops the
+    constraint into ``result.error`` rather than synthesising a fake
+    evaluator — silent fall-through would produce a contract that the
+    OSS monitor classifies as pure-det and accepts vacuously.
+    """
+    result.error = (
+        f"Stochastic constraint '{ir.nl or ir.sto_category or ir.subject}' requires "
+        f"Sponsio Cloud (`pip install sponsio[cloud]`). The OSS engine ships no "
+        f"sto evaluator catalog."
     )
-    result.paraphrase = ir.nl
-
+    result.compiled = None
     return result
 
 

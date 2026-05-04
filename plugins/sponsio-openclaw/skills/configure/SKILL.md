@@ -367,7 +367,7 @@ the same shell still respect `SPONSIO_MODE` independently.
 agents:
   <plugin-id>:
     contracts: [...shipped...]
-    overrides:
+    customized:
       - match: { desc: "<rule desc>" }
         disabled: true
 ```

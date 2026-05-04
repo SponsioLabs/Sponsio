@@ -54,7 +54,7 @@ A YAML diff with three sections:
 proposed_changes:
   add:
     - desc: "..."
-      E: {pattern: ..., args: [...]}
+      G: {pattern: ..., args: [...]}
       source: agent-extracted-from-traces
   retire:
     - match: { desc: "<exact desc of existing contract>" }

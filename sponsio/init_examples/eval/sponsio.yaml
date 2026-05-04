@@ -15,7 +15,7 @@ agents:
   customer_bot:
     contracts:
       - desc: Identity must be verified before any refund
-        E: "tool `verify_identity` must precede `issue_refund`"
+        G: "tool `verify_identity` must precede `issue_refund`"
 
       - desc: At most 2 refunds per session
-        E: "tool `issue_refund` at most 2 times"
+        G: "tool `issue_refund` at most 2 times"

@@ -135,7 +135,7 @@ def test_r1_docker_compose_then_pipe_stdin_exfil_denied(shielded_home, capsys):
 
     out, _ = _run(_hook_event(f"echo placeholder | {EXFIL_PIPE_STDIN}"), capsys)
     payload = _assert_denied(out)
-    # After the A/E + activate_at rewrite, the deny reason shows the
+    # After the A/G + activate_at rewrite, the deny reason shows the
     # *enforcement* formula (the egress prohibition), not the trigger.
     # The trigger lives in `A:` and isn't echoed in the reason — that's
     # arguably a UX gap (worth filing separately) but the contract's

@@ -13,7 +13,7 @@
 # its CLI; this library is the *second* layer of defence — it blocks
 # specific path patterns within those directories that should never
 # be modified by an agent (dotenv, SSH keys, AWS credentials, …).
-# Override or extend with ``overrides:`` per agent.
+# Override or extend with ``customized:`` per agent.
 # =============================================================================
 
 version: "1"
@@ -27,7 +27,7 @@ agents:
       # -----------------------------------------------------------------
 
       - desc: "write_file must not touch secrets / system config"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__filesystem__write_file
@@ -51,7 +51,7 @@ agents:
               - "/usr/local/bin/"
 
       - desc: "edit_file must not touch secrets / system config"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__filesystem__edit_file
@@ -64,7 +64,7 @@ agents:
               - "/etc/"
 
       - desc: "move_file source must not be a secret"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__filesystem__move_file
@@ -75,7 +75,7 @@ agents:
               - "(^|/)id_ed25519($|\\.)"
 
       - desc: "move_file destination must not overwrite secrets / system config"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__filesystem__move_file
@@ -96,7 +96,7 @@ agents:
       # -----------------------------------------------------------------
 
       - desc: "read_file must not exfiltrate dotenv / SSH / AWS / browser credential files"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__filesystem__read_file
@@ -111,7 +111,7 @@ agents:
               - "(^|/)Library/Cookies/"
 
       - desc: "read_multiple_files must not exfiltrate the same set"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - mcp__filesystem__read_multiple_files

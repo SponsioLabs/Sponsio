@@ -808,7 +808,7 @@ def _splice_pack_block_into_agent(
         agents:
           <agent_id>:
             contracts:
-              - E: ...
+              - G: ...
 
     We want the result to be::
 
@@ -817,7 +817,7 @@ def _splice_pack_block_into_agent(
             include:
               - sponsio:core/universal
             contracts:
-              - E: ...
+              - G: ...
 
     Splicing right after ``  <agent_id>:`` keeps ``include:`` adjacent
     to ``workspace:`` and ``tool_rename:`` (the same agent-scoped
@@ -895,8 +895,10 @@ def _compose_yaml(
     lines.append(
         "# Runtime sto-judge (evaluates stochastic atoms like `injection_free`)"
     )
-    lines.append("# on the agent's hot path.  Favour cheap+fast model; fault tolerance")
-    lines.append("# matters because LLM outages must NOT cascade into agent outages.")
+    lines.append("# on the agent's hot path.  Sponsio Cloud only — `pip install")
+    lines.append("# sponsio[cloud]` to activate; OSS ignores this stanza. Favour")
+    lines.append("# a cheap+fast model and keep the circuit breaker on so judge")
+    lines.append("# outages don't cascade into agent outages.")
     lines.append("judge:")
     if provider.provider in {"openai", "anthropic", "gemini"} and provider.env_var:
         lines.append(f"  provider: {provider.provider}")
@@ -1356,14 +1358,14 @@ def run_onboard(
 def _count_contracts(yaml_text: str) -> int:
     """Count top-level contract entries in a generated YAML body.
 
-    Matches ``- E:`` or ``- A:`` at indent 6 — the shape that both
+    Matches ``- G:`` or ``- A:`` at indent 6 — the shape that both
     :class:`CodeAnalyzer.generate_yaml` and :func:`_append_proposals_to_yaml`
-    emit.  Comment-only entries and blank lines don't count.
+    emit. Comment-only entries and blank lines don't count.
     """
     n = 0
     for line in yaml_text.splitlines():
         stripped = line.lstrip()
-        if stripped.startswith("- E:") or stripped.startswith("- A:"):
+        if stripped.startswith("- G:") or stripped.startswith("- A:"):
             n += 1
     return n
 
@@ -1549,7 +1551,7 @@ def _append_proposals_to_yaml(
             continue
         conf = p.confidence
         conf_tag = f"  # confidence: {conf:.2f}" if conf < 0.9 else ""
-        appended.append(f"      - E:{conf_tag}")
+        appended.append(f"      - G:{conf_tag}")
         appended.append(f"          pattern: {pattern}")
         args = p.evidence.get("args") if isinstance(p.evidence, dict) else None
         if args:

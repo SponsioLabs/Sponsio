@@ -273,7 +273,7 @@ def _render_library_yaml(
         contracts.append(
             {
                 "desc": p.nl_description or det.desc,
-                "E": {
+                "G": {
                     "pattern": det.pattern_name,
                     "args": _normalise_args(det.args),
                     "source": "plugin-scan",

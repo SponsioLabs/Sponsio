@@ -8,7 +8,7 @@ Usage::
     guard = Sponsio(
         agent_id="vercel_bot",
         contracts=[
-            contract("tool budget").enforce("tool `search` at most 5 times"),
+            contract("tool budget").guarantees("tool `search` at most 5 times"),
         ],
     )
     config = guard.wrap(stream_text_config)

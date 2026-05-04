@@ -5,7 +5,7 @@ description: Install, observe, tune, enforce, and periodically refresh Sponsio �
 
 # Sponsio — Agent Safety Lifecycle Companion
 
-Sponsio is a Python/TypeScript runtime safety layer for LLM agents: it evaluates deterministic + stochastic contracts against each tool call and can block (enforce) or just log (observe) violations. This skill covers the full lifecycle — first-time setup, contract authoring/review, observe-mode tuning, and flipping to enforce — by orchestrating Sponsio's CLI and explaining its output in plain language.
+Sponsio is a Python/TypeScript runtime safety layer for LLM agents: it evaluates deterministic contracts against each tool call and can block (enforce) or just log (observe) violations. (LLM-judged stochastic contracts — tone, prompt-injection, semantic PII, scope respect — are a Sponsio Cloud feature available via `pip install sponsio[cloud]`; the OSS engine is det-only.) This skill covers the full lifecycle — first-time setup, contract authoring/review, observe-mode tuning, and flipping to enforce — by orchestrating Sponsio's CLI and explaining its output in plain language.
 
 This skill does NOT reimplement Sponsio's logic; it calls the CLI and interprets results.
 
@@ -64,10 +64,10 @@ Three legal write modes:
    ```
 
 2. **Tune an existing pack-shipped rule** — never edit the rule
-   directly; append an `overrides:` entry:
+   directly; append a `customized:` entry:
 
    ```yaml
-   overrides:
+   customized:
      - match: { desc: "<the shipped rule's desc, exact>" }
        A: "<extra assumption that narrows when it fires>"   # to relax
        # or args: [...]                                     # to retune thresholds
@@ -111,12 +111,12 @@ paths are:
   ```
 - **Hand-edit by the user** in their text editor.
 
-For overrides the user agreed to during a tuning conversation, do
+For customizations the user agreed to during a tuning conversation, do
 NOT ghostwrite the YAML they should paste. Contract content in
 Zone B has exactly four legitimate sources: bundle libraries
 (`sponsio plugin install`), CLI extraction (`sponsio plugin scan`,
 `sponsio scan`, `sponsio onboard`), the user's own keystrokes, and
-`overrides:` blocks the user authors themselves. An LLM-composed
+`customized:` blocks the user authors themselves. An LLM-composed
 snippet has none of those provenances — it's configuration with no
 audit trail.
 
@@ -128,7 +128,7 @@ The flow:
    output if you need to refer to one — do NOT compose YAML around
    it.
 2. Tell the user the file path and describe the change in words
-   ("add an `overrides:` entry beside `contracts:` whose
+   ("add a `customized:` entry beside `contracts:` whose
    `match.desc` matches the rule you want to silence, with
    `disabled: true`"). Point them at the existing pack's syntax for
    reference. Let them write the YAML themselves.
@@ -157,7 +157,7 @@ The user's invariant: *adding* contracts is always allowed; *modifying* or *dele
 
 ### If you genuinely need to remove a rule
 
-You don't.  Use `overrides: ... disabled: true` (an additive edit that silences the rule) or ask the user to delete it by hand.  The agent never has authority to remove its own contracts.
+You don't.  Use `customized: ... disabled: true` (an additive edit that silences the rule) or ask the user to delete it by hand.  The agent never has authority to remove its own contracts.
 
 ### Pattern generality — match operator intent, not demo data
 
@@ -166,6 +166,23 @@ When the operator's NL says "block public gists" or "cap files at 3", write the 
 Concrete: a regex like `(\.md"\s*:.*?){4,}` matches only keys ending in `.md`, which means a 4-file gist of `.json` / `.txt` / `.csv` / extension-less keys passes freely.  If the operator said "cap files at 3", the right form is `(\".+?\"\s*:\s*\{){4,}` — any 4+ keys.  Same principle for path globs (`/work/notes/.*\.md` vs `/work/notes/.+`), `arg_field_has` value patterns, and `match:` selectors.
 
 If the operator's intent **IS** demo-specific ("block any `.md` dump from this notes plugin"), keep the narrow pattern but record the assumption in the contract `desc:` so a later reviewer sees the constraint instead of inferring a bug.
+
+#### The flip side — don't broaden past what the operator named
+
+The operator's NL also has a *verb scope*.  When a policy says "no destructive verbs against AWS" the agent must not emit `\baws\s+` (matches every `aws` invocation including `aws s3 ls` / `aws sts get-caller-identity`).  The regex must require **both** the provider **and** a destructive-verb token from the policy.
+
+Concrete:
+
+| Policy phrase | Wrong (overbroad) | Right (verb-anchored) |
+|---|---|---|
+| "no destructive AWS calls" | `\baws\s+` | `\baws\s+(rds\|s3api\|ec2)\s+(delete-\|terminate-)\w+\b` |
+| "no destructive gcloud calls" | `\bgcloud\s+` | `\bgcloud\s+\w+\s+(delete\|destroy\|drain)\b` |
+| "no destructive Railway control plane" | `api\.railway\.app` | `(curl\|http\|wget)[^\|;&]*-X\s+DELETE[^\|;&]*\bapi\.railway\.app\b` |
+| "no DROP TABLE" | `DROP` | `\bDROP\s+TABLE\b` |
+
+The shipped packs already follow this convention (see `sponsio:incident/cursor-railway-wipe`).  When you extract from a policy doc, mirror the pack style: every command-shape regex is `(host or tool prefix) AND (destructive verb the operator named)`.  Bare provider prefixes are false-positive factories — every routine `aws s3 ls` in a CI script becomes a violation.
+
+If the operator named providers exhaustively in prose ("Railway, Fly, Render, Supabase, Vercel, Cloudflare, Heroku, AWS, GCP"), keep all named providers, each anchored to its own verb set.  Do not collapse them into a single broad alternation that drops the verb anchor.
 
 ---
 
@@ -269,13 +286,55 @@ You (the host agent — Claude Code, Cursor, Codex) ARE the LLM here.  Drive the
    that, stop, delete the project yaml, and write to the host
    bucket instead.
 
-5. Write the YAML to the resolved path via Edit/Write.  Then validate:
+5. Write the YAML to the resolved path.  Path differs by destination:
 
-   ```bash
-   sponsio validate --config <resolved-path>
-   ```
+   - **Path (B) — project YAML.**  Use Edit/Write directly, then
+     `sponsio validate --config <project>/sponsio.yaml`.
 
-   If validation fails, fix and re-validate.  Don't leave a malformed file on disk.
+   - **Path (A) — host bucket.**  Edit/Write are denied by Zone B's
+     self-modify pack on `~/.sponsio/plugins/{{HOST_BUCKET}}/...`,
+     so you cannot write there yourself.  The legitimate path is
+     ``sponsio plugin append``, which performs a structurally
+     additive merge through validated Python code:
+
+     ```bash
+     # 1. Write the YAML you produced in step 3 to a clearly-labelled
+     #    staging file outside Zone B (the project root is fine).
+     #    Path examples: <project>/.sponsio.staging.yaml,
+     #    /tmp/sponsio-host-policy-<timestamp>.yaml.  Never name it
+     #    `sponsio.yaml` (collides with project-config and triggers
+     #    the wrong-destination anti-pattern below).
+
+     # 2. Dry-run the merge to surface what would land:
+     sponsio plugin append --from <staging-path> \
+       --target {{HOST_BUCKET}} --dry-run
+
+     # 3. Apply.  Atomic, validated, rejects anything beyond
+     #    additive `contracts:` entries (no `customized:`, no
+     #    `disabled:`, no desc collisions, no top-level keys).
+     sponsio plugin append --from <staging-path> --target {{HOST_BUCKET}}
+
+     # 4. Delete the staging file once `plugin append` reports
+     #    success — keeping it around invites accidental re-apply.
+     ```
+
+     The append CLI is the only way an in-host agent can extend its
+     own governance file.  Edit/Write/MultiEdit on the host bucket
+     are blocked; `cat staging >> host.yaml` is blocked too.  Tell
+     the user once at the top of the conversation that you'll be
+     running this command on their behalf so they're not surprised.
+
+     **Fallback (only if no host agent is driving — CI shell, one-shot).**
+
+     ```bash
+     sponsio scan <PATHS> [--policy <doc>] --llm \
+       -o ~/.sponsio/plugins/{{HOST_BUCKET}}/sponsio.yaml --append
+     ```
+
+     Uses an API key.  Skip this when you're already inside the
+     host agent — `plugin append` is faster and free.
+
+   If validation fails, fix and re-validate.  Don't leave a malformed file on disk.  Never produce a project `sponsio.yaml` with a comment like "Cursor hooks read host bucket; copy this there" — that's the wrong-destination anti-pattern called out in step 4.  The staging-file route is fine *only if* the filename makes its transient nature obvious (`.sponsio.staging.yaml`, `/tmp/...`).
 
 6. Run health check + show summary:
 
@@ -309,7 +368,7 @@ sponsio onboard .                    # uses OPENAI_API_KEY / ANTHROPIC_API_KEY /
 
 | Pack | Auto-included when… | Notes |
 |---|---|---|
-| `sponsio:core/universal` | Always | sto output-quality (injection / jailbreak / toxic / PII / harm); needs `judge:` configured |
+| `sponsio:core/universal` | Always | Empty stub on OSS — kept so existing `include:` lines don't error. The output-quality contracts (injection / jailbreak / toxic / PII / harm) live in `sponsio:core/llm_safety` and require Sponsio Cloud (`pip install sponsio[cloud]`) |
 | `sponsio:core/runaway` | Framework runs a multi-step loop (langgraph/crewai/…) | token budget, delegation depth, loop detection; no LLM calls |
 | `sponsio:capability/shell` | A tool name matches `{bash, shell, exec, execute, execute_command, run_command, run_shell, run_bash, terminal, subprocess}` | Auto-fills `tool_rename:` if the user's tool name isn't the canonical `exec` |
 | `sponsio:capability/filesystem` | A tool name matches `{read, read_file, open_file, write, write_file, edit, edit_file, apply_patch, patch_file, ...}` | Auto-fills `tool_rename:` and `workspace:` |
@@ -319,7 +378,7 @@ sponsio onboard .                    # uses OPENAI_API_KEY / ANTHROPIC_API_KEY /
 
 ### Do NOT
 
-- Do NOT edit `sponsio/contracts/*.yaml` inside the installed package — those are the shipped packs; they're read-only. Adjustments go in the user's `sponsio.yaml` via `overrides:` or `contracts:`.
+- Do NOT edit `sponsio/contracts/*.yaml` inside the installed package — those are the shipped packs; they're read-only. Adjustments go in the user's `sponsio.yaml` via `customized:` or `contracts:`.
 - Do NOT flip `mode: enforce` during W1. The whole point of observe mode is to find false positives before they break production.
 
 ---
@@ -366,7 +425,7 @@ Sponsio contracts come from four sources, mixable in one yaml:
 | 1 | **Shipped packs** | Pre-built, parameterized rule sets (`sponsio:core/universal`, `sponsio:capability/shell`, …) | Hand-add `include: [sponsio:<spec>]` — or W1's `onboard` does it automatically |
 | 2 | **Extraction** | AST + optional LLM inference from your code / policy docs / execution traces | `sponsio scan <paths> [--llm] [--policy <doc>] [-t <trace-glob>]` |
 | 3 | **User input** | An NL sentence or a structured dict the user writes | Hand-edit `sponsio.yaml`; validate a single NL string with `sponsio validate "<NL>"` |
-| 4 | **Pattern library** | 29 det + 7 sto parameterized templates | `sponsio patterns` to browse; hand-write the YAML entry |
+| 4 | **Pattern library** | Deterministic parameterized templates (`rate_limit`, `must_precede`, `arg_blacklist`, …) — full list via `sponsio patterns`. Stochastic templates (`injection_free`, `tone`, `llm_judge`, …) live in Sponsio Cloud | `sponsio patterns` to browse; hand-write the YAML entry |
 
 Match the user's input to the source(s):
 
@@ -391,15 +450,51 @@ sponsio scan <PATHS> --agent <AGENT> [--policy <doc>] [-t '<traces>'] --emit-con
 sponsio prompt scan
 ```
 
-Read both, apply the prompt to the JSON in your own context, and produce contract YAML entries.  Then write to `sponsio.yaml` via Edit/Write and validate:
+Read both, apply the prompt to the JSON in your own context, and produce contract YAML entries.  Source-tag every entry you author with `source: agent-extracted` so future `sponsio refresh` can re-consider them.  Trace-mined entries (when `-t` was passed) carry `source: trace` and are the subset W3b maintains over time.
+
+**Decide the write target by intent BEFORE writing**, using the W1 step-4 (A) vs (B) test.  Write path differs by destination:
+
+#### If destination is project YAML — `<project>/sponsio.yaml`
+
+Write via Edit/Write, then validate:
 
 ```bash
 sponsio validate --config ./sponsio.yaml
 ```
 
-Source-tag every entry you author with `source: agent-extracted` so future `sponsio refresh` can re-consider them.  Trace-mined entries (when `-t` was passed) carry `source: trace` and are the subset W3b maintains over time.
+#### If destination is host bucket — `~/.sponsio/plugins/{{HOST_BUCKET}}/sponsio.yaml`
 
-**Fallback** (bare CLI, no host agent driving): `sponsio scan <PATHS> --llm -o ./sponsio.yaml` — uses OPENAI / ANTHROPIC / GEMINI key.  Only this path needs a key.
+**Edit / Write / MultiEdit on this path are denied by Zone B's self-modify pack.**  Use ``sponsio plugin append`` — a structurally-additive CLI that writes through validated Python:
+
+1. Write the YAML you produced (above) to a transient staging file outside Zone B (e.g. `<project>/.sponsio.staging.yaml` or `/tmp/sponsio-host-<timestamp>.yaml`).  Never name it `sponsio.yaml` — that collides with project-config and triggers the wrong-destination anti-pattern.
+
+2. Dry-run the merge to confirm what would land:
+
+   ```bash
+   sponsio plugin append --from <staging-path> \
+     --target {{HOST_BUCKET}} --dry-run
+   ```
+
+3. Apply.  The CLI rejects anything beyond additive `contracts:` entries — no `customized:`, no `disabled:`, no desc collisions with existing rules, no top-level `runtime:` / `judge:` / `include:` smuggling.  It validates the merged file via the loader before declaring success.
+
+   ```bash
+   sponsio plugin append --from <staging-path> --target {{HOST_BUCKET}}
+   ```
+
+4. Delete the staging file once `plugin append` reports success — keeping it around invites accidental re-apply.
+
+This is the only way an in-host agent can extend its own governance file from inside the host.  Direct shell redirects (`cat >> ...`) are blocked by the self-modify pack; the append CLI is the explicit, audited bypass.
+
+**Bare-CLI fallback** (only when no host agent is driving — you're being run from a CI shell or one-shot script):
+
+```bash
+sponsio scan <PATHS> --policy <doc> --llm \
+  -o ~/.sponsio/plugins/{{HOST_BUCKET}}/sponsio.yaml --append
+```
+
+`--llm` uses the configured API key.  Skip this when you (the host agent) are already in the loop — `plugin append` is faster and free.
+
+**Anti-pattern (do NOT do this).**  Writing the contracts to `<project>/sponsio.yaml` and adding a comment block that says "Cursor's hooks read `~/.sponsio/plugins/_host_cursor/sponsio.yaml`; copy this file there".  That comment is an admission you wrote to the wrong place.  Use the staging file + `plugin append`, not a fake project yaml.
 
 ### Validate existing yaml (explain-only path)
 
@@ -417,7 +512,7 @@ JSON shape per entry: `{nl, ok, type: "det"|"sto"|"unknown", pattern, formula, a
 **Setup**: <N> contracts total, <sources breakdown>. Mode: <observe|enforce>.
 
 ### Active packs
-- `sponsio:core/universal` (5 sto) — judge-based output safety
+- `sponsio:core/universal` (empty stub on OSS — judge-based output safety lives in `sponsio:core/llm_safety` and requires Sponsio Cloud)
 - `sponsio:capability/shell` (11 det) — guards on <tool name after rename>
 <...>
 
@@ -581,15 +676,18 @@ Goal: look at what Sponsio logged during observe mode, decide which violations a
 
 2. For each violation cluster:
    - **Real violation** → leave the contract as-is. Note it for the user.
-   - **False positive** → adjust `sponsio.yaml`. Use this decision tree:
+   - **False positive** → adjust `sponsio.yaml`. Use this decision tree, **routing by the contract's source first** — `customized:` is a tool for shipped-pack rules you can't reach, not a default response to noise:
 
-     | Situation | Edit |
-     |---|---|
-     | Pack-shipped rule is too strict globally | Add an `overrides: - match: {desc: "..."}` entry with tuned args |
-     | Pack-shipped rule doesn't apply to this agent at all | `overrides: - match: {...}, disabled: true` |
-     | Rule's threshold is wrong (e.g. rate_limit N) | `overrides: ..., args: [<tool>, <new_N>]` |
-     | Rule conflicts with a legitimate workflow that Sponsio couldn't infer | Weaken via an `A:` (assumption) so it only fires in the specific unsafe context |
-     | User's own hand-written contract is wrong | Edit `contracts:` directly |
+     | Source of the noisy rule | Situation | Edit |
+     |---|---|---|
+     | `source: policy` (extracted from the user's policy doc) | The regex is too broad / wrong threshold | **Fix it at the source**: edit the `contracts:` entry directly, **or** edit the policy doc and rerun `sponsio scan --policy <doc> --append` |
+     | `source: agent-extracted` / `source: scan` / hand-authored under `contracts:` | The rule is wrong | Edit `contracts:` directly |
+     | `pack_source: sponsio:...` (shipped pack pulled in via `include:`) | Too strict globally | Add `customized: - match: {desc: "..."}` with tuned `args:` |
+     | `pack_source: sponsio:...` | Doesn't apply to this agent at all | `customized: - match: {...}, disabled: true` |
+     | `pack_source: sponsio:...` | Threshold is wrong (e.g. `rate_limit` N) | `customized: ..., args: [<tool>, <new_N>]` |
+     | Any source | Conflicts with a legitimate workflow Sponsio couldn't infer | Weaken via an `A:` (assumption) so it only fires in the specific unsafe context |
+
+   The default failure mode is reaching for `customized:` on a rule the user authored themselves (directly, or through their own policy doc).  Don't do that — `customized:` for self-authored content is a paper-over that detaches the runtime behavior from the source-of-truth document.  Fix the source.
 
    Use `desc`, `pattern`, `pack_source`, or `source` as the `match:` key (see the YAML schema below).
 
@@ -602,7 +700,7 @@ Goal: look at what Sponsio logged during observe mode, decide which violations a
 When a rule is correct in principle but too broad in practice, prefer adding an `A:` over disabling:
 
 ```yaml
-overrides:
+customized:
   - match: { desc: "Each exec call needs its own confirm_reconfirmed" }
     A: "called `confirm_reconfirmed`"
 ```
@@ -640,14 +738,14 @@ You ARE the LLM here too.  Use the agent-mediated path: Sponsio mines determinis
      ~ drifted  rate_limit(send_email, 5) → args [send_email, 12]
      - stale    idempotent(list_users)  (not re-observed)
      = 8 unchanged (source: trace, re-observed)
-     = 12 preserved (user / scan / policy / overrides — not touched)
+     = 12 preserved (user / scan / policy / customized — not touched)
    ```
 
 2. Review with the user. For each bucket:
    - `+ new` — "the agent started doing X that your current yaml doesn't cover." User usually wants this.
    - `~ drifted` — threshold moved. If new value is bigger, the rule was too tight; if smaller, production tightened up. User decides.
    - `- stale` — rule hasn't fired in this window. **Not necessarily dead** — could just be rare. Conservative default is `--mode add-only` (never remove), which we recommend for the first few refreshes until the user trusts the window size.
-   - `= preserved` — these include every user rule, `source: scan`, `source: policy`, and anything under `overrides:`. The count being non-zero is the load-bearing invariant: refresh **only** ever changes `source: trace` entries.
+   - `= preserved` — these include every user rule, `source: scan`, `source: policy`, and anything under `customized:`. The count being non-zero is the load-bearing invariant: refresh **only** ever changes `source: trace` entries.
 
 3. Apply via Edit/Write.  You produced the YAML changes in step 1 in your own context — write them to `sponsio.yaml`, back the old file up to `sponsio.yaml.sponsio.bak`, then validate:
 
@@ -670,7 +768,7 @@ You ARE the LLM here too.  Use the agent-mediated path: Sponsio mines determinis
 ### Do NOT
 
 - Do NOT run refresh on traces from an agent still in early iteration. Wait until the workflow is stable; otherwise every sprint invalidates the library.
-- Do NOT remove `source: scan` / `source: policy` entries in the yaml by hand just because refresh doesn't touch them — they represent knowledge refresh can't reconstruct (code AST, policy docs). If you think one is wrong, edit `overrides:`, don't delete.
+- Do NOT remove `source: scan` / `source: policy` entries in the yaml by hand just because refresh doesn't touch them — they represent knowledge refresh can't reconstruct (code AST, policy docs). If you think one is wrong, edit `customized:`, don't delete.
 
 ---
 
@@ -735,11 +833,11 @@ Check in this order:
 1. `sponsio validate --config sponsio.yaml --json` — does the contract parse? `ok: false` means it was silently dropped.
 2. The tool name in the contract matches the actual tool name the agent calls (LangGraph `node_id` vs the `@tool` Python name is a common trap; see `tool_rename:`).
 3. The rule has an `A:` (assumption) that isn't holding. Look at the trace — is the precondition ever true?
-4. The rule is a `sto` pattern but `judge:` isn't configured, so it silently falls back to "pass".
+4. The rule is a `sto` pattern (`injection_free`, `tone_*`, `semantic_pii_free`, …). The OSS engine ships no evaluator for those — `pip install sponsio[cloud]` to activate the judge pipeline. Without Cloud, OSS rejects the contract loudly at config load.
 
 ### "A rule is firing that shouldn't."
 
-Jump to W3. Don't disable in a panic — add a targeted `overrides:` entry with a `match:` clause, so the adjustment is traceable.
+Jump to W3. Don't disable in a panic — add a targeted `customized:` entry with a `match:` clause, so the adjustment is traceable.
 
 ### "`sponsio onboard` detected the wrong framework."
 
@@ -773,7 +871,7 @@ agents:
       exec: run_bash                 # host's actual tool names
       read: read_file
 
-    overrides:                       # tune shipped packs without forking them
+    customized:                      # tune shipped packs without forking them
       - match: { desc: "Each exec call needs its own confirm_reconfirmed" }
         A: "called `confirm_reconfirmed`"
       - match: { pattern: rate_limit, args: [send_email, 5] }
@@ -784,7 +882,7 @@ agents:
     contracts:                       # hand-written + scan-inferred contracts
       # NL form (short keys)
       - A: "called `modify_order`"
-        E: "must call `get_order_details` before `modify_order`"
+        G: "must call `get_order_details` before `modify_order`"
       # Omit A for unconditional
       - E: "tool `send_email` is rate-limited to 5 per session"
       # Structured dict (what scan emits for det patterns)
@@ -797,7 +895,7 @@ runtime:
   mode: observe                      # "observe" | "enforce"
   dashboard: http://localhost:8000   # URL | true | false | null
 
-judge:                               # required when any include uses sto
+judge:                               # Sponsio Cloud only — required when any include uses sto patterns
   provider: openai                   # openai | anthropic | gemini
   model: gpt-4o-mini
 ```
@@ -810,7 +908,7 @@ Placeholders rewritten at include-time: `<workspace>/` (from agent's `workspace:
 
 ## Pattern reference
 
-Full list: `sponsio patterns`. 29 det + 7 sto.
+Full list: `sponsio patterns` (deterministic templates only). LLM-judged stochastic templates are a Sponsio Cloud feature.
 
 ### Core Temporal (14 det)
 | Pattern | Meaning |
@@ -839,8 +937,8 @@ Full list: `sponsio patterns`. 29 det + 7 sto.
 ### Resource & Delegation (3 det)
 `token_budget(max_tokens)` · `arg_value_range(tool, field, min, max)` · `delegation_depth_limit(max_depth)`
 
-### Soft Evaluators (7 sto)
-`pii` · `length` · `format` · `content_prohibition` (no LLM) · `tone` · `relevance` · `llm_judge` (LLM judge)
+### Soft Evaluators
+LLM-judged stochastic atoms (`tone_*`, `relevance`, `llm_judge`, `injection_free`, `semantic_pii_free`, `scope_respect`, …) ship in Sponsio Cloud (`pip install sponsio[cloud]`). The OSS engine refuses to load them at config time with a clear pointer. Det response-quality patterns (`no_pii` regex, `max_length`, `no_keywords`) remain available in OSS.
 
 ---
 
@@ -896,7 +994,7 @@ If asked for something out of scope (e.g., "also check my DB schema"), say so an
 This skill only uses these. Internal refactors are safe as long as these stay stable.
 
 1. **CLI**: `sponsio onboard`, `sponsio scan PATHS [--agent N] [--llm] [--policy P] [-t GLOB] [-o FILE] [--append]`, `sponsio refresh [-c FILE] [-a AGENT] [-t GLOB] [--since DUR] [--mode add-only|replace-trace] [--apply]`, `sponsio validate [--config FILE | "NL string"] [--json]`, `sponsio check --trace FILE --config FILE --agent ID`, `sponsio report --agent ID --since DUR`, `sponsio doctor`, `sponsio patterns`, `sponsio packs`, `sponsio skill install [--tool cursor|claude|codex|both|auto]`. Exit 0 on success.
-2. **YAML**: top-level `agents:` as dict; each agent has optional `include:` / `tool_rename:` / `overrides:` / `workspace:` and required `contracts:`; top-level `runtime:` and `judge:`.
+2. **YAML**: top-level `agents:` as dict; each agent has optional `include:` / `tool_rename:` / `customized:` / `workspace:` and required `contracts:`; top-level `runtime:` and `judge:`.
 3. **Patterns**: names in the table above keep their semantics. Renaming is a breaking change for this skill.
 4. **`validate --json` shape**: per-contract `ok` / `type` / `pattern` / `formula` / `agent`.
 5. **`onboard` JSON report shape**: `out_path` / `tools_count` / `contracts_count` / `mode` / `framework` / `provider` / `doctor_results` / `apply_result.diff`.

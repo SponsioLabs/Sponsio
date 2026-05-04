@@ -52,7 +52,7 @@ agents:
       # =================================================================
 
       - desc: "Ban recursive deletes of sensitive roots"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - exec
@@ -72,7 +72,7 @@ agents:
           source: "library:tier1.shell"
 
       - desc: "Ban fork-bomb and obvious denial-of-service patterns"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - exec
@@ -88,7 +88,7 @@ agents:
           source: "library:tier1.shell"
 
       - desc: "Ban curl-to-shell and wget-to-shell (ClawHavoc ClickFix vector)"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - exec
@@ -100,7 +100,7 @@ agents:
           source: "library:tier1.shell"
 
       - desc: "Ban outbound reverse-shell / exfiltration primitives"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - exec
@@ -119,7 +119,7 @@ agents:
       # a privilege-sensitive command token.  Keeps the CVE coverage
       # while eliminating the biggest day-1 false-positive source.
       - desc: "Ban shell line-continuation chained into a privileged command (CVE-2026-28460)"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - exec
@@ -130,7 +130,7 @@ agents:
 
       - desc: "Ban undefined-variable-looking patterns that expand to empty in shell"
         # rm -rf {undefined}/{also_undefined} → rm -rf /
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - exec
@@ -144,13 +144,13 @@ agents:
       # =================================================================
 
       - desc: "Reject exec commands with suspiciously long inline payloads (injection indicator)"
-        E:
+        G:
           pattern: arg_length_limit
           args: [exec, command, 2000]
           source: "library:tier1.shell"
 
       - desc: "Cap exec calls per session"
-        E:
+        G:
           pattern: rate_limit
           args: [exec, 50]
           source: "library:tier1.shell"
@@ -167,7 +167,7 @@ agents:
       # development workflows. The session-wide rate_limit(exec, 50)
       # below remains the harder backstop.
       - desc: "No more than 20 consecutive exec calls (runaway loop cap)"
-        E:
+        G:
           pattern: loop_detection
           args: [exec, 20]
           source: "library:tier1.shell"
@@ -182,7 +182,7 @@ agents:
       # =================================================================
 
       - desc: "Privileged exec patterns (sudo, chmod 777, dd if=) require preceding human confirmation"
-        E:
+        G:
           ltl: 'G(called_with(exec, "(sudo\\s|dd\\s+if=|chmod\\s+777|chown\\s+-R|mount\\s)") -> count(confirm_reconfirmed) >= count_with(exec, "(sudo\\s|dd\\s+if=|chmod\\s+777|chown\\s+-R|mount\\s)"))'
           source: "library:tier1.shell"
 
@@ -198,7 +198,7 @@ agents:
       # batch-approve (CI pipelines, planned migrations).  If your
       # workflow does, override this rule in your config:
       #
-      #     overrides:
+      #     customized:
       #       - match: {desc: "Each exec call needs its own confirm_reconfirmed (no confirmation reuse)"}
       #         disabled: true
       #     contracts:
@@ -221,7 +221,7 @@ agents:
 
       - desc: "Each exec call needs its own confirm_reconfirmed (no confirmation reuse)"
         A: "called `confirm_reconfirmed`"
-        E:
+        G:
           ltl: "G(called(exec) -> count(confirm_reconfirmed) >= count(exec))"
           source: "library:tier1.shell"
 

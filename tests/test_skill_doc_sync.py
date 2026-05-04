@@ -79,6 +79,10 @@ SURFACE: list[tuple[tuple[str, ...], list[str]]] = [
     (("patterns",), []),
     (("packs",), []),
     (("skill", "install"), ["--tool", "--link", "--copy", "--dest"]),
+    (
+        ("plugin", "append"),
+        ["--from", "--target", "--root", "--dry-run"],
+    ),
 ]
 
 

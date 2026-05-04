@@ -262,7 +262,7 @@ class TestSplicePackBlock:
             agents:
               bot:
                 contracts:
-                  - E:
+                  - G:
                       pattern: rate_limit
                       args: [exec, 5]
             """)

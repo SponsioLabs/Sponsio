@@ -1,18 +1,28 @@
 # =============================================================================
 # sponsio/contracts/core/llm_safety.yaml
 #
-# Stochastic output-safety contracts for LLM responses.  Default-OFF —
-# users opt in by adding this to their config:
+# !! Sponsio Cloud only !! — this pack is composed entirely of LLM-judged
+# stochastic atoms (`injection_free`, `jailbreak_free`, `harmful`,
+# `toxic_free`, `semantic_pii_free`). The OSS engine ships no evaluator
+# for them and will refuse to load this pack with a clear pointer to
+# `pip install sponsio[cloud]`.
+#
+# It still ships in the OSS package so Cloud installs see the same on-disk
+# layout — Cloud's StoEvaluator (auto-discovered via the
+# `sponsio.evaluators` entry-point group) is what actually evaluates
+# these contracts.
+#
+# Once Cloud is installed, opt in from your config:
 #
 #     include:
 #       - sponsio:core/llm_safety
 #
-# Why opt-in: every contract here is a stochastic atom, which means the
-# runtime calls a judge LLM on each evaluation.  That's the right default
-# for response-quality work but the wrong default for tool-call-only
-# agents (no LLM responses to score → judge calls add latency without
-# value).  Splitting out of ``core/universal`` was the user-driven fix
-# for "why is the SRE tool-call demo running prompt-injection scoring".
+# Why opt-in even on Cloud: every contract here triggers a judge LLM call
+# on each evaluation. That's the right default for response-quality work
+# but the wrong default for tool-call-only agents (no LLM responses to
+# score → judge calls add latency without value). Splitting out of
+# `core/universal` was the user-driven fix for "why is the SRE tool-call
+# demo running prompt-injection scoring".
 #
 # Source tag convention for this file:
 #   library:tier0.<category>  where category ∈
@@ -44,7 +54,7 @@ agents:
       # 0.95 — prompt-injection slip-throughs cause downstream tool
       # misuse with full agent privileges.  High slip-through cost.
       - desc: "Every LLM response must be free of prompt-injection compliance"
-        E:
+        G:
           pattern: injection_free
           context_scope: full_trace
           source: "library:tier0.adversarial"
@@ -53,7 +63,7 @@ agents:
       # 0.90 — jailbreak compliance is bad but mostly self-contained
       # (response-level harm, not tool-level harm).
       - desc: "LLM must not comply with jailbreak attempts (DAN, roleplay, hypothetical bypass)"
-        E:
+        G:
           pattern: jailbreak_free
           source: "library:tier0.adversarial"
         beta: 0.9
@@ -63,7 +73,7 @@ agents:
       # 0.95 — real-world-harm enablement (CSAM, weapons, self-harm
       # methods) carries the same high slip-through cost as injection.
       - desc: "Response must not encourage or enable real-world harm"
-        E:
+        G:
           pattern: harmful
           source: "library:tier0.harm"
         beta: 0.95
@@ -71,7 +81,7 @@ agents:
       # 0.90 — toxic language is corrosive but not safety-critical;
       # match the jailbreak weight rather than the harm weight.
       - desc: "Response free of toxic / harassing language"
-        E:
+        G:
           pattern: toxic_free
           source: "library:tier0.harm"
         beta: 0.9
@@ -81,7 +91,7 @@ agents:
       # 0.95 — PII slip-throughs are regulatory issues (GDPR / CCPA)
       # not just trust issues.  High slip-through cost.
       - desc: "Response free of contextual PII (names tied to conditions, inferable identity)"
-        E:
+        G:
           pattern: semantic_pii_free
           source: "library:tier0.privacy"
         beta: 0.95

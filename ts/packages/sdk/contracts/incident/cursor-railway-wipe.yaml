@@ -93,7 +93,7 @@ agents:
       - desc: >-
           Block destructive Railway control-plane API calls
           (PocketOS-style 9-second prod wipe via curl + token).
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - exec
@@ -124,7 +124,7 @@ agents:
       - desc: >-
           Block Railway CLI destructive verbs (down / volume delete /
           environment delete / project delete / service delete).
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - exec
@@ -150,7 +150,7 @@ agents:
           Block ``curl -X DELETE`` against known cloud / PaaS control
           planes (Railway / Fly / Render / Supabase / Vercel / Heroku /
           Cloudflare / DigitalOcean / Linode / Hetzner / AWS / GCP / Azure).
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - exec

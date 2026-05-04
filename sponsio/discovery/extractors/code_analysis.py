@@ -1790,7 +1790,7 @@ class CodeAnalyzer:
             # (comments alone would parse the field as None and fail).
             lines.append("    contracts: []")
             lines.append("    # No constraints inferred — add your own.")
-            lines.append("    # Each entry is an (A, E) pair; A is optional.")
+            lines.append("    # Each entry is an (A, G) pair; A is optional.")
             lines.append("    #")
             lines.append("    # Unconditional invariant (no precondition):")
             lines.append('    # - G: "tool `check_policy` must precede `issue_refund`"')

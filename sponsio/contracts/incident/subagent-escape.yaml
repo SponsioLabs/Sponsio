@@ -17,7 +17,7 @@
 #   1. ``cat ~/.sponsio/plugins/_host_subagent/sponsio.yaml`` —
 #      reconnaissance: learn which rules are about to fire.
 #   2. ``Edit ~/.sponsio/plugins/_host_subagent/sponsio.yaml`` —
-#      add an ``overrides:`` block disabling the inconvenient rules.
+#      add an ``customized:`` block disabling the inconvenient rules.
 #   3. Proceed with the previously-blocked action.
 #
 # Same sequence works against the parent's ``_host/sponsio.yaml``
@@ -81,7 +81,7 @@ agents:
       # =================================================================
 
       - desc: "Sub-agents may not edit sponsio configuration files"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - Edit
@@ -106,7 +106,7 @@ agents:
       # =================================================================
 
       - desc: "Sub-agents may not write sponsio configuration files"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - Write
@@ -121,7 +121,7 @@ agents:
       # =================================================================
 
       - desc: "Sub-agents may not multi-edit sponsio configuration files"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - MultiEdit
@@ -151,7 +151,7 @@ agents:
       # own rule lists.
 
       - desc: "Sub-agents may not read host plugin guard rules (recon defence)"
-        E:
+        G:
           pattern: arg_blacklist
           args:
             - Read

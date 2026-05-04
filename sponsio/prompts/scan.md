@@ -39,14 +39,14 @@ produce **only** the new contract entries — the user (or you, via
 `Edit`) will splice them into the existing file.
 
 Each entry is a mapping with `desc:` (one line, human-readable) and an
-`E:` block holding either a `pattern:` reference (preferred) or a raw
+`G:` block holding either a `pattern:` reference (preferred) or a raw
 `ltl:`.
 
 ```yaml
 - desc: "Block exfil-shape POSTs after env-leak commands"
   A:
     ltl: 'F(arg_field_has(Bash, command, "(printenv|export[ ]+-p)"))'
-  E:
+  G:
     ltl: 'G(!arg_field_has(Bash, command, "curl.*-d.*\\$\\(.*\\)"))'
   source: "scan:bash_envleak_then_exfil"
 ```
@@ -117,7 +117,7 @@ to enforce and they wedge the agent.  For each tool in
 
 - Stay inside the published pattern vocabulary.  If a constraint
   doesn't fit one of those patterns, **describe** it as a `desc:`
-  comment and skip the `E:` block — better to flag the gap for human
+  comment and skip the `G:` block — better to flag the gap for human
   review than to invent a pattern that won't compile.
 - Each rule cites its source under `source:` using the convention
   `scan:<short-id>` so reviewers can trace the rule back.

@@ -113,15 +113,17 @@ G(Atom("injection_free", atom_type="sto", output_type="classify",
 
 
 def _render_sto_atoms() -> str:
-    """Auto-generate the sto-atom section of the LLM prompt from the
-    :mod:`sponsio.patterns.sto_registry` metadata.
+    """Auto-generate the sto-atom section of the LLM prompt.
 
-    Adding a new atom with ``@register_sto_atom(..., description=...,
-    required_args=..., default_context_scope=...)`` auto-populates this
-    section — the LLM sees the new atom without touching this module.
+    Reads metadata from ``sponsio_cloud.sto.registry`` when Sponsio
+    Cloud is installed; returns an empty string otherwise so the OSS
+    extractor doesn't hallucinate sto atoms it can't compile. Adding a
+    new atom with ``@register_sto_atom(..., description=...,
+    required_args=..., default_context_scope=...)`` on the Cloud side
+    auto-populates this section.
     """
     try:
-        from sponsio.patterns.sto_registry import list_sto_atom_infos
+        from sponsio_cloud.sto.registry import list_sto_atom_infos
     except ImportError:
         return ""
 
@@ -551,72 +553,30 @@ def _compile_det(item: dict) -> ExtractionResult:
 
 
 def _compile_sto(item: dict) -> ExtractionResult:
-    """Compile a single sto constraint from LLM JSON output."""
-    from sponsio.patterns.sto import StoFormula
-    from sponsio.patterns.sto_catalog import _SOFT_CATALOG
+    """Compile a single sto constraint from LLM JSON output.
 
-    category = item.get("category", "custom")
-    params = item.get("params", {})
+    Stochastic compilation (soft catalog + ``StoFormula``) lives in
+    Sponsio Cloud. The OSS engine ships no implementation, so we
+    surface the constraint as an extraction error pointing at
+    ``pip install sponsio[cloud]`` rather than crashing on a missing
+    import or — worse — accepting a half-built result that the
+    monitor classifies as pure-det and silently passes.
+    """
     nl = item.get("nl", "")
-    confidence = float(item.get("confidence", 0.5))
-    source_quote = item.get("source_quote", "")
-
-    result = ExtractionResult(
+    category = item.get("category", "custom")
+    return ExtractionResult(
         constraint_type="sto",
         pattern_name=category,
-        kwargs=params,
-        confidence=confidence,
+        kwargs=item.get("params", {}),
+        confidence=float(item.get("confidence", 0.5)),
         nl_description=nl,
-        source_quote=source_quote,
+        source_quote=item.get("source_quote", ""),
+        error=(
+            f"Stochastic constraint '{nl or category}' requires Sponsio Cloud "
+            f"(`pip install sponsio[cloud]`). The OSS engine ships no sto "
+            f"evaluator catalog."
+        ),
     )
-
-    # Build the evaluator function
-    factory = _SOFT_CATALOG.get(category)
-    if factory is None:
-        # Fall back to custom/llm_judge
-        factory = _SOFT_CATALOG.get("custom")
-        category = "custom"
-
-    try:
-        if category == "custom":
-            evaluator_fn = factory(nl)
-        elif category == "pii":
-            evaluator_fn = factory(fields=params.get("fields"))
-        elif category == "length":
-            evaluator_fn = factory(
-                max_words=params.get("max_words"),
-                max_chars=params.get("max_chars"),
-            )
-        elif category == "format":
-            evaluator_fn = factory(expected_format=params.get("format", "json"))
-        elif category == "tone":
-            evaluator_fn = factory(desired_tone=params.get("desired_tone", nl))
-        elif category == "relevance":
-            evaluator_fn = factory(topic=params.get("topic", nl))
-        elif category == "content_prohibition":
-            prohibited = params.get("prohibited", "")
-            if not prohibited:
-                result.error = "content_prohibition requires 'prohibited' param"
-                return result
-            evaluator_fn = factory(prohibited=prohibited)
-        else:
-            evaluator_fn = _SOFT_CATALOG["custom"](nl)
-    except Exception as e:
-        result.error = f"Soft evaluator construction failed: {e}"
-        return result
-
-    requires_llm = category in ("tone", "relevance", "custom")
-
-    result.compiled = StoFormula(
-        desc=nl,
-        category=category,
-        evaluator_fn=evaluator_fn,
-        threshold=params.get("threshold", 0.7),
-        pattern_name="sto",
-        requires_llm=requires_llm,
-    )
-
-    return result
 
 
 def compile_extraction(item: dict) -> ExtractionResult:

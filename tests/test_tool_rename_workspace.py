@@ -284,7 +284,7 @@ class TestEndToEnd:
             for c in cfg.agents["bot"].contracts
             if c.desc and "Writes restricted" in c.desc
         )
-        assert write_rule.enforcement.args == ["write", ["/Users/me/proj/"]]
+        assert write_rule.guarantee.args == ["write", ["/Users/me/proj/"]]
 
     def test_tool_rename_propagates_through_includes(self, tmp_path):
         """Rename ``exec → bash`` and verify the shell pack's first
@@ -306,12 +306,12 @@ class TestEndToEnd:
         first_arg_blacklist = next(
             c
             for c in cfg.agents["bot"].contracts
-            if c.enforcement
-            and not isinstance(c.enforcement, list)
-            and c.enforcement.pattern == "arg_blacklist"
+            if c.guarantee
+            and not isinstance(c.guarantee, list)
+            and c.guarantee.pattern == "arg_blacklist"
         )
         # First positional arg of arg_blacklist is the tool name
-        assert first_arg_blacklist.enforcement.args[0] == "bash"
+        assert first_arg_blacklist.guarantee.args[0] == "bash"
 
     def test_missing_workspace_with_placeholder_pack_errors(self, tmp_path):
         """The smoothness pin: forgetting ``workspace:`` while
@@ -349,12 +349,12 @@ class TestEndToEnd:
                 tool_rename: {read: read_file}
                 contracts:
                   - desc: "team rule"
-                    E: {pattern: must_precede, args: [read, write]}
+                    G: {pattern: must_precede, args: [read, write]}
             """,
         )
         cfg = load_config(cfg_path)
         team_rule = cfg.agents["bot"].contracts[0]
-        assert team_rule.enforcement.args == ["read_file", "write"]
+        assert team_rule.guarantee.args == ["read_file", "write"]
 
     def test_workspace_must_be_non_empty_string(self, tmp_path):
         cfg_path = _write_yaml(
@@ -384,7 +384,7 @@ class TestRewriteListShapes:
 
         ce_a = ConstraintEntry(pattern="rate_limit", args=["exec", 5])
         ce_b = ConstraintEntry(pattern="must_precede", args=["read", "exec"])
-        contract = ContractEntry(enforcement=[ce_a, ce_b])
+        contract = ContractEntry(guarantee=[ce_a, ce_b])
         _rewrite_contract_entry(contract, None, {"exec": "bash"}, "bot")
         assert ce_a.args == ["bash", 5]
         assert ce_b.args == ["read", "bash"]
@@ -394,7 +394,7 @@ class TestRewriteListShapes:
 
         a = ConstraintEntry(pattern="called", args=["exec"])
         e = ConstraintEntry(pattern="rate_limit", args=["exec", 1])
-        contract = ContractEntry(enforcement=e, assumption=a)
+        contract = ContractEntry(guarantee=e, assumption=a)
         _rewrite_contract_entry(contract, None, {"exec": "bash"}, "bot")
         assert a.args == ["bash"]
         assert e.args == ["bash", 1]

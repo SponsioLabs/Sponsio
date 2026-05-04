@@ -108,7 +108,7 @@ def _legacy_yaml_text() -> str:
         "      - sponsio:capability/shell\n"
         "    contracts:\n"
         "      - desc: Block sensitive paths\n"
-        "        E:\n"
+        "        G:\n"
         "          pattern: arg_blacklist\n"
         "          args: [Read, file_path, ['(^|/)\\.ssh/']]\n"
     )

@@ -137,7 +137,7 @@ class TestFinishSessionAssumptionGating:
                 {
                     # Assumption: some precondition never met
                     "assumption": "tool `session_start` must precede `handle_request`",
-                    "enforcement": "tool `handle_request` must always be followed by `cleanup`",
+                    "guarantee": "tool `handle_request` must always be followed by `cleanup`",
                 }
             ],
             verbose=False,

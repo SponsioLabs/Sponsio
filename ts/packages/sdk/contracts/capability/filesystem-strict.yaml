@@ -53,7 +53,7 @@ agents:
       # =================================================================
 
       - desc: "Writes restricted to workspace"
-        E:
+        G:
           pattern: scope_limit
           args:
             - write
@@ -61,7 +61,7 @@ agents:
           source: "library:tier1.filesystem-strict"
 
       - desc: "In-place edits restricted to workspace"
-        E:
+        G:
           pattern: scope_limit
           args:
             - edit
@@ -69,7 +69,7 @@ agents:
           source: "library:tier1.filesystem-strict"
 
       - desc: "Patch application restricted to workspace"
-        E:
+        G:
           pattern: scope_limit
           args:
             - apply_patch
@@ -82,7 +82,7 @@ agents:
       # sensitive-path blacklist in the base ``filesystem`` pack
       # keeps secrets hard-denied under any of these roots.
       - desc: "Reads restricted to workspace, /tmp, and read-only system paths"
-        E:
+        G:
           pattern: scope_limit
           args:
             - read

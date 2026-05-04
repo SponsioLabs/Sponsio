@@ -23,25 +23,25 @@ class ContractBuilder:
 
         contract("refund policy gate")
             .assume("called `issue_refund`")
-            .enforce("must call `check_policy` before `issue_refund`")
+            .guarantees("must call `check_policy` before `issue_refund`")
 
-    Repeated ``assume`` or ``enforce`` calls are AND-combined, matching
-    list-valued ``assumption`` / ``enforcement`` dict fields.
+    Repeated ``assume`` or ``guarantees`` calls are AND-combined,
+    matching list-valued ``assumption`` / ``guarantee`` dict fields.
     """
 
     desc: str | None = None
     assumption: Any | None = None
-    enforcement: Any | None = None
+    guarantee: Any | None = None
     alpha: float = 1.0
     beta: float = 1.0
 
     def assume(self, value: Any) -> ContractBuilder:
-        """Add an assumption condition, the A side of an A/E contract."""
+        """Add an assumption condition, the A side of an A/G contract."""
         return replace(self, assumption=_merge(self.assumption, value))
 
-    def enforce(self, value: Any) -> ContractBuilder:
-        """Add an enforcement condition, the E side of an A/E contract."""
-        return replace(self, enforcement=_merge(self.enforcement, value))
+    def guarantees(self, value: Any) -> ContractBuilder:
+        """Add a guarantee, the G side of an A/G contract."""
+        return replace(self, guarantee=_merge(self.guarantee, value))
 
     def thresholds(
         self,
@@ -49,7 +49,7 @@ class ContractBuilder:
         alpha: float | None = None,
         beta: float | None = None,
     ) -> ContractBuilder:
-        """Set stochastic assumption/enforcement thresholds."""
+        """Set stochastic assumption/guarantee thresholds."""
         return replace(
             self,
             alpha=self.alpha if alpha is None else alpha,
@@ -65,16 +65,16 @@ class ContractBuilder:
         """Alias for ``thresholds``.
 
         The singular reads naturally for one contract, while the plural
-        remains available for callers who think in A/E threshold pairs.
+        remains available for callers who think in A/G threshold pairs.
         """
         return self.thresholds(alpha=alpha, beta=beta)
 
     def to_dict(self) -> dict[str, Any]:
         """Return the canonical inline contract dict accepted by guards."""
-        if self.enforcement is None:
-            raise ValueError("contract(...).enforce(...) is required")
+        if self.guarantee is None:
+            raise ValueError("contract(...).guarantees(...) is required")
         out: dict[str, Any] = {
-            "enforcement": self.enforcement,
+            "guarantee": self.guarantee,
             "alpha": self.alpha,
             "beta": self.beta,
         }
