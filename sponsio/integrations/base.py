@@ -31,7 +31,12 @@ from sponsio.models.spans import AgentTurnSpan, render_tree
 from sponsio.models.system import System
 from sponsio.models.trace import Trace
 from sponsio.protocols.sto import StoEvaluator, StoResult
-from sponsio.runtime.feedback import FeedbackGenerator
+
+# FeedbackGenerator moved to sponsio-cloud (sto retry feedback is a
+# Cloud-pipeline concern). The minimal feedback formatting OSS still
+# needs lives inline below as ``_format_sto_feedback`` so the
+# delegation surface (``check_soft`` / ``refine``) keeps working when
+# Cloud injects a sto evaluator.
 from sponsio.runtime.monitor import RuntimeMonitor
 from sponsio.runtime.session_log import SessionLogger
 from sponsio.runtime.strategies import (
@@ -290,6 +295,38 @@ class CheckResult:
     @property
     def all_violations(self) -> list[EnforcementResult]:
         return self.det_violations + self.sto_violations
+
+
+# ---------------------------------------------------------------------------
+# Sto feedback formatting (used by ``check_soft`` / ``refine`` to render
+# a retry hint string from a ``StoResult``). The classy version with
+# template registries lives in the proprietary ``sponsio-cloud`` package
+# alongside the rest of the sto pipeline; this is the minimum shape
+# needed for OSS-side delegation to keep working when Cloud injects a
+# sto evaluator.
+# ---------------------------------------------------------------------------
+
+
+def _format_sto_feedback(
+    prop_name: str, result: StoResult, template: str | None = None
+) -> str:
+    """Render a sto-violation feedback string for the agent's next turn."""
+    if template:
+        try:
+            return template.format(
+                name=prop_name,
+                score=result.score,
+                evidence=result.evidence,
+                suggestion=result.suggestion,
+            )
+        except (KeyError, IndexError):
+            # Bad template — fall through to the generic phrasing
+            # rather than crashing the retry path on a formatting error.
+            pass
+    return (
+        f"Failed `{prop_name}` (score {result.score:.2f}): "
+        f"{result.evidence}. {result.suggestion}"
+    ).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -1171,8 +1208,6 @@ class BaseGuard:
             sto_violations: list[EnforcementResult] = []
             feedback_parts: list[str] = []
 
-            feedback_gen = FeedbackGenerator()
-
             for prop_name, (passed, sto_result) in checked.items():
                 if passed:
                     continue
@@ -1182,8 +1217,20 @@ class BaseGuard:
                 if prop_name in owned_by_contract and prop_name not in gated_pass:
                     continue
 
-                template = self._monitor._sto_evaluator.get_feedback_template(prop_name)
-                fb = feedback_gen.generate(prop_name, sto_result, template)
+                # ``get_feedback_template`` is an optional method on the
+                # StoEvaluator Protocol — Cloud's CloudStoEvaluator
+                # provides it; third-party impls may not. ``getattr``
+                # fallback keeps the contract minimal.
+                template = None
+                getter = getattr(
+                    self._monitor._sto_evaluator, "get_feedback_template", None
+                )
+                if getter is not None:
+                    try:
+                        template = getter(prop_name)
+                    except Exception:
+                        template = None
+                fb = _format_sto_feedback(prop_name, sto_result, template)
                 feedback_parts.append(fb)
 
                 sto_violations.append(
@@ -1220,23 +1267,8 @@ class BaseGuard:
     def refine(
         self, constraint_name: str, sto_result: StoResult, template: str | None = None
     ) -> str:
-        """Generate discriminative feedback for a sto constraint violation.
-
-        This is the feedback string you inject into the agent's next
-        prompt to guide it toward compliant output on retry.
-
-        Priority: explicit template > registered template > generic fallback.
-
-        Args:
-            constraint_name: Name of the violated constraint.
-            sto_result: The StoResult from evaluation.
-            template: Optional template override.
-
-        Returns:
-            Formatted feedback string for agent re-prompting.
-        """
-        gen = FeedbackGenerator()
-        return gen.generate(constraint_name, sto_result, template)
+        """Generate discriminative feedback for a sto constraint violation."""
+        return _format_sto_feedback(constraint_name, sto_result, template)
 
     # Backward-compatible aliases
     pre_check = guard_before

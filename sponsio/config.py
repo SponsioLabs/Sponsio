@@ -1747,24 +1747,36 @@ def build_extractor(section: ExtractorSection) -> Any:
 
 
 def build_sto_evaluator(section: JudgeSection) -> Any:
-    """Construct a :class:`StoEvaluator` from a ``judge:`` section.
+    """Construct a ``StoEvaluator`` from a ``judge:`` section.
 
-    Wires the fault-tolerance knobs (fallback / breaker) from YAML
-    straight through; the LLM ``provider``/``model``/``api_key``
-    fields are *advisory* — individual sto atoms read them through
-    their own client construction (we don't centralise judge-client
-    instantiation here because different atoms may want different
-    models, e.g. a fast model for ``tone`` and a thinking model for
-    ``injection_free``).
+    OSS ships no ``StoEvaluator`` implementation; this helper is a
+    thin wrapper over the entry-point auto-discovery that lives in
+    :func:`sponsio.integrations.base._discover_sto_evaluator`. When
+    Cloud is installed the discovered ``CloudStoEvaluator`` is
+    instantiated and returned (without forwarding section knobs —
+    the Cloud impl reads its own config); otherwise raises with a
+    pointer to ``pip install sponsio[cloud]``.
+
+    Section knobs (``fallback_mode``, ``circuit_breaker``, …) are
+    parsed and validated by ``JudgeSection`` itself; they're advisory
+    here because the OSS layer can't know which Cloud impl is going
+    to be discovered or what its constructor expects.
     """
-    from sponsio.runtime.evaluators import StoEvaluator
+    from sponsio.integrations.base import _discover_sto_evaluator
 
-    return StoEvaluator(
-        fallback_mode=section.fallback_mode,  # type: ignore[arg-type]
-        circuit_breaker=section.circuit_breaker,
-        failure_threshold=section.failure_threshold,
-        cooldown_seconds=section.cooldown_seconds,
-    )
+    ev = _discover_sto_evaluator()
+    if ev is None:
+        raise ConfigError(
+            "judge: section requires a StoEvaluator implementation. "
+            "The OSS engine ships none — install Sponsio Cloud with "
+            "`pip install sponsio[cloud]` and the implementation will "
+            "be auto-discovered via the `sponsio.evaluators` "
+            "entry-point group."
+        )
+    # Section is currently unused — Cloud impls read their own config.
+    # Kept on the signature so existing callers pass through unchanged.
+    del section
+    return ev
 
 
 def config_to_system(

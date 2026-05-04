@@ -34,19 +34,20 @@ from sponsio.models.result import Violation
 from sponsio.models.spans import AgentTurnSpan, SpanCollector
 from sponsio.models.system import System
 from sponsio.models.trace import Event, Trace
-from sponsio.runtime.evaluators import DetEvaluator, StoEvaluator, StoResult
-from sponsio.runtime.feedback import FeedbackGenerator
+from sponsio.protocols.sto import StoEvaluator, StoResult
+from sponsio.runtime.evaluators import DetEvaluator
 from sponsio.runtime.perf import CheckTimer, PerformanceTracker
 from sponsio.runtime.strategies import (
     ActionContext,
+    DetBlock,
     EnforcementResult,
     EnforcementStrategy,
-    DetBlock,
     EscalateToHuman,
-    RetryWithConstraint,
     RedirectToSafe,
+    RetryWithConstraint,
 )
 from sponsio.runtime.verifier import TraceVerifier, Verdict
+
 
 logger = logging.getLogger(__name__)
 
@@ -258,7 +259,6 @@ class RuntimeMonitor:
         self._atom_caches: weakref.WeakKeyDictionary[
             Any, dict[tuple[int, int], float]
         ] = weakref.WeakKeyDictionary()
-        self._feedback_generator = FeedbackGenerator()
         import threading
 
         # Reentrant: ``check_action`` takes the lock for the full pipeline

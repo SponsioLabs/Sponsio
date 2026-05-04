@@ -215,18 +215,20 @@ class TestJudgeSection:
         with pytest.raises(ConfigError, match="fallback_mode"):
             load_config(path)
 
-    def test_build_sto_evaluator_propagates_knobs(self):
+    def test_build_sto_evaluator_requires_cloud(self):
+        """OSS ships no StoEvaluator implementation; ``build_sto_evaluator``
+        must surface a Cloud-pointing ConfigError instead of silently
+        returning some no-op stub."""
+        from sponsio.config import ConfigError
+
         section = JudgeSection(
             fallback_mode="deny",
             circuit_breaker=False,
             failure_threshold=7,
             cooldown_seconds=42.0,
         )
-        ev = build_sto_evaluator(section)
-        assert ev._fallback_mode == "deny"
-        assert ev._circuit_breaker is False
-        assert ev._failure_threshold == 7
-        assert ev._cooldown_seconds == 42.0
+        with pytest.raises(ConfigError, match="sponsio\\[cloud\\]"):
+            build_sto_evaluator(section)
 
 
 # ---------------------------------------------------------------------------

@@ -21,15 +21,11 @@ and we lose the block-vs-retry distinction at the agent level.
 from sponsio.formulas.formula import Atom, Implies, G
 from sponsio.models.result import Violation
 from sponsio.patterns.library import DetFormula
-from sponsio.runtime.evaluators import StoResult
-from sponsio.runtime.feedback import FeedbackGenerator
 from sponsio.runtime.strategies import (
     ActionContext,
     DetBlock,
     EscalateToHuman,
     OutcomeBuilder,
-    RedirectToSafe,
-    RetryWithConstraint,
     WarnOnly,
 )
 
@@ -91,40 +87,9 @@ def test_block_outcome_tells_agent_to_abandon():
     assert out.retry_hint is None
 
 
-def test_retry_outcome_tells_agent_to_regenerate():
-    strat = RetryWithConstraint(max_retries=2, feedback_generator=FeedbackGenerator())
-    sto_result = StoResult(
-        score=0.42,
-        evidence="too casual",
-        suggestion="use formal register",
-    )
-    out = strat.enforce(
-        _det_violation(desc="tone_match", pattern="tone_match"),
-        _ctx(),
-        sto_result=sto_result,
-    )
-    assert out.action == "retrying"
-    # Retry voice must invite regeneration, not abandonment.
-    assert "regenerate" in out.agent_msg.lower()
-    # Hint must carry the discriminative feedback the
-    # FeedbackGenerator produced.
-    assert out.retry_hint is not None
-    assert "tone_match" in out.retry_hint
-
-
-def test_retry_then_block_after_max_attempts_switches_voice():
-    """After max retries, the strategy must flip to ``blocked`` —
-    and the agent_msg must flip from "try again" to "stop trying".
-    """
-    strat = RetryWithConstraint(max_retries=1)
-    v = _det_violation(desc="hallucination_free", pattern="hallucination_free")
-    ctx = _ctx()
-    first = strat.enforce(v, ctx)
-    assert first.action == "retrying"
-    second = strat.enforce(v, ctx)
-    assert second.action == "blocked"
-    # The terminal block voice must explicitly stop the loop.
-    assert "stop" in second.agent_msg.lower()
+# Sto-pipeline retry / redirect tests live in sponsio-cloud's test
+# suite alongside ``RetryWithConstraint`` / ``RedirectToSafe`` /
+# ``StoResult`` / ``FeedbackGenerator`` / ``OutcomeBuilder.for_sto_*``.
 
 
 # ---------------------------------------------------------------------------
@@ -138,20 +103,16 @@ def test_rule_id_pulled_from_det_formula_pattern_name():
 
 
 def test_rule_id_falls_back_to_violation_desc_when_no_formula_pattern():
-    """Sto evaluators set ``violation.desc`` to the atom name; with no
-    DetFormula attached, the builder must use that as the rule_id.
-    """
+    """When no ``DetFormula.pattern_name`` is attached, the builder must
+    fall back to ``violation.desc`` as the rule_id."""
     v = Violation(
         agent_id="bot",
-        # An Atom directly (no DetFormula wrapper) has no pattern_name.
-        formula=Atom("injection_free"),
-        kind="sto",
-        desc="injection_free",
+        formula=None,
+        kind="guarantee",
+        desc="rate_limit_Bash",
     )
-    out = OutcomeBuilder.for_sto_retry(
-        v, _ctx(), attempt=1, max_attempts=3, retry_hint="strip the prompt injection"
-    )
-    assert out.rule_id == "injection_free"
+    out = OutcomeBuilder.for_det_block(v, _ctx())
+    assert out.rule_id == "rate_limit_Bash"
 
 
 # ---------------------------------------------------------------------------
@@ -166,17 +127,6 @@ def test_alternatives_round_trip_through_block_outcome():
         alternatives=["refund_partial", "escalate_to_supervisor"],
     )
     assert out.alternatives == ["refund_partial", "escalate_to_supervisor"]
-
-
-def test_redirect_leaves_agent_msg_empty():
-    """Redirect is transparent — agent sees the substitute output, not
-    an explanation. agent_msg must stay empty so the integration knows
-    not to inject any extra commentary alongside the fallback.
-    """
-    out = RedirectToSafe(fallback="<sanitized>").enforce(_det_violation(), _ctx())
-    assert out.action == "redirected"
-    assert out.agent_msg == ""
-    assert out.fallback_action == "<sanitized>"
 
 
 def test_escalate_carries_wait_voice_in_agent_msg():
@@ -204,19 +154,6 @@ def test_warn_carries_no_agent_msg():
 # ---------------------------------------------------------------------------
 
 
-def test_retry_hint_and_legacy_retry_prompt_carry_same_value():
-    """Integrations that already read ``retry_prompt`` must keep
-    seeing the lesson — the OutcomeBuilder mirrors it into both
-    fields so we don't have a flag day for adapters.
-    """
-    strat = RetryWithConstraint(max_retries=2, feedback_generator=FeedbackGenerator())
-    sto_result = StoResult(
-        score=0.3,
-        evidence="contradicts source",
-        suggestion="cite the source",
-    )
-    out = strat.enforce(
-        _det_violation(desc="faithfulness"), _ctx(), sto_result=sto_result
-    )
-    assert out.retry_hint == out.retry_prompt
-    assert out.retry_hint is not None
+# ``test_retry_hint_and_legacy_retry_prompt_carry_same_value`` moved
+# to sponsio-cloud's test suite — it exercises the sto retry path,
+# which now lives in that package.
