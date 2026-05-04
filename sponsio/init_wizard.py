@@ -281,6 +281,7 @@ def plan_commands(
     picks: InitPicks,
     *,
     ts_project: bool = False,
+    scan_ts_already_installed: bool = False,
 ) -> list[list[str]]:
     """Return the argv vectors ``sponsio init --apply`` would run.
 
@@ -321,9 +322,17 @@ def plan_commands(
             # picks it up locally.  Bonus: ``--save-dev`` records
             # the dep in package.json so subsequent runs are
             # cached.
-            cmds.append(
-                ["npm", "install", "--save-dev", "@sponsio/scan-ts"]
-            )
+            #
+            # Skip the install when scan-ts is ALREADY in
+            # node_modules — running ``npm install --save-dev``
+            # against an existing entry would overwrite ``npm
+            # link``-ed development versions with the published
+            # release, silently undoing the user's local-source
+            # workflow.
+            if not scan_ts_already_installed:
+                cmds.append(
+                    ["npm", "install", "--save-dev", "@sponsio/scan-ts"]
+                )
             # Older published versions of ``@sponsio/scan-ts``
             # (alpha.3 and below) didn't accept ``--mode`` on the
             # ``onboard`` subcommand — passing it errored with

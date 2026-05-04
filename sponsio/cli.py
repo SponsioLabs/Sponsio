@@ -3797,11 +3797,22 @@ def init(
 
     target_dir = target if target.is_dir() or not target.suffix else target.parent
     env = detect_environment(target_dir)
+    # Detect a pre-existing ``@sponsio/scan-ts`` install (via ``npm
+    # install`` OR ``npm link``) so we can skip the redundant
+    # install step in plan.  Skipping is critical for ``npm link``
+    # workflows — running ``npm install --save-dev`` against a
+    # linked package overwrites the symlink with the published
+    # release, silently undoing the user's local-source testing.
+    _scan_ts_installed = (target_dir / "node_modules" / "@sponsio" / "scan-ts").exists()
 
     # ---- non-TTY paths: --plan / --apply ----
     if plan_spec is not None:
         picks = parse_picks(plan_spec)
-        cmds = plan_commands(picks, ts_project=env.runtime == "ts")
+        cmds = plan_commands(
+            picks,
+            ts_project=env.runtime == "ts",
+            scan_ts_already_installed=_scan_ts_installed,
+        )
         if not cmds:
             click.echo(
                 "Nothing to do — picks select no framework wrap and no "
@@ -3818,7 +3829,11 @@ def init(
     else:
         picks = run_interactive(env)
 
-    cmds = plan_commands(picks, ts_project=env.runtime == "ts")
+    cmds = plan_commands(
+        picks,
+        ts_project=env.runtime == "ts",
+        scan_ts_already_installed=_scan_ts_installed,
+    )
     if not cmds:
         click.echo()
         click.secho(
