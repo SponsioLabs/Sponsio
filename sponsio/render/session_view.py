@@ -261,6 +261,7 @@ def render_session(
     env: str | None = None,
     sdk: str | None = None,
     ctas: list[str] | None = None,
+    include_replay_cta: bool = True,
 ) -> None:
     """Render the end-of-session view to ``console``.
 
@@ -282,6 +283,14 @@ def render_session(
         ctas:       Lines for the CTA footer. Defaults to
                     ``sponsio explain <first-violator>`` +
                     ``sponsio replay <session_id>``.
+        include_replay_cta: Whether to include the
+                    ``sponsio replay <session_id>`` line in the
+                    auto-generated CTAs.  Set to ``False`` when the
+                    session is ephemeral (e.g. ``sponsio demo``,
+                    test fixtures) — the replay command would
+                    error with "no session matched" because no
+                    log file was persisted.  No effect when ``ctas``
+                    is supplied explicitly.
     """
     if session_id is None:
         session_id = short_session_id(f"{agent_id}-{os.getpid()}")
@@ -381,7 +390,9 @@ def render_session(
 
     # 7. CTA footer.
     if ctas is None:
-        ctas = _default_ctas(turn_spans, alias_map, session_id)
+        ctas = _default_ctas(
+            turn_spans, alias_map, session_id, include_replay=include_replay_cta
+        )
     if ctas:
         console.print(cta_line(ctas))
 
@@ -460,7 +471,11 @@ def _env_default() -> str:
 
 
 def _default_ctas(
-    turn_spans: list, alias_map: dict[str, str], session_id: str
+    turn_spans: list,
+    alias_map: dict[str, str],
+    session_id: str,
+    *,
+    include_replay: bool = True,
 ) -> list[str]:
     out: list[str] = []
     # First contract that blocked — surface it for `sponsio explain`.
@@ -476,7 +491,9 @@ def _default_ctas(
                     alias = alias_map.get(check.contract_name)
                     if alias:
                         out.append(f"sponsio explain {alias}")
-                        out.append(f"sponsio replay {session_id}")
+                        if include_replay:
+                            out.append(f"sponsio replay {session_id}")
                         return out
-    out.append(f"sponsio replay {session_id}")
+    if include_replay:
+        out.append(f"sponsio replay {session_id}")
     return out

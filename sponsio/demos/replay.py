@@ -187,6 +187,11 @@ def _run_steps(
                 mode=getattr(guard, "_mode", "enforce"),
                 contracts=list(system._contracts),
                 turn_spans=list(monitor.turn_spans),
+                # Demos don't persist a session log to
+                # ``~/.sponsio/sessions/`` — the auto CTA
+                # ``sponsio replay sess_<id>`` would error with
+                # "no session matched".  Drop it.
+                include_replay_cta=False,
             )
     except Exception:
         # Never let a render bug swallow the demo — fall back to print_summary.
