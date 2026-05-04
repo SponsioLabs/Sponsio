@@ -4149,14 +4149,26 @@ def onboard(
     # output paths (--json, --emit-context) so consumers parsing
     # stdout don't have to sed past it.
     if not as_json and not emit_context:
-        from sponsio.render.components import header_banner as _header_banner
+        from sponsio.render.components import (
+            header_banner as _header_banner,
+            section_rule as _section_rule,
+        )
         from sponsio.runtime.terminal import (
             _make_stderr_console as _make_console,
         )
 
         _hdr_console = _make_console(None)
         _hdr_console.print()
-        _hdr_console.print(_header_banner(tagline="onboard"))
+        # When ``sponsio init`` dispatched us, the wizard has already
+        # printed its own ``━━━ ◒◓ Sponsio ━━━ onboarding wizard ━━━``
+        # banner above us — repeating a full banner here makes the
+        # transition feel like a second program starting.  Use a
+        # thin section rule so the user still sees a clear "now
+        # running onboard" marker without the visual reset.
+        if os.environ.get("SPONSIO_INIT_DISPATCH"):
+            _hdr_console.print(_section_rule("sponsio onboard"))
+        else:
+            _hdr_console.print(_header_banner(tagline="onboard"))
 
     # One spinner per command — long-wait emits (``…``-suffixed) start
     # it, the next emit (or the final ``stop()`` after run_onboard)
@@ -4454,6 +4466,7 @@ def onboard(
     # prompt; ``--json`` / ``--emit-context`` / ``--no-interactive``
     # also skip it (structured-output paths must not pollute stdout
     # with a click prompt). Fallback when no signal: ``observe``.
+    mode_was_explicit = mode is not None
     mode = _resolve_runtime_mode(mode, allow_prompt=is_interactive)
 
     target_dir = target if target.is_dir() else target.parent
@@ -4756,6 +4769,8 @@ def onboard(
         and is_interactive
         and not as_json
         and not emit_context
+        and not mode_was_explicit  # honor caller's `--mode` choice
+        and not os.environ.get("SPONSIO_INIT_DISPATCH")
         and report.mode == "observe"
     ):
         click.echo()

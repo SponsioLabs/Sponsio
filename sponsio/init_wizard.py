@@ -351,6 +351,14 @@ def apply_commands(
         runner = subprocess.run
 
     use_env = env if env is not None else os.environ.copy()
+    # Mark dispatched subprocesses so they can downsize their own
+    # banner / skip post-run prompts that the wizard already covered
+    # (notably the "Mode is observe — flip to enforce now?" prompt
+    # that ``sponsio onboard`` prints when run directly).  Without
+    # this, the wizard asks for mode, dispatches `--mode observe`,
+    # and onboard then asks again at the end — confusing the user
+    # into thinking their wizard pick didn't take.
+    use_env["SPONSIO_INIT_DISPATCH"] = "1"
     for i, cmd in enumerate(commands, 1):
         # Multi-step runs get a thin "[i/N]" header so the user can
         # follow which step's output they're seeing.  Single-step
