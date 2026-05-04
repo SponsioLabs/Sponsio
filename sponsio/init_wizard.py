@@ -107,15 +107,43 @@ _HOST_BINARY: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 
+# Per-IDE Sponsio level — single source of truth for axis 2.
+# ``host install`` already drops the SKILL.md by default
+# (``--with-skill`` is on), so a separate "install skill" axis was
+# redundant + confusing.  Folded into a per-IDE level pick:
+#   "none"  — don't touch this IDE
+#   "skill" — drop SKILL.md only (agent learns Sponsio; tools NOT gated)
+#   "full"  — host hooks + skill (the canonical "protect this IDE" pick)
+IDE_LEVELS: tuple[str, ...] = ("none", "skill", "full")
+
+
 @dataclass
 class InitPicks:
-    """The four-axis selection a user (or the IDE agent) hands to
-    ``sponsio init``.  Symmetric in TTY + non-TTY paths."""
+    """The 3-axis selection a user (or the IDE agent) hands to
+    ``sponsio init``.  Symmetric across TTY + non-TTY paths.
+
+    Axes:
+      1. ``framework`` — wrap the agent code in this repo (single)
+      2. ``ide_levels`` — per-IDE Sponsio level (multi, single-pick each)
+      3. ``mode`` — observe vs enforce (single)
+    """
 
     framework: str = "none"
-    hosts: list[str] = field(default_factory=list)
-    skills: list[str] = field(default_factory=list)
+    ide_levels: dict[str, str] = field(default_factory=dict)
     mode: str = "observe"
+
+    @property
+    def hosts(self) -> list[str]:
+        """IDEs picked at level ``"full"`` — these get ``host install``."""
+        return [ide for ide, level in self.ide_levels.items() if level == "full"]
+
+    @property
+    def skills(self) -> list[str]:
+        """IDEs picked at level ``"skill"`` — these get ``skill install``
+        only.  ``"full"`` IDEs are NOT in this list, since
+        ``host install --with-skill`` (the default) already drops the
+        skill into them."""
+        return [ide for ide, level in self.ide_levels.items() if level == "skill"]
 
 
 def parse_picks(spec: str) -> InitPicks:
@@ -123,12 +151,16 @@ def parse_picks(spec: str) -> InitPicks:
 
     Format::
 
-        framework=<name>;hosts=<a>,<b>;skills=<a>,<b>;mode=<observe|enforce>
+        framework=<name>;ides=<ide>:<level>,<ide>:<level>;mode=<observe|enforce>
 
-    Empty value lists are explicit (``hosts=``).  Unknown segments are
-    silently ignored — forward-compat for added axes.  Unknown values
-    within a known axis are dropped in :func:`plan_commands` so this
-    parser stays a pure string→struct transform.
+    Where ``<level>`` is one of :data:`IDE_LEVELS`.  Legacy format with
+    separate ``hosts=`` / ``skills=`` lists is also accepted for
+    backward compat — ``hosts=X`` ↔ ``ides=X:full``,
+    ``skills=X`` ↔ ``ides=X:skill``.
+
+    Unknown segments are silently ignored (forward-compat).  Unknown
+    values within a known axis are dropped in :func:`plan_commands`,
+    keeping this parser a pure string→struct transform.
     """
     p = InitPicks()
     if not spec:
@@ -142,10 +174,29 @@ def parse_picks(spec: str) -> InitPicks:
         val = val.strip()
         if key == "framework":
             p.framework = val or "none"
+        elif key == "ides":
+            for entry in val.split(","):
+                entry = entry.strip()
+                if not entry or ":" not in entry:
+                    continue
+                ide, _, level = entry.partition(":")
+                ide = ide.strip()
+                level = level.strip()
+                if ide and level in IDE_LEVELS and level != "none":
+                    p.ide_levels[ide] = level
         elif key == "hosts":
-            p.hosts = [v.strip() for v in val.split(",") if v.strip()]
+            # Legacy: ``hosts=X,Y`` → both at ``full``.
+            for v in val.split(","):
+                v = v.strip()
+                if v:
+                    p.ide_levels[v] = "full"
         elif key == "skills":
-            p.skills = [v.strip() for v in val.split(",") if v.strip()]
+            # Legacy: ``skills=X`` → ``skill``, but only if not already
+            # picked at ``full`` (full implies skill, no demotion).
+            for v in val.split(","):
+                v = v.strip()
+                if v and p.ide_levels.get(v) != "full":
+                    p.ide_levels[v] = "skill"
         elif key == "mode":
             p.mode = val or "observe"
     return p
@@ -153,10 +204,10 @@ def parse_picks(spec: str) -> InitPicks:
 
 def format_picks(p: InitPicks) -> str:
     """Inverse of :func:`parse_picks` — round-trip stable."""
+    ides_str = ",".join(f"{ide}:{level}" for ide, level in p.ide_levels.items())
     return (
         f"framework={p.framework};"
-        f"hosts={','.join(p.hosts)};"
-        f"skills={','.join(p.skills)};"
+        f"ides={ides_str};"
         f"mode={p.mode}"
     )
 
@@ -226,10 +277,18 @@ def plan_commands(
     """Return the argv vectors ``sponsio init --apply`` would run.
 
     Mirrors the IDE-agent wizard prompt's step-2 mapping so dry-run and
-    the agent's preview surface the SAME command list.  Skips axes whose
-    pick is empty.  Filters typos (a host name not in
-    :data:`SUPPORTED_HOSTS`) silently — the user's job is to pick from
-    the panel, not to spell the value verbatim.
+    the agent's preview surface the SAME command list.
+
+    The per-IDE level picks resolve like this:
+      - ``"full"`` IDEs → one ``sponsio host install`` covering all of
+        them (``--with-skill`` is the default, so SKILL.md is dropped
+        as a side effect).
+      - ``"skill"`` IDEs → one ``sponsio skill install`` per IDE.
+      - ``"none"`` IDEs → no command emitted.
+
+    Filters typos (an IDE not in :data:`SUPPORTED_HOSTS` /
+    :data:`SUPPORTED_SKILL_TARGETS`) silently — the user's job is to
+    pick from the panel, not to spell the value verbatim.
     """
     cmds: list[list[str]] = []
 
@@ -243,22 +302,19 @@ def plan_commands(
                 ["sponsio", "onboard", ".", "--mode", picks.mode, "--force"]
             )
 
-    if picks.hosts:
-        valid_hosts = [h for h in picks.hosts if h in SUPPORTED_HOSTS]
-        if valid_hosts:
-            cmds.append(
-                ["sponsio", "host", "install", *valid_hosts, "--mode", picks.mode]
-            )
+    full_hosts = [h for h in picks.hosts if h in SUPPORTED_HOSTS]
+    if full_hosts:
+        cmds.append(
+            ["sponsio", "host", "install", *full_hosts, "--mode", picks.mode]
+        )
 
-    # Skill install only for IDEs NOT already covered by axis 2's
-    # ``--with-skill`` default — avoids the redundant double-drop.
-    extra_skills = [
-        s
-        for s in picks.skills
-        if s in SUPPORTED_SKILL_TARGETS and s not in picks.hosts
-    ]
-    for s in extra_skills:
-        cmds.append(["sponsio", "skill", "install", "--tool", s])
+    # ``"skill"``-level IDEs need an explicit ``skill install`` because
+    # they're NOT going through ``host install`` (no hooks wanted).
+    # Filter to known skill-install targets so a typo doesn't reach
+    # the subcommand and turn into a confusing error.
+    for s in picks.skills:
+        if s in SUPPORTED_SKILL_TARGETS:
+            cmds.append(["sponsio", "skill", "install", "--tool", s])
 
     return cmds
 
@@ -360,73 +416,122 @@ def _section(label: str) -> None:
     console.print(section_rule(label))
 
 
-def run_interactive(env: Environment) -> InitPicks:
-    """Walk the four axes via sequential ``click.prompt`` /
-    ``click.confirm`` calls.  Returns the answers as :class:`InitPicks`.
+def _select(prompt: str, choices: list, default=None):
+    """Single-pick keyboard menu — questionary if available, else
+    click.prompt with show_choices for graceful fallback.
 
-    Visual style: panel header (banner + meta grid) printed once, each
-    axis gets a section rule + a short ◉/○ summary + the prompt.
-    Single-line results — no live re-paint, matching the existing
-    ``onboard_setup`` style.
+    ``choices`` may be a list of strings OR a list of
+    ``(value, display)`` tuples — questionary handles the tuple form
+    natively; the click fallback uses the value side only.
+    """
+    try:
+        import questionary
+    except ImportError:
+        # Click fallback — flatten tuples to value-only.
+        plain = [c[0] if isinstance(c, tuple) else c for c in choices]
+        return click.prompt(
+            prompt,
+            default=default,
+            type=click.Choice(plain, case_sensitive=False),
+            show_choices=True,
+        )
+
+    q_choices = []
+    for c in choices:
+        if isinstance(c, tuple):
+            q_choices.append(questionary.Choice(title=c[1], value=c[0]))
+        else:
+            q_choices.append(questionary.Choice(title=c, value=c))
+    answer = questionary.select(
+        prompt,
+        choices=q_choices,
+        default=default,
+        instruction="(↑/↓ to move, Enter to confirm)",
+    ).ask()
+    if answer is None:  # user hit Ctrl-C
+        raise click.Abort()
+    return answer
+
+
+def run_interactive(env: Environment) -> InitPicks:
+    """Walk three axes via keyboard-driven menus.
+
+    - Framework wrap: single-pick from supported list (detected = default).
+    - Per-IDE level: for each detected IDE, single-pick from
+      ``none / skill / full`` so users see the host-vs-skill tradeoff
+      ON ONE LINE per IDE instead of stitched across two confusing
+      multi-axes.
+    - Mode: single-pick (observe / enforce).
+
+    Header (banner + detected metadata) renders via
+    :mod:`sponsio.render.components` so the visual style matches
+    ``sponsio doctor`` / ``sponsio report``.  The picker itself uses
+    questionary (an Inquirer.js-style keyboard menu) for the actual
+    arrow-key navigation — text-input "type the option name" was the
+    UX issue users flagged on first contact.
     """
     _print_panel_header(env)
 
-    # ---- Axis 1: framework wrap (single) ----
+    # ---- Axis 1: framework wrap ----
     _section("framework wrap")
+    fw_choices = []
     for fw in SUPPORTED_FRAMEWORKS:
-        marker = "◉" if fw == env.framework else "○"
         suffix = "  ← detected" if fw == env.framework else ""
-        click.echo(f"    {marker} {fw}{suffix}")
-    framework = click.prompt(
-        "  Pick framework",
+        fw_choices.append((fw, f"{fw}{suffix}"))
+    framework = _select(
+        "Pick framework wrap",
+        fw_choices,
         default=env.framework,
-        type=click.Choice(SUPPORTED_FRAMEWORKS, case_sensitive=False),
-        show_choices=False,
     )
 
-    # ---- Axis 2: protect host agents (multi) ----
-    _section("protect host agents")
-    for h in SUPPORTED_HOSTS:
-        installed = h in env.ides_installed
-        suffix = "(installed)" if installed else "not installed"
-        click.echo(f"    {h:<14} {suffix}")
-    click.echo()
-    hosts: list[str] = []
+    # ---- Axis 2: per-IDE Sponsio level ----
+    # Combined what used to be "host install" + "skill install" into
+    # one per-IDE single-pick.  ``host install --with-skill`` is the
+    # default, so the old "axis 2 (hosts) + axis 3 (skills)" had a
+    # confusing overlap (axis 2 already drops the skill into picked
+    # hosts).  ``full`` here is "host hooks + skill"; ``skill`` is
+    # "SKILL.md only, no enforcement".
+    _section("Sponsio integration per IDE")
+    click.echo(
+        "    none   — leave this IDE alone\n"
+        "    skill  — drop SKILL.md so the agent learns Sponsio "
+        "(no enforcement)\n"
+        "    full   — host hooks + SKILL.md (the canonical 'protect "
+        "this IDE' pick)\n"
+    )
+    ide_levels: dict[str, str] = {}
     for h in SUPPORTED_HOSTS:
         if h not in env.ides_installed:
+            click.secho(f"    {h:<14} (not installed — skipping)", dim=True)
             continue
-        if click.confirm(f"  Install Sponsio hooks for {h}?", default=False):
-            hosts.append(h)
+        level = _select(
+            f"  Sponsio level for {h}",
+            list(IDE_LEVELS),
+            default="none",
+        )
+        if level != "none":
+            ide_levels[h] = level
 
-    # ---- Axis 3: install skill in IDEs not covered by axis 2 ----
-    _section("install Sponsio skill in")
-    skills: list[str] = []
-    remaining = [
-        s
-        for s in SUPPORTED_SKILL_TARGETS
-        if s in env.ides_installed and s not in hosts
-    ]
-    if not remaining:
-        click.echo("    (axis 2 already covers every detected IDE — skipping)")
-    else:
-        for s in remaining:
-            if click.confirm(f"  Install skill in {s}?", default=False):
-                skills.append(s)
+    # Codex doesn't have a host hook today, but `skill install --tool
+    # codex` works.  Offer it as a separate skill-only question if the
+    # binary's on PATH.
+    if shutil.which("codex"):
+        if click.confirm(
+            "  Drop Sponsio SKILL.md into Codex too?", default=False
+        ):
+            ide_levels["codex"] = "skill"
 
-    # ---- Axis 4: mode (single, default observe) ----
+    # ---- Axis 3: mode ----
     _section("mode for new contracts")
-    click.echo("    ◉ observe       ○ enforce")
-    mode = click.prompt(
-        "  Mode",
+    mode = _select(
+        "Mode",
+        ["observe", "enforce"],
         default="observe",
-        type=click.Choice(["observe", "enforce"], case_sensitive=False),
-        show_choices=False,
     )
 
     return InitPicks(
         framework=framework,
-        hosts=hosts,
-        skills=skills,
+        ide_levels=ide_levels,
         mode=mode,
     )
 

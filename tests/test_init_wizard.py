@@ -34,20 +34,40 @@ from sponsio.init_wizard import (
 
 
 class TestParsePicks:
-    def test_full_spec_round_trips(self):
+    def test_native_ides_form_round_trips(self):
         spec = (
             "framework=langgraph;"
-            "hosts=claude-code,cursor;"
-            "skills=codex;"
+            "ides=claude-code:full,cursor:skill;"
             "mode=enforce"
         )
         p = parse_picks(spec)
         assert p.framework == "langgraph"
-        assert p.hosts == ["claude-code", "cursor"]
-        assert p.skills == ["codex"]
+        assert p.ide_levels == {"claude-code": "full", "cursor": "skill"}
+        assert p.hosts == ["claude-code"]  # derived from full
+        assert p.skills == ["cursor"]  # derived from skill
         assert p.mode == "enforce"
         # round-trip stable
         assert parse_picks(format_picks(p)) == p
+
+    def test_legacy_hosts_skills_form_compat(self):
+        # The IDE agent wizard prompt v2 used hosts=/skills=; older
+        # callers must keep working without rewriting their picks.
+        p = parse_picks(
+            "framework=none;hosts=claude-code,cursor;skills=codex;mode=observe"
+        )
+        assert p.ide_levels == {
+            "claude-code": "full",
+            "cursor": "full",
+            "codex": "skill",
+        }
+        assert p.hosts == ["claude-code", "cursor"]
+        assert p.skills == ["codex"]
+
+    def test_legacy_full_supersedes_skill_no_demotion(self):
+        # ``hosts=X;skills=X`` shouldn't demote X to skill-only.  Full
+        # implies skill, so the more privileged pick wins.
+        p = parse_picks("hosts=claude-code;skills=claude-code;mode=observe")
+        assert p.ide_levels == {"claude-code": "full"}
 
     def test_empty_string_returns_default_picks(self):
         p = parse_picks("")
@@ -60,17 +80,20 @@ class TestParsePicks:
         assert p.framework == "langgraph"
         assert p.mode == "observe"
 
-    def test_empty_value_lists_are_explicit(self):
-        # ``hosts=`` means "no hosts picked", distinct from "hosts not
-        # mentioned" (which also defaults to []).  Round-trip must
-        # preserve the empty list.
-        p = parse_picks("framework=none;hosts=;skills=;mode=observe")
-        assert p.hosts == []
-        assert p.skills == []
+    def test_invalid_level_dropped_silently(self):
+        # ``ides=X:nonsense`` ignored; X stays out of ide_levels.
+        p = parse_picks("ides=claude-code:nonsense;mode=observe")
+        assert p.ide_levels == {}
+
+    def test_level_none_omitted_from_ide_levels(self):
+        # ``ides=X:none`` is a deliberate "leave alone" pick.  Storing
+        # it in ide_levels would falsely include X in plan_commands.
+        p = parse_picks("ides=claude-code:none;mode=observe")
+        assert p.ide_levels == {}
 
     def test_whitespace_in_values_stripped(self):
-        p = parse_picks("hosts= claude-code , cursor ;mode=observe")
-        assert p.hosts == ["claude-code", "cursor"]
+        p = parse_picks("ides= claude-code:full , cursor:skill ;mode=observe")
+        assert p.ide_levels == {"claude-code": "full", "cursor": "skill"}
 
 
 # ---------------------------------------------------------------------------
@@ -98,16 +121,14 @@ class TestPlanCommands:
         ]
 
     def test_axis1_none_skips_onboard(self):
-        # User picks "none" (bare loop / I'll wire it myself) — no
-        # framework wrap to install.
         cmds = plan_commands(InitPicks(framework="none", mode="observe"))
         assert cmds == []
 
-    def test_axis2_emits_host_install_with_mode(self):
+    def test_full_level_emits_host_install(self):
         cmds = plan_commands(
             InitPicks(
                 framework="none",
-                hosts=["claude-code", "cursor"],
+                ide_levels={"claude-code": "full", "cursor": "full"},
                 mode="enforce",
             )
         )
@@ -123,43 +144,58 @@ class TestPlanCommands:
             ],
         ]
 
-    def test_axis2_filters_unknown_host_names(self):
+    def test_skill_level_emits_skill_install_only(self):
+        # ``skill`` IDEs do NOT go through ``host install`` — that
+        # would also install hooks the user explicitly declined.
         cmds = plan_commands(
             InitPicks(
                 framework="none",
-                hosts=["claude-code", "definitely-not-a-host"],
+                ide_levels={"cursor": "skill", "codex": "skill"},
                 mode="observe",
             )
         )
-        # Typo silently dropped.  Ordered axes still emit a command
-        # for the surviving picks.
+        assert cmds == [
+            ["sponsio", "skill", "install", "--tool", "cursor"],
+            ["sponsio", "skill", "install", "--tool", "codex"],
+        ]
+
+    def test_full_and_skill_mixed_per_ide(self):
+        # claude-code → full (host hooks), cursor → skill only
+        # (no hooks).  No double-install of the skill into
+        # claude-code: ``host install --with-skill`` covers it.
+        cmds = plan_commands(
+            InitPicks(
+                framework="none",
+                ide_levels={"claude-code": "full", "cursor": "skill"},
+                mode="observe",
+            )
+        )
+        assert cmds == [
+            ["sponsio", "host", "install", "claude-code", "--mode", "observe"],
+            ["sponsio", "skill", "install", "--tool", "cursor"],
+        ]
+
+    def test_unknown_ide_filtered_silently(self):
+        cmds = plan_commands(
+            InitPicks(
+                framework="none",
+                ide_levels={"claude-code": "full", "definitely-not-a-host": "full"},
+                mode="observe",
+            )
+        )
         assert cmds == [
             ["sponsio", "host", "install", "claude-code", "--mode", "observe"]
         ]
 
-    def test_axis3_only_runs_for_skills_not_in_axis2(self):
-        # claude-code in BOTH axis 2 and 3: axis 2's --with-skill
-        # default already covers it, so axis 3 doesn't double-drop.
-        cmds = plan_commands(
-            InitPicks(
-                framework="none",
-                hosts=["claude-code"],
-                skills=["claude-code", "codex"],
-                mode="observe",
-            )
-        )
-        # Expect host install + ONE skill install (codex), not two.
-        assert cmds == [
-            ["sponsio", "host", "install", "claude-code", "--mode", "observe"],
-            ["sponsio", "skill", "install", "--tool", "codex"],
-        ]
-
-    def test_full_4axis_combo(self):
+    def test_full_3axis_combo(self):
         cmds = plan_commands(
             InitPicks(
                 framework="langgraph",
-                hosts=["claude-code", "cursor"],
-                skills=["codex"],
+                ide_levels={
+                    "claude-code": "full",
+                    "cursor": "full",
+                    "codex": "skill",
+                },
                 mode="enforce",
             )
         )
@@ -278,11 +314,32 @@ class TestCliPlan:
             [
                 str(tmp_path),
                 "--plan",
-                "framework=langgraph;hosts=claude-code;mode=observe",
+                "framework=langgraph;ides=claude-code:full;mode=observe",
             ],
         )
         assert result.exit_code == 0, result.output
         assert "would run: sponsio onboard ." in result.output
+        assert (
+            "would run: sponsio host install claude-code --mode observe"
+            in result.output
+        )
+
+    def test_plan_accepts_legacy_hosts_skills_form(self, tmp_path: Path):
+        # IDE agent prompts written against the v2 `hosts=`/`skills=`
+        # contract must keep working without rewrites.
+        (tmp_path / "agent.py").write_text(
+            "from langgraph.prebuilt import create_react_agent\n"
+        )
+        runner = CliRunner()
+        result = runner.invoke(
+            init,
+            [
+                str(tmp_path),
+                "--plan",
+                "framework=langgraph;hosts=claude-code;mode=observe",
+            ],
+        )
+        assert result.exit_code == 0, result.output
         assert (
             "would run: sponsio host install claude-code --mode observe"
             in result.output
