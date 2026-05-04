@@ -58,8 +58,8 @@ This all runs in pure Python (Sponsio core has zero core deps). On a current lap
 Formal methods do not magic away every failure mode:
 
 - **Spec correctness.** Sponsio guarantees your contract is enforced *as written.* If you write the wrong rule (missed an edge case, bad atom name), the engine enforces the wrong thing. Fast and reliably. Spec review is your job; we just give you a tight loop to iterate (write rule → `sponsio check --trace` → adjust).
-- **Atom grounding.** The DFA reasons over events, not raw English. Your tool wrappers / framework hooks have to emit the right events for the rule to fire. `sponsio onboard` and the integration adapters handle the common case; custom atoms need a one-time mapping.
-- **Semantic checks.** Some properties are inherently fuzzy, "is this response off-topic?", "did the agent omit a material fact?", "does this PII look exfiltrated?". Those go through the **stochastic pipeline** (LLM-judged atoms), not the formal one. Sponsio offers both, clearly separated.
+- **Atom grounding.** The DFA reasons over events, not raw English. Your tool wrappers / framework hooks have to emit the right events for the rule to fire. `sponsio init` and the integration adapters handle the common case; custom atoms need a one-time mapping.
+- **Semantic checks.** Some properties are inherently fuzzy, "is this response off-topic?", "did the agent omit a material fact?", "does this PII look exfiltrated?". Those go through the **stochastic pipeline** (LLM-judged atoms, Sponsio Cloud), not the formal one. The two pipelines are clearly separated.
 
 ## Further reading
 

@@ -66,15 +66,31 @@ sponsio scan tools.json --out sponsio.yaml
 
 The TS scanner statically understands Vercel's `tool({...})`, LangChain's `DynamicStructuredTool`, LangGraph.js's `tool(fn, cfg)`, and common Zod patterns. See [`ts/packages/sdk/README.md`](https://github.com/sponsio-labs/sponsio/tree/main/ts/packages/sdk) for the full matrix.
 
-## sponsio onboard
+## sponsio init
 
-One-shot project setup. Detects framework, writes `sponsio.yaml` in observe mode, prints a 2-line patch.
+Interactive 4-axis project setup wizard. Walks through framework / hosts / skills / mode, writes `sponsio.yaml` in the chosen mode, runs `sponsio doctor`, and prints the agent-entry patch.
 
 ```bash
-sponsio onboard [PATH]
+sponsio init [PATH]
 ```
 
-`PATH` defaults to current directory. See [getting-started/quickstart.md](../getting-started/quickstart.md) for the typical output and the patch flow.
+| Option | Description |
+|---|---|
+| `PATH` | Target directory (default: current). Writes `sponsio.yaml` if not present. |
+| `--plan PICKS` | Print the would-run commands for these picks. Used by IDE-agent wizards for dry-run previews. |
+| `--apply PICKS` | Run non-interactively. Picks format: `framework=<name>;hosts=<a>,<b>;skills=<a>,<b>;mode=observe\|enforce`. |
+| `--with-example` | Drop a pre-tuned `sponsio eval` scaffold (sponsio.yaml + 6 labelled traces) into PATH. Orthogonal to the wizard. |
+| `--force` | With `--with-example`, overwrite existing scaffold files. |
+| `--no-demo` | Skip the post-install demo offer. |
+
+```bash
+sponsio init .                                              # interactive
+sponsio init . --apply "framework=langgraph;mode=observe"   # non-interactive
+sponsio init . --plan "framework=crewai"                    # dry-run preview
+sponsio init . --with-example                               # eval scaffold
+```
+
+See [getting-started/quickstart.md](../getting-started/quickstart.md) for the typical interactive flow.
 
 ## sponsio validate
 
@@ -190,16 +206,6 @@ sponsio serve
 
 The OSS package ships a stub that exits 2 and points at the Cloud install. For OSS-only observability, use `sponsio host trace --follow` (live stream) or `sponsio report --since 1h` (summary).
 
-## sponsio init
-
-Bootstrap a fresh `sponsio.yaml` from a tool inventory. Lighter-weight than `onboard`: no scan, no doctor, just a starter file.
-
-```bash
-sponsio init [TARGET]
-```
-
-`TARGET` defaults to current directory. Writes `sponsio.yaml` only if one does not already exist.
-
 ## sponsio packs
 
 List shipped contract packs with rule counts and `include:` syntax.
@@ -208,7 +214,7 @@ List shipped contract packs with rule counts and `include:` syntax.
 sponsio packs
 ```
 
-Reads from `sponsio/contracts/` and prints one row per pack: spec name, tier, rule count, det / sto / mixed, one-line summary. Useful right after `sponsio scan` / `sponsio onboard` to see what a generated yaml's `include:` lines pull in.
+Reads from `sponsio/contracts/` and prints one row per pack: spec name, tier, rule count, det / sto / mixed, one-line summary. Useful right after `sponsio scan` / `sponsio init` to see what a generated yaml's `include:` lines pull in.
 
 ## sponsio eval
 
@@ -298,7 +304,7 @@ The `@sponsio/sdk` package ships a parallel CLI with the same command surface. S
 
 | Python | TypeScript |
 |---|---|
-| `sponsio onboard .` | `npx @sponsio/sdk onboard .` |
+| `sponsio init` | `npx @sponsio/sdk init` |
 | `sponsio scan` | `npx @sponsio/sdk scan` |
 | `sponsio validate` | `npx @sponsio/sdk validate` |
 | `sponsio check` | `npx @sponsio/sdk check` |
@@ -307,7 +313,6 @@ The `@sponsio/sdk` package ships a parallel CLI with the same command surface. S
 | `sponsio report` | `npx @sponsio/sdk report` |
 | `sponsio packs` | `npx @sponsio/sdk packs` |
 | `sponsio patterns` | `npx @sponsio/sdk patterns` |
-| `sponsio init` | `npx @sponsio/sdk init` |
 | `sponsio mode` | `npx @sponsio/sdk mode` |
 | `sponsio explain` | `npx @sponsio/sdk explain` |
 | `sponsio replay` | `npx @sponsio/sdk replay` |

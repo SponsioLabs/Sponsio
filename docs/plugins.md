@@ -5,7 +5,7 @@ description: Gate an entire Claude Code or OpenClaw session, not just your agent
 
 # Host plugins (Mode A)
 
-Sponsio's host plugin hooks into a coding host (Claude Code, OpenClaw) and runs every tool call through the shared `sponsio plugin guard` backend before the host executes it. Mode B (`sponsio onboard` plus skill) targets developers who own their agent code. Mode A targets users who want to gate a host's entire session: the host's own Bash, Edit, Write, every sub-agent it spawns, and every MCP server tool call.
+Sponsio's host plugin hooks into a coding host (Claude Code, OpenClaw) and runs every tool call through the shared `sponsio plugin guard` backend before the host executes it. Mode B (`sponsio init` plus skill) targets developers who own their agent code. Mode A targets users who want to gate a host's entire session: the host's own Bash, Edit, Write, every sub-agent it spawns, and every MCP server tool call.
 
 Two host adapters ship today.
 
@@ -127,12 +127,12 @@ Override targets: `desc`, `pack_source`, `pattern`.
 
 ## Mode A vs Mode B
 
-| | Mode A (host plugin) | Mode B ([sponsio onboard](guides/onboarding.md)) |
+| | Mode A (host plugin) | Mode B ([sponsio init](guides/onboarding.md)) |
 |---|---|---|
 | Who runs the agent | Someone else (the host) | You |
 | What's gated | Every tool call in the host session | Tool calls inside your framework integration |
 | What you write | YAML libraries under `~/.sponsio/plugins/` | `sponsio.yaml` in your project plus a 2-line agent-entry patch |
-| Install command | `pip install sponsio` plus `sponsio plugin init` | `pip install sponsio` plus `sponsio onboard .` |
+| Install command | `pip install sponsio` plus `sponsio plugin init` | `pip install sponsio` plus `sponsio init .` |
 
 Both modes share the same engine, contract library format, and `SPONSIO_MODE` enforce / observe dial. A project that owns its agent code and runs it inside Claude Code can use both.
 

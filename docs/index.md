@@ -11,7 +11,7 @@ If you've never run Sponsio before, start here:
 
 ```bash
 pip install sponsio
-sponsio onboard .
+sponsio init .
 ```
 
 Then go to the [Quickstart](getting-started/quickstart.md).

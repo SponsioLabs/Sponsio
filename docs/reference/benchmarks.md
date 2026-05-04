@@ -79,7 +79,7 @@ production traces ──→ sponsio scan ──→ proposed contracts
 
 Each new attack pattern feeds back into the library. The 84.5% / 92% numbers are starting points, not ceilings. The architectural property is that they are **reachable** because the call surface is finite, and the library is the canonical artefact you grow over time.
 
-> **Where the libraries live.** The hand-curated libraries that drive the RedCode-Exec and ODCV-Bench headlines ship as `sponsio:benchmark/redcode_exec` and `sponsio:benchmark/odcv_bench`, loadable like any capability pack.
+> **Where the libraries live.** The hand-curated libraries that drive the RedCode-Exec and ODCV-Bench headlines no longer ship in OSS as a packaged bundle (the `sponsio:benchmark/*` namespace was removed). The eval harness reproduces them from the upstream scenario sources at run time. [Open an issue](https://github.com/SponsioLabs/Sponsio/issues/new) tagged `repro` for the harness scripts.
 
 ---
 
@@ -228,7 +228,7 @@ ODCV-Bench scenarios and harness: [github.com/McGill-DMaS/ODCV-Bench](https://gi
 
 RedCode-Exec scenarios: [github.com/AI-secure/RedCode](https://github.com/AI-secure/RedCode).
 
-Sponsio's evaluation harness for both benchmarks (the `eval_sponsio.py` driver scripts and per-suite contract YAML) is being prepared for separate release. In the interim, [open an issue](https://github.com/SponsioLabs/Sponsio/issues/new) tagged `repro` and we'll send the harness directly. The benchmark contract libraries (`sponsio:benchmark/redcode_exec` / `sponsio:benchmark/odcv_bench`) ship in this repo today.
+Sponsio's evaluation harness for both benchmarks (the `eval_sponsio.py` driver scripts and per-suite contract YAML) is being prepared for separate release. In the interim, [open an issue](https://github.com/SponsioLabs/Sponsio/issues/new) tagged `repro` and we'll send the harness directly. The packaged `sponsio:benchmark/*` bundles are no longer shipped in OSS; the harness reconstructs the contract sets from the upstream scenarios.
 
 ### What's not measured
 

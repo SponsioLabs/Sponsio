@@ -5,7 +5,7 @@ description: Full schema for the Sponsio config file. Agents, tools, contracts, 
 
 # `sponsio.yaml` reference
 
-`sponsio.yaml` is the canonical way to declare contracts. `sponsio scan` writes it; `sponsio onboard` writes it; `Sponsio(config=…)` reads it.
+`sponsio.yaml` is the canonical way to declare contracts. `sponsio scan` writes it; `sponsio init` writes it; `Sponsio(config=…)` reads it.
 
 A minimal valid file:
 
@@ -103,7 +103,7 @@ Each entry in `contracts:` has these fields:
 
 ### Structured form
 
-For patterns with arguments. Notably sto atoms. Use the structured form:
+For patterns that need typed arguments (lists, regex tuples, threshold floats). Use the structured form:
 
 ```yaml
 - G:

@@ -11,7 +11,7 @@ description: Common questions and pitfalls when adopting Sponsio.
 
 ### Is Sponsio a prompt-injection shield?
 
-No. Sponsio checks actions, not text. If you need prompt-injection detection, use a stochastic contract with the `injection_free` atom, but understand that's one atom in a larger system. The main value is blocking unsafe *tool calls* regardless of whether the reason was injection, misalignment, or a plain bug.
+No. Sponsio checks actions, not text. If you need prompt-injection detection, use a stochastic contract with the `injection_free` atom (Sponsio Cloud), but understand that's one atom in a larger system. The main value is blocking unsafe *tool calls* regardless of whether the reason was injection, misalignment, or a plain bug.
 
 ### Is it an output-assertion library?
 
@@ -39,11 +39,11 @@ No. A single contract is evaluated by exactly one pipeline. If you need both a s
 
 ### Should I turn on every sto atom I can?
 
-No. Every sto atom costs one LLM judge call per check. The recommended minimum is `injection_free`, `toxic_free`, `semantic_pii_free`: then add atoms that match actual failure modes in your product.
+No. Every sto atom costs one LLM judge call per check (and sto runs only in Sponsio Cloud). The recommended minimum is `injection_free`, `toxic_free`, `semantic_pii_free`: then add atoms that match actual failure modes in your product.
 
 ### Is sto free?
 
-No. Sto uses an LLM-as-judge. Some atoms are lightweight (logprob-based boolean judges), but LLM-judged sto atoms require a configured judge and incur per-check cost.
+No. Sto uses an LLM-as-judge and ships in Sponsio Cloud (`pip install sponsio[cloud]`). Some atoms are lightweight (logprob-based boolean judges), but LLM-judged sto atoms require a configured judge and incur per-check cost.
 
 ### Can OTEL do the blocking?
 
@@ -63,7 +63,7 @@ No. If your LLM app calls tools, APIs, databases, or files, you can use Sponsio 
 
 ### Python and TypeScript. Same semantics?
 
-For deterministic contracts, yes. The Python and TS engines share the same LTL core and produce identical block/allow decisions over the same trace. The stochastic pipeline, the DFA/verifier, YAML config, discovery, dashboard, and OTEL export are Python-only today.
+For deterministic contracts, yes. The Python and TS engines share the same LTL core and produce identical block/allow decisions over the same trace. The DFA/verifier, YAML config, discovery, dashboard, and OTEL export are Python-only today. The stochastic pipeline ships in Sponsio Cloud on both sides; the OSS engine on Python and TS is det-only.
 
 ---
 

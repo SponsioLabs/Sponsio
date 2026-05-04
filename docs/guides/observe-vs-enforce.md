@@ -54,7 +54,7 @@ onboard  ──▶ observe  ──▶  observe + report  ──▶ enforce
 
 ### Day 0, `onboard`
 
-`sponsio onboard .` writes `sponsio.yaml` in observe mode with a starter-pack of contracts. See [Onboarding](onboarding.md).
+`sponsio init .` writes `sponsio.yaml` in observe mode with a starter-pack of contracts. See [Onboarding](onboarding.md).
 
 ### Day 1–3. Run in observe
 

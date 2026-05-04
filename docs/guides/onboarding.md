@@ -1,18 +1,18 @@
 ---
 title: Onboarding an existing agent
-description: Use `sponsio onboard` to scan a codebase, draft contracts, and get a ready-to-paste snippet.
+description: Use `sponsio init` to scan a codebase, draft contracts, and get a ready-to-paste snippet.
 ---
 
 # Onboarding an existing agent
 
-`sponsio onboard` is the one-command path for a repo that already has an agent. It scans the codebase, detects your framework, writes a `sponsio.yaml` in observe mode, and prints the three lines to paste into your agent entry file.
+`sponsio init` is the one-command path for a repo that already has an agent. It scans the codebase, detects your framework, writes a `sponsio.yaml` in observe mode, and prints the three lines to paste into your agent entry file.
 
 ```bash
 pip install sponsio
-sponsio onboard .
+sponsio init .
 ```
 
-The `.` is the path to scan. Any path works. It defaults to the current directory, so plain `sponsio onboard` is equivalent.
+The `.` is the path to scan. Any path works. It defaults to the current directory, so plain `sponsio init` is equivalent.
 
 ---
 
@@ -68,4 +68,4 @@ Paste the snippet, run your agent, review the observe-mode report, then flip to 
 
 - [Contract sources](contract-sources.md). Scan, policy-doc mining, trace mining.
 - [Observe vs. enforce](observe-vs-enforce.md). Shadow mode to production.
-- [CLI reference](../reference/cli.md), `sponsio onboard` flags.
+- [CLI reference](../reference/cli.md), `sponsio init` flags.

@@ -35,8 +35,7 @@ and a CLI for scanning, mining, and reporting.
   exposed both as Python factories and as natural-language triggers.
 - **Contract bundles** — `sponsio:core/runaway`, `sponsio:core/universal`,
   `sponsio:capability/shell`, `sponsio:capability/filesystem`,
-  `sponsio:incident/openclaw`, plus benchmark packs
-  (`sponsio:benchmark/redcode_exec`, `sponsio:benchmark/odcv_bench`).
+  `sponsio:incident/openclaw`.
 - **Framework integrations** — LangGraph / LangChain.js, Claude Agent
   SDK, OpenAI SDK, OpenAI Agents SDK, Google ADK, Vercel AI SDK,
   CrewAI, MCP, plus a no-framework `guard_before` / `guard_after` API.

@@ -30,7 +30,7 @@ Apache 2.0. We will not relicense, gate, or remove them.
   `must_confirm`, `bounded_retry`, `loop_detection`, `scope_limit`,
   `arg_length_limit`, `data_intact`, `destructive_action_gate`, …)
 - Contract bundles — `sponsio:core/*`, `sponsio:capability/*`,
-  `sponsio:incident/*`, `sponsio:benchmark/*`
+  `sponsio:incident/*`
 - Configuration loader (`sponsio.yaml`), include resolution,
   workspace + tool rename + overrides
 

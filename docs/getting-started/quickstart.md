@@ -56,7 +56,7 @@ sponsio demo --scenario wire --no-guard   # same trajectory without contracts
 One command. Detects framework, writes `sponsio.yaml` in observe mode, runs `sponsio doctor`, prints a 2-line patch:
 
 ```bash
-sponsio onboard .
+sponsio init .
 ```
 
 Typical output:
@@ -85,7 +85,7 @@ Add this to your agent entry point:
 
 Without an LLM key, `onboard` still ships a name-heuristic starter plus `sponsio:core/runaway` (token budgets, delegation depth, loop caps), all deterministic.
 
-For TypeScript, install `@sponsio/sdk` and run `npx sponsio onboard .`. Same yaml output, same `Sponsio({ config: "sponsio.yaml" })` API.
+For TypeScript, install `@sponsio/sdk` and run `npx sponsio init .`. Same yaml output, same `Sponsio({ config: "sponsio.yaml" })` API.
 
 ## 4. Run and observe
 

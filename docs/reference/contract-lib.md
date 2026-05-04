@@ -11,7 +11,7 @@ Sponsio ships a set of pre-built contract **packs** under [`sponsio/contracts/`]
 
 ## The packs
 
-Sixteen packs ship out of the box. Run `sponsio packs` for the full inventory with rule counts. The five most commonly used:
+Sixteen packs ship out of the box. Run `sponsio packs` for the full inventory with rule counts. The seven most commonly used:
 
 | Spec | Tier | Contracts | OSS / Cloud | When to include |
 |---|---|---|---|---|
@@ -20,8 +20,10 @@ Sixteen packs ship out of the box. Run `sponsio packs` for the full inventory wi
 | `sponsio:capability/filesystem` | 1 | 13 (det) | OSS | Agent exposes `read` / `write` / `edit` / `apply_patch`. Sensitive-path denies, workspace scoping, self-modification gate. |
 | `sponsio:capability/shell` | 1 | 11 (det) | OSS | Agent exposes `exec` / `bash`. `rm -rf /`, fork bomb, curl\|bash, reverse shell, confirmation gates. |
 | `sponsio:incident/openclaw` | 2 | 45 (mixed) | det rules in OSS, sto rules need Cloud | Reference pack mirroring real 2026 OpenClaw incidents (CVE-2026-25253, ClawHavoc, weather-skill). Mostly a worked example. Pick individual rules from it. |
+| `sponsio:incident/cursor-railway-wipe` | 2 | mixed | det rules in OSS, sto rules need Cloud | Replays the PocketOS production-DB wipe (Apr 2026): credential-scope abuse + destructive-API gates. |
+| `sponsio:incident/claude-code-secret-bypass` | 2 | mixed | det rules in OSS, sto rules need Cloud | Replays CVE-2025-55284 (broad safe-command allowlist) + the deny-rule cap bypass. Catches secret reads + arg-padding evasion. |
 
-Other shipped packs: `core/llm_safety`; `capability/{credentials, database, filesystem-strict, host-config-integrity, self-modify, subagent}`; `incident/{claude-code-secret-bypass, cursor-railway-wipe, mcp-composition, subagent-escape}`.
+Other shipped packs: `core/llm_safety`; `capability/{credentials, database, filesystem-strict, host-config-integrity, self-modify, subagent}`; `incident/{mcp-composition, subagent-escape}`.
 
 Tier 0 is the default-on baseline. Tier 1 is capability-indexed. Include it when your agent exposes that capability. Tier 2 is scenario-specific.
 
@@ -160,5 +162,5 @@ Source attribution is preserved through loading: every compiled contract knows i
 - [`sponsio.yaml` reference](config-yaml.md). Top-level schema, `include:` / `customized:` / `tool_rename:` / `workspace:` mechanics.
 - [Pattern catalog](patterns.md). The Python factories each pack rule compiles into.
 - *Sto atom catalog* (Sponsio Cloud). The LLM-judged atoms used by `core/universal`.
-- [Onboarding guide](../guides/onboarding.md), `sponsio onboard` auto-selects tier-0 packs based on detected tools.
+- [Onboarding guide](../guides/onboarding.md), `sponsio init` auto-selects tier-0 packs based on detected tools.
 - *Benchmark contract libraries* (no longer shipped in OSS). Hand-curated libraries that drive Sponsio's published RedCode-Exec and ODCV-Bench headlines. Distinct from the capability packs above: benchmark-reproduction artefacts, not auto-included by `onboard`.
