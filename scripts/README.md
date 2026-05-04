@@ -38,8 +38,10 @@ python scripts/sync_openclaw_artifact.py
 # After README / docs edits
 python scripts/build_llms_txt.py
 
-# Before tagging a release
-make release-check  # see ../Makefile
+# Before tagging a release — full local gate
+ruff check sponsio/ tests/
+ruff format --check sponsio/ tests/
+pytest tests/ -q --no-cov
+bash scripts/check-ts-parity.sh
+python scripts/bench_verifier.py
 ```
-
-See the top-level [`Makefile`](../Makefile) for one-shot wrappers.
