@@ -3830,11 +3830,13 @@ def init(
         return
 
     # Dry-run preview before running, even on the interactive path —
-    # gives the user a final chance to spot a wrong pick.
+    # gives the user a final chance to spot a wrong pick.  Indented
+    # col-2 to match the wizard's body content margin (banner col-0,
+    # everything below at col-2).
     click.echo()
-    click.secho("preview", bold=True, fg="cyan")
+    click.secho("  preview", bold=True, fg="cyan")
     for cmd in cmds:
-        click.echo("  → " + " ".join(cmd))
+        click.echo("    → " + " ".join(cmd))
     click.echo()
 
     # Skip the confirm gate when called via ``--apply`` — the IDE
@@ -3845,10 +3847,10 @@ def init(
 
         if not _wizard_confirm("Run these?", default=True):
             click.echo()
-            click.secho("✘  No changes made.", fg="yellow")
+            click.secho("  ✘  No changes made.", fg="yellow")
             click.echo(
-                "    Re-run `sponsio init` whenever you're ready, "
-                "or pass\n    `sponsio init --plan '<picks>'` to "
+                "      Re-run `sponsio init` whenever you're ready, "
+                "or pass\n      `sponsio init --plan '<picks>'` to "
                 "preview the commands without prompts."
             )
             return
@@ -4196,6 +4198,7 @@ def onboard(
         _spinner.stop()
         if msg.startswith("▸ "):
             from sponsio.render.components import (
+                indent as _indent_for_progress,
                 section_rule as _section_rule_for_progress,
             )
             from sponsio.runtime.terminal import (
@@ -4205,10 +4208,14 @@ def onboard(
             _progress_console = _make_console_for_progress(None)
             _progress_console.print()
             _progress_console.print(
-                _section_rule_for_progress(msg.removeprefix("▸ "))
+                _indent_for_progress(
+                    _section_rule_for_progress(msg.removeprefix("▸ "))
+                )
             )
             return
-        line = click.style("· ", fg="cyan", dim=True) + msg
+        # Bullets indent col-2 to match the section rule above them
+        # and the trace + report renderers' body indentation.
+        line = "  " + click.style("· ", fg="cyan", dim=True) + msg
         if msg.endswith("…"):
             _spinner.start(line)
         else:
@@ -4613,15 +4620,15 @@ def onboard(
     # sponsio.yaml preserved" line was already printed above.
     if report is not None:
         click.echo()
-        click.secho(f"✓ {report.out_path}", fg="green")
-        click.echo(f"  tools:      {report.tools_count}")
-        click.echo(f"  contracts:  {report.contracts_count}")
-        click.echo(f"  mode:       {report.mode}")
-        click.echo(f"  framework:  {report.framework.framework}")
-        click.echo(f"  provider:   {report.provider.provider}")
+        click.secho(f"  ✓ {report.out_path}", fg="green")
+        click.echo(f"      tools:      {report.tools_count}")
+        click.echo(f"      contracts:  {report.contracts_count}")
+        click.echo(f"      mode:       {report.mode}")
+        click.echo(f"      framework:  {report.framework.framework}")
+        click.echo(f"      provider:   {report.provider.provider}")
         if report.starter_pack_used:
             click.secho(
-                "  · starter-pack applied (no-LLM safety net)",
+                "      · starter-pack applied (no-LLM safety net)",
                 fg="yellow",
                 dim=True,
             )
@@ -4631,9 +4638,9 @@ def onboard(
     # contract library) and where to drop their actual API key.
     if sponsiorc_path is not None:
         click.echo()
-        click.secho(f"✓ {sponsiorc_path}", fg="green")
+        click.secho(f"  ✓ {sponsiorc_path}", fg="green")
         click.echo(
-            "  framework + LLM config — edit this file to change "
+            "      framework + LLM config — edit this file to change "
             "framework / model / api_key_env"
         )
         # Best-effort .gitignore hint: only fire when sponsiorc is in

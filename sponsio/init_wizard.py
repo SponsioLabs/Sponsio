@@ -366,7 +366,8 @@ def apply_commands(
         if len(commands) > 1:
             click.echo()
             click.secho(
-                f"[{i}/{len(commands)}] {cmd[0]} {cmd[1] if len(cmd) > 1 else ''}",
+                f"  [{i}/{len(commands)}] {cmd[0]} "
+                f"{cmd[1] if len(cmd) > 1 else ''}",
                 fg="cyan",
                 dim=True,
             )
@@ -374,7 +375,7 @@ def apply_commands(
         rc = getattr(result, "returncode", 0)
         if rc != 0:
             click.secho(
-                f"\n✗ step exited {rc}: {' '.join(cmd)} — stopping",
+                f"\n  ✗ step exited {rc}: {' '.join(cmd)} — stopping",
                 fg="red",
                 err=True,
             )
@@ -410,19 +411,15 @@ def _print_panel_header(env: Environment) -> None:
     """Top of the wizard — banner + a single ``🔍 Detected: …`` line.
 
     Visual style matches ``sponsio doctor`` / ``sponsio report`` via
-    the :mod:`sponsio.render.components` banner.  The detection
-    summary is a plain one-liner instead of a grid because the grid
-    blurred labels and values into a hard-to-parse soup of words.
-
-    Console is built via :func:`sponsio.runtime.terminal._make_stderr_console`
-    so colour detection matches every other Sponsio surface — without
-    that, the wizard banner sometimes rendered with full truecolor
-    while the dispatched ``sponsio onboard`` banner came out muted
-    (subprocess + auto-detect inconsistency).
+    the :mod:`sponsio.render.components` banner.  Body content
+    indented col-2 with :func:`indent` so the banner spans full
+    width but everything underneath sits inside the same 2-space
+    margin trace + report use — universal "banner col-0, content
+    col-2" rule.
     """
     from rich.text import Text
 
-    from sponsio.render.components import header_banner
+    from sponsio.render.components import header_banner, indent
     from sponsio.render.tokens import PALETTE
     from sponsio.runtime.terminal import _make_stderr_console
 
@@ -445,7 +442,7 @@ def _print_panel_header(env: Environment) -> None:
         (" · ", PALETTE["metadata"]),
         (env.os_name, PALETTE["fg"]),
     )
-    console.print(summary)
+    console.print(indent(summary))
     console.print()
 
 
@@ -480,6 +477,7 @@ def _select(prompt: str, choices: list, default=None):
         choices=q_choices,
         default=default,
         instruction="(↑/↓ to move, Enter to confirm)",
+        qmark="  ?",  # 2-space indent so prompts align with body content
     ).ask()
     if answer is None:  # user hit Ctrl-C
         raise click.Abort()
@@ -502,7 +500,7 @@ def _confirm(prompt: str, default: bool = False) -> bool:
     except ImportError:
         return click.confirm(prompt, default=default)
 
-    answer = questionary.confirm(prompt, default=default).ask()
+    answer = questionary.confirm(prompt, default=default, qmark="  ?").ask()
     if answer is None:  # Ctrl-C
         raise click.Abort()
     return answer
@@ -511,19 +509,18 @@ def _confirm(prompt: str, default: bool = False) -> bool:
 def _step(label: str) -> None:
     """Section divider matching the runtime trace renderer.
 
-    Uses the same :func:`sponsio.render.components.section_rule` that
-    ``print_banner`` / ``sponsio doctor`` / ``sponsio explain`` use
-    for inside-zone dividers (``contracts armed (N) ──────...``), so
-    the wizard's axis headers, the dispatched ``sponsio onboard``'s
-    stage headers, and the live agent-run trace all read as the same
-    visual language.  No competing chevron / rule mix.
+    Wraps :func:`sponsio.render.components.section_rule` in
+    :func:`indent` (2-space pad) so the section header sits inside
+    the same body-content margin trace + report use.  Universal
+    rule: banner spans full width at col-0; everything under it —
+    section rules, bullets, tables, prompts — aligns at col-2.
     """
-    from sponsio.render.components import section_rule
+    from sponsio.render.components import indent, section_rule
     from sponsio.runtime.terminal import _make_stderr_console
 
     console = _make_stderr_console(None)
     console.print()
-    console.print(section_rule(label))
+    console.print(indent(section_rule(label)))
 
 
 def run_interactive(env: Environment) -> InitPicks:
