@@ -318,11 +318,25 @@ export async function runOnboard(opts: OnboardOptions): Promise<OnboardResult> {
     // paths line up. We pass an *absolute* -o, so CWD is only for any
     // relative path inside the scan engine; inventory is a temp file
     // with no relative deps.
+    //
+    // Strip ``node_modules/.bin`` from PATH for the spawn — when this
+    // CLI was invoked via ``npx sponsio onboard``, PATH starts with
+    // node_modules/.bin/ where the TS bin lives.  Bare ``sponsio``
+    // would then resolve to THIS binary (self-recursion: the JSON
+    // tool inventory we just wrote gets re-interpreted as a tool-
+    // glob pattern by ``runScanCli``, returning 0 tools and writing
+    // an empty yaml).  Excluding node_modules forces resolution
+    // through the user's broader PATH where the Python ``sponsio``
+    // CLI lives.
+    const pythonOnlyPath = (process.env.PATH ?? "")
+      .split(":")
+      .filter((p) => p && !p.includes("node_modules/.bin"))
+      .join(":");
     const r = spawnSync("sponsio", args, {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"],
       cwd: root,
-      env: { ...process.env },
+      env: { ...process.env, PATH: pythonOnlyPath },
     });
     if (r.error && (r.error as NodeJS.ErrnoException).code === "ENOENT") {
       method = "fallback";
@@ -330,8 +344,19 @@ export async function runOnboard(opts: OnboardOptions): Promise<OnboardResult> {
         "sponsio (Python CLI) not on PATH — wrote a minimal det-only sponsio.yaml. " +
         "Install: pip install sponsio, then re-run for the same output as in a Python repo (packs, LLM, …).";
     } else if (r.status === 0) {
-      if (r.stderr) process.stderr.write(r.stderr);
-      if (r.stdout) process.stdout.write(r.stdout);
+      // Indent forwarded subprocess output col-2 so it sits inside
+      // the wizard's body margin (banner col-0, body col-2).  Without
+      // this, Python ``sponsio scan``'s ``✓ Wrote …`` summary +
+      // ``· AST scan`` bullets jutted out at col-0 while the TS
+      // recap above and below them was col-2.  Operates per-line so
+      // multi-line stderr / stdout chunks render correctly.
+      const indent = (s: string): string =>
+        s
+          .split("\n")
+          .map((ln) => (ln.length > 0 ? "  " + ln : ln))
+          .join("\n");
+      if (r.stderr) process.stderr.write(indent(r.stderr));
+      if (r.stdout) process.stdout.write(indent(r.stdout));
       method = "python";
     } else {
       const errMsg = (r.error as Error)?.message ?? r.stderr?.slice(0, 2000) ?? "";
@@ -642,22 +667,23 @@ export async function runOnboardCli(argv: string[]): Promise<void> {
   if (res.method === "fallback") {
     // Fallback path didn't go through ``sponsio scan``, so it
     // didn't print the summary itself — emit one here in the
-    // same shape Python uses (``✓ <path>`` + col-2 keys).
+    // same shape Python uses (``✓ <path>`` + col-6 sub-keys
+    // under the col-2 ✓ marker).
     process.stdout.write(`  ✓ ${res.outPath}\n`);
     process.stdout.write(`      tools:      ${res.toolCount}\n`);
     process.stdout.write(`      mode:       ${p.mode}\n`);
     process.stdout.write("      method:     det-only fallback yaml\n");
     process.stdout.write("\n");
   }
-  process.stdout.write("Add this to your agent entry point:\n\n");
+  process.stdout.write("  Add this to your agent entry point:\n\n");
   for (const line of res.wrapSnippet.split("\n")) {
-    process.stdout.write(`  ${line}\n`);
+    process.stdout.write(`    ${line}\n`);
   }
-  process.stdout.write("\nNext:\n");
+  process.stdout.write("\n  Next:\n");
   process.stdout.write(
-    "  npx sponsio doctor                    # env health\n" +
-      "  npx sponsio validate                  # parse check\n" +
-      "  npx sponsio report --since 24h        # what would have been blocked\n" +
-      "  npx sponsio mode enforce              # one-shot flip when ready\n",
+    "    npx sponsio doctor                    # env health\n" +
+      "    npx sponsio validate                  # parse check\n" +
+      "    npx sponsio report --since 24h        # what would have been blocked\n" +
+      "    npx sponsio mode enforce              # one-shot flip when ready\n",
   );
 }
