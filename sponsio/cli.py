@@ -4156,27 +4156,24 @@ def onboard(
     # ``━`` string.  Skipped on the non-interactive structured-
     # output paths (--json, --emit-context) so consumers parsing
     # stdout don't have to sed past it.
-    if not as_json and not emit_context:
-        from sponsio.render.components import (
-            header_banner as _header_banner,
-            section_rule as _section_rule,
-        )
+    if not as_json and not emit_context and not os.environ.get(
+        "SPONSIO_INIT_DISPATCH"
+    ):
+        # Standalone ``sponsio onboard`` prints a full banner so users
+        # see the product wordmark when running it directly.  When the
+        # ``sponsio init`` wizard dispatched us, the preview block
+        # above already showed ``→ sponsio onboard . --mode ...`` so
+        # any additional banner / divider here is redundant.  Skip
+        # entirely and let the first stage section rule
+        # (``Scanning your code ─────...``) carry the transition.
+        from sponsio.render.components import header_banner as _header_banner
         from sponsio.runtime.terminal import (
             _make_stderr_console as _make_console,
         )
 
         _hdr_console = _make_console(None)
         _hdr_console.print()
-        # When ``sponsio init`` dispatched us, the wizard has already
-        # printed its own ``━━━ ◒◓ Sponsio ━━━ onboarding wizard ━━━``
-        # banner above us — repeating a full banner here makes the
-        # transition feel like a second program starting.  Use a
-        # thin section rule so the user still sees a clear "now
-        # running onboard" marker without the visual reset.
-        if os.environ.get("SPONSIO_INIT_DISPATCH"):
-            _hdr_console.print(_section_rule("sponsio onboard"))
-        else:
-            _hdr_console.print(_header_banner(tagline="onboard"))
+        _hdr_console.print(_header_banner(tagline="onboard"))
 
     # One spinner per command — long-wait emits (``…``-suffixed) start
     # it, the next emit (or the final ``stop()`` after run_onboard)
