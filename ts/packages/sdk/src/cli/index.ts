@@ -1,9 +1,9 @@
 /**
- * Public API for ``@sponsio/scan-ts``.
+ * Public API for ``@sponsio/sdk``.
  *
  * Usage:
  *
- *   import { scan } from "@sponsio/scan-ts";
+ *   import { scan } from "@sponsio/sdk";
  *   const result = await scan(["src/**\/*.ts"]);
  *   console.log(JSON.stringify(result, null, 2));
  *

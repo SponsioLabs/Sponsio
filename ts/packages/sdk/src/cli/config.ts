@@ -1,5 +1,5 @@
 /**
- * ``sponsio.yaml`` loader for ``@sponsio/scan-ts``.
+ * ``sponsio.yaml`` loader for ``@sponsio/sdk``.
  *
  * Parity feature with the Python side's ``sponsio/config.py``.  The
  * goal is *semantic* parity — same YAML file works for both

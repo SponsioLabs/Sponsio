@@ -481,7 +481,7 @@ const ONBOARD_HELP = [
   "",
   "  When the ``sponsio`` CLI (Python) is on PATH, runs the same",
   "  ``sponsio scan <tool-inventory.json>`` pass as a manual",
-  "  ``npx @sponsio/scan-ts | sponsio`` pipeline — so you get the",
+  "  ``npx @sponsio/sdk | sponsio`` pipeline — so you get the",
   "  same starter contracts / packs as ``sponsio onboard .`` in a",
   "  Python repo. Without ``sponsio``, writes a det-only minimal yaml",
   "  (observe mode) that ``new Sponsio({ config: 'sponsio.yaml' })``",

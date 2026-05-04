@@ -17,7 +17,7 @@ import sponsio
 guard = sponsio.Sponsio(...)
 ```
 
-Sponsio Cloud (`pip install sponsio[cloud]`) adds a separate stochastic pipeline for fuzzy properties (tone, relevance, semantic PII, scope respect, hallucination, metric integrity) backed by LLM-judged atoms. The OSS engine ships **only deterministic contracts** — a YAML library that names a sto pattern raises `ConfigError` at load with a pointer to the Cloud install. Deterministic patterns covering syntactic PII / response length / response keyword bans (`no_pii`, `max_length`, `no_keywords`) remain available in OSS; they're regex-against-`llm_said` and don't need a judge. See [docs/oss_scope.md](docs/oss_scope.md) for the full OSS / Cloud boundary.
+Sponsio Cloud (`pip install sponsio[cloud]`) adds a separate stochastic pipeline for fuzzy properties (tone, relevance, semantic PII, scope respect, hallucination, metric integrity) backed by LLM-judged atoms. The OSS engine ships **only deterministic contracts** — a YAML library that names a sto pattern raises `ConfigError` at load with a pointer to the Cloud install. Deterministic patterns covering syntactic PII / response length / response keyword bans (`no_pii`, `max_length`, `no_keywords`) remain available in OSS; they're regex-against-`llm_said` and don't need a judge. See [docs/reference/oss-scope.md](docs/reference/oss-scope.md) for the full OSS / Cloud boundary.
 
 ## Positioning
 
@@ -39,13 +39,13 @@ For product-level questions:
 
 - `README.md` — public positioning, quick start, demos, benchmarks
 - `QUICKSTART.md` — install and first integration (repo root)
-- `docs/cli.md` — `sponsio scan`, `validate`, `check`, `demo`, `report`, `serve`
-- `docs/integrations.md` — framework-specific wiring
+- `docs/reference/cli.md` — `sponsio scan`, `validate`, `check`, `demo`, `report`, `serve`
+- `docs/integrations/index.md` — framework-specific wiring
 
 For architecture and contract questions:
 
-- `docs/architecture.md` — conceptual model, atoms, patterns, grounding, observation boundaries
-- `docs/contracts.md` — deterministic constraints and atom vocabulary
+- `docs/concepts/architecture.md` — conceptual model, atoms, patterns, grounding, observation boundaries
+- `docs/concepts/contracts.md` — deterministic constraints and atom vocabulary
 - *(Sponsio Cloud)* `docs/sto-atoms.md` — stochastic atom catalog and framework wiring (in the cloud repo)
 For implementation:
 
@@ -80,8 +80,8 @@ sponsio/
 
 ts/                    TypeScript workspace (npm workspaces)
 ├── packages/sdk/      @sponsio/sdk: det engine + framework integrations
-└── packages/scanner/  @sponsio/scan-ts: AST static scanner CLI
-docs/                  user-facing documentation (see `docs/oss_scope.md`
+└── packages/sdk/  @sponsio/sdk: AST static scanner CLI
+docs/                  user-facing documentation (see `docs/reference/oss-scope.md`
                        for the OSS / Sponsio Cloud boundary)
 scripts/               one-off maintenance utilities (e.g. plugin sync)
 tests/                 pytest suite

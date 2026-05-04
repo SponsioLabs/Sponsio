@@ -41,7 +41,7 @@ Apache 2.0. We will not relicense, gate, or remove them.
   Vercel AI SDK, CrewAI, MCP, Cursor, Claude Code, OpenClaw — and
   the no-framework `guard_before` / `guard_after` API
 - TypeScript SDK (`@sponsio/sdk`) — same engine, same DSL
-- Static scanner (`@sponsio/scan-ts`) — AST-based contract proposal
+- Static scanner (`@sponsio/sdk`) — AST-based contract proposal
 
 ### CLI
 
@@ -136,7 +136,7 @@ HashiCorp). We've designed our boundary to avoid each failure mode.
 - **We will not relicense** anything currently shipped under
   Apache 2.0. The OSS Promise covers the surface listed in §1.
 - **We will not move features from OSS into Cloud.** Anything new
-  in an OSS-scope directory (per [`docs/oss_scope.md`](docs/oss_scope.md))
+  in an OSS-scope directory (per [`docs/reference/oss-scope.md`](docs/reference/oss-scope.md))
   ships under Apache 2.0. New Cloud-scope work doesn't appear in
   this repo at all.
 - **We will not artificially limit the OSS engine** to push you to
@@ -222,7 +222,7 @@ If you don't want either, run OSS forever. We mean that.
 | Local session log → your own collector | OSS (`sponsio export-sessions`, `OtlpHttpExporter`) |
 | Local HTML report | OSS (`sponsio report --format html`) |
 
-The full mapping lives in [`docs/oss_scope.md`](docs/oss_scope.md).
+The full mapping lives in [`docs/reference/oss-scope.md`](docs/reference/oss-scope.md).
 
 ---
 

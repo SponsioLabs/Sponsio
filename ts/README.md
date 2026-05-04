@@ -5,11 +5,11 @@ Workspace root for Sponsio's TypeScript packages. The two published packages liv
 | Package | npm name | Purpose |
 |---|---|---|
 | [`packages/sdk/`](packages/sdk/) | `@sponsio/sdk` | Runtime contract enforcement (DFA, formula evaluator, framework integrations). Hot path. |
-| [`packages/scanner/`](packages/scanner/) | `@sponsio/scan-ts` | Static AST scanner for TypeScript/JavaScript agent tool definitions. CI / dev tool. |
+| [`packages/sdk/`](packages/sdk/) | `@sponsio/sdk` | Static AST scanner for TypeScript/JavaScript agent tool definitions. CI / dev tool. |
 
 The packages stay separate on npm because:
 - `@sponsio/sdk` ships into production agent code and must stay light (only `yaml` as a dep).
-- `@sponsio/scan-ts` pulls in `ts-morph` (~30 MB) for AST parsing and only runs at dev/CI time.
+- `@sponsio/sdk` pulls in `ts-morph` (~30 MB) for AST parsing and only runs at dev/CI time.
 - They use different module systems (ESM vs CommonJS) for compatibility with their respective ecosystems.
 
 Sharing a workspace gives them shared tooling, hoisted `node_modules`, and a single `npm install` command.
@@ -44,7 +44,7 @@ ts/
     │   ├── tsconfig.json     # extends ../../tsconfig.base.json
     │   └── src/
     └── scanner/
-        ├── package.json      # @sponsio/scan-ts
+        ├── package.json      # @sponsio/sdk
         ├── tsconfig.json     # extends ../../tsconfig.base.json
         └── src/
 ```

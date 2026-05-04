@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 /**
- * ``sponsio`` — CLI frontend for ``@sponsio/scan-ts``.
+ * ``sponsio`` — CLI frontend for ``@sponsio/sdk``.
  *
  * Usage:
  *
- *   npx @sponsio/scan-ts ./src
- *   npx @sponsio/scan-ts "src/**\/*.ts" --out tools.json
- *   npx @sponsio/scan-ts --config sponsio.yaml
- *   npx @sponsio/scan-ts ./src --pretty
+ *   npx @sponsio/sdk ./src
+ *   npx @sponsio/sdk "src/**\/*.ts" --out tools.json
+ *   npx @sponsio/sdk --config sponsio.yaml
+ *   npx @sponsio/sdk ./src --pretty
  *
  * Writes the OpenAI function-calling JSON inventory to stdout (or to
  * ``--out <file>``) so you can pipe into ``sponsio scan`` on the
  * Python side:
  *
- *   npx @sponsio/scan-ts ./src > tools.json
+ *   npx @sponsio/sdk ./src > tools.json
  *   sponsio scan tools.json --out sponsio.yaml
  *
  * When ``--config sponsio.yaml`` is passed, the CLI also reads the

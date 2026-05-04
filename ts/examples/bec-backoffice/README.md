@@ -101,7 +101,7 @@ Each contract's `E:` field is what Sponsio prints when it blocks something. The 
 The intended onboarding is two commands:
 
 ```bash
-npm i -D @sponsio/scan-ts
+npm i -D @sponsio/sdk
 npx sponsio onboard .
 ```
 

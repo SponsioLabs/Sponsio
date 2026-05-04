@@ -46,7 +46,7 @@ and a CLI for scanning, mining, and reporting.
   `explain`, `demo`.
 - **TypeScript SDK** (`@sponsio/sdk`) — deterministic engine + the
   same set of framework integrations.
-- **Static scanner** (`@sponsio/scan-ts`) — AST-based code scanner
+- **Static scanner** (`@sponsio/sdk`) — AST-based code scanner
   for proposing contracts from a TS / JS codebase.
 - **Local observability** — session log JSONL writer,
   `sponsio host trace --follow` live stream, `sponsio report` rich /
@@ -58,12 +58,12 @@ and a CLI for scanning, mining, and reporting.
 - **Benchmarks** — ODCV-Bench (84.5% high-risk protection across 12
   LLMs) and RedCode-Exec (92% combined detection across 1,410 cases),
   with 0% utility FP on the 60-file clean-code audit. See
-  [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
+  [`docs/reference/benchmarks.md`](docs/reference/benchmarks.md).
 
 ### Boundary
 
 Sponsio Cloud is a separate commercial product layer; the
-[OSS / Cloud boundary](docs/oss_scope.md) is documented and committed.
+[OSS / Cloud boundary](docs/reference/oss-scope.md) is documented and committed.
 The OSS engine ships everything above; the managed sto pipeline,
 cross-customer pattern intelligence, hosted dashboard, and
 multi-tenant retention live in `sponsio[cloud]`. The OSS monitor
@@ -76,4 +76,4 @@ mix det + sto load cleanly under either install.
   and CLI surface follow [SemVer](https://semver.org/) for breaking
   changes from 0.2 onward.
 - Apache 2.0 — see [LICENSE](LICENSE) and the
-  [OSS Promise](docs/oss_scope.md#versioning--the-oss-promise).
+  [OSS Promise](docs/reference/oss-scope.md#versioning--the-oss-promise).

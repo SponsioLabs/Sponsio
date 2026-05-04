@@ -10,7 +10,7 @@
     "zod": "^3.23.0"
   },
   "devDependencies": {
-    "@sponsio/scan-ts": "^0.1.0",
+    "@sponsio/sdk": "^0.1.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }

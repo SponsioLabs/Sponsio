@@ -3,7 +3,7 @@
  * sponsio workflow (onboard / scan / refresh).
  *
  * Mirrors the Python ``sponsio prompt`` command. The same three .md
- * files live in ``ts/packages/scanner/prompts/`` (mirrored from
+ * files live in ``ts/packages/sdk/prompts/`` (mirrored from
  * ``sponsio/prompts/``); this command just reads and prints the right
  * one. Used by the Sponsio skill to drive contract authoring without
  * a separate LLM API call.

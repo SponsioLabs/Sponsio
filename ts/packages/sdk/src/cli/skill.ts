@@ -8,7 +8,7 @@
  * Parity with Python's ``sponsio skill install``. The shipped
  * SKILL.md is universal (covers both Python and TypeScript
  * workflows) and lives at ``<pkg>/skills/SKILL.md`` inside the
- * published ``@sponsio/scan-ts`` tarball. Available as a
+ * published ``@sponsio/sdk`` tarball. Available as a
  * cross-language path since either CLI can install it.
  */
 
@@ -107,7 +107,7 @@ export async function runSkillCli(argv: string[]): Promise<void> {
   const src = resolveSkillSource();
   if (!existsSync(src)) {
     process.stderr.write(
-      `[sponsio] cannot locate SKILL.md at ${src} — did you build @sponsio/scan-ts?\n`,
+      `[sponsio] cannot locate SKILL.md at ${src} — did you build @sponsio/sdk?\n`,
     );
     process.exit(1);
   }

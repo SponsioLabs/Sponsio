@@ -5,7 +5,7 @@ Get Sponsio blocking an unsafe tool call in under 60 seconds — no API key, no 
 > [!NOTE]
 > **Stability (v0.1.x).** Det engine + LangGraph / Claude Agent SDK / OpenAI / Vercel AI integrations are production-ready. OTEL export (`sponsio.tracer.exporters.OtlpHttpExporter` + `sponsio export-sessions`) is **beta**. CrewAI and OpenAI Agents SDK integrations are **alpha** — surface may shift before 0.2.
 >
-> **Sponsio Cloud features** (`pip install sponsio[cloud]`): the managed LLM-judge sto pipeline, the multi-tenant `sponsio serve --dev` dashboard (FastAPI + React), and *cross-customer* pattern intelligence layered on top of `sponsio refresh`. The OSS engine ships the full deterministic engine, every framework adapter, the local-mining version of `sponsio refresh`, and an HTML report renderer; OSS installs log-and-skip stochastic contracts with a one-time warning. See [docs/oss_scope.md](docs/oss_scope.md) and [OSS_PROMISE.md](OSS_PROMISE.md) for the boundary.
+> **Sponsio Cloud features** (`pip install sponsio[cloud]`): the managed LLM-judge sto pipeline, the multi-tenant `sponsio serve --dev` dashboard (FastAPI + React), and *cross-customer* pattern intelligence layered on top of `sponsio refresh`. The OSS engine ships the full deterministic engine, every framework adapter, the local-mining version of `sponsio refresh`, and an HTML report renderer; OSS installs log-and-skip stochastic contracts with a one-time warning. See [docs/reference/oss-scope.md](docs/reference/oss-scope.md) and [OSS_PROMISE.md](OSS_PROMISE.md) for the boundary.
 
 ## Architecture overview
 
@@ -28,7 +28,7 @@ Sponsio compiles natural-language rules into Linear Temporal Logic (LTL) formula
 - **Sto** — LLM-scored evaluation (0-1) for fuzzy properties. Violations route to `RetryWithConstraint` / `RedirectToSafe`.
 - **Zero core dependencies** — the engine and pattern library are pure Python. Framework packages are optional extras.
 
-Full design: [docs/architecture.md](docs/architecture.md).
+Full design: [docs/concepts/architecture.md](docs/concepts/architecture.md).
 
 ---
 
@@ -127,7 +127,7 @@ What it does:
 
 No LLM key? `onboard` still ships a name-heuristic starter plus `sponsio:core/runaway` (token budgets, delegation depth, loop caps) — all deterministic, zero LLM calls.
 
-After `onboard` finishes it prints a framework-specific 2-3 line patch — paste it into your agent entry file at the marked spot (the snippet's inline comment shows where the wrap must run *before* the agent is built). All framework adapters are a one-line import swap — see [`docs/integrations.md`](docs/integrations.md).
+After `onboard` finishes it prints a framework-specific 2-3 line patch — paste it into your agent entry file at the marked spot (the snippet's inline comment shows where the wrap must run *before* the agent is built). All framework adapters are a one-line import swap — see [`docs/integrations/index.md`](docs/integrations/index.md).
 
 ### TypeScript (Node.js)
 
@@ -135,11 +135,11 @@ If your agent is TypeScript, use the static scanner and the same `sponsio scan` 
 
 ```bash
 npm install @sponsio/sdk yaml
-npm install -D @sponsio/scan-ts
-npx sponsio-scan-ts onboard .
+npm install -D @sponsio/sdk
+npx sponsio onboard .
 ```
 
-When the Python [`sponsio` CLI](https://pypi.org/project/sponsio/) is on `PATH`, that command pipes the extracted tool JSON into `sponsio scan` and writes a full `sponsio.yaml` (same as the manual pipe in [`/scan-ts`’s README](ts/packages/scanner/README.md)). If `sponsio` is not installed, it still writes a small observe-mode file with a few det-only `E: …` natural-language rules so the TypeScript `Sponsio` class can start without Python. `sponsio-scan-ts onboard . --llm` passes `--llm` through to `sponsio scan` (set `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` as in [`docs/cli.md` → Provider matrix](docs/cli.md#provider-matrix)).
+When the Python [`sponsio` CLI](https://pypi.org/project/sponsio/) is on `PATH`, that command pipes the extracted tool JSON into `sponsio scan` and writes a full `sponsio.yaml` (same as the manual pipe in [`/scan-ts`’s README](ts/packages/sdk/README.md)). If `sponsio` is not installed, it still writes a small observe-mode file with a few det-only `E: …` natural-language rules so the TypeScript `Sponsio` class can start without Python. `sponsio onboard . --llm` passes `--llm` through to `sponsio scan` (set `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` as in [`docs/reference/cli.md` → Provider matrix](docs/reference/cli.md#provider-matrix)).
 
 ## 4. Run your agent and observe
 
@@ -179,7 +179,7 @@ Precedence: explicit ctor arg > env var (`SPONSIO_MODE`, `SPONSIO_DASHBOARD`) > 
 
 ## Configuration
 
-Single-file config in `sponsio.yaml` — full field reference in [`docs/contracts.md`](docs/contracts.md):
+Single-file config in `sponsio.yaml` — full field reference in [`docs/concepts/contracts.md`](docs/concepts/contracts.md):
 
 ```yaml
 version: 1
@@ -205,7 +205,7 @@ judge:                                 # only when any include uses sto (LLM-jud
   # fallback_mode: allow               # allow | deny | skip — what to do if LLM times out
 ```
 
-**API keys, full provider list, default models, `base_url` for OpenRouter / DeepSeek / Ollama / Azure:** see [`docs/cli.md` → Provider matrix](docs/cli.md#provider-matrix). The same env-var auto-detection applies to both `judge` (runtime) and `sponsio scan --llm` (onboarding).
+**API keys, full provider list, default models, `base_url` for OpenRouter / DeepSeek / Ollama / Azure:** see [`docs/reference/cli.md` → Provider matrix](docs/reference/cli.md#provider-matrix). The same env-var auto-detection applies to both `judge` (runtime) and `sponsio scan --llm` (onboarding).
 
 Run `sponsio packs` to list shipped packs with rule counts and include syntax.
 
@@ -219,7 +219,7 @@ Three contract categories Sponsio enforces, all deterministic, all checked befor
 | **Sequential** | Out-of-order calls, post-gate tampering | *"`run_tests` before `deploy_production`"* · *"after `run_aml_check`, loan files immutable"* |
 | **Bounded** | Retry loops, delegation fan-out, token runaway | *"`check_balance` at most 5 times"* · *"delegation depth ≤ 3"* |
 
-Phrases above are how you write rules in `sponsio.yaml` — Sponsio compiles each into a Linear Temporal Logic formula for [machine-checkable enforcement](docs/formal-methods.md).
+Phrases above are how you write rules in `sponsio.yaml` — Sponsio compiles each into a Linear Temporal Logic formula for [machine-checkable enforcement](docs/concepts/formal-methods.md).
 
 Four ways to author them, all feeding the same `sponsio.yaml`:
 
@@ -228,7 +228,7 @@ Four ways to author them, all feeding the same `sponsio.yaml`:
 - **Natural language** — `sponsio validate "..."` compiles plain English to LTL
 - **Policy doc** — `sponsio scan --policy security.md` parses existing compliance docs
 
-See [`docs/contracts.md`](docs/contracts.md) for the full DSL and atom vocabulary.
+See [`docs/concepts/contracts.md`](docs/concepts/contracts.md) for the full DSL and atom vocabulary.
 
 ## From demo to production
 
@@ -258,7 +258,7 @@ sponsio scan src/ --policy security.md --llm                # + policy docs
 sponsio scan src/ -t '~/.sponsio/sessions/bot/*.jsonl'      # + execution traces
 ```
 
-`--llm` works with whatever you have: `GOOGLE_API_KEY` (Gemini, **1500 req/day free**), `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY`. For local / OpenAI-compatible endpoints (Ollama, OpenRouter, vLLM, Azure …), pass `--base-url`. Trace mining requires no LLM and works with OTLP/JSON, OTLP JSONL, native Sponsio JSON/JSONL, and Sponsio session logs. See the [provider matrix](docs/cli.md#provider-matrix).
+`--llm` works with whatever you have: `GOOGLE_API_KEY` (Gemini, **1500 req/day free**), `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY`. For local / OpenAI-compatible endpoints (Ollama, OpenRouter, vLLM, Azure …), pass `--base-url`. Trace mining requires no LLM and works with OTLP/JSON, OTLP JSONL, native Sponsio JSON/JSONL, and Sponsio session logs. See the [provider matrix](docs/reference/cli.md#provider-matrix).
 
 Scanned contracts are flagged `source: scan` (or `source: trace`) so they're easy to tell apart from hand-written ones.
 
@@ -293,7 +293,7 @@ agents:
       run_command: exec                    #   used by the shell pack
       read_file:   read
 
-    overrides:                             # silence specific rules without forking a pack
+    customized:                             # silence specific rules without forking a pack
       - match: { desc: "Cap exec calls per session" }
         args: [exec, 500]                  # coding agents legitimately hit >50 execs
 
@@ -314,9 +314,9 @@ judge:                                     # only when any include uses sto
 Two things worth knowing on day 1:
 
 - Rules gated on markers your integration doesn't emit are **vacuous-true**, not false-positive. The shell pack's "each exec needs a confirm_reconfirmed" rule has `A: "called \`confirm_reconfirmed"` — so if you never wire the marker, the rule is silent. The moment you do, 1:1 enforcement kicks in.
-- Packs are read-only on disk but fully overridable. Use `overrides:` with a `match:` clause (by `desc`, `pattern`, `pack_source`, or `source` tag) to tune, disable, or replace args without editing the pack file.
+- Packs are read-only on disk but fully overridable. Use `customized:` with a `match:` clause (by `desc`, `pattern`, `pack_source`, or `source` tag) to tune, disable, or replace args without editing the pack file.
 
-See [docs/contracts.md](docs/contracts.md) for the full field reference.
+See [docs/concepts/contracts.md](docs/concepts/contracts.md) for the full field reference.
 
 ### 3. Validate and replay in CI
 
@@ -371,7 +371,7 @@ Prune false positives, then flip enforce.
 
 
 Push contract verdicts into your existing observability stack via OTEL — the
-schema is documented in [docs/observability.md](docs/observability.md), and the
+schema is documented in [docs/reference/observability.md](docs/reference/observability.md), and the
 [`sponsio.tracer.exporters`](sponsio/tracer/exporters.py) module ships a
 batching OTLP/HTTP exporter ready to wire into `Sponsio(otel_exporter=...)`.
 
@@ -382,7 +382,7 @@ scope, semantic PII, hallucination, metric integrity. The sto pipeline (LLM-
 judge atoms + `RetryWithConstraint` strategy) ships in **Sponsio Cloud**
 (`pip install sponsio[cloud]`). The OSS engine logs-and-skips sto contracts
 with a one-time warning per contract; Cloud installs replace the stub with the
-full sto path. See [docs/oss_scope.md](docs/oss_scope.md) for the boundary.
+full sto path. See [docs/reference/oss-scope.md](docs/reference/oss-scope.md) for the boundary.
 
 ## Re-mine contracts from recent traces (Sponsio Cloud)
 
@@ -395,7 +395,7 @@ sponsio refresh --since 7d --apply     # write it (backup at .sponsio.bak)
 ```
 
 User-written rules, `source: scan`, `source: policy`, and anything under
-`overrides:` flow through unchanged. The OSS pure-static path (`sponsio scan`)
+`customized:` flow through unchanged. The OSS pure-static path (`sponsio scan`)
 covers single-project re-scans without trace mining.
 
 ## Development Setup
@@ -419,4 +419,4 @@ sponsio validate --config sponsio.yaml # parse + structural checks (CI-friendly)
 sponsio check --trace trace.json --config sponsio.yaml --agent agent
 ```
 
-More: [`docs/integrations.md`](docs/integrations.md) · [`docs/cli.md`](docs/cli.md) · [`docs/contracts.md`](docs/contracts.md) · [`docs/architecture.md`](docs/architecture.md).
+More: [`docs/integrations/index.md`](docs/integrations/index.md) · [`docs/reference/cli.md`](docs/reference/cli.md) · [`docs/concepts/contracts.md`](docs/concepts/contracts.md) · [`docs/concepts/architecture.md`](docs/concepts/architecture.md).

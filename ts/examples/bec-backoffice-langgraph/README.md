@@ -59,7 +59,7 @@ If you want to walk the IDE-agent onboard flow on this folder:
 ```bash
 cd ts/examples/bec-backoffice-langgraph
 rm sponsio.yaml                                   # start fresh
-npm i -D @sponsio/scan-ts
+npm i -D @sponsio/sdk
 npx sponsio onboard . --emit-context
 # then hand the JSON + `npx sponsio prompt onboard` template to your IDE agent
 ```
