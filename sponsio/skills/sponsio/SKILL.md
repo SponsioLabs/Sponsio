@@ -15,10 +15,11 @@ Dispatch by what the user is trying to do. Pick ONE workflow and follow it; do n
 
 | User is… | → Workflow |
 |---|---|
-| Setting up Sponsio for the first time in a project ("add sponsio", "install sponsio", "add guardrails") | **W1 — Initial setup** |
+| Setting up Sponsio for the first time in a project ("add sponsio", "install sponsio", "add guardrails") | **W1 — Initial setup** (just dispatch ``sponsio init``) |
 | Handing you a codebase and asking "what could go wrong?" / wants a fresh contract file from scratch / has a policy doc to encode | **W2 — Audit & refine** |
 | Authoring contracts for a Claude Code / OpenClaw plugin or a bare MCP server (input is a plugin manifest, not source code) | **W2b — Plugin / MCP contracts** |
 | Tightening rules that apply to Task-spawned subagents (Cursor / Claude Code) — they lack user context and need stricter privileges than the main agent | **W2c — Subagent privilege boundary** |
+| Tuning the IDE's OWN host-plugin library (Claude Code's Bash / Read / Write / MCP gating; Cursor likewise) — different from the user's project sponsio.yaml | hand off to the ``sponsio-claude-code:configure`` skill (or the cursor analog).  Don't reimplement here. |
 | Has Sponsio running in observe mode and wants to review violations, tune thresholds, silence false positives | **W3 — Tune in observe** |
 | Wants to re-mine contracts from accumulated production traces / periodically maintain the library | **W3b — Refresh from traces** |
 | Ready to ship — wants to move from observe to enforce, needs regression confidence | **W4 — Flip to enforce** |
@@ -188,179 +189,143 @@ If the operator named providers exhaustively in prose ("Railway, Fly, Render, Su
 
 ## W1 — Initial setup
 
-Goal: from "project has no Sponsio" to "agent runs under observe mode with a sane contract file".
+Goal: from "project has no Sponsio" to "agent runs under observe
+mode with a sane contract file".
 
-You (the host agent — Claude Code, Cursor, Codex) ARE the LLM here.  Drive the agent-mediated extraction path: Sponsio collects the deterministic inputs, you do the cognitive contract-authoring step in your own context, then Sponsio validates and finalises.  Never hand off to a separate LLM via `--llm` / API keys — that wastes a paid-for context window you already have.
+The CLI now has a one-shot wizard that covers the common path —
+detect framework + IDEs, ask which to install, dispatch
+``sponsio onboard`` / ``sponsio host install`` / ``sponsio skill
+install`` accordingly, then verify.  W1 is just orchestrating
+that wizard, not reimplementing it.
 
 ### Steps
 
-1. Collect the structured inputs from Sponsio:
+1. Run the wizard.
 
    ```bash
-   sponsio onboard . --emit-context
+   sponsio init                                                    # interactive TTY
+   sponsio init --apply 'framework=<name>;ides=<ide>:<level>,...;mode=observe'
+                                                                   # non-interactive
    ```
 
-   Outputs a JSON object on stdout: framework detection + AST-extracted tool inventory + auto-selected packs + any existing `sponsio.yaml` + discovered policy docs (`security.md`, `policy.md` at repo root).  No LLM call, no API key needed.
+   Picks string format:
+     - ``framework=<one of langgraph / langchain / crewai / openai /
+       anthropic / claude_agent / openai_agents / google_adk /
+       vercel_ai / mcp / none>``.  ``none`` is "bare loop, generic
+       ``guard.guard_before/after`` wiring"; an empty
+       ``framework=`` skips the onboard step entirely.
+     - ``ides=<ide>:<level>,...`` per-IDE pick.  ``<level>`` is
+       ``none`` / ``skill`` (drop SKILL.md only) / ``full`` (host
+       hooks + SKILL.md, the canonical "protect this IDE" pick).
+     - ``mode=observe|enforce``.  Default observe; enforce flips
+       are W4's job.
 
-2. Get the matching prompt template:
+   Use ``sponsio init --plan '<picks>'`` first to surface the
+   exact commands the wizard will run, especially when you're
+   non-interactive.  Surface ``sponsio init``'s output to the user
+   verbatim — the panel + preview + recap blocks are designed to
+   be readable as-is.
+
+2. Patch the agent entry file (only when ``framework`` ≠ ``""``).
 
    ```bash
-   sponsio prompt onboard
+   sponsio onboard . --emit-context > /tmp/sponsio-onboard-context.json
    ```
 
-   A markdown prompt that tells you, the host agent, exactly how to turn the JSON above into a `sponsio.yaml`.  Read it carefully — it pins the pattern vocabulary, the source-tagging convention, and the `agents.<id>` shape Sponsio expects.
+   Read the JSON.  Pick the entry file in this priority:
+     1. ``entry_file_candidates`` has exactly one strong match.
+     2. Else dedupe ``tool_inventory[*].filepath`` — one file, use it.
+     3. Else stop and ask the user.
 
-3. **You** apply the prompt to the JSON in your own LLM context.  Produce a single YAML document.  Mode MUST start as `observe`.  Source-tag everything you author with `source: agent-extracted` so future `sponsio refresh` runs can re-consider them.
+   If the file already imports ``from sponsio.<adapter>`` (Python)
+   or ``from "@sponsio/sdk"`` (TS), it's already wrapped — skip.
+   Otherwise splice ``wrap_snippet`` from the JSON: imports +
+   guard construction at the top, wrap site adapted to the file's
+   actual idiom (canonical
+   ``create_react_agent(model, guard.wrap(tools))`` if present,
+   else adapt — e.g. ``tools_by_name = guard.wrap(TOOLS).tools_by_name``
+   for a name-keyed dispatch loop).  Show the diff before writing.
 
-4. **Pick the write target by INTENT, not by what's on disk.**
-
-   You are about to write a yaml. There are TWO categorically different
-   destinations, and choosing wrong silently breaks the entire setup.
-   Decide *intent first*, then write — never default to project-local
-   because it "feels nicer" or because the file already exists.
-
-   ### The two destinations
-
-   **(A) Host-tool runtime library — `~/.sponsio/plugins/{{HOST_BUCKET}}/sponsio.yaml`**
-
-   This is where you (the IDE / host agent — Cursor, Claude Code,
-   Codex, OpenClaw) get governed. Cursor's hooks evaluate THIS file
-   on every Bash / Read / Write / Edit / MultiEdit / MCP call you
-   make. Writing rules here means: "the next time *I* try to do
-   something, the rule fires and either blocks me or logs the
-   attempt".
-
-   **(B) Project-local config — `<project>/sponsio.yaml`**
-
-   This is for **code the user writes that itself runs an LLM agent**.
-   Concretely: the user has a Python file with
-   `from langgraph import ...` or `from openai_agents import ...` and
-   somewhere does `Sponsio(config="sponsio.yaml")` to wrap their own
-   agent. THAT agent — the one running inside the user's program —
-   is what `sponsio.yaml` here governs. Cursor / Claude Code's IDE
-   hook never reads this file. Rules here do not constrain you.
-
-   ### Pick destination (A) when ANY of these is true
-
-   - The user said "set up sponsio for this project" / "add
-     guardrails" / "harden the agent" / "I'm in a code freeze, the
-     agent shouldn't..." without naming a specific code-wrapped agent.
-   - The project has no LangGraph / OpenAI Agents SDK / CrewAI /
-     Anthropic SDK imports (i.e. `framework=="none"` in the
-     `--emit-context` JSON). The user's project is just regular
-     code — there is no other agent to constrain, only YOU.
-   - The user's policy paragraphs talk about *coding actions* —
-     SQL, file edits, git push, shell commands. Those are tool
-     calls *you* make, so they need to fire on *your* tool calls.
-
-   ### Pick destination (B) ONLY when ALL of these are true
-
-   - The project ships a code-wrapped LLM agent (framework is one of
-     `langgraph` / `langchain` / `openai_agents` / `crewai` / etc.).
-   - The user explicitly references that agent (by name, by file,
-     by behavior) — not "this project's agent" meaning you, but
-     "the customer-support bot we deploy" or "our wire-transfer
-     agent".
-   - The user is wiring Sponsio into their *own program's* runtime,
-     not into the IDE's.
-
-   ### When uncertain, ASK
-
-   If both signals are present (the project DOES ship a code-wrapped
-   agent AND the user wants to govern coding-time tool calls too),
-   write a one-line question to the user before generating any yaml:
-
-   > "These rules — should they govern (a) my own tool calls inside
-   > this IDE so the freeze applies while I refactor, or (b) the
-   > <agent_name> agent your project deploys at runtime?"
-
-   Don't author yaml until the user disambiguates. Two destinations
-   need two yaml files; conflating them silently breaks one or both.
-
-   ### Anti-pattern (do NOT do this)
-
-   Writing a yaml at `<project>/sponsio.yaml` whose comment block
-   says "Cursor hooks evaluate ~/.sponsio/plugins/_host_cursor/...
-   not this file" — that's an admission that you wrote to the
-   wrong location. If you find yourself adding a comment like
-   that, stop, delete the project yaml, and write to the host
-   bucket instead.
-
-5. Write the YAML to the resolved path.  Path differs by destination:
-
-   - **Path (B) — project YAML.**  Use Edit/Write directly, then
-     `sponsio validate --config <project>/sponsio.yaml`.
-
-   - **Path (A) — host bucket.**  Edit/Write are denied by Zone B's
-     self-modify pack on `~/.sponsio/plugins/{{HOST_BUCKET}}/...`,
-     so you cannot write there yourself.  The legitimate path is
-     ``sponsio plugin append``, which performs a structurally
-     additive merge through validated Python code:
-
-     ```bash
-     # 1. Write the YAML you produced in step 3 to a clearly-labelled
-     #    staging file outside Zone B (the project root is fine).
-     #    Path examples: <project>/.sponsio.staging.yaml,
-     #    /tmp/sponsio-host-policy-<timestamp>.yaml.  Never name it
-     #    `sponsio.yaml` (collides with project-config and triggers
-     #    the wrong-destination anti-pattern below).
-
-     # 2. Dry-run the merge to surface what would land:
-     sponsio plugin append --from <staging-path> \
-       --target {{HOST_BUCKET}} --dry-run
-
-     # 3. Apply.  Atomic, validated, rejects anything beyond
-     #    additive `contracts:` entries (no `customized:`, no
-     #    `disabled:`, no desc collisions, no top-level keys).
-     sponsio plugin append --from <staging-path> --target {{HOST_BUCKET}}
-
-     # 4. Delete the staging file once `plugin append` reports
-     #    success — keeping it around invites accidental re-apply.
-     ```
-
-     The append CLI is the only way an in-host agent can extend its
-     own governance file.  Edit/Write/MultiEdit on the host bucket
-     are blocked; `cat staging >> host.yaml` is blocked too.  Tell
-     the user once at the top of the conversation that you'll be
-     running this command on their behalf so they're not surprised.
-
-     **Fallback (only if no host agent is driving — CI shell, one-shot).**
-
-     ```bash
-     sponsio scan <PATHS> [--policy <doc>] --llm \
-       -o ~/.sponsio/plugins/{{HOST_BUCKET}}/sponsio.yaml --append
-     ```
-
-     Uses an API key.  Skip this when you're already inside the
-     host agent — `plugin append` is faster and free.
-
-   If validation fails, fix and re-validate.  Don't leave a malformed file on disk.  Never produce a project `sponsio.yaml` with a comment like "Cursor hooks read host bucket; copy this there" — that's the wrong-destination anti-pattern called out in step 4.  The staging-file route is fine *only if* the filename makes its transient nature obvious (`.sponsio.staging.yaml`, `/tmp/...`).
-
-6. Run health check + show summary:
+3. Verify.
 
    ```bash
    sponsio doctor
+   sponsio validate --config sponsio.yaml
    ```
 
-   Then surface to the user:
-   - The resolved write path + a one-line "host-tool runtime" or "project config" tag so the user knows which surface they just configured.
-   - The generated YAML (read it back and summarize: packs included, tools renamed, mode).
-   - For project-config writes only: the framework-specific wrap snippet — the `wrap_snippet` field on the emit-context JSON has it.  Paste it into the agent entry file at the marked location.  (Host-tool runtime writes don't need a wrap snippet — the host's hooks are already wired by `sponsio host install`.)
-   - Any `sponsio doctor` warn/fail lines.
+   Surface every warning / fail line verbatim.  If ``sponsio doctor``
+   FAILED (not warned, failed), stop here — don't let the user run
+   their agent thinking the install is healthy when it isn't.
 
-7. Explain observe mode explicitly: "Nothing is blocked on day 1. Every contract is still evaluated; violations are logged to `~/.sponsio/sessions/<agent_id>/*.jsonl` and (if a dashboard is configured) pushed there. Use `sponsio report --since 24h` after a day of real traffic to see what would have been blocked."
+4. Explain observe mode explicitly: "Nothing is blocked on day 1.
+   Every contract is still evaluated; violations are logged to
+   ``~/.sponsio/sessions/<agent_id>/*.jsonl``.  Use ``sponsio report
+   --since 24h`` after a day of real traffic to see what would have
+   been blocked.  When you're ready to flip, that's W4."
 
-8. If `sponsio doctor` failed (not warned, failed), stop and surface it — don't let the user run their agent thinking the install is healthy when it isn't.
+### Beyond W1 — pointers
 
-### Fallback: bare-CLI / CI use
+Onboarding is just install + wire + verify.  These are SEPARATE
+workflows, not extensions of W1:
 
-If Sponsio is invoked from a bare shell or CI script (no host agent driving), the user can fall back to:
+  - **Author tighter contracts** from a policy doc / threat model /
+    actually-scanned codebase → **W2** (audit & refine).
+  - **Tune host-plugin libraries** (Bash / Read / Write / MCP gating
+    in this Claude Code or Cursor session) → invoke the
+    ``sponsio-claude-code:configure`` skill (or the cursor analog).
+    That skill owns ``sponsio plugin scan`` / ``sponsio plugin
+    append`` / per-MCP-server library generation.  W1 doesn't
+    duplicate it.
+  - **Refresh contracts from accumulated traces** → **W3b**.
+  - **Move from observe to enforce** → **W4**.
+  - **Something doesn't fire / fires wrong** → **W5**.
+
+### Choosing the write target — Zone A vs Zone B
+
+``sponsio init``'s axes already encode the destination decision:
+
+  - Axis 1 (framework wrap, picked at non-empty / non-``none``)
+    → writes ``<project>/sponsio.yaml``.  This is **Zone A** —
+    governs the LLM agent the user is wiring Sponsio INTO.  You may
+    Edit/Write this file; ``sponsio validate --config <path>``
+    after.
+  - Axis 2 (per-IDE level=full) → writes
+    ``~/.sponsio/plugins/_host_<ide>/sponsio.yaml`` via
+    ``sponsio host install``.  This is **Zone B** — governs the
+    HOST agent (i.e. you, Claude Code / Cursor).  Edit/Write/
+    MultiEdit are denied by the self-modify pack; the only way to
+    extend it from inside the host is ``sponsio plugin append``.
+
+If a user later asks you to add rules and the destination is
+ambiguous (project rules vs host-IDE rules), ask:
+
+> "These rules — should they govern (a) the LLM agent your project
+> deploys (Zone A: ``<project>/sponsio.yaml``), or (b) my own tool
+> calls inside this IDE (Zone B: ``~/.sponsio/plugins/_host_<ide>/
+> sponsio.yaml``)?"
+
+Two destinations need two files; conflating them silently breaks
+one or both.
+
+### Adding rules to Zone B (host bucket) — `sponsio plugin append`
+
+When a Zone-B addition is the right call, you can't Edit/Write the
+host yaml directly.  Use the append CLI:
 
 ```bash
-sponsio onboard .                    # uses OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY if present
+# 1. Write the new rules to a staging file OUTSIDE Zone B (project
+#    root is fine).  Never name it sponsio.yaml — collides with
+#    project-config.
+sponsio plugin append --from <staging-path> --target <bucket> --dry-run
+sponsio plugin append --from <staging-path> --target <bucket>
+rm <staging-path>     # delete after success
 ```
 
-— but only that path needs the API key.  The skill-driven path above is preferred and key-free.
+``plugin append`` is structurally additive: it rejects anything
+beyond ``contracts:`` entries — no ``customized:``, no
+``disabled:``, no desc collisions, no top-level keys.  Tell the
+user up front you'll be running this on their behalf so they're
+not surprised when it appears.
 
 ### Auto-selected packs
 
