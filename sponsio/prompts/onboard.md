@@ -72,6 +72,64 @@ A JSON object from `sponsio onboard --emit-context`:
   fabricate rules.  Tell the user the inputs were empty and ask
   what they want — usually it means the wrong path was scanned.
 
+## Read beyond the JSON — that's where you earn your keep
+
+The CLI already gave you the deterministic surface (tool inventory,
+auto-selected packs, policy_docs).  AST extraction can't see
+intent — that's why the host agent is in this loop instead of an
+LLM-extractor subprocess.  Before you propose anything, also read:
+
+- **README.md / SECURITY.md / POLICY.md / docs/*.md** for the rules
+  the user wrote in prose ("we never delete prod snapshots", "AML
+  must complete before loan funding").  These map to
+  ``arg_blacklist`` / ``must_precede`` / ``rate_limit`` more
+  faithfully than tool-name heuristics ever will.
+- **The agent entry file + the modules its tools call into.**
+  KPI strings in the system prompt ("cut storage 20%") tell you
+  what the agent will be tempted to do; you can pre-emptively
+  block the unsafe shortcut.
+- **Existing tests.**  They often encode invariants ("balance
+  must never go negative", "report must list every deletion").
+- **``git log -p`` on the agent files.**  Recent patches that
+  fix bugs labelled "agent did <X> we didn't want" hint at
+  rules the user already wishes existed.
+
+Cite the source in each contract's ``desc:`` field — ``"never
+delete /snapshots/prod/* (policy.md L18)"`` is a 5-second review;
+``"safety rule for delete_snapshot"`` is theatre.
+
+## Output — render as a diff for the user to pick
+
+Don't auto-write the whole sponsio.yaml in one go.  The starter
+yaml on disk (already produced by ``sponsio onboard`` /
+``sponsio init``) is your baseline.  Compute the DIFF — 5 to 10
+new contracts — and render it as YAML next to a one-sentence
+``rationale:`` per contract:
+
+```yaml
+# Proposed additions — review and tell me which to merge.
+agents:
+  <agent_id>:
+    contracts:
+      - desc: "delete_snapshot must not touch /snapshots/prod/"
+        E:
+          pattern: arg_blacklist
+          args: [delete_snapshot, path, ["^/snapshots/prod/"]]
+          source: agent-extracted
+        # rationale: policy.md L18 — "Production snapshots are
+        # off-site DR backups and MUST NEVER be deleted"
+      - desc: "delete_snapshot age_days within 30-day rotation"
+        E:
+          pattern: arg_value_range
+          args: [delete_snapshot, age_days, 0, 30]
+          source: agent-extracted
+        # rationale: policy.md L24 — age_days <= 30 retention
+```
+
+Then WAIT for the user to pick which proposals to merge into
+``sponsio.yaml``.  Don't auto-write.  Onboarding ends when the
+user tells you which ones land.
+
 ## What you produce
 
 A single YAML document — the new (or revised) `sponsio.yaml`.
