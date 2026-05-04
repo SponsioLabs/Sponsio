@@ -3686,95 +3686,105 @@ def eval_cmd(
     required=False,
 )
 @click.option(
-    "--force",
+    "--plan",
+    "plan_spec",
+    default=None,
+    help=(
+        "Print the would-run commands for these picks, don't run them.  "
+        "Used by IDE-agent wizard prompts for the dry-run preview step."
+    ),
+)
+@click.option(
+    "--apply",
+    "apply_spec",
+    default=None,
+    help=(
+        "Run the commands for these picks non-interactively.  Picks "
+        "format: ``framework=<name>;hosts=<a>,<b>;skills=<a>,<b>;"
+        "mode=observe|enforce``."
+    ),
+)
+@click.option(
+    "--no-demo",
     is_flag=True,
-    help="Overwrite an existing sponsio.yaml without prompting.",
-)
-@click.option(
-    "--provider",
-    type=click.Choice(["openai", "anthropic", "gemini", "bedrock", "none"]),
-    default=None,
-    help="Skip the provider prompt.",
-)
-@click.option(
-    "--mode",
-    type=click.Choice(["observe", "enforce"]),
-    default=None,
-    help="Skip the mode prompt.",
-)
-@click.option(
-    "--judge-fallback",
-    type=click.Choice(["allow", "deny", "skip"]),
-    default=None,
-    help="Skip the judge-fallback prompt.",
-)
-@click.option(
-    "--no-sample",
-    is_flag=True,
-    help="Don't include a starter contract block.",
+    help="Skip the post-install demo offer.",
 )
 @click.option(
     "--with-example",
     is_flag=True,
     help=(
-        "Skip the wizard and copy a runnable example bundle "
-        "(sponsio.yaml + traces/) into TARGET so you can run "
-        "`sponsio eval traces/` immediately.  Mutually exclusive "
-        "with the wizard flags."
+        "Drop a pre-tuned ``sponsio eval`` scaffold (sponsio.yaml + "
+        "6 labelled traces) into TARGET.  Orthogonal to the 4-axis "
+        "wizard; useful for smoke tests and demos."
     ),
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Used by --with-example to overwrite existing scaffold files.",
 )
 def init(
     target: Path,
-    force: bool,
-    provider: str | None,
-    mode: str | None,
-    judge_fallback: str | None,
-    no_sample: bool,
+    plan_spec: str | None,
+    apply_spec: str | None,
+    no_demo: bool,
     with_example: bool,
+    force: bool,
 ):
-    """Interactive setup wizard — generates a starter ``sponsio.yaml``.
+    """Interactive 4-axis onboarding wizard.
 
-    Walks you through provider, API-key strategy, runtime mode, and
-    judge fallback in four prompts.  Each ``--flag`` skips the
-    corresponding prompt, so the same command can run fully
-    non-interactively in CI or docs:
+    Walks you through the four decisions that actually matter on
+    first run:
 
     \b
-        sponsio init --provider gemini --mode observe \\
-                     --judge-fallback allow --no-sample --force
+      1. framework wrap        which agent framework to wrap (or "none")
+      2. protect host agents   install hooks for claude-code / cursor / openclaw
+      3. install Sponsio skill drop SKILL.md into IDEs not picked above
+      4. mode                  observe (shadow, default) or enforce (block)
+
+    Three modes:
 
     \b
-    Pass ``--with-example`` to skip the wizard entirely and drop a
-    pre-tuned scaffolding (sponsio.yaml + 6 labelled traces) into
-    TARGET — useful for `sponsio eval` smoke tests and demos.
+      sponsio init                     # interactive TTY (humans)
+      sponsio init --plan '<picks>'    # print commands, don't run
+      sponsio init --apply '<picks>'   # run commands non-interactively
+
+    Picks string format::
+
+        framework=<name>;hosts=<a>,<b>;skills=<a>,<b>;mode=<observe|enforce>
 
     Examples:\n
-        sponsio init                          # full wizard\n
-        sponsio init src/                     # write to src/sponsio.yaml\n
-        sponsio init --provider none          # rule-based parsing only\n
-        sponsio init . --with-example         # drop runnable scaffold
+        sponsio init\n
+        sponsio init --plan 'framework=langgraph;hosts=cursor;mode=observe'\n
+        sponsio init --apply 'framework=langgraph;hosts=cursor;mode=observe'\n
+        sponsio init . --with-example   # drop runnable scaffold
     """
+    from sponsio.init_wizard import (
+        apply_commands,
+        detect_environment,
+        offer_demo,
+        parse_picks,
+        plan_commands,
+        run_interactive,
+        run_with_example,
+    )
+
+    # ``--with-example`` is orthogonal — drops a scaffold, doesn't
+    # touch the 4-axis flow.  Surface conflicts explicitly.
     if with_example:
-        # Wizard flags don't apply — the bundled YAML is hand-tuned
-        # to the bundled traces.  Surface that conflict explicitly
-        # rather than silently dropping the user's flags.
         conflicting = [
             name
             for name, val in [
-                ("--provider", provider),
-                ("--mode", mode),
-                ("--judge-fallback", judge_fallback),
-                ("--no-sample", no_sample or None),
+                ("--plan", plan_spec),
+                ("--apply", apply_spec),
+                ("--no-demo", no_demo or None),
             ]
             if val is not None
         ]
         if conflicting:
             raise click.UsageError(
-                f"--with-example is incompatible with: {', '.join(conflicting)}.  "
-                "Run those flags WITHOUT --with-example to use the wizard."
+                f"--with-example is incompatible with: {', '.join(conflicting)}."
             )
-        from sponsio.init_wizard import run_with_example
-
         try:
             run_with_example(target, force=force)
         except click.ClickException as e:
@@ -3782,19 +3792,55 @@ def init(
             sys.exit(1)
         return
 
-    from sponsio.init_wizard import run_wizard
+    if plan_spec is not None and apply_spec is not None:
+        raise click.UsageError("--plan and --apply are mutually exclusive")
 
-    try:
-        run_wizard(
-            target,
-            force=force,
-            provider=provider,
-            mode=mode,
-            judge_fallback=judge_fallback,
-            no_sample=no_sample,
-        )
-    except click.Abort:
-        sys.exit(1)
+    target_dir = target if target.is_dir() or not target.suffix else target.parent
+    env = detect_environment(target_dir)
+
+    # ---- non-TTY paths: --plan / --apply ----
+    if plan_spec is not None:
+        picks = parse_picks(plan_spec)
+        cmds = plan_commands(picks, ts_project=env.runtime == "ts")
+        if not cmds:
+            click.echo("(no commands — every axis is empty)")
+            return
+        for cmd in cmds:
+            click.echo("would run: " + " ".join(cmd))
+        return
+
+    if apply_spec is not None:
+        picks = parse_picks(apply_spec)
+    else:
+        picks = run_interactive(env)
+
+    cmds = plan_commands(picks, ts_project=env.runtime == "ts")
+    if not cmds:
+        click.echo("(no commands — every axis is empty)")
+        return
+
+    # Dry-run preview before running, even on the interactive path —
+    # gives the user a final chance to spot a wrong pick.
+    click.echo()
+    click.secho("preview", bold=True, fg="cyan")
+    for cmd in cmds:
+        click.echo("  → " + " ".join(cmd))
+    click.echo()
+
+    # Skip the confirm gate when called via ``--apply`` — the IDE
+    # agent already showed me the dry-run preview before invoking,
+    # and a second confirmation here would corrupt structured output.
+    if apply_spec is None:
+        if not click.confirm("Run these?", default=True):
+            click.echo("aborted")
+            return
+
+    rc = apply_commands(cmds)
+    if rc != 0:
+        sys.exit(rc)
+
+    if not no_demo:
+        offer_demo()
 
 
 # ---------------------------------------------------------------------------

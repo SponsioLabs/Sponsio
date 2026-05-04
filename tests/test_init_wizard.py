@@ -1,274 +1,371 @@
-"""Tests for ``sponsio init`` and the underlying wizard module.
+"""Tests for ``sponsio init`` (4-axis wizard) and underlying helpers.
 
-Covers two layers:
+Covers four layers:
 
-* ``render_yaml`` — pure function from :class:`WizardChoices` to
-  YAML text.  Golden-style snapshot tests for the canonical shapes
-  users will actually see (LLM provider with env-var key; bedrock
-  with no key; "none" provider).
-* ``run_wizard`` end-to-end via Click's CliRunner — verifies the
-  non-interactive flag path produces a loadable ``sponsio.yaml`` and
-  the interactive path produces the same file given canned input.
+* :func:`parse_picks` / :func:`format_picks` — pure string round-trip.
+* :func:`plan_commands` — picks → argv vectors, the dispatch table the
+  TTY path and the IDE-agent-driven ``--apply`` path both share.
+* :func:`detect_environment` — runtime + framework + IDE-binary probe.
+* CLI invocation via :class:`click.testing.CliRunner` — ``--plan``,
+  ``--apply`` (with mocked subprocess), ``--with-example``,
+  mutually-exclusive flag handling.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from click.testing import CliRunner
 
-pytest.importorskip("yaml")
-
 from sponsio.cli import init
-from sponsio.config import load_config
-from sponsio.init_wizard import WizardChoices, render_yaml
+from sponsio.init_wizard import (
+    InitPicks,
+    apply_commands,
+    detect_environment,
+    format_picks,
+    parse_picks,
+    plan_commands,
+)
 
 
 # ---------------------------------------------------------------------------
-# render_yaml — pure
+# parse_picks / format_picks — pure round-trip
 # ---------------------------------------------------------------------------
 
 
-class TestRenderYaml:
-    def test_full_llm_config_round_trips_through_loader(self, tmp_path: Path):
-        """The wizard's output must always parse cleanly with the
-        very same loader that production Sponsio uses — otherwise
-        we'd be generating "documentation YAML" rather than working
-        config."""
-        choices = WizardChoices(
-            provider="openai",
-            model="gpt-4o-mini",
-            api_key_env_var="OPENAI_API_KEY",
-            mode="observe",
-            judge_fallback="allow",
-            sample_contract=True,
+class TestParsePicks:
+    def test_full_spec_round_trips(self):
+        spec = (
+            "framework=langgraph;"
+            "hosts=claude-code,cursor;"
+            "skills=codex;"
+            "mode=enforce"
         )
-        text = render_yaml(choices)
-        out = tmp_path / "sponsio.yaml"
-        out.write_text(text)
-        cfg = load_config(out)
-        # extractor + judge populated
-        assert cfg.extractor.provider == "openai"
-        assert cfg.extractor.model == "gpt-4o-mini"
-        assert cfg.judge.provider == "openai"
-        assert cfg.judge.fallback_mode == "allow"
-        # Sample contract present
-        assert "my_agent" in cfg.agents
+        p = parse_picks(spec)
+        assert p.framework == "langgraph"
+        assert p.hosts == ["claude-code", "cursor"]
+        assert p.skills == ["codex"]
+        assert p.mode == "enforce"
+        # round-trip stable
+        assert parse_picks(format_picks(p)) == p
 
-    def test_provider_none_omits_extractor_section(self):
-        """When the user picks "no LLM", we must NOT emit an
-        ``extractor:`` block — otherwise ``build_extractor`` would
-        try to construct a ``UnifiedExtractor(provider=None)`` based
-        on an empty section.  The comment-only block lives in its
-        place to remind users they can opt in later."""
-        choices = WizardChoices(
-            provider="none",
-            model=None,
-            api_key_env_var=None,
-            mode="observe",
-            judge_fallback="allow",
-            sample_contract=False,
-        )
-        text = render_yaml(choices)
-        # No `extractor:` *mapping key* (a top-level YAML key starts
-        # at column 0).  The literal substring may appear in a
-        # comment that nudges the user to opt in later — that's fine.
-        assert not any(line.startswith("extractor:") for line in text.splitlines())
-        # judge: still present (that section uses sane defaults
-        # with or without an LLM)
-        assert any(line.startswith("judge:") for line in text.splitlines())
+    def test_empty_string_returns_default_picks(self):
+        p = parse_picks("")
+        assert p == InitPicks()
 
-    def test_bedrock_omits_api_key_field(self, tmp_path: Path):
-        """Bedrock authenticates via the AWS credential chain — no
-        API-key env var.  Emitting ``api_key: ${...}`` would be
-        actively misleading."""
-        choices = WizardChoices(
-            provider="bedrock",
-            model="anthropic.claude-3-5-sonnet-20241022-v2:0",
-            api_key_env_var=None,
-            mode="enforce",
-            judge_fallback="deny",
-            sample_contract=False,
-        )
-        text = render_yaml(choices)
-        assert "api_key" not in text
-        assert "provider: bedrock" in text
-        out = tmp_path / "sponsio.yaml"
-        out.write_text(text)
-        cfg = load_config(out)
-        assert cfg.judge.fallback_mode == "deny"
+    def test_unknown_segments_are_silently_ignored(self):
+        # Forward-compat: a future axis added by the IDE agent must
+        # not break older CLI versions.
+        p = parse_picks("framework=langgraph;quantum=spooky;mode=observe")
+        assert p.framework == "langgraph"
+        assert p.mode == "observe"
 
-    def test_no_sample_omits_agents_block(self):
-        choices = WizardChoices(
-            provider="gemini",
-            model="gemini-2.0-flash",
-            api_key_env_var="GOOGLE_API_KEY",
-            mode="observe",
-            judge_fallback="allow",
-            sample_contract=False,
-        )
-        text = render_yaml(choices)
-        assert "agents:" not in text
+    def test_empty_value_lists_are_explicit(self):
+        # ``hosts=`` means "no hosts picked", distinct from "hosts not
+        # mentioned" (which also defaults to []).  Round-trip must
+        # preserve the empty list.
+        p = parse_picks("framework=none;hosts=;skills=;mode=observe")
+        assert p.hosts == []
+        assert p.skills == []
+
+    def test_whitespace_in_values_stripped(self):
+        p = parse_picks("hosts= claude-code , cursor ;mode=observe")
+        assert p.hosts == ["claude-code", "cursor"]
 
 
 # ---------------------------------------------------------------------------
-# CLI end-to-end
+# plan_commands — picks → argv vectors
 # ---------------------------------------------------------------------------
 
 
-class TestCliInit:
-    def test_non_interactive_writes_loadable_yaml(self, tmp_path: Path):
-        """The four ``--flag`` options skip every prompt — useful
-        for CI smoke tests and copy-pasteable docs commands."""
-        runner = CliRunner()
-        target = tmp_path / "sponsio.yaml"
-        result = runner.invoke(
-            init,
+class TestPlanCommands:
+    def test_axis1_python_emits_sponsio_onboard(self):
+        cmds = plan_commands(
+            InitPicks(framework="langgraph", mode="observe"),
+            ts_project=False,
+        )
+        assert cmds == [
+            ["sponsio", "onboard", ".", "--mode", "observe", "--force"],
+        ]
+
+    def test_axis1_ts_emits_npx_sponsio_onboard(self):
+        cmds = plan_commands(
+            InitPicks(framework="langgraph", mode="observe"),
+            ts_project=True,
+        )
+        assert cmds == [
+            ["npx", "sponsio", "onboard", ".", "--mode", "observe", "--force"],
+        ]
+
+    def test_axis1_none_skips_onboard(self):
+        # User picks "none" (bare loop / I'll wire it myself) — no
+        # framework wrap to install.
+        cmds = plan_commands(InitPicks(framework="none", mode="observe"))
+        assert cmds == []
+
+    def test_axis2_emits_host_install_with_mode(self):
+        cmds = plan_commands(
+            InitPicks(
+                framework="none",
+                hosts=["claude-code", "cursor"],
+                mode="enforce",
+            )
+        )
+        assert cmds == [
             [
-                str(target),
-                "--provider",
-                "gemini",
+                "sponsio",
+                "host",
+                "install",
+                "claude-code",
+                "cursor",
                 "--mode",
-                "observe",
-                "--judge-fallback",
-                "allow",
-                "--no-sample",
-                "--force",
+                "enforce",
             ],
+        ]
+
+    def test_axis2_filters_unknown_host_names(self):
+        cmds = plan_commands(
+            InitPicks(
+                framework="none",
+                hosts=["claude-code", "definitely-not-a-host"],
+                mode="observe",
+            )
         )
-        assert result.exit_code == 0, result.output
-        assert target.exists()
-        cfg = load_config(target)
-        assert cfg.extractor.provider == "gemini"
-        assert cfg.judge.fallback_mode == "allow"
+        # Typo silently dropped.  Ordered axes still emit a command
+        # for the surviving picks.
+        assert cmds == [
+            ["sponsio", "host", "install", "claude-code", "--mode", "observe"]
+        ]
 
-    def test_existing_file_aborts_without_force(self, tmp_path: Path):
-        """The wizard must NOT silently overwrite a hand-edited
-        ``sponsio.yaml`` — that would destroy real user work.  The
-        ``n`` answer to "Overwrite?" exits non-zero."""
-        runner = CliRunner()
-        target = tmp_path / "sponsio.yaml"
-        target.write_text("# precious\nversion: 1\n")
+    def test_axis3_only_runs_for_skills_not_in_axis2(self):
+        # claude-code in BOTH axis 2 and 3: axis 2's --with-skill
+        # default already covers it, so axis 3 doesn't double-drop.
+        cmds = plan_commands(
+            InitPicks(
+                framework="none",
+                hosts=["claude-code"],
+                skills=["claude-code", "codex"],
+                mode="observe",
+            )
+        )
+        # Expect host install + ONE skill install (codex), not two.
+        assert cmds == [
+            ["sponsio", "host", "install", "claude-code", "--mode", "observe"],
+            ["sponsio", "skill", "install", "--tool", "codex"],
+        ]
 
-        result = runner.invoke(
-            init,
+    def test_full_4axis_combo(self):
+        cmds = plan_commands(
+            InitPicks(
+                framework="langgraph",
+                hosts=["claude-code", "cursor"],
+                skills=["codex"],
+                mode="enforce",
+            )
+        )
+        assert cmds == [
+            ["sponsio", "onboard", ".", "--mode", "enforce", "--force"],
             [
-                str(target),
-                "--provider",
-                "none",
+                "sponsio",
+                "host",
+                "install",
+                "claude-code",
+                "cursor",
                 "--mode",
-                "observe",
-                "--judge-fallback",
-                "allow",
+                "enforce",
             ],
-            input="n\n",
-        )
-        assert result.exit_code != 0
-        assert target.read_text() == "# precious\nversion: 1\n"
+            ["sponsio", "skill", "install", "--tool", "codex"],
+        ]
 
-    def test_force_overwrites(self, tmp_path: Path):
-        runner = CliRunner()
-        target = tmp_path / "sponsio.yaml"
-        target.write_text("# precious\n")
-        result = runner.invoke(
-            init,
-            [
-                str(target),
-                "--force",
-                "--provider",
-                "gemini",
-                "--mode",
-                "observe",
-                "--judge-fallback",
-                "allow",
-                "--no-sample",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        # Old content gone
-        assert "# precious" not in target.read_text()
-        assert "provider: gemini" in target.read_text()
 
-    def test_directory_target_writes_sponsio_yaml(self, tmp_path: Path):
-        """Passing a directory should produce ``<dir>/sponsio.yaml``
-        — the most common invocation is ``sponsio init`` in the
-        project root."""
+# ---------------------------------------------------------------------------
+# detect_environment — runtime + framework + IDE binary probe
+# ---------------------------------------------------------------------------
+
+
+class TestDetectEnvironment:
+    def test_python_project_with_langgraph_import(self, tmp_path: Path):
+        (tmp_path / "agent.py").write_text(
+            "from langgraph.prebuilt import create_react_agent\n"
+        )
+        env = detect_environment(tmp_path)
+        assert env.runtime == "python"
+        assert env.framework == "langgraph"
+
+    def test_ts_only_project(self, tmp_path: Path):
+        (tmp_path / "package.json").write_text('{"name":"x"}\n')
+        env = detect_environment(tmp_path)
+        assert env.runtime == "ts"
+
+    def test_dual_runtime_when_both_signals_present(self, tmp_path: Path):
+        (tmp_path / "package.json").write_text('{"name":"x"}\n')
+        (tmp_path / "pyproject.toml").write_text("[project]\nname='y'\n")
+        env = detect_environment(tmp_path)
+        assert env.runtime == "both"
+
+    def test_ides_installed_filtered_to_real_binaries(
+        self, tmp_path: Path, monkeypatch
+    ):
+        # Stub `shutil.which` so the test doesn't depend on what the
+        # CI box has installed.
+        installed = {"claude": True, "cursor": False, "openclaw": False}
+
+        def fake_which(name):
+            return f"/usr/local/bin/{name}" if installed.get(name) else None
+
+        monkeypatch.setattr("sponsio.init_wizard.shutil.which", fake_which)
+        env = detect_environment(tmp_path)
+        assert env.ides_installed == ["claude-code"]
+
+
+# ---------------------------------------------------------------------------
+# apply_commands — runs subprocess + stops on non-zero exit
+# ---------------------------------------------------------------------------
+
+
+class TestApplyCommands:
+    def test_apply_runs_each_command_in_order(self):
+        calls: list[list[str]] = []
+
+        class FakeResult:
+            returncode = 0
+
+        def runner(cmd, **_):
+            calls.append(cmd)
+            return FakeResult()
+
+        rc = apply_commands(
+            [["echo", "a"], ["echo", "b"]],
+            runner=runner,
+        )
+        assert rc == 0
+        assert calls == [["echo", "a"], ["echo", "b"]]
+
+    def test_apply_stops_at_first_nonzero_exit(self):
+        calls: list[list[str]] = []
+
+        class FakeResult:
+            def __init__(self, rc):
+                self.returncode = rc
+
+        def runner(cmd, **_):
+            calls.append(cmd)
+            return FakeResult(0 if cmd == ["echo", "first"] else 7)
+
+        rc = apply_commands(
+            [["echo", "first"], ["echo", "second"], ["echo", "third"]],
+            runner=runner,
+        )
+        # First succeeded, second returned 7, third never ran.
+        assert rc == 7
+        assert calls == [["echo", "first"], ["echo", "second"]]
+
+
+# ---------------------------------------------------------------------------
+# CLI surface — `sponsio init --plan` / `--apply`
+# ---------------------------------------------------------------------------
+
+
+class TestCliPlan:
+    def test_plan_prints_would_run_lines(self, tmp_path: Path):
+        # `--plan` is read-only; no subprocess + no prompts.
+        (tmp_path / "agent.py").write_text(
+            "from langgraph.prebuilt import create_react_agent\n"
+        )
         runner = CliRunner()
         result = runner.invoke(
             init,
             [
                 str(tmp_path),
-                "--provider",
-                "gemini",
-                "--mode",
-                "observe",
-                "--judge-fallback",
-                "allow",
-                "--no-sample",
-                "--force",
+                "--plan",
+                "framework=langgraph;hosts=claude-code;mode=observe",
             ],
         )
         assert result.exit_code == 0, result.output
-        assert (tmp_path / "sponsio.yaml").exists()
+        assert "would run: sponsio onboard ." in result.output
+        assert (
+            "would run: sponsio host install claude-code --mode observe"
+            in result.output
+        )
 
-    def test_interactive_pipeline_with_canned_input(self, tmp_path: Path, monkeypatch):
-        """End-to-end interactive simulation: every prompt answered
-        with the keystroke sequence below.  Locks in the prompt
-        order and the default-acceptance behavior — if a future
-        refactor reorders prompts, this test fails loudly."""
-        # Make sure no env-var "credentials detected" hint changes
-        # the default-provider selection.
-        for var in (
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "GOOGLE_API_KEY",
-            "GEMINI_API_KEY",
-            "AWS_ACCESS_KEY_ID",
-            "AWS_PROFILE",
-        ):
-            monkeypatch.delenv(var, raising=False)
-
+    def test_plan_with_empty_picks_says_so(self, tmp_path: Path):
         runner = CliRunner()
-        target = tmp_path / "sponsio.yaml"
-        # Inputs (one per prompt, in order):
-        #   provider choice "3" = gemini
-        #   env-var name (Enter = default GOOGLE_API_KEY)
-        #   mode (Enter = observe)
-        #   judge fallback (Enter = allow)
         result = runner.invoke(
             init,
-            [str(target), "--no-sample", "--force"],
-            input="3\n\n\n\n",
+            [str(tmp_path), "--plan", "framework=none;mode=observe"],
         )
         assert result.exit_code == 0, result.output
-        cfg = load_config(target)
-        assert cfg.extractor.provider == "gemini"
-        # Env var not set; ``${GOOGLE_API_KEY}`` expands to "" then
-        # the loader normalises empty strings to ``None``.
-        assert cfg.extractor.api_key is None
+        assert "no commands" in result.output
 
-    def test_non_interactive_uses_default_env_var(self, tmp_path: Path):
-        """When ``--provider`` is supplied, we shouldn't *also*
-        prompt for the env-var name (would defeat the purpose of
-        non-interactive mode).  Verifies the default env var made
-        it into the YAML."""
+
+class TestCliApply:
+    def test_apply_runs_planned_commands_via_subprocess(
+        self, tmp_path: Path, monkeypatch
+    ):
+        # Stub subprocess.run so apply doesn't actually execute
+        # `sponsio onboard` / `sponsio host install` against the
+        # test machine's real plugin tree.
+        called: list[list[str]] = []
+
+        class FakeResult:
+            returncode = 0
+
+        def fake_run(cmd, **_):
+            called.append(cmd)
+            return FakeResult()
+
+        monkeypatch.setattr("sponsio.init_wizard.subprocess.run", fake_run)
+
+        # Stub the demo offer's tty check to bypass the post-install
+        # confirm prompt.
+        monkeypatch.setattr(
+            "sponsio.init_wizard.sys.stdin.isatty", lambda: False
+        )
+
+        (tmp_path / "agent.py").write_text(
+            "from langgraph.prebuilt import create_react_agent\n"
+        )
         runner = CliRunner()
-        target = tmp_path / "sponsio.yaml"
         result = runner.invoke(
             init,
             [
-                str(target),
-                "--provider",
-                "anthropic",
-                "--mode",
-                "observe",
-                "--judge-fallback",
-                "allow",
-                "--no-sample",
-                "--force",
+                str(tmp_path),
+                "--apply",
+                "framework=langgraph;mode=observe",
             ],
         )
         assert result.exit_code == 0, result.output
-        text = target.read_text()
-        assert "api_key: ${ANTHROPIC_API_KEY}" in text
+        assert called == [
+            ["sponsio", "onboard", ".", "--mode", "observe", "--force"]
+        ]
+
+
+class TestCliMutualExclusion:
+    def test_plan_and_apply_are_mutually_exclusive(self, tmp_path: Path):
+        runner = CliRunner()
+        result = runner.invoke(
+            init,
+            [
+                str(tmp_path),
+                "--plan",
+                "framework=langgraph;mode=observe",
+                "--apply",
+                "framework=langgraph;mode=observe",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "mutually exclusive" in result.output
+
+    def test_with_example_conflicts_with_plan(self, tmp_path: Path):
+        runner = CliRunner()
+        result = runner.invoke(
+            init,
+            [
+                str(tmp_path),
+                "--with-example",
+                "--plan",
+                "framework=langgraph;mode=observe",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "incompatible with" in result.output
