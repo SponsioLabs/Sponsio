@@ -4149,11 +4149,12 @@ def onboard(
     # output paths (--json, --emit-context) so consumers parsing
     # stdout don't have to sed past it.
     if not as_json and not emit_context:
-        from rich.console import Console as _Console
-
         from sponsio.render.components import header_banner as _header_banner
+        from sponsio.runtime.terminal import (
+            _make_stderr_console as _make_console,
+        )
 
-        _hdr_console = _Console(file=sys.stderr, soft_wrap=True)
+        _hdr_console = _make_console(None)
         _hdr_console.print()
         _hdr_console.print(_header_banner(tagline="onboard"))
 

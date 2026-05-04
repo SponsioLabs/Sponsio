@@ -339,18 +339,37 @@ def apply_commands(
     ``runner`` is a test seam: pass a callable that takes argv +
     keyword args and returns an object with ``.returncode``.  Defaults
     to :func:`subprocess.run`.
+
+    Doesn't echo the command before running — the upstream ``preview``
+    block already showed the same line, and re-printing it here was
+    noticeable visual duplication of "observe" / "enforce" / "--mode"
+    pieces in the output.  When a command fails, we still surface
+    the failing argv as part of the error so the user knows which
+    step blew up.
     """
     if runner is None:
         runner = subprocess.run
 
     use_env = env if env is not None else os.environ.copy()
-    for cmd in commands:
-        click.echo()
-        click.secho("→ " + " ".join(cmd), fg="cyan")
+    for i, cmd in enumerate(commands, 1):
+        # Multi-step runs get a thin "[i/N]" header so the user can
+        # follow which step's output they're seeing.  Single-step
+        # runs skip it — the preview already showed the one command.
+        if len(commands) > 1:
+            click.echo()
+            click.secho(
+                f"[{i}/{len(commands)}] {cmd[0]} {cmd[1] if len(cmd) > 1 else ''}",
+                fg="cyan",
+                dim=True,
+            )
         result = runner(cmd, env=use_env)
         rc = getattr(result, "returncode", 0)
         if rc != 0:
-            click.secho(f"✗ exited {rc} — stopping", fg="red", err=True)
+            click.secho(
+                f"\n✗ step exited {rc}: {' '.join(cmd)} — stopping",
+                fg="red",
+                err=True,
+            )
             return rc
     return 0
 
@@ -386,14 +405,20 @@ def _print_panel_header(env: Environment) -> None:
     the :mod:`sponsio.render.components` banner.  The detection
     summary is a plain one-liner instead of a grid because the grid
     blurred labels and values into a hard-to-parse soup of words.
+
+    Console is built via :func:`sponsio.runtime.terminal._make_stderr_console`
+    so colour detection matches every other Sponsio surface — without
+    that, the wizard banner sometimes rendered with full truecolor
+    while the dispatched ``sponsio onboard`` banner came out muted
+    (subprocess + auto-detect inconsistency).
     """
-    from rich.console import Console
     from rich.text import Text
 
     from sponsio.render.components import header_banner
     from sponsio.render.tokens import PALETTE
+    from sponsio.runtime.terminal import _make_stderr_console
 
-    console = Console(file=sys.stderr, soft_wrap=True)
+    console = _make_stderr_console(None)
     console.print()
     console.print(header_banner(tagline="onboarding wizard"))
     console.print()
@@ -417,11 +442,10 @@ def _print_panel_header(env: Environment) -> None:
 
 
 def _section(label: str) -> None:
-    from rich.console import Console
-
     from sponsio.render.components import section_rule
+    from sponsio.runtime.terminal import _make_stderr_console
 
-    console = Console(file=sys.stderr, soft_wrap=True)
+    console = _make_stderr_console(None)
     console.print()
     console.print(section_rule(label))
 

@@ -85,20 +85,20 @@ class Spinner:
         is a no-op — we don't try to swap labels mid-spin since that
         usually indicates a missing stop call upstream.
 
-        Strips a trailing ``…`` (the CLI's spinner-trigger sentinel)
-        so the braille glyph alone carries the in-progress signal.
-        Two indicators on the same line ("⠋ Running … …") read as
-        cramped; one is enough.
+        Replaces a trailing ``…`` (the CLI's spinner-trigger sentinel)
+        with three spaced dots ``. . .`` — the spaced form reads as
+        deliberate progress hint instead of typographic afterthought,
+        and pairs with the rotating braille glyph at the front of
+        the line for a balanced "spinning + waiting" indicator.
         """
         # The trailing Unicode ellipsis is the convention upstream
-        # uses to flag "long-running, start a spinner".  Now that
-        # we're spinning, strip it so the braille frame carries the
-        # progress signal alone.  Keep any whitespace the caller had
-        # before the ellipsis intentional — that's deliberate spacing
-        # we shouldn't collapse.
+        # uses to flag "long-running, start a spinner".  Replace it
+        # with the spaced ``. . .`` form once we're rendering — the
+        # braille glyph is the primary "in progress" signal; the
+        # dots are secondary breathing room.
         label = label.rstrip()
         if label.endswith("…"):
-            label = label[:-1].rstrip()
+            label = label[:-1].rstrip() + "  . . ."
 
         if not self.stderr_is_tty():
             print(label, file=sys.stderr, flush=True)

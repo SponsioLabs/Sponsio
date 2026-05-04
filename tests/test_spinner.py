@@ -73,12 +73,14 @@ class TestSpinner:
             spin.stop()
         assert first_thread is second_thread, "second start spawned a new thread"
 
-    def test_trailing_ellipsis_stripped_from_label(self):
+    def test_trailing_ellipsis_replaced_with_spaced_dots(self):
         # The CLI's progress sink uses a trailing ``…`` as the
-        # spinner-trigger sentinel.  Once we're spinning, the
-        # rotating braille glyph carries the in-progress signal —
-        # leaving the ``…`` in the label too produced cramped
-        # double-indication ("⠋ Running … …") that users flagged.
+        # spinner-trigger sentinel.  Once we're rendering, the
+        # tightly-packed Unicode ellipsis pairs poorly with the
+        # rotating braille glyph at the front — replaced with
+        # ``. . .`` (spaced dots) so the trailing wait indicator
+        # reads as deliberate breathing room rather than cramped
+        # typographic afterthought.
         buf = io.StringIO()  # non-tty path prints the label once
         with patch.object(sys, "stderr", buf):
             spin = Spinner()
@@ -87,6 +89,7 @@ class TestSpinner:
         out = buf.getvalue()
         assert "Running LLM inference" in out
         assert "…" not in out
+        assert ". . ." in out
 
     def test_label_without_ellipsis_unchanged(self):
         # Defensive: a caller that didn't follow the ``…`` convention
