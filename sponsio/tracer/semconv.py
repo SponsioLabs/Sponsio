@@ -27,7 +27,7 @@ Versioning
 
 Add new keys freely. Renaming an existing key is a breaking change —
 bump ``SCHEMA_VERSION`` and document the migration path in
-``docs/observability.md``. Consumers should ignore unknown keys (forward
+``docs/reference/observability.md``. Consumers should ignore unknown keys (forward
 compatibility) and treat absent keys as ``None`` (not zero / empty
 string) — the *absence* of an attribute is a meaningful signal in some
 cards (e.g. a contract with no enforcement phase has no
@@ -45,7 +45,7 @@ SCHEMA_VERSION = "1.0.0"
 
 # Schema URL — stable identifier for Sponsio span shape across releases.
 # Observability platforms use this to detect Sponsio spans and apply
-# the right rendering (e.g. the card layouts in docs/observability.md).
+# the right rendering (e.g. the card layouts in docs/reference/observability.md).
 SCHEMA_URL = "https://sponsio.dev/schemas/observability/1.0.0"
 
 
@@ -191,8 +191,9 @@ ATTR_VIOLATION_POLICY_REF = "sponsio.violation.policy_ref"
 # Per-enforcement attributes — set on ``sponsio.enforcement`` spans.
 # ---------------------------------------------------------------------------
 
-# Strategy class name: DetBlock | EscalateToHuman | RetryWithConstraint
-# | RedirectToSafe.
+# Strategy class name. OSS-shipped: DetBlock | EscalateToHuman |
+# WarnOnly. Cloud's sto strategies (RetryWithConstraint, RedirectToSafe)
+# emit through the same attribute.
 ATTR_ENFORCEMENT_STRATEGY = "sponsio.enforcement.strategy"
 
 # Final action taken: blocked | escalated | retrying | redirected |
@@ -200,11 +201,12 @@ ATTR_ENFORCEMENT_STRATEGY = "sponsio.enforcement.strategy"
 # would-have-blocked decision was downgraded to log-only).
 ATTR_ENFORCEMENT_ACTION = "sponsio.enforcement.action"
 
-# Sto retry-with-lesson prompt (only meaningful for RetryWithConstraint).
+# Sto retry-with-lesson prompt (only meaningful for Cloud's
+# RetryWithConstraint strategy).
 ATTR_ENFORCEMENT_RETRY_PROMPT = "sponsio.enforcement.retry_prompt"
 
-# Fallback action for RedirectToSafe (e.g. "log_warning" instead of
-# "transfer_funds"). Only meaningful for that strategy.
+# Fallback action for Cloud's RedirectToSafe (e.g. "log_warning" instead
+# of "transfer_funds"). Only meaningful for that strategy.
 ATTR_ENFORCEMENT_FALLBACK_ACTION = "sponsio.enforcement.fallback_action"
 
 

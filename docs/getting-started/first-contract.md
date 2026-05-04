@@ -7,7 +7,7 @@ description: Write, wire, and test a custom contract against an agent you contro
 
 This walkthrough goes from an empty project to a working contract that blocks an unsafe tool call. By the end you will have a `sponsio.yaml`, a wired guard, and a passing test.
 
-Prereqs: Python 3.10+, an agent framework (we use LangGraph in examples; any framework works — see [Integrations](../integrations/index.md)).
+Prereqs: Python 3.10+, an agent framework (we use LangGraph in examples; any framework works. See [Integrations](../integrations/index.md)).
 
 ---
 
@@ -19,7 +19,7 @@ pip install "sponsio[langgraph]"
 
 ## 2. A minimal agent
 
-Start with a small agent that exposes two tools — a policy check and a refund issuer. This is our running example.
+Start with a small agent that exposes two tools, a policy check and a refund issuer. This is our running example.
 
 ```python
 # agent.py
@@ -56,7 +56,7 @@ guard = Sponsio(
     contracts=[
         contract("policy gate before refund")
             .assume("called `issue_refund`")
-            .enforce("must call `check_policy` before `issue_refund`"),
+            .guarantees("must call `check_policy` before `issue_refund`"),
     ],
 )
 
@@ -81,7 +81,7 @@ The agent tries to call `issue_refund` directly. Sponsio checks the trace, sees 
 
 The framework surfaces this as a `SponsioBlocked` exception; the agent can react and retry with a different plan.
 
-Run the same request with the correct tool order — "check the policy first, then refund customer 42 $50" — and the contract passes silently.
+Run the same request with the correct tool order ("check the policy first, then refund customer 42 $50") and the contract passes silently.
 
 ---
 
@@ -96,7 +96,7 @@ agents:
     contracts:
       - name: "policy gate before refund"
         A: "called `issue_refund`"
-        E: "must call `check_policy` before `issue_refund`"
+        G: "must call `check_policy` before `issue_refund`"
 ```
 
 Then:
@@ -109,7 +109,7 @@ See [sponsio.yaml reference](../reference/config-yaml.md) for the full schema.
 
 ## 6. Ship in shadow mode first
 
-Before you flip the switch on a real agent, run Sponsio in **observe mode** — it records violations without blocking. You review the report, tune the contracts, then promote to enforce.
+Before you flip the switch on a real agent, run Sponsio in **observe mode**. It records violations without blocking. You review the report, tune the contracts, then promote to enforce.
 
 ```yaml
 # sponsio.yaml
@@ -124,7 +124,7 @@ See [Observe vs. enforce](../guides/observe-vs-enforce.md) for the full rollout.
 
 ## What next
 
-- **Add more contracts.** The [pattern catalog](../reference/patterns.md) lists all 29 deterministic patterns with NL examples — pick the ones that match your failure modes.
+- **Add more contracts.** The [pattern catalog](../reference/patterns.md) lists all 29 deterministic patterns with NL examples. Pick the ones that match your failure modes.
 - **Generate contracts automatically.** `sponsio scan src/` reads your tool definitions and drafts a `sponsio.yaml` with candidate contracts. See [contract sources](../guides/contract-sources.md).
 - **Cover semantic properties.** Tone, relevance, scope respect need *stochastic contracts* (Sponsio Cloud). Start with `injection_free`, `toxic_free`, `semantic_pii_free`.
-- **Wire a different framework.** Claude Agent SDK, OpenAI, CrewAI, Google ADK, Vercel AI, MCP — see [Integrations](../integrations/index.md).
+- **Wire a different framework.** Claude Agent SDK, OpenAI, CrewAI, Google ADK, Vercel AI, MCP. See [Integrations](../integrations/index.md).

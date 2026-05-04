@@ -5,7 +5,7 @@ description: Aggregate violation reports from shadow-mode runs.
 
 # Reporting
 
-`sponsio report` aggregates violations from session logs into a per-contract, per-agent, per-tool summary. Most useful during [observe mode](observe-vs-enforce.md) — it tells you which contracts are firing and whether the firings are real.
+`sponsio report` aggregates violations from session logs into a per-contract, per-agent, per-tool summary. Most useful during [observe mode](observe-vs-enforce.md). It tells you which contracts are firing and whether the firings are real.
 
 ```bash
 sponsio report --since 7d
@@ -27,10 +27,10 @@ token_budget(50000)                    0       —          —        —
 
 Columns:
 
-- **Fires** — total violation count in the window.
-- **Sessions** — distinct sessions where it fired. A contract firing once in three sessions is different from firing three times in one session.
-- **Agents** — distinct agents that tripped it.
-- **Tools** — the tool calls that triggered the firing.
+- **Fires**: total violation count in the window.
+- **Sessions**: distinct sessions where it fired. A contract firing once in three sessions is different from firing three times in one session.
+- **Agents**: distinct agents that tripped it.
+- **Tools**: the tool calls that triggered the firing.
 
 ---
 
@@ -62,5 +62,5 @@ See [CLI reference](../reference/cli.md#sponsio-report) for the full flag list.
 
 ## Next
 
-- [Observe vs. enforce](observe-vs-enforce.md) — where reports fit in the rollout.
-- [Observability](observability.md) — wiring the session logs reports read from.
+- [Observe vs. enforce](observe-vs-enforce.md): where reports fit in the rollout.
+- [Observability](../reference/observability.md): wiring the session logs reports read from.

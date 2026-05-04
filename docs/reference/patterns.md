@@ -1,11 +1,11 @@
 ---
 title: Pattern catalog
-description: The full deterministic pattern library — each pattern's NL form, what it enforces, and the LTL it compiles to.
+description: The full deterministic pattern library. Each pattern's NL form, what it enforces, and the LTL it compiles to.
 ---
 
 # Pattern catalog
 
-Patterns are named factories that emit LTL formulas over the atom vocabulary. You write a natural-language rule; the parser matches it against these patterns and hands back a compiled contract. Patterns are *sugar* — they do not expand the expressiveness of the language, only the ergonomics.
+Patterns are named factories that emit LTL formulas over the atom vocabulary. You write a natural-language rule; the parser matches it against these patterns and hands back a compiled contract. Patterns are *sugar*. They do not expand the expressiveness of the language, only the ergonomics.
 
 Run `sponsio patterns` on the CLI to browse this catalog interactively with NL examples.
 
@@ -77,6 +77,42 @@ For the conceptual model (atom → pattern → formula → contract) see [Concep
 | `token_budget(N)` | `"total LLM tokens under 50000"` | Session-wide token cap |
 | `delegation_depth_limit(N)` | `"sub-agent delegation at most 3 levels"` | Bounds recursive agent delegation |
 
+## Approval and audit
+
+| Pattern | NL example | What it enforces |
+|---|---|---|
+| `approval_active(action, role)` | `"`issue_refund` requires active approval from `manager`"` | A specific role must have approved the action recently |
+| `approval_freshness(approval, action, max_steps)` | `"`approve_pr` valid for 10 steps before `merge_pr`"` | Approval must be within N steps of the gated action |
+| `audit_after(action, audit)` | `"every `delete_user` must log `audit_event`"` | Sensitive action must be followed by an audit-log step |
+| `backup_before_destructive(backup, action)` | `"`snapshot_db` must precede `drop_table`"` | Backup must run before any destructive action |
+| `dry_run_before_commit(dry_run, commit)` | `"`plan` must precede `apply`"` | Plan / preview step required before commit |
+| `sanitized_before_sink(source, sanitizer, sink)` | `"`untrusted_input` must pass `sanitize` before `db_write`"` | Untrusted input must pass a sanitizer before reaching a sink |
+
+## Identity and context
+
+| Pattern | NL example | What it enforces |
+|---|---|---|
+| `ctx_required(tool, key, values)` | `"`publish` requires ctx[`msg_verified`]=`true`"` | A `ctx(k, v)` fact must be set before the tool runs |
+| `ctx_matches_required(tool, key, regex)` | `"`issue_refund` requires caller_id matching `^spiffe://prod/finance-`"` | A `ctx(k, v)` value must match a regex |
+
+## Argument allowlist and content
+
+| Pattern | NL example | What it enforces |
+|---|---|---|
+| `arg_allowlist(tool, field, patterns)` | `"`http_post` url must match allowlist"` | Argument must match one of the allowed regex patterns |
+| `duplicate_call_limit(tool, args_pattern, N)` | `"`send_email` to same recipient at most 1 time"` | Cap on repeated calls with similar args |
+| `time_since(predicate_key, max_seconds)` | `"action within 60s of `user_request`"` | Bounded time window since a referenced predicate |
+
+## Output checks (det)
+
+These are det atoms that match against `llm_response` events. Distinct from the Cloud sto atoms (`tone`, `faithfulness`, etc.) that need an LLM judge.
+
+| Pattern | NL example | What it enforces |
+|---|---|---|
+| `no_pii(fields)` | `"response must not contain PII"` | Regex-detect SSN, credit card, email, phone in response |
+| `no_keywords(words)` | `"response must not mention competitors"` | Response cannot contain any of the given strings |
+| `max_length(max_words, max_chars)` | `"response under 200 words"` | Response length cap |
+
 ---
 
 ## How patterns compile
@@ -115,5 +151,5 @@ G(Implies(
 3. Add NL parsing in [`sponsio/generation/nl_to_contract.py`](../../sponsio/generation/nl_to_contract.py).
 4. Tests for pattern behavior and NL parsing.
 5. If the pattern belongs in the TS det core, mirror in [`ts/packages/sdk/src/core/patterns.ts`](../../ts/packages/sdk/src/core/patterns.ts).
-   If you don't mirror it, add a row to [`/sdk-parity.md`](.//sdk-parity.md) so users know.
+   If you don't mirror it, add a row to [`ts-sdk-parity.md`](ts-sdk-parity.md) so users know.
 6. Document it here.

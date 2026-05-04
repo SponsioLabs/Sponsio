@@ -1,6 +1,6 @@
 ---
 title: sponsio.yaml reference
-description: Full schema for the Sponsio config file — agents, tools, contracts, modes, thresholds, strategies.
+description: Full schema for the Sponsio config file. Agents, tools, contracts, modes, thresholds, strategies.
 ---
 
 # `sponsio.yaml` reference
@@ -14,7 +14,7 @@ agents:
   bot:
     contracts:
       - name: "policy gate before refund"
-        E: "must call `check_policy` before `issue_refund`"
+        G: "must call `check_policy` before `issue_refund`"
 ```
 
 A complete file, with every top-level field:
@@ -35,13 +35,13 @@ agents:
     contracts:
       - name: "policy gate before refund"
         A: "called `issue_refund`"
-        E: "must call `check_policy` before `issue_refund`"
+        G: "must call `check_policy` before `issue_refund`"
         strategy: block
       - name: "refund rate limit"
-        E: "tool `issue_refund` at most 5 times"
+        G: "tool `issue_refund` at most 5 times"
         strategy: escalate
       - name: "response scope"
-        E:
+        G:
           pattern: scope_respect
           args: ["customer support about orders, refunds, accounts"]
         beta: 0.85
@@ -83,30 +83,30 @@ Each entry in `contracts:` has these fields:
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `name` | string | no | Human-readable label for logs and reports. |
-| `A` | string \| object | no | Assumption — when the rule fires. Omit for unconditional rules. |
-| `E` | string \| object | yes | Enforcement — the rule itself. |
+| `A` | string \| object | no | Assumption. When the rule fires. Omit for unconditional rules. |
+| `E` | string \| object | yes | Enforcement. The rule itself. |
 | `strategy` | string | no | `block`, `escalate`, `retry_with_constraint`, `redirect_to_safe`, or a dotted callable path. |
 | `mode` | `observe` \| `enforce` | no | Per-contract override. |
-| `alpha` | float 0–1 | no | Sto only — assumption confidence threshold. |
-| `beta` | float 0–1 | no | Sto only — guarantee confidence threshold. |
-| `risk_profile` | string | no | Sto only — `cautious`, `balanced`, `permissive`; sets α/β for you. |
+| `alpha` | float 0–1 | no | Sto only. Assumption confidence threshold. |
+| `beta` | float 0–1 | no | Sto only. Guarantee confidence threshold. |
+| `risk_profile` | string | no | Sto only, `cautious`, `balanced`, `permissive`; sets α/β for you. |
 
 ### Shorthand form
 
-`A:` and `E:` accept a natural-language string; the parser matches it to a pattern:
+`A:` and `G:` accept a natural-language string; the parser matches it to a pattern:
 
 ```yaml
-- E: "tool `check_policy` must precede `issue_refund`"
-- E: "bash command must not contain `rm -rf`"
-- E: "tool `query_db` at most 5 times"
+- G: "tool `check_policy` must precede `issue_refund`"
+- G: "bash command must not contain `rm -rf`"
+- G: "tool `query_db` at most 5 times"
 ```
 
 ### Structured form
 
-For patterns with arguments — notably sto atoms — use the structured form:
+For patterns with arguments. Notably sto atoms. Use the structured form:
 
 ```yaml
-- E:
+- G:
     pattern: scope_respect
     args: ["customer support about orders, refunds, accounts"]
     context_scope: event         # event | last_k | full_trace
@@ -145,7 +145,7 @@ Parses, type-checks, resolves every pattern reference, and reports unresolved na
 sponsio doctor
 ```
 
-Broader — also checks framework detection, provider credentials, session-log writability.
+Broader. Also checks framework detection, provider credentials, session-log writability.
 
 ---
 
@@ -163,7 +163,7 @@ guard = Sponsio(config="sponsio.yaml", agent_id="support_bot")
 
 ## Next
 
-- [Pattern catalog](patterns.md) — every det pattern with NL form.
-- *Sto atom catalog* (Sponsio Cloud) — every sto atom.
-- [CLI reference](cli.md) — `sponsio scan`, `sponsio validate`, `sponsio doctor`.
-- [Contract sources](../guides/contract-sources.md) — scan, policy-doc mining, trace mining.
+- [Pattern catalog](patterns.md). Every det pattern with NL form.
+- *Sto atom catalog* (Sponsio Cloud). Every sto atom.
+- [CLI reference](cli.md), `sponsio scan`, `sponsio validate`, `sponsio doctor`.
+- [Contract sources](../guides/contract-sources.md). Scan, policy-doc mining, trace mining.

@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Heuristic patterns (reused / adapted from sponsio.scoring.scorer)
+# Heuristic patterns
 # ---------------------------------------------------------------------------
 
 # Antonym verb pairs.  Each tuple is (verb_a, verb_b); we then look for
@@ -1793,7 +1793,7 @@ class CodeAnalyzer:
             lines.append("    # Each entry is an (A, E) pair; A is optional.")
             lines.append("    #")
             lines.append("    # Unconditional invariant (no precondition):")
-            lines.append('    # - E: "tool `check_policy` must precede `issue_refund`"')
+            lines.append('    # - G: "tool `check_policy` must precede `issue_refund`"')
             lines.append("    # - E:")
             lines.append("    #     pattern: must_precede")
             lines.append("    #     args: [check_policy, issue_refund]")
@@ -1906,10 +1906,10 @@ class CodeAnalyzer:
                         lines.append(f"      - {a_emit['head']}{confidence_tag}")
                         for sub in a_emit.get("rest", []):
                             lines.append(sub)
-                        lines.append(f"{inner_indent}E:")
+                        lines.append(f"{inner_indent}G:")
                         head_indent = "          "
                     else:
-                        lines.append(f"      - E:{confidence_tag}")
+                        lines.append(f"      - G:{confidence_tag}")
                         head_indent = "          "
 
                     if is_raw_ltl:
@@ -1947,7 +1947,7 @@ class CodeAnalyzer:
                         lines.append(f'      - A: "{a_text}"{confidence_tag}')
                         lines.append(f'        E: "{p.nl_description}"')
                     else:
-                        lines.append(f'      - E: "{p.nl_description}"{confidence_tag}')
+                        lines.append(f'      - G: "{p.nl_description}"{confidence_tag}')
 
         lines.append("")
         return "\n".join(lines)

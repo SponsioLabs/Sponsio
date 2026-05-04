@@ -45,7 +45,7 @@ FILES = [
     "docs/guides/onboarding.md",
     "docs/guides/observe-vs-enforce.md",
     "docs/guides/reporting.md",
-    "docs/guides/observability.md",
+    "docs/reference/observability.md",
     # Integrations.
     "docs/integrations/index.md",
     # Reference.
@@ -57,9 +57,9 @@ FILES = [
     "docs/benchmarks/index.md",
     "docs/advanced/cost-based-thresholds.md",
     # FAQ + OWASP mapping + contributing.
-    "docs/faq.md",
-    "docs/owasp-agentic-top-10.md",
-    "docs/contributing.md",
+    "docs/guides/faq.md",
+    "docs/concepts/owasp-coverage.md",
+    "CONTRIBUTING.md",
     # Changelog last.
     "CHANGELOG.md",
 ]

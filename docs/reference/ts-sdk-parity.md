@@ -3,7 +3,7 @@
 The TS SDK (`@sponsio/sdk`) and the Python core share the deterministic
 runtime (formula AST, evaluator, grounding, pattern library, NL parser).
 The deterministic semantics on both sides are identical for the surface
-that exists in both — the same `(formula, trace)` pair always produces
+that exists in both. The same `(formula, trace)` pair always produces
 the same verdict.
 
 The TS surface, however, is **smaller** than Python's. Python is the
@@ -20,35 +20,35 @@ of what is and isn't available in TS so users can plan around it.
 - Cross-language test scenarios in [`tests/cross_language/scenarios.json`](../../tests/cross_language/scenarios.json)
   pass on both runtimes
 
+## OSS scope: both sides are det-only
+
+Stochastic atoms are not shipped in the OSS engine, on either Python or TS. Python's `sponsio/patterns/sto.py` has been removed; TS's `core/sto.ts` is a schema-only stub. The sto pipeline is a Sponsio Cloud feature on both sides. So the parity gap discussed below is the gap between two **det** runtimes.
+
 ## What's missing on the TS side
 
 ### Formula nodes
 
 | Node | Python | TS | Notes |
 |---|---|---|---|
-| `Subset` (set-relation) | ✅ | ❌ | Used by data-intact and a few discovery paths. TS code that hits it will throw `unknown formula node`. |
+| `Subset` (set-relation) | ✅ | ❌ | Used by data-intact and a few discovery paths. TS code that hits it throws `unknown formula node`. |
 
 ### Patterns
 
-The TS pattern library (`ts/packages/sdk/src/core/patterns.ts`) implements 35
-factories; Python (`sponsio/patterns/library.py`) has 41. The 6
-unimplemented in TS:
+The TS pattern library (`ts/packages/sdk/src/core/patterns.ts`) implements roughly 35 factories; Python (`sponsio/patterns/library.py`) has 44. The unimplemented in TS:
 
 | Pattern | Why it matters |
 |---|---|
 | `no_pii(fields)` | Output PII guard |
 | `no_keywords(words)` | Output content blacklist |
 | `max_length(field, n)` | Output length cap |
-| Plus three smaller helpers around content / data-flow |
+| `data_intact(action, paths)` | Path immutability |
+| Plus a few smaller helpers around content / data-flow |
 
-Workaround: express these as raw `Atom` formulas, or run them through
-the Python guard via the dashboard / OTEL bridge.
+Workaround: express these as raw `Atom` formulas, or run them through the Python guard via the dashboard or OTEL bridge.
 
 ### Grounding predicates (atoms)
 
-TS grounding covers the action-layer predicates: `called`, `count`,
-`consecutive_count`, `called_with`, `arg_has`, `arg_field_has`,
-`arg_paths_within`, plus a handful more (≈12 total).
+TS grounding covers the action-layer predicates: `called`, `count`, `consecutive_count`, `called_with`, `arg_has`, `arg_field_has`, `arg_paths_within`, plus a handful more (about 12 total).
 
 Python additionally grounds the LLM-observation layer:
 
@@ -57,37 +57,30 @@ Python additionally grounds the LLM-observation layer:
 - `output_has(field)`
 - `system_prompt_present`
 - `context_length(n)`
-- `flow(src, dest)` — data-flow predicates
-- `perm(P)` / permission predicates
+- `flow(src, dest)` data-flow predicates
+- `perm(P)` permission predicates
 - `data_stores` forward-propagation
 
-Any contract that uses one of these atoms must run on the Python guard.
-This is the bigger of the two parity gaps in practice — most semantic /
-LLM-observation contracts can't currently be enforced from TS alone.
+Any contract that uses one of these atoms must run on the Python guard. This is the bigger of the two parity gaps in practice. Most LLM-observation contracts cannot currently be enforced from TS alone.
 
 ### NL parser
 
-TS's `parseNl()` (`ts/packages/sdk/src/core/nl-parser.ts`) recognises 8 patterns:
-`mustPrecede`, `alwaysFollowedBy`, `rateLimit`, `idempotent`,
-`mutualExclusion`, `noReversal`, `cooldown`, `argBlacklist`.
+TS's `parseNl()` (`ts/packages/sdk/src/core/nl-parser.ts`) recognises 8 patterns: `must_precede`, `always_followed_by`, `rate_limit`, `idempotent`, `mutual_exclusion`, `no_reversal`, `cooldown`, `deadline`.
 
-Python's `parse_nl_unified()` recognises all 41 deterministic patterns
-plus the stochastic catalog. NL strings that don't match one of the 8
-TS patterns will return a parse failure — callers should fall back to
-constructing the `DetFormula` directly via the pattern factory, or
-parse on the Python side.
+Python's `parse_nl_unified()` recognises all 44 deterministic patterns. NL strings that don't match one of the 8 TS patterns return a parse failure on TS. Callers should fall back to constructing the `DetFormula` directly via the pattern factory, or parse on the Python side.
+
+### CLI surface
+
+Both Python and TS ship a CLI with the same command set (about 20 subcommands each, including `onboard`, `scan`, `validate`, `check`, `doctor`, `demo`, `report`, `packs`, `patterns`, `init`, `mode`, `explain`, `replay`, `export`, `export-sessions`, `eval`, `skill`, `prompt`). Cross-language scenarios in `tests/cross_language/` validate identical verdicts.
 
 ## Roadmap
 
-The plan to close these gaps is not yet on a fixed timeline; track
-issues tagged [`area:ts-parity`](https://github.com/anthropics/sponsio/labels/area%3Ats-parity)
-(or the relevant repo label) for status. Priority order:
+Track issues tagged `area:ts-parity` for status. Priority order:
 
-1. P2 LLM-observation atoms (`prompt_contains`, `llm_said`,
-   `output_has`) — biggest user-visible gap
-2. Missing patterns (`no_pii`, `no_keywords`, `max_length`)
-3. Expand TS NL parser to match Python's surface
-4. `Subset` node + data-flow predicates
+1. LLM-observation atoms (`prompt_contains`, `llm_said`, `output_has`). Biggest user-visible gap.
+2. Missing patterns (`no_pii`, `no_keywords`, `max_length`, `data_intact`).
+3. Expand TS NL parser to match Python's surface.
+4. `Subset` node + data-flow predicates.
 
 ## What to do today if you need a missing feature
 
@@ -95,5 +88,5 @@ issues tagged [`area:ts-parity`](https://github.com/anthropics/sponsio/labels/ar
    bridge accepts traces from either runtime; mixed deployments work.
 2. **Construct the AST manually.** If the missing piece is a pattern
    that compiles to existing TS nodes, you can build the `Formula`
-   directly — patterns are just factories.
+   directly. Patterns are just factories.
 3. **File an issue.** Real user demand reorders the roadmap.

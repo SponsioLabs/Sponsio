@@ -5,7 +5,7 @@ description: How deterministic contracts are structured, how they compile, and w
 
 # Deterministic contracts
 
-Deterministic contracts are binary pass/fail rules evaluated before each tool call. If a contract is violated, Sponsio blocks the call before any side effect happens. This is the hot path — zero LLM calls, microsecond latency.
+Deterministic contracts are binary pass/fail rules evaluated before each tool call. If a contract is violated, Sponsio blocks the call before any side effect happens. This is the hot path. Zero LLM calls, microsecond latency.
 
 For the conceptual model (atom → pattern → formula → contract), see [Concepts overview](overview.md). For the full catalog of shipped patterns, see [Pattern catalog](../reference/patterns.md). This page is about how det contracts are structured and when to reach for one.
 
@@ -18,14 +18,14 @@ A det contract has four parts:
 ```python
 contract("policy gate before refund")             # name (for logs, reporting)
     .assume("called `issue_refund`")              # when the rule applies
-    .enforce("must call `check_policy` before `issue_refund`")  # what must hold
+    .guarantees("must call `check_policy` before `issue_refund`")  # what must hold
     .strategy("block")                            # what to do on violation
 ```
 
-- **Name** — a human-readable label; shows up in logs, reports, and error messages.
-- **Assumption (A)** — the condition that triggers the rule. The rule only fires when A holds.
-- **Guarantee (G)** — the temporal property that must hold when A is true.
-- **Strategy** — what happens on violation: `block`, `escalate`, or a custom callable.
+- **Name**: a human-readable label; shows up in logs, reports, and error messages.
+- **Assumption (A)**: the condition that triggers the rule. The rule only fires when A holds.
+- **Guarantee (G)**: the temporal property that must hold when A is true.
+- **Strategy**: what happens on violation: `block`, `escalate`, or a custom callable.
 
 Both A and G are natural-language strings. They compile down to LTL formulas over atoms. You never need to write the LTL by hand, but the engine ultimately checks the LTL.
 
@@ -62,16 +62,16 @@ Three examples:
 
 ## When to reach for a det contract
 
-Use a det contract when the property is **structurally observable** — expressible with counters, regexes, paths, or ordering. Structural properties do not need semantic judgment, so they do not need an LLM.
+Use a det contract when the property is **structurally observable**: expressible with counters, regexes, paths, or ordering. Structural properties do not need semantic judgment, so they do not need an LLM.
 
 Typical det use cases:
 
-- **Ordering** — A must precede B; after X, Y is forbidden; every A must be followed by B.
-- **Rate and retry limits** — at most N calls, cooldown between calls, bounded retries, loop detection.
-- **Irreversibility gates** — once a commit or approval happens, downstream mutations are forbidden.
-- **Argument checks** — blacklisted patterns, path scope limits, length or range caps.
-- **Permissions** — static role-based access to certain tools.
-- **Exact-regex PII** — SSN, credit card, email patterns that a regex can reliably catch.
+- **Ordering**: A must precede B; after X, Y is forbidden; every A must be followed by B.
+- **Rate and retry limits**: at most N calls, cooldown between calls, bounded retries, loop detection.
+- **Irreversibility gates**: once a commit or approval happens, downstream mutations are forbidden.
+- **Argument checks**: blacklisted patterns, path scope limits, length or range caps.
+- **Permissions**: static role-based access to certain tools.
+- **Exact-regex PII**: SSN, credit card, email patterns that a regex can reliably catch.
 
 Anti-pattern: do not reach for a det contract for properties that need reading the text semantically (tone, relevance, whether something is *truly* PII). Those belong in a *stochastic contract* (Sponsio Cloud).
 
@@ -87,13 +87,13 @@ When a det contract is violated, the call is not passed through. Built-in strate
 | `escalate` | Deny the call and route to a human-in-the-loop callback. Useful for high-stakes actions where silent blocking would confuse the agent. |
 | `(callable)` | Custom callback. Gets the violated contract and the candidate event; returns a new strategy decision. |
 
-In **observe mode**, no strategy runs — violations are logged and surfaced in reports, but the call is not blocked. This is how most teams wire Sponsio in first. See [Observe vs. enforce](../guides/observe-vs-enforce.md).
+In **observe mode**, no strategy runs. Violations are logged and surfaced in reports, but the call is not blocked. This is how most teams wire Sponsio in first. See [Observe vs. enforce](../guides/observe-vs-enforce.md).
 
 ---
 
 ## Next
 
-- [Pattern catalog](../reference/patterns.md) — every det pattern that ships, with NL form.
-- *Stochastic contracts* (Sponsio Cloud — `pip install sponsio[cloud]`) — when structural checks are not enough.
-- [Architecture](architecture.md) — LTL semantics, grounding internals, atom vocabulary.
-- [Write your first contract](../getting-started/first-contract.md) — hands-on walkthrough.
+- [Pattern catalog](../reference/patterns.md). Every det pattern that ships, with NL form.
+- *Stochastic contracts* (Sponsio Cloud, `pip install sponsio[cloud]`). When structural checks are not enough.
+- [Architecture](architecture.md). LTL semantics, grounding internals, atom vocabulary.
+- [Write your first contract](../getting-started/first-contract.md). Hands-on walkthrough.

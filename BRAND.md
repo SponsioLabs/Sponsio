@@ -77,7 +77,7 @@ When you fork Sponsio, please:
 
 That's it. We don't gate the code behind a CLA-with-relicensing
 clause; the code stays Apache 2.0 forever (see
-[`docs/oss_scope.md`](docs/oss_scope.md)).
+[`docs/reference/oss-scope.md`](docs/reference/oss-scope.md)).
 
 ---
 

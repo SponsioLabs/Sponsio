@@ -4,7 +4,7 @@ We don't round-trip back to a Span tree (that would require building a
 consumer that's the dual of the writer — out of scope for now). Instead
 we verify each emitted span carries the right
 :mod:`sponsio.tracer.semconv` attributes given a known input. The shape
-the dashboard cards in ``docs/observability.md`` rely on is exercised
+the dashboard cards in ``docs/reference/observability.md`` rely on is exercised
 end-to-end via the ``test_card_*`` cases below.
 """
 

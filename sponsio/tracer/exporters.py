@@ -20,7 +20,7 @@ each ``check_action``:
 
 All three forward through :func:`sponsio.tracer.otel_writer.span_tree_to_otlp`,
 so the on-the-wire shape is the same Sponsio Semantic Conventions
-schema documented in ``docs/observability.md``.
+schema documented in ``docs/reference/observability.md``.
 
 Usage::
 

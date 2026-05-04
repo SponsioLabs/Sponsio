@@ -56,7 +56,7 @@ The TypeScript deterministic engine ships separately:
 npm install @sponsio/sdk
 ```
 
-See [TypeScript integrations](../integrations/index.md#typescript) for framework bindings. The Python and TS engines share the same LTL core — they produce identical block/allow decisions over the same trace.
+See [TypeScript integrations](../integrations/index.md#typescript) for framework bindings. The Python and TS engines share the same LTL core. They produce identical block/allow decisions over the same trace.
 
 ---
 
@@ -80,18 +80,18 @@ Sponsio reads API keys from environment variables only. No config file, no keyri
 sponsio doctor
 ```
 
-Runs a battery of checks — config is valid, framework is detected, provider credentials are reachable, atoms referenced in contracts are registered. Exits non-zero if anything fails.
+Runs a battery of checks: config is valid, framework is detected, provider credentials are reachable, atoms referenced in contracts are registered. Exits non-zero if anything fails.
 
 ```bash
 sponsio demo --scenario wire --fast
 ```
 
-Replays a packaged unsafe-agent trajectory locally — no API key, no framework SDK. Sponsio blocks an unverified wire transfer mid-flow. If you see the block, install is working.
+Replays a packaged unsafe-agent trajectory locally, no API key, no framework SDK. Sponsio blocks an unverified wire transfer mid-flow. If you see the block, install is working.
 
 ---
 
 ## Next
 
-- [Quickstart](quickstart.md) — block an unsafe tool call in 60 seconds.
-- [First contract](first-contract.md) — write a custom contract against your own agent.
-- [Integrations](../integrations/index.md) — plug Sponsio into your framework.
+- [Quickstart](quickstart.md): block an unsafe tool call in 60 seconds.
+- [First contract](first-contract.md): write a custom contract against your own agent.
+- [Integrations](../integrations/index.md): plug Sponsio into your framework.

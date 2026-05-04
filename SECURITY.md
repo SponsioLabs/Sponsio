@@ -68,8 +68,8 @@ These are the security-relevant properties of Sponsio's deterministic core. They
 
 ### Compliance posture
 
-- **OWASP Agentic Top 10 (2026):** Sponsio addresses each of the 10 risks at the runtime-enforcement layer. See [`docs/owasp-agentic-top-10.md`](docs/owasp-agentic-top-10.md).
-- **Determinism / formal verification:** Det contracts compile to LTL → DFA — a formally specified evaluation procedure, not a probabilistic LLM judgment. See [`docs/formal-methods.md`](docs/formal-methods.md).
+- **OWASP Agentic Top 10 (2026):** Sponsio addresses each of the 10 risks at the runtime-enforcement layer. See [`docs/concepts/owasp-coverage.md`](docs/concepts/owasp-coverage.md).
+- **Determinism / formal verification:** Det contracts compile to LTL → DFA — a formally specified evaluation procedure, not a probabilistic LLM judgment. See [`docs/concepts/formal-methods.md`](docs/concepts/formal-methods.md).
 - **Apache 2.0 license:** No copyleft obligations on downstream usage; commercial use is unrestricted.
 - **NIST AI RMF / EU AI Act mappings:** in development. If you have a specific framework you need cross-referenced, file an issue and we'll prioritize.
 
@@ -81,7 +81,7 @@ What Sponsio can and cannot enforce — make sure your threat model matches:
 - ✅ **Inter-agent delegation** — `delegation_depth_limit`, `no_data_leak`, etc., apply to agent-to-agent handoffs that pass through your framework's hooks.
 - ⚠️ **LLM provider** — Sponsio cannot defend against a compromised or malicious LLM provider; the model is not in our trust boundary.
 - ⚠️ **Tools you've allowlisted** — if a tool itself is malicious or vulnerable, Sponsio constrains *how* it's called but cannot stop a bug inside the tool. Pair with build-time supply-chain scanning (`pip-audit`, Sigstore-cosign).
-- ⚠️ **Infrastructure layer** — transport encryption, identity issuance, SBOM provenance are framework / infrastructure responsibilities. See the Scope section in [`docs/owasp-agentic-top-10.md`](docs/owasp-agentic-top-10.md) for explicit boundaries.
+- ⚠️ **Infrastructure layer** — transport encryption, identity issuance, SBOM provenance are framework / infrastructure responsibilities. See the Scope section in [`docs/concepts/owasp-coverage.md`](docs/concepts/owasp-coverage.md) for explicit boundaries.
 
 ## Enterprise security inquiries
 
@@ -94,7 +94,7 @@ This is a pre-1.0 project; we do not yet hold formal certifications (SOC 2 Type 
 
 ## Related documents
 
-- [OWASP Agentic Top 10 coverage](docs/owasp-agentic-top-10.md) — how Sponsio maps to each of the 10 agentic risks.
-- [Formal methods primer](docs/formal-methods.md) — what "deterministic" / "machine-checkable" means in concrete terms.
-- [Architecture](docs/architecture.md) — trust boundaries and observation seams in detail.
+- [OWASP Agentic Top 10 coverage](docs/concepts/owasp-coverage.md) — how Sponsio maps to each of the 10 agentic risks.
+- [Formal methods primer](docs/concepts/formal-methods.md) — what "deterministic" / "machine-checkable" means in concrete terms.
+- [Architecture](docs/concepts/architecture.md) — trust boundaries and observation seams in detail.
 - [CONTRIBUTING.md § What belongs in this repo](CONTRIBUTING.md#what-belongs-in-this-repo-and-what-doesnt) — what can and cannot be committed to the public tree.

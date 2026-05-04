@@ -196,7 +196,7 @@ agents:
     contracts:                         # your own rules, added on top
       - desc: "no commits after reading .env"
         A: { pattern: called, args: [read, ".env"] }
-        E: { ltl: "G(!called(git_commit) & !called(git_push))" }
+        G: { ltl: "G(!called(git_commit) & !called(git_push))" }
 
 judge:                                 # only when any include uses sto (LLM-judged contracts)
   provider: openai                     # openai | anthropic | gemini | ollama | (any OpenAI-compatible)
@@ -300,7 +300,7 @@ agents:
     contracts:                             # your own rules, added on top of packs
       - desc: "After reading .env, no git commit or push"
         A: { pattern: called, args: [read, ".env"] }
-        E: { ltl: "G(!called(git_commit) & !called(git_push))" }
+        G: { ltl: "G(!called(git_commit) & !called(git_push))" }
 
 runtime:
   mode: observe                            # flip to "enforce" after pruning

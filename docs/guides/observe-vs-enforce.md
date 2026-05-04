@@ -1,14 +1,14 @@
 ---
 title: Observe vs. enforce
-description: How to ship Sponsio safely — start in observe mode, review reports, then flip to enforce.
+description: How to ship Sponsio safely. Start in observe mode, review reports, then flip to enforce.
 ---
 
 # Observe vs. enforce
 
 Sponsio runs in one of two modes:
 
-- **Observe (shadow)** — contracts are evaluated against every event; violations are recorded; nothing is blocked.
-- **Enforce** — violations trigger the contract's strategy (block, escalate, retry, redirect). Side effects are prevented.
+- **Observe (shadow)**: contracts are evaluated against every event; violations are recorded; nothing is blocked.
+- **Enforce**: violations trigger the contract's strategy (block, escalate, retry, redirect). Side effects are prevented.
 
 The safe rollout is always observe first, then enforce. Observe mode tells you which contracts are too strict, which are too loose, and whether your contract set covers the agent's real behavior before you start blocking calls in production.
 
@@ -37,7 +37,7 @@ Per-contract override:
 ```yaml
 contracts:
   - name: "always-on block"
-    E: "tool `drop_table` at most 0 times"
+    G: "tool `drop_table` at most 0 times"
     mode: enforce    # enforced even when global mode is observe
 ```
 
@@ -52,15 +52,15 @@ day 0        day 1–3         day 3–7           day 7+
 onboard  ──▶ observe  ──▶  observe + report  ──▶ enforce
 ```
 
-### Day 0 — `onboard`
+### Day 0, `onboard`
 
 `sponsio onboard .` writes `sponsio.yaml` in observe mode with a starter-pack of contracts. See [Onboarding](onboarding.md).
 
-### Day 1–3 — run in observe
+### Day 1–3. Run in observe
 
-Deploy with `mode: observe`. The agent behaves exactly as before — Sponsio is not in the hot path of blocking. Every call is checked and violations are appended to the session log.
+Deploy with `mode: observe`. The agent behaves exactly as before. Sponsio is not in the hot path of blocking. Every call is checked and violations are appended to the session log.
 
-### Day 3–7 — review and tune
+### Day 3–7. Review and tune
 
 ```bash
 sponsio report --since 7d
@@ -75,7 +75,7 @@ Produces an aggregate of violations by contract, by agent, by tool. You are look
 | A contract fires once, on a real incident | Working as intended | Promote to enforce |
 | A contract fires on a tool you forgot existed | Agent is doing something you didn't expect | Investigate *before* tightening |
 
-### Day 7+ — flip to enforce
+### Day 7+. Flip to enforce
 
 Once the violation rate is low and every firing corresponds to something you actually want blocked, flip the global mode:
 
@@ -83,7 +83,7 @@ Once the violation rate is low and every firing corresponds to something you act
 mode: enforce
 ```
 
-You can also promote per-contract with the `mode: enforce` override — useful for mixed confidence levels.
+You can also promote per-contract with the `mode: enforce` override. Useful for mixed confidence levels.
 
 ---
 
@@ -100,14 +100,14 @@ In enforce mode, a hard-blocked event is **rolled back** from the trace so later
 
 ## Gotchas
 
-- **Observe mode is not free**. Sto contracts still make judge calls in observe — they need the score to log the would-be violation. If judge cost is a concern during shadow, consider a `mode: observe_det_only` override on sto contracts. (Feature-flagged; ask if you need it.)
-- **Observe reports are only as good as your session log.** Make sure OTEL or local-disk session logging is configured. See [Observability](observability.md).
+- **Observe mode is not free**. Sto contracts still make judge calls in observe. They need the score to log the would-be violation. If judge cost is a concern during shadow, consider a `mode: observe_det_only` override on sto contracts. (Feature-flagged; ask if you need it.)
+- **Observe reports are only as good as your session log.** Make sure OTEL or local-disk session logging is configured. See [Observability](../reference/observability.md).
 - **Enforce mode changes agent behavior.** Once you flip, the agent will see `SponsioBlocked` exceptions and retry loops it never saw in observe. Plan for a day of re-tuning after the flip.
 
 ---
 
 ## Next
 
-- [Reporting](reporting.md) — `sponsio report` flags and output formats.
-- [Observability](observability.md) — wiring OTEL and session logs.
+- [Reporting](reporting.md), `sponsio report` flags and output formats.
+- [Observability](../reference/observability.md): wiring OTEL and session logs.
 - [CLI reference](../reference/cli.md).

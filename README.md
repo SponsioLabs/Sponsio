@@ -5,7 +5,7 @@
   <a href="https://pypi.org/project/sponsio/"><img src="https://img.shields.io/badge/install-pip%20install%20sponsio-blue?logo=python&logoColor=white" alt="Install from PyPI"></a>
   <a href="https://cursor.com/link/prompt?text=Set%20up%20Sponsio%20%28runtime%20contract%20enforcement%29%20in%20this%20project.%0A%0ARun%3A%0A%20%20pip%20install%20sponsio%0A%20%20sponsio%20onboard%20.%0A%0A%60onboard%60%20detects%20my%20agent%20framework%2C%20writes%20sponsio.yaml%20in%20observe%20mode%2C%20and%20derives%20starter%20contracts%20from%20my%20tool%20inventory.%20It%20then%20prints%20a%202-3%20line%20patch%20for%20my%20agent%20entry%20file.%0A%0AApply%20the%20patch.%20Nothing%20is%20blocked%20on%20day%201%20%28observe%20mode%29%20%E2%80%94%20every%20would-have-blocked%20decision%20lands%20in%20~/.sponsio/sessions/%3Cagent_id%3E/%2A.jsonl.%0A%0AAfter%20running%2C%20show%20me%3A%20the%20generated%20sponsio.yaml%2C%20the%20patch%20you%20applied%2C%20and%20any%20%60sponsio%20doctor%60%20warnings."><img src="https://img.shields.io/badge/Set%20Up%20with-Cursor-181818?logo=cursor&logoColor=white&labelColor=555555" alt="Set Up With Cursor"></a>
   <a href="https://sponsio.dev"><img src="https://img.shields.io/badge/Visit-sponsio.dev-181818?logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjI4MyA3NjMgMzczIDM3MyI%2bPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwyMDQ4KSBzY2FsZSgwLjEsLTAuMSkiIGZpbGw9IiNGRkZGRkYiPjxwYXRoIGQ9Ik01MDEwIDEyNTAxIGMtNTggLTkgLTE4NyAtNDEgLTI2NyAtNjYgLTI2IC05IC05OSAtNDEgLTE2MCAtNzEgLTM1NCAtMTc0IC02MTMgLTQ3NiAtNzM2IC04NTkgLTQzIC0xMzMgLTY0IC0yNTEgLTczIC00MDcgbC03IC0xMTggLTQ2MiAwIC00NjMgMCAtNiAtMjIgYy0zIC0xMyAtMyAtNjYgMCAtMTE4IDE2IC0yODQgMTA2IC01NTYgMjYwIC03ODggMTEzIC0xNjggMzI0IC0zNTYgNTE2IC00NjAgMjcyIC0xNDcgNjM3IC0xOTAgOTY4IC0xMTUgMjM2IDUzIDQ1NiAxNzggNjQwIDM2MyAyNzIgMjczIDQxMyA2MTEgNDIzIDEwMjAgbDMgMTE1IDQ1NSA1IDQ1NCA1IDMgNDUgYzQgNDcgLTEyIDIwNyAtMjkgMzAwIC0xMDcgNTkyIC01MjMgMTAzMSAtMTA5NCAxMTU3IC03OSAxNyAtMzQxIDI2IC00MjUgMTR6IG0zMjAgLTk2MCBjNzMgLTI3IDE2MiAtOTkgMjA1IC0xNjQgNTggLTg3IDEwNCAtMjM5IDEwNSAtMzQ1IGwwIC01MiAtNDU3IDIgLTQ1OCAzIC0zIDQ4IGMtNSA3MyAyNCAyMDQgNjAgMjc3IDYxIDExOSAxOTEgMjI1IDMxMCAyNTAgNjQgMTMgMTc2IDUgMjM4IC0xOXogbS02MTIgLTY0MSBjMTMgLTI5NSAtMTkxIC01MjAgLTQ3MCAtNTIwIC0yMTcgMCAtMzkzIDE0NCAtNDUzIDM3MSAtMTUgNTUgLTIwIDIxMCAtOCAyMjIgMyA0IDIxNCA2IDQ2NyA1IGw0NjEgLTMgMyAtNzV6Ii8%2bPC9nPjwvc3ZnPg==&logoColor=white&labelColor=555555" alt="Visit sponsio.dev"></a>
-  <a href="docs/owasp-agentic-top-10.md"><img src="https://img.shields.io/badge/OWASP%20Agentic%20Top%2010-10%2F10%20Covered-2E7D32?labelColor=555555" alt="OWASP Agentic Top 10 Covered"></a>
+  <a href="docs/concepts/owasp-coverage.md"><img src="https://img.shields.io/badge/OWASP%20Agentic%20Top%2010-10%2F10%20Covered-2E7D32?labelColor=555555" alt="OWASP Agentic Top 10 Covered"></a>
 </p>
 
 <p align="center">
@@ -19,9 +19,9 @@
 
 # Sponsio
 
-**Runtime enforcement for AI agents.** Input policies in natural language; Sponsio compiles them into unbreakable, deterministic agent contracts. Enforced under 0.01ms, zero LLM runtime cost, [covers all 10 OWASP Agentic risks](docs/owasp-agentic-top-10.md).
+**Runtime enforcement for AI agents.** Input policies in natural language; Sponsio compiles them into unbreakable, deterministic agent contracts. Enforced under 0.01ms, zero LLM runtime cost, [covers all 10 OWASP Agentic risks](docs/concepts/owasp-coverage.md).
 
-> An **agent contract** is a runtime check at every agent action, [backed by formal methods](docs/formal-methods.md) — *NOT* a system prompt your agent can ignore or jailbreak. 
+> An **agent contract** is a runtime check at every agent action, [backed by formal methods](docs/concepts/formal-methods.md) — *NOT* a system prompt your agent can ignore or jailbreak. 
 
 **Works with any stack.** LangChain, Claude Agent, OpenAI Agents, Google ADK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop. Python · TypeScript · Prompt · Agent Skills.
 
@@ -52,12 +52,12 @@ Compared to other deterministic enforcers, Sponsio's edge:
 
 **1. Temporal contracts over sequential actions, not stateless rule matching.** Existing enforcers evaluate each action in isolation. Sponsio reasons over the full trajectory: *"verify_recipient before send_email"*, *"no external calls after PII access"*, *"refund_payment ≤ 3 calls per session"*.
 
-**2. Machine-checkable, not heuristic.** Contracts compile to LTL formulas, then to deterministic finite automata. Every verdict is a deterministic DFA transition, not a probabilistic confidence score. Same proof technique used in hardware verification (Intel FPU correctness, AWS S3 TLA+). [How it works →](docs/formal-methods.md)
+**2. Machine-checkable, not heuristic.** Contracts compile to LTL formulas, then to deterministic finite automata. Every verdict is a deterministic DFA transition, not a probabilistic confidence score. Same proof technique used in hardware verification (Intel FPU correctness, AWS S3 TLA+). [How it works →](docs/concepts/formal-methods.md)
 
 **3. Zero to protected in minutes, no DSL learning curve.** Existing tools require hand-written YAML / Rego / Cedar policies from scratch. Sponsio offers four paths in:
 
 - **Auto-inferred** — `sponsio onboard` reads your tool signatures and writes starter contracts
-- **Contract library** — include pre-built bundles by capability (`sponsio:capability/shell`, `…/filesystem`) or by incident (`sponsio:incident/openclaw`); each bundle composes 29 det patterns + 12+ sto atoms underneath
+- **Contract library** — include pre-built bundles by capability (`sponsio:capability/shell`, `…/filesystem`) or by incident (`sponsio:incident/openclaw`); each bundle composes 44 det patterns underneath (sto atoms ship in Sponsio Cloud)
 - **Natural language** — `sponsio validate "..."` compiles plain English to LTL
 - **Policy doc** — `sponsio scan --policy security.md` parses an existing compliance document
 
@@ -163,7 +163,7 @@ agent = create_react_agent(model, guard.wrap(tools))
 
 *LangGraph / LangChain shortcut: `sponsio onboard . --apply` inserts the snippet for you.*
 
-> `sponsio.yaml` can also be hand-written, scanned from a policy doc (`sponsio scan --policy policy.md`), or mined from traces (`sponsio refresh`). Syntax: [docs/contracts.md](docs/contracts.md).
+> `sponsio.yaml` can also be hand-written, scanned from a policy doc (`sponsio scan --policy policy.md`), or mined from traces (`sponsio refresh`). Syntax: [docs/concepts/contracts.md](docs/concepts/contracts.md).
 
 Run your agent in observe mode — contracts evaluate, nothing blocks. Would-have-blocked decisions land in `~/.sponsio/sessions/<agent_id>/*.jsonl`.
 
@@ -215,7 +215,7 @@ Sponsio is benchmarked on two public agent-safety suites covering two distinct f
 | **RedCode-Exec** (1,410 cases)             | Dangerous bash / python snippet detection | **95% bash · 90% python · 92% combined** · **0% utility FP** on 60-file clean-code audit |
 
 
-Both libraries ship as loadable contract packs (`sponsio:benchmark/redcode_exec`, `sponsio:benchmark/odcv_bench`). Semantic properties det can't fingerprint (tone, hallucination, scope drift in NL output) require an LLM judge — the OSS engine ships a `Judge` extension point you can plug; the managed stochastic pipeline is a [Sponsio Cloud](docs/oss_scope.md#in-sponsio-cloud-commercial--pip-install-sponsiocloud) feature.
+Both libraries ship as loadable contract packs (`sponsio:benchmark/redcode_exec`, `sponsio:benchmark/odcv_bench`). Semantic properties det can't fingerprint (tone, hallucination, scope drift in NL output) require an LLM judge — the OSS engine ships a `Judge` extension point you can plug; the managed stochastic pipeline is a [Sponsio Cloud](docs/reference/oss-scope.md#in-sponsio-cloud-commercial--pip-install-sponsiocloud) feature.
 
 ### Logic-flaw failures are deterministically catchable too
 
@@ -236,7 +236,7 @@ Conventional wisdom said RedCode's logic-flaw categories — biased decision log
 
 <u>**5,000×–60,000× faster than any LLM-as-judge guardrail**</u> (gpt-4o-mini, Lakera Guard, OpenAI Moderation — all 50–800 ms per check) on the same per-tool-call workload, at zero LLM cost on the hot path. Per-call latency scales linearly with contract count; p99 stays under 1.04 ms across every measured workload. The heaviest scenario (9-contract layered regex over a whole RedCode python script) is still **50× faster than the cheapest LLM-as-judge call**.
 
-Full per-model breakdown, methodology, harness scripts: [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
+Full per-model breakdown, methodology, harness scripts: [`docs/reference/benchmarks.md`](docs/reference/benchmarks.md).
 
 ### Today's numbers are starting points, not ceilings
 
@@ -253,7 +253,7 @@ production traces ──→ sponsio scan ──→ proposed contracts
 
 ## Contract Library
 
-Seven **contract bundles** ship out of the box, organized by tier (always-on / per-tool / per-incident). Each bundle is a YAML pack composed from Sponsio's 29 det patterns and 12 sto atoms. Drop one into `sponsio.yaml` and your agent is guarded against a known failure class in one line, with no per-contract authoring.
+Sixteen **contract bundles** ship out of the box, organized by tier (always-on / per-tool / per-incident). Each bundle is a YAML pack composed from Sponsio's 44 det patterns (sto atoms ship in Sponsio Cloud). Drop one into `sponsio.yaml` and your agent is guarded against a known failure class in one line, with no per-contract authoring. The seven highlighted below are the most commonly used.
 
 ### Starter bundles
 
@@ -281,9 +281,9 @@ agents:
       - sponsio:capability/filesystem # if your agent touches files
 ```
 
-`sponsio onboard` auto-selects tier-0 bundles based on your detected tool inventory. You can disable or retune individual rules without forking the pack: `overrides:` lets you target rules by their `desc`, `pack_source`, or `pattern` field. Rename canonical tool names (`exec`, `read`, `edit`) to your agent's via `tool_rename:`.
+`sponsio onboard` auto-selects tier-0 bundles based on your detected tool inventory. You can disable or retune individual rules without forking the pack: `customized:` lets you target rules by their `desc`, `pack_source`, or `pattern` field. Rename canonical tool names (`exec`, `read`, `edit`) to your agent's via `tool_rename:`.
 
-Full bundle reference is at [`docs/reference/contract-lib.md`](docs/reference/contract-lib.md). The underlying primitives that bundles compose are catalogued separately: 29 det patterns in [`docs/contracts.md`](docs/contracts.md). Sto atoms (LLM-judge evaluators for tone, hallucination, scope drift, etc.) are part of [Sponsio Cloud](docs/oss_scope.md#in-sponsio-cloud-commercial--pip-install-sponsiocloud) — the OSS engine ships a `Judge` extension point for bring-your-own-judge use.
+Full bundle reference is at [`docs/reference/contract-lib.md`](docs/reference/contract-lib.md). The underlying primitives that bundles compose are catalogued separately: 44 det patterns in [`docs/reference/patterns.md`](docs/reference/patterns.md). Sto atoms (LLM-judge evaluators for tone, hallucination, scope drift, etc.) are part of [Sponsio Cloud](docs/reference/oss-scope.md#in-sponsio-cloud-commercial--pip-install-sponsiocloud) — the OSS engine ships a `Judge` extension point for bring-your-own-judge use.
 
 > **Want a bundle for your agent type?** This is currently the highest-leverage way to contribute. [Open an issue](https://github.com/SponsioLabs/Sponsio/issues/new) with your incident, CVE, or pattern.
 
@@ -524,21 +524,21 @@ TypeScript: not yet supported.
 
 ---
 
-> **Note on the snippets above.** All examples assume you've run `sponsio onboard .` first, which generates a `sponsio.yaml` with a starter contract set inferred from your tool inventory. To populate the YAML differently — pattern-library bundle, hand-written rules, natural-language one-liners, or parsed from a policy doc (`sponsio scan --policy security.md`) — see [Contract types and authoring](QUICKSTART.md#contract-types-and-authoring) and [docs/contracts.md](docs/contracts.md) for full syntax.
+> **Note on the snippets above.** All examples assume you've run `sponsio onboard .` first, which generates a `sponsio.yaml` with a starter contract set inferred from your tool inventory. To populate the YAML differently — pattern-library bundle, hand-written rules, natural-language one-liners, or parsed from a policy doc (`sponsio scan --policy security.md`) — see [Contract types and authoring](QUICKSTART.md#contract-types-and-authoring) and [docs/concepts/contracts.md](docs/concepts/contracts.md) for full syntax.
 
 ---
 
 ## Docs
 
 - [Quick start](QUICKSTART.md)
-- [Contract DSL](docs/contracts.md)
-- [CLI Reference](docs/cli.md)
-- [Integrations](docs/integrations.md)
-- [Architecture](docs/architecture.md)
-- [Benchmarks](docs/BENCHMARKS.md)
-- [OWASP Agentic Top 10 coverage](docs/owasp-agentic-top-10.md)
-- [Formal methods primer](docs/formal-methods.md)
-- [**OSS Promise**](OSS_PROMISE.md) · [OSS / Cloud boundary](docs/oss_scope.md) · [Brand & trademark](BRAND.md)
+- [Contract DSL](docs/concepts/contracts.md)
+- [CLI Reference](docs/reference/cli.md)
+- [Integrations](docs/integrations/index.md)
+- [Architecture](docs/concepts/architecture.md)
+- [Benchmarks](docs/reference/benchmarks.md)
+- [OWASP Agentic Top 10 coverage](docs/concepts/owasp-coverage.md)
+- [Formal methods primer](docs/concepts/formal-methods.md)
+- [**OSS Promise**](OSS_PROMISE.md) · [OSS / Cloud boundary](docs/reference/oss-scope.md) · [Brand & trademark](BRAND.md)
 - [Changelog](CHANGELOG.md)
 
 *AI agents reading this repo: [`llms.txt`](llms.txt) lists canonical doc paths; [`llms-full.txt`](llms-full.txt) is the concatenated full context dump.*
@@ -559,7 +559,7 @@ Patches, issue reports, and new pattern proposals are welcome. Start with [CONTR
 
 ## Important notes
 
-Sponsio enforces runtime contracts that *you* define — it does not certify your application's compliance with any regulatory framework. If you operate in regulated domains (HIPAA, GDPR, SOX, EU AI Act, financial services, healthcare), Sponsio's controls and our [OWASP Agentic Top 10 mapping](docs/owasp-agentic-top-10.md) are inputs to your compliance program. They are **not** substitutes for qualified security audit, legal review, or domain-specific regulatory analysis. Author your contracts with appropriate review and revisit them when your agent's tool surface changes.
+Sponsio enforces runtime contracts that *you* define — it does not certify your application's compliance with any regulatory framework. If you operate in regulated domains (HIPAA, GDPR, SOX, EU AI Act, financial services, healthcare), Sponsio's controls and our [OWASP Agentic Top 10 mapping](docs/concepts/owasp-coverage.md) are inputs to your compliance program. They are **not** substitutes for qualified security audit, legal review, or domain-specific regulatory analysis. Author your contracts with appropriate review and revisit them when your agent's tool surface changes.
 
 Det contracts give you machine-checkable enforcement at the action boundary. They do not protect against vulnerabilities upstream of Sponsio (compromised LLM provider, malicious tools you've allowlisted, infrastructure-layer risks like transport encryption / SBOM provenance). See [`SECURITY.md`](SECURITY.md) for the full scope.
 

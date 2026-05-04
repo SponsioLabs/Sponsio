@@ -12,7 +12,7 @@ pip install sponsio
 sponsio onboard .
 ```
 
-The `.` is the path to scan — any path works. It defaults to the current directory, so plain `sponsio onboard` is equivalent.
+The `.` is the path to scan. Any path works. It defaults to the current directory, so plain `sponsio onboard` is equivalent.
 
 ---
 
@@ -66,6 +66,6 @@ Paste the snippet, run your agent, review the observe-mode report, then flip to 
 
 ## Next
 
-- [Contract sources](contract-sources.md) — scan, policy-doc mining, trace mining.
-- [Observe vs. enforce](observe-vs-enforce.md) — shadow mode to production.
-- [CLI reference](../reference/cli.md) — `sponsio onboard` flags.
+- [Contract sources](contract-sources.md). Scan, policy-doc mining, trace mining.
+- [Observe vs. enforce](observe-vs-enforce.md). Shadow mode to production.
+- [CLI reference](../reference/cli.md), `sponsio onboard` flags.

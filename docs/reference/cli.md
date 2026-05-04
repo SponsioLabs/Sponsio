@@ -190,6 +190,135 @@ sponsio serve
 
 The OSS package ships a stub that exits 2 and points at the Cloud install. For OSS-only observability, use `sponsio host trace --follow` (live stream) or `sponsio report --since 1h` (summary).
 
+## sponsio init
+
+Bootstrap a fresh `sponsio.yaml` from a tool inventory. Lighter-weight than `onboard`: no scan, no doctor, just a starter file.
+
+```bash
+sponsio init [TARGET]
+```
+
+`TARGET` defaults to current directory. Writes `sponsio.yaml` only if one does not already exist.
+
+## sponsio packs
+
+List shipped contract packs with rule counts and `include:` syntax.
+
+```bash
+sponsio packs
+```
+
+Reads from `sponsio/contracts/` and prints one row per pack: spec name, tier, rule count, det / sto / mixed, one-line summary. Useful right after `sponsio scan` / `sponsio onboard` to see what a generated yaml's `include:` lines pull in.
+
+## sponsio eval
+
+Offline trace replay with FPR / FNR scoring. Runs a contract set against recorded traces and reports false-positive and false-negative rates against the upstream ground-truth labels.
+
+```bash
+sponsio eval TRACE_PATH [CONTRACTS...] [--config sponsio.yaml] [--agent NAME]
+```
+
+Used internally for the [Benchmarks](benchmarks.md) numbers. Also useful for tuning a contract set against your own labelled trace corpus.
+
+## sponsio export
+
+Convert a Sponsio session dump into OTLP for downstream tools.
+
+```bash
+sponsio export SOURCE [--to TARGET_DIR]
+```
+
+`SOURCE` can be a single session file or a directory. Output is OTLP/JSON ready for ingestion by `sponsio eval` or any OTLP collector.
+
+## sponsio export-sessions
+
+Push session-log files (the JSONL written by `mode="observe"`) to an OTLP endpoint or write them as OTLP/JSON files.
+
+```bash
+sponsio export-sessions [--since 24h] [--to PATH | --otlp ENDPOINT]
+```
+
+Use `--to PATH` for local files, `--otlp ENDPOINT` for an HTTPS push to your collector. Time windows: `90s`, `30m`, `24h`, `7d`, or `all`.
+
+## sponsio replay
+
+Re-render a recorded session as a coloured terminal view.
+
+```bash
+sponsio replay [SESSION] [--config sponsio.yaml]
+```
+
+`SESSION` is a session id under `~/.sponsio/sessions/<agent>/`. Without an arg, lists recent sessions. With `--config`, the contracts-armed table shows what each verdict was; without, falls back to the bare event table.
+
+## sponsio explain
+
+Show source, compiled formula, and the last violation for a contract.
+
+```bash
+sponsio explain QUERY [--config sponsio.yaml]
+```
+
+`QUERY` matches against contract `desc` substrings. Useful when debugging "why is this rule firing?".
+
+## sponsio skill
+
+Install the `sponsio` Agent Skill into the local Claude Code, Cursor, or Codex skill directory. The skill bundles five lifecycle workflows (initial setup, audit and refine, tune in observe, flip to enforce, troubleshoot).
+
+```bash
+sponsio skill install [--force] [--link]
+```
+
+`--link` symlinks instead of copying, so future `pip install -U sponsio` upgrades the skill in place.
+
+## sponsio mode
+
+Flip a single agent between observe and enforce mode without editing yaml.
+
+```bash
+sponsio mode (observe|enforce) [--config sponsio.yaml] [--agent NAME]
+```
+
+Equivalent to setting `runtime.mode:` in yaml. The `SPONSIO_MODE` env var still wins over both.
+
+## sponsio prompt
+
+Print the agent-facing prompt template for a Sponsio workflow. Used by the `sponsio` skill (W1 initial setup, W2 audit, W3 tune, W4 enforce, W5 troubleshoot).
+
+```bash
+sponsio prompt (onboard|refresh|scan)
+```
+
+Output is a copy-pasteable prompt block your AI assistant can run.
+
+---
+
+## TypeScript CLI
+
+The `@sponsio/sdk` package ships a parallel CLI with the same command surface. Same yaml output, same block / allow decisions.
+
+| Python | TypeScript |
+|---|---|
+| `sponsio onboard .` | `npx @sponsio/sdk onboard .` |
+| `sponsio scan` | `npx @sponsio/sdk scan` |
+| `sponsio validate` | `npx @sponsio/sdk validate` |
+| `sponsio check` | `npx @sponsio/sdk check` |
+| `sponsio doctor` | `npx @sponsio/sdk doctor` |
+| `sponsio demo` | `npx @sponsio/sdk demo` |
+| `sponsio report` | `npx @sponsio/sdk report` |
+| `sponsio packs` | `npx @sponsio/sdk packs` |
+| `sponsio patterns` | `npx @sponsio/sdk patterns` |
+| `sponsio init` | `npx @sponsio/sdk init` |
+| `sponsio mode` | `npx @sponsio/sdk mode` |
+| `sponsio explain` | `npx @sponsio/sdk explain` |
+| `sponsio replay` | `npx @sponsio/sdk replay` |
+| `sponsio export` | `npx @sponsio/sdk export` |
+| `sponsio export-sessions` | `npx @sponsio/sdk export-sessions` |
+| `sponsio eval` | `npx @sponsio/sdk eval` |
+| `sponsio skill` | `npx @sponsio/sdk skill` |
+| `sponsio prompt` | `npx @sponsio/sdk prompt` |
+
+Cross-language scenarios in `tests/cross_language/` validate identical verdicts on both engines. The `@sponsio/sdk` was previously published as `@sponsio/scan-ts`; that package was merged in and the deprecation shim removed.
+
 ## Exit codes
 
 | Code | Meaning |

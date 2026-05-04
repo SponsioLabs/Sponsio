@@ -5,7 +5,7 @@ how to set up a dev environment, where the seams are, and what we ask
 of a patch before it lands on `main`.
 
 Anything not covered here — design decisions, invariants, gotchas —
-lives in [`CLAUDE.md`](CLAUDE.md) and [`docs/architecture.md`](docs/architecture.md).
+lives in [`CLAUDE.md`](CLAUDE.md) and [`docs/concepts/architecture.md`](docs/concepts/architecture.md).
 Skim those first if you plan to touch the runtime or add a pattern.
 
 ---
@@ -160,9 +160,9 @@ touched these:
 
 | Change | Update |
 |--------|--------|
-| New pattern | `sponsio/patterns/library.py` + `sponsio/generation/nl_to_contract.py` + `README.md` Pattern Library table + `docs/contracts.md` |
-| New integration | `sponsio/integrations/` + `README.md` Integrations table + `docs/integrations.md` |
-| New CLI subcommand | `sponsio/cli.py` + `docs/cli.md` + `README.md` |
+| New pattern | `sponsio/patterns/library.py` + `sponsio/generation/nl_to_contract.py` + `README.md` Pattern Library table + `docs/concepts/contracts.md` |
+| New integration | `sponsio/integrations/` + `README.md` Integrations table + `docs/integrations/index.md` |
+| New CLI subcommand | `sponsio/cli.py` + `docs/reference/cli.md` + `README.md` |
 | Public API change | `CHANGELOG.md` under `[Unreleased]` with `### Changed` or `### Added` |
 | Bug fix | `CHANGELOG.md` under `[Unreleased]` with `### Fixed` |
 
@@ -213,12 +213,12 @@ The mechanical path, end-to-end, for a det pattern:
    `tests/test_patterns_library.py` (formula correctness) and
    `tests/test_nl_to_contract.py` (NL round-trip).
 4. **Document it.** Add a row to the pattern table in `README.md` and
-   an entry in `docs/contracts.md` with an NL example and a "what it
+   an entry in `docs/concepts/contracts.md` with an NL example and a "what it
    enforces" sentence. Add to the `[Unreleased]` `### Added` block in
    `CHANGELOG.md`.
 
 Stochastic atoms (LLM-judge evaluators) are part of [Sponsio
-Cloud](docs/oss_scope.md#in-sponsio-cloud-commercial--pip-install-sponsiocloud);
+Cloud](docs/reference/oss-scope.md#in-sponsio-cloud-commercial--pip-install-sponsiocloud);
 the OSS engine ships an empty sto registry plus a `Judge` extension
 point. Patches that add new sto evaluators land in the cloud repo
 and are not accepted here. Patches that improve the OSS extension
@@ -238,7 +238,7 @@ point are very welcome.
 4. Add an optional dep to `[project.optional-dependencies]` in
    `pyproject.toml`.
 5. Update the integrations table in `README.md` and
-   `docs/integrations.md`.
+   `docs/integrations/index.md`.
 
 ---
 

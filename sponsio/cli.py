@@ -29,6 +29,17 @@ def cli():
     """Sponsio — the contract layer for LLM agent systems."""
 
 
+def _contract_guarantee(entry):
+    """Read the guarantee block out of a YAML/dict contract entry.
+
+    Reads the canonical ``G`` (short) / ``guarantee`` (long) keys. No
+    legacy alias support — the rename is hard.
+    """
+    if not isinstance(entry, dict):
+        return None
+    return entry.get("G") or entry.get("guarantee")
+
+
 # ---------------------------------------------------------------------------
 # demo
 # ---------------------------------------------------------------------------
@@ -398,7 +409,7 @@ def packs():
                 # no sto pipeline; the third bucket is gone.
                 kinds = Counter()
                 for c in contracts:
-                    es = c.get("E") if isinstance(c, dict) else None
+                    es = _contract_guarantee(c)
                     if isinstance(es, dict):
                         es_list = [es]
                     elif isinstance(es, list):
@@ -1024,19 +1035,19 @@ def validate(contracts, config_path, agent_id, as_json, trace_paths):
     # per-section lists for display).
     def _flatten(ac) -> dict:
         assumptions: list = []
-        enforcements: list = []
+        guarantees: list = []
         for ce in ac.contracts:
             if ce.assumption is not None:
                 if isinstance(ce.assumption, list):
                     assumptions.extend(ce.assumption)
                 else:
                     assumptions.append(ce.assumption)
-            if ce.enforcement is not None:
-                if isinstance(ce.enforcement, list):
-                    enforcements.extend(ce.enforcement)
+            if ce.guarantee is not None:
+                if isinstance(ce.guarantee, list):
+                    guarantees.extend(ce.guarantee)
                 else:
-                    enforcements.append(ce.enforcement)
-        return {"assumptions": assumptions, "guarantees": enforcements}
+                    guarantees.append(ce.guarantee)
+        return {"assumptions": assumptions, "guarantees": guarantees}
 
     agent_contracts: dict[str, dict] = {}
 
@@ -1439,11 +1450,11 @@ def check(trace_path, contracts, config_path, agent_id, as_json):
                     assumptions.extend(ce.assumption)
                 else:
                     assumptions.append(ce.assumption)
-            if ce.enforcement is not None:
-                if isinstance(ce.enforcement, list):
-                    guarantees.extend(ce.enforcement)
+            if ce.guarantee is not None:
+                if isinstance(ce.guarantee, list):
+                    guarantees.extend(ce.guarantee)
                 else:
-                    guarantees.append(ce.enforcement)
+                    guarantees.append(ce.guarantee)
     else:
         guarantees = list(contracts)
 
@@ -2616,13 +2627,13 @@ def _filter_invalid_contracts(yaml_content: str) -> tuple[str, list[dict]]:
         bad: set[int] = set()
         for idx, ce in enumerate(contracts):
             # An entry can be either a bare string (E only, NL form), or
-            # a dict with A/E keys whose values are themselves NL strings
+            # a dict with A/G keys whose values are themselves NL strings
             # or structured ``{pattern, args}`` dicts.
             sub_items: list = []
             if isinstance(ce, str):
                 sub_items.append(ce)
             elif isinstance(ce, dict):
-                for key in ("A", "E"):
+                for key in ("A", "G"):
                     if key not in ce:
                         continue
                     val = ce[key]
@@ -2777,7 +2788,7 @@ def _scan_summary_counts(yaml_content: str) -> tuple[int, int, int]:
                 continue
             if line and not line.startswith(" "):
                 in_tools = False
-        if stripped.startswith("- E:") or stripped.startswith("- A:"):
+        if stripped.startswith("- G:") or stripped.startswith("- A:"):
             n_contracts += 1
             if "review recommended" in stripped:
                 n_review += 1
@@ -2876,7 +2887,7 @@ def _merge_yaml(existing: str, new: str) -> str:
         if not in_contracts:
             continue
         # A new entry starts with `- E:` or `- A:` (possibly with trailing comment)
-        if stripped.startswith("- E:") or stripped.startswith("- A:"):
+        if stripped.startswith("- G:") or stripped.startswith("- A:"):
             if current_entry:
                 new_entries.append(current_entry)
             current_entry = [line]
@@ -2884,7 +2895,7 @@ def _merge_yaml(existing: str, new: str) -> str:
             stripped.startswith("pattern:")
             or stripped.startswith("args:")
             or stripped.startswith("source:")
-            or stripped.startswith("E:")
+            or stripped.startswith("G:")
             or stripped.startswith("desc:")
         ):
             # Continuation of the current entry
@@ -2921,7 +2932,7 @@ def _merge_yaml(existing: str, new: str) -> str:
             continue
         if not in_existing_contracts:
             continue
-        if stripped.startswith("- E:") or stripped.startswith("- A:"):
+        if stripped.startswith("- G:") or stripped.startswith("- A:"):
             if temp_entry:
                 existing_fingerprints.add(_fingerprint(temp_entry))
             temp_entry = [line]
@@ -3595,7 +3606,7 @@ def eval_cmd(
                 )
                 sys.exit(1)
         for ce in cfg.agents[agent_id].contracts:
-            for field_value in (ce.assumption, ce.enforcement):
+            for field_value in (ce.assumption, ce.guarantee):
                 if field_value is None:
                     continue
                 if isinstance(field_value, list):
@@ -4011,9 +4022,10 @@ def _parse_existing_contracts(yaml_path: Path, agent_id: str) -> list[dict]:
     for c in contracts:
         if not isinstance(c, dict):
             continue
-        # Contracts can be written ``- E: {...}`` or ``- A: {...}, E: {...}``.
+        # Contracts can be written ``- G: {...}`` or ``- A: {...}, G: {...}``.
         # We pull from whichever has the pattern.
-        body = c.get("E") if isinstance(c.get("E"), dict) else c
+        g = _contract_guarantee(c)
+        body = g if isinstance(g, dict) else c
         if not isinstance(body, dict):
             continue
         pattern = body.get("pattern")
@@ -5480,9 +5492,9 @@ def _render_plugin_digest(
 
         groups: dict[str, list[str]] = {}
         for c in contracts:
-            enforce_block = c.get("E") or {}
-            pattern = enforce_block.get("pattern", "?")
-            args = enforce_block.get("args") or []
+            g_block = _contract_guarantee(c) or {}
+            pattern = g_block.get("pattern", "?")
+            args = g_block.get("args") or []
             # rate_limit with cap=0 is a hard deny — surface separately.
             if pattern == "rate_limit" and len(args) >= 2 and args[1] == 0:
                 category = "Hard denies"
@@ -6203,17 +6215,17 @@ def host_status(name: str):
                     tag = f"  [activate_at: {c['activate_at']}]"
                 click.echo(f"        • {desc}{tag}")
                 a = c.get("A")
-                e = c.get("E")
+                g = _contract_guarantee(c)
                 if a:
                     # 80-char window keeps the line readable on a
                     # demo terminal; full text lives in the YAML.
                     if len(a) > 96:
                         a = a[:96] + "…"
                     click.secho(f"            A:  {a}", fg="white", dim=True)
-                if e:
-                    if len(e) > 96:
-                        e = e[:96] + "…"
-                    click.secho(f"            E:  {e}", fg="white", dim=True)
+                if g:
+                    if len(g) > 96:
+                        g = g[:96] + "…"
+                    click.secho(f"            G:  {g}", fg="white", dim=True)
             for inc in includes:
                 click.secho(
                     f"        + bundled pack: {inc}",
