@@ -262,6 +262,41 @@ class TestDetectFramework:
         hint = detect_framework(tmp_path)
         assert hint.framework == "none"
 
+    def test_package_json_vercel_ai_dependency(self, tmp_path: Path):
+        """A TS project using the Vercel AI SDK must detect as
+        ``vercel_ai`` from ``package.json`` deps — without this,
+        ``sponsio init`` rendered ``🔍 Detected: TypeScript · none``
+        on real Vercel-AI agents and the wizard had no sensible
+        framework default to pre-pick.
+        """
+        (tmp_path / "package.json").write_text(
+            '{"name":"x","dependencies":{"@ai-sdk/anthropic":"^1.0.0",'
+            '"ai":"^4.0.0","zod":"^3.22.0"}}\n'
+        )
+        hint = detect_framework(tmp_path)
+        assert hint.framework == "vercel_ai"
+        assert "package.json" in hint.evidence
+
+    def test_package_json_langchain_js_dependency(self, tmp_path: Path):
+        (tmp_path / "package.json").write_text(
+            '{"name":"x","dependencies":{"@langchain/core":"^0.3.0"}}\n'
+        )
+        hint = detect_framework(tmp_path)
+        assert hint.framework == "langchain"
+
+    def test_package_json_quote_anchoring_avoids_false_positive(
+        self, tmp_path: Path
+    ):
+        # The bare ``"ai"`` package name must not match a substring of
+        # an unrelated key.  Use an unrelated package whose value
+        # contains "ai" as a substring (e.g. ``"some-ai-thing"``).
+        # Without quote-anchoring this would falsely detect vercel_ai.
+        (tmp_path / "package.json").write_text(
+            '{"name":"x","dependencies":{"some-ai-thing":"^1.0.0"}}\n'
+        )
+        hint = detect_framework(tmp_path)
+        assert hint.framework == "none"
+
     def test_monorepo_pad_files_do_not_starve_detection(
         self, tmp_path: Path
     ):

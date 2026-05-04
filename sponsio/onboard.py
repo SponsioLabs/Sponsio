@@ -83,6 +83,22 @@ _FRAMEWORK_DEPENDENCY_HINTS: dict[str, tuple[str, ...]] = {
     "mcp": ("mcp", "modelcontextprotocol"),
 }
 
+# TypeScript / JS dependency hints — same shape, scanned out of
+# ``package.json``'s ``dependencies`` / ``devDependencies`` blocks.
+# Order matches :data:`_FRAMEWORK_IMPORT_SIGNATURES` so when both
+# package.json AND import-grep find a hit, ranking stays stable.
+# ``vercel_ai`` is TS-only on the Sponsio side today (no Python
+# adapter), but listed here because the runtime is real.
+_FRAMEWORK_TS_DEPENDENCY_HINTS: dict[str, tuple[str, ...]] = {
+    "langgraph": ("@langchain/langgraph", "langgraph"),
+    "langchain": ("@langchain/core", "@langchain/community", "langchain"),
+    "vercel_ai": ("ai", "@ai-sdk/anthropic", "@ai-sdk/openai", "@ai-sdk/google"),
+    "claude_agent": ("@anthropic-ai/claude-agent-sdk", "@anthropic-ai/sdk"),
+    "openai_agents": ("@openai/agents",),
+    "openai": ("openai",),
+    "mcp": ("@modelcontextprotocol/sdk",),
+}
+
 # Mapping from detected framework → the Sponsio factory the user
 # should import.  This is the only place that knows which
 # subpackage name each adapter lives in.
@@ -251,19 +267,35 @@ def detect_framework(
 
 
 def _detect_from_dependencies(root: Path) -> FrameworkHint | None:
-    """Read ``pyproject.toml`` / ``requirements.txt`` for framework deps.
+    """Read ``pyproject.toml`` / ``requirements.txt`` / ``package.json``
+    for framework deps.
 
-    Text-only grep — we don't TOML-parse because (a) cheaper and
-    (b) a malformed pyproject that pip still accepts shouldn't
-    make onboarding crash.
+    Text-only grep — we don't TOML / JSON parse because (a) cheaper
+    and (b) a malformed manifest that the package manager still
+    accepts shouldn't make onboarding crash.
+
+    Python and TypeScript hints are kept in two parallel tables so
+    each ecosystem's package names live in one place.  Iteration
+    order is identical (declared via :data:`_FRAMEWORK_IMPORT_SIGNATURES`)
+    so when a polyglot repo has both a ``pyproject.toml`` AND a
+    ``package.json`` claiming the same framework, the more specific
+    one (langgraph > langchain etc.) still wins.
     """
-    candidates = [
+    py_candidates = [
         root / "pyproject.toml",
         root / "requirements.txt",
         root / "requirements-dev.txt",
         root / "Pipfile",
     ]
-    for path in candidates:
+    ts_candidates = [
+        root / "package.json",
+    ]
+
+    # Python first — preserves the historical priority that a Python
+    # project with both py + ts manifests should resolve to its py
+    # framework (the ts one is usually frontend tooling, not the
+    # agent itself).
+    for path in py_candidates:
         if not path.is_file():
             continue
         try:
@@ -274,6 +306,29 @@ def _detect_from_dependencies(root: Path) -> FrameworkHint | None:
             hints = _FRAMEWORK_DEPENDENCY_HINTS.get(fw_id, ())
             for h in hints:
                 if h.lower() in text:
+                    return FrameworkHint(
+                        framework=fw_id,
+                        factory=_FRAMEWORK_FACTORY[fw_id],
+                        evidence=f"found `{h}` in {path.name}",
+                        entry_file=None,
+                    )
+
+    for path in ts_candidates:
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace").lower()
+        except OSError:
+            continue
+        for fw_id, _prefixes in _FRAMEWORK_IMPORT_SIGNATURES:
+            hints = _FRAMEWORK_TS_DEPENDENCY_HINTS.get(fw_id, ())
+            for h in hints:
+                # Quote-anchor the substring search — looking for
+                # ``"@ai-sdk/anthropic"`` rather than the bare name
+                # avoids accidental matches on substrings of unrelated
+                # values (e.g. "ai" matching "tail" or "main").
+                quoted = f'"{h.lower()}"'
+                if quoted in text:
                     return FrameworkHint(
                         framework=fw_id,
                         factory=_FRAMEWORK_FACTORY[fw_id],
