@@ -98,7 +98,7 @@ class Spinner:
         # dots are secondary breathing room.
         label = label.rstrip()
         if label.endswith("…"):
-            label = label[:-1].rstrip() + "  . . ."
+            label = label[:-1].rstrip() + " . . ."
 
         if not self.stderr_is_tty():
             print(label, file=sys.stderr, flush=True)

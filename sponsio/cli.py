@@ -3844,7 +3844,13 @@ def init(
         from sponsio.init_wizard import _confirm as _wizard_confirm
 
         if not _wizard_confirm("Run these?", default=True):
-            click.echo("aborted")
+            click.echo()
+            click.secho("✘  No changes made.", fg="yellow")
+            click.echo(
+                "    Re-run `sponsio init` whenever you're ready, "
+                "or pass\n    `sponsio init --plan '<picks>'` to "
+                "preview the commands without prompts."
+            )
             return
 
     rc = apply_commands(cmds)
