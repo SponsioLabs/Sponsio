@@ -4,9 +4,7 @@ Thanks for your interest in Sponsio. This doc covers the practical bits:
 how to set up a dev environment, where the seams are, and what we ask
 of a patch before it lands on `main`.
 
-Anything not covered here — design decisions, invariants, gotchas —
-lives in [`CLAUDE.md`](CLAUDE.md) and [`docs/concepts/architecture.md`](docs/concepts/architecture.md).
-Skim those first if you plan to touch the runtime or add a pattern.
+Anything not covered here (design decisions, invariants, gotchas) lives in [`CLAUDE.md`](CLAUDE.md) and [`docs/concepts/architecture.md`](docs/concepts/architecture.md). Skim those first if you plan to touch the runtime or add a pattern.
 
 ---
 
@@ -15,12 +13,12 @@ Skim those first if you plan to touch the runtime or add a pattern.
 - **Apache 2.0.** By submitting a patch you agree your contribution is
   licensed under the repo's [LICENSE](LICENSE).
 - **DCO sign-off required.** See [Developer Certificate of
-  Origin](#developer-certificate-of-origin) below — every commit
+  Origin](#developer-certificate-of-origin) below. Every commit
   must end with a `Signed-off-by:` line. `git commit -s` adds it
   for you.
 - **Be kind.** See the [Code of Conduct](CODE_OF_CONDUCT.md).
 - **Trademarks.** Apache 2.0 covers the code. The Sponsio name and
-  logo are separate — see [BRAND.md](BRAND.md) for what you can do
+  logo are separate. See [BRAND.md](BRAND.md) for what you can do
   without asking.
 - **Small PRs beat big PRs.** One concern per PR. If a change is
   unavoidably large, split it into a stack and link the commits.
@@ -48,9 +46,7 @@ This appends a line like:
 Signed-off-by: Your Name <your.email@example.com>
 ```
 
-By signing off, you certify the [DCO terms](https://developercertificate.org/) —
-in short: you wrote it (or have rights to it) and you're contributing
-it under the project's open-source licence.
+By signing off, you certify the [DCO terms](https://developercertificate.org/): you wrote it (or have rights to it) and you're contributing it under the project's open-source licence.
 
 If you forget the sign-off, amend the commit with `git commit --amend
 -s` and force-push to your branch. CI will block PRs that contain
@@ -69,7 +65,7 @@ pip install -e ".[all]"          # core + every optional integration
 pip install ruff pytest pytest-cov
 ```
 
-Optional — if you'll be touching the TypeScript SDK:
+Optional. If you'll be touching the TypeScript SDK:
 
 ```bash
 cd ts/packages/sdk && npm install
@@ -90,7 +86,7 @@ If `ruff` is not on your `PATH`, `python -m ruff ...` works the same.
 
 ## Repo layout
 
-High-level map — the full tour is in [`CLAUDE.md`](CLAUDE.md).
+High-level map. The full tour is in [`CLAUDE.md`](CLAUDE.md).
 
 ```
 sponsio/
@@ -111,7 +107,7 @@ tests/                pytest
 docs/                 user-facing documentation
 ```
 
-Cross-cutting invariants — these MUST hold across any change; reviewers
+Cross-cutting invariants. These MUST hold across any change; reviewers
 will reject PRs that break them:
 
 1. `sponsio/` core has zero external dependencies. Framework deps go in
@@ -120,7 +116,7 @@ will reject PRs that break them:
    pre-check / post-check logic.
 3. Det violations route to `DetBlock` or `EscalateToHuman` only.
    Sto violations route to `RetryWithConstraint` or `RedirectToSafe`
-   only. `RuntimeMonitor` enforces this separation — don't bypass it.
+   only. `RuntimeMonitor` enforces this separation. Don't bypass it.
 4. The trace is append-only during a session. Rollback is only
    permitted on a hard block, and only in `mode="enforce"`.
 
@@ -130,15 +126,13 @@ will reject PRs that break them:
 
 ### 1. Open (or find) an issue first
 
-For anything larger than a typo fix, please open an issue before you
-start. That gives us a chance to steer — especially for new patterns,
-new integrations, or changes to the runtime.
+For anything larger than a typo fix, please open an issue before you start. That gives us a chance to steer, especially for new patterns, new integrations, or changes to the runtime.
 
 Three issue templates exist:
 
-- **Bug Report** — unexpected behavior, crashes, wrong verdicts.
-- **Feature Request** — new capability or ergonomic improvement.
-- **New Constraint Pattern** — proposal for a new det or sto pattern.
+- **Bug Report**: unexpected behavior, crashes, wrong verdicts.
+- **Feature Request**: new capability or ergonomic improvement.
+- **New Constraint Pattern**: proposal for a new det or sto pattern.
 
 ### 2. Branch, write, test
 
@@ -181,7 +175,7 @@ refactor(integrations): consolidate pre_check into BaseGuard
 ```
 
 Scope is optional but encouraged. The body (when present) should
-explain *why*, not *what* — the diff already shows the *what*.
+explain *why*, not *what*. The diff already shows the *what*.
 
 ### 5. Open the PR
 
@@ -190,7 +184,7 @@ Use the PR template (it auto-populates). Fill in:
 - What changed and why, in 1–3 sentences.
 - Any invariants or design decisions worth calling out.
 - Test plan: how you verified it.
-- Docs touched (README, CHANGELOG, etc.) — or "N/A" if none apply.
+- Docs touched (README, CHANGELOG, etc.), or "N/A" if none apply.
 - Linked issue(s).
 
 CI runs on every push: pytest across Python 3.10/3.11/3.12, TS SDK
@@ -373,7 +367,7 @@ path. We'll acknowledge within 72 hours and coordinate disclosure.
 
 - **GitHub Discussions** for open-ended questions and ideas.
 - **GitHub Issues** for bugs and concrete feature requests.
-- **`docs/`** for anything that's already been written up — please
+- **`docs/`** for anything that's already been written up. Please
   check before filing.
 
 ---
@@ -384,13 +378,13 @@ path. We'll acknowledge within 72 hours and coordinate disclosure.
 
 **Keep out of the public tree** (or redact before publishing):
 
-- Roadmaps, launch checklists, and status dashboards (`STATUS.md`, `PLAN.md`, `LAUNCH_*.md`) — they go stale and can imply commitments.
-- Narration scripts for a specific demo or video (`demo-video-script.md` is gitignored for that reason) — not end-user documentation.
-- Benchmark result tables and eval lab notebooks — headline figures may be published in the root [`README.md`](README.md#benchmarks); raw tables and model-by-model numbers stay private. Paths under `docs/` that match those names are in `.gitignore`; never `git add -f`.
+- Roadmaps, launch checklists, and status dashboards (`STATUS.md`, `PLAN.md`, `LAUNCH_*.md`). They go stale and can imply commitments.
+- Narration scripts for a specific demo or video (`demo-video-script.md` is gitignored for that reason), not end-user documentation.
+- Benchmark result tables and eval lab notebooks. Headline figures may be published in the root [`README.md`](README.md#benchmarks); raw tables and model-by-model numbers stay private. Paths under `docs/` that match those names are in `.gitignore`; never `git add -f`.
 - Internal agent/project notes under `agent_docs/` or similar.
 - Anything with real customer names, private URLs, API keys, or unreleased product detail.
 
-**Runtime data** — the whole `data/` tree is local-only except the stub README; see [`data/README.md`](data/README.md).
+**Runtime data**: the whole `data/` tree is local-only except the stub README; see [`data/README.md`](data/README.md).
 
 ---
 

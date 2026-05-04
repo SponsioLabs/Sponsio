@@ -75,10 +75,10 @@ sponsio init
 ━━━ ◒◓ sponsio init ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ▎ detected: langgraph (3 imports), cursor IDE present
 ▎
-▎ axis 1 — framework wrap: langgraph [Y/n]: y
-▎ axis 2 — protect host agents (cursor)? [Y/n]: y
-▎ axis 3 — install skill into cursor? [Y/n]: y
-▎ axis 4 — mode: observe [Enter to confirm]:
+▎ axis 1: framework wrap (langgraph) [Y/n]: y
+▎ axis 2: protect host agents (cursor)? [Y/n]: y
+▎ axis 3: install skill into cursor? [Y/n]: y
+▎ axis 4: mode (observe) [Enter to confirm]:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ✓ wrote sponsio.yaml (langgraph, observe mode, 17 contracts)
