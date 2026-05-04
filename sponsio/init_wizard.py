@@ -311,6 +311,19 @@ def plan_commands(
         # scaffold to start from — which is exactly what they
         # came to ``sponsio init`` for.
         if ts_project:
+            # The TS CLI ships in ``@sponsio/scan-ts`` whose ``bin``
+            # entry is called ``sponsio``.  ``npx sponsio onboard``
+            # alone fails because npm tries to fetch a top-level
+            # package literally named ``sponsio`` (which doesn't
+            # exist on the registry — that's the Python pip name).
+            # Emit the install step first so the binary lands in
+            # ``node_modules/.bin``, then ``npx sponsio onboard``
+            # picks it up locally.  Bonus: ``--save-dev`` records
+            # the dep in package.json so subsequent runs are
+            # cached.
+            cmds.append(
+                ["npm", "install", "--save-dev", "@sponsio/scan-ts"]
+            )
             cmds.append(
                 ["npx", "sponsio", "onboard", ".", "--mode", picks.mode, "--force"]
             )

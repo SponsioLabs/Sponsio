@@ -111,12 +111,18 @@ class TestPlanCommands:
             ["sponsio", "onboard", ".", "--mode", "observe", "--force"],
         ]
 
-    def test_axis1_ts_emits_npx_sponsio_onboard(self):
+    def test_axis1_ts_installs_scan_ts_then_runs_onboard(self):
+        # ``npx sponsio onboard`` alone errors with "404 sponsio not
+        # found on registry" because the npm package name is
+        # ``@sponsio/scan-ts`` (whose bin is named ``sponsio``).
+        # Plan must install the scoped pkg first so the binary lands
+        # in node_modules/.bin where npx can resolve it locally.
         cmds = plan_commands(
             InitPicks(framework="langgraph", mode="observe"),
             ts_project=True,
         )
         assert cmds == [
+            ["npm", "install", "--save-dev", "@sponsio/scan-ts"],
             ["npx", "sponsio", "onboard", ".", "--mode", "observe", "--force"],
         ]
 
