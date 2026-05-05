@@ -354,7 +354,13 @@ def plan_commands(
     # the subcommand and turn into a confusing error.
     for s in picks.skills:
         if s in SUPPORTED_SKILL_TARGETS:
-            cmds.append(["sponsio", "skill", "install", "--tool", s])
+            # ``--force`` so re-running ``sponsio init`` is idempotent.
+            # The Skill is a copy of a packaged docs file; replacing
+            # an existing install with the latest version is the
+            # expected behaviour here, not data loss.  Without it,
+            # the second wizard run on a machine that already has
+            # the skill bails out mid-dispatch.
+            cmds.append(["sponsio", "skill", "install", "--tool", s, "--force"])
 
     return cmds
 
@@ -420,6 +426,117 @@ def apply_commands(
             )
             return rc
     return 0
+
+
+def print_next_steps(picks: "InitPicks", *, ts_project: bool = False) -> None:
+    """Picks-aware "what now" block printed after a successful apply.
+
+    Each combination of axes leaves the user in a different spot, so
+    a generic "go check sponsio.yaml" footer was leaving everyone
+    half-onboarded — especially the IDE-only paths (axis 1 empty,
+    axes 2/3 populated), where the install completed but the user
+    had no concrete next action to take.
+
+    Cases this routes through:
+
+      - **Project framework wrap** picked (axis 1 ≠ "" / "none"):
+        the agent's ``sponsio.yaml`` is on disk; point at the
+        contract-authoring template + ``sponsio prompt onboard``
+        for the IDE-agent semantic pass + the ``sponsio mode
+        enforce`` flip when soaked.
+
+      - **Bare-loop framework** (axis 1 = "none"): ``sponsio.yaml``
+        is generic; the user still needs to splice
+        ``guard.guard_before/after`` calls into their loop manually.
+        Point at the snippet that ``sponsio onboard`` printed and
+        at the same authoring + flip path.
+
+      - **IDE host plugin** picked (any axis-2 IDE at level=full):
+        per-host runtime gating is now live in observe; user should
+        try a destructive op in that IDE to see the log, then
+        invoke the ``sponsio-<ide>:configure`` skill to tune rules
+        per their workflow.
+
+      - **IDE skill only** (any axis-2 IDE at level=skill): the
+        knowledge layer is in place but no runtime gating; tell
+        the user to ask the IDE's develop agent to "set up Sponsio
+        in this project" / "tune contracts" — the skill drives the
+        rest.
+
+    Indented col-2 to match the rest of the wizard panel.
+    """
+    from sponsio.render.tokens import PALETTE
+    from sponsio.runtime.terminal import _make_stderr_console
+
+    npx = "npx " if ts_project else ""
+    console = _make_stderr_console(None)
+    console.print()
+    from rich.text import Text
+
+    console.print(Text("  Next:", style=f"bold {PALETTE['brand']}"))
+
+    if picks.framework and picks.framework != "none":
+        # Project-framework path.
+        click.echo(
+            f"    {npx}sponsio onboard . --emit-context > /tmp/ctx.json"
+        )
+        click.echo(f"    {npx}sponsio prompt onboard")
+        click.echo(
+            "      → apply the printed template to ctx.json IN this chat;"
+        )
+        click.echo(
+            "        WAIT for the user to pick proposals; merge into yaml."
+        )
+        click.echo(f"    {npx}sponsio validate --config sponsio.yaml")
+    elif picks.framework == "none":
+        # Bare-loop path.
+        click.echo(
+            "    Splice ``wrap_snippet`` from sponsio.yaml's "
+            "next-step output"
+        )
+        click.echo("    into your agent loop (guard.guard_before / _after).")
+        click.echo(f"    {npx}sponsio validate --config sponsio.yaml")
+
+    # IDE-side guidance — emitted regardless of axis 1.
+    full_ides = picks.hosts
+    skill_ides = picks.skills
+    if full_ides:
+        click.echo()
+        click.echo(
+            f"    {', '.join(full_ides)} — host hook now gates tool calls"
+            f" in observe."
+        )
+        for ide in full_ides:
+            click.echo(
+                f"      Try a destructive op in {ide}; check the log:"
+            )
+            click.echo("        sponsio report --since 24h")
+            click.echo(
+                f"      Tune rules per workflow: ask {ide}'s agent to"
+            )
+            click.echo(f'        "configure sponsio for {ide}"')
+            click.echo(
+                f"        (it'll invoke the sponsio-{ide}:configure skill)."
+            )
+    if skill_ides:
+        click.echo()
+        click.echo(
+            f"    {', '.join(skill_ides)} — Agent Skill installed."
+        )
+        click.echo(
+            "      Ask the IDE's develop agent: \"set up Sponsio in this"
+        )
+        click.echo(
+            "      project\" / \"tune contracts from policy.md\" / "
+            "\"explain"
+        )
+        click.echo("      why C1 fired\" — it has the playbook.")
+
+    # Mode flip — applies to every install path.
+    if picks.mode == "observe":
+        click.echo()
+        click.echo("    Soak in observe; flip when ready:")
+        click.echo(f"      {npx}sponsio mode enforce")
 
 
 def offer_demo(*, runner=None) -> None:

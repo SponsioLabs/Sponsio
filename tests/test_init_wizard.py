@@ -190,8 +190,8 @@ class TestPlanCommands:
             )
         )
         assert cmds == [
-            ["sponsio", "skill", "install", "--tool", "cursor"],
-            ["sponsio", "skill", "install", "--tool", "codex"],
+            ["sponsio", "skill", "install", "--tool", "cursor", "--force"],
+            ["sponsio", "skill", "install", "--tool", "codex", "--force"],
         ]
 
     def test_full_and_skill_mixed_per_ide(self):
@@ -207,7 +207,7 @@ class TestPlanCommands:
         )
         assert cmds == [
             ["sponsio", "host", "install", "claude-code", "--mode", "observe"],
-            ["sponsio", "skill", "install", "--tool", "cursor"],
+            ["sponsio", "skill", "install", "--tool", "cursor", "--force"],
         ]
 
     def test_unknown_ide_filtered_silently(self):
@@ -245,7 +245,7 @@ class TestPlanCommands:
                 "--mode",
                 "enforce",
             ],
-            ["sponsio", "skill", "install", "--tool", "codex"],
+            ["sponsio", "skill", "install", "--tool", "codex", "--force"],
         ]
 
 

@@ -3850,6 +3850,14 @@ def init(
     if rc != 0:
         sys.exit(rc)
 
+    # Picks-aware "what now" block.  Each combination of axes leaves
+    # the user in a different spot — IDE-only installs especially
+    # were ending without any concrete next action.  Route through
+    # the helper so each path gets a tailored handoff.
+    from sponsio.init_wizard import print_next_steps as _print_next_steps
+
+    _print_next_steps(picks, ts_project=env.runtime == "ts")
+
     if not no_demo:
         offer_demo()
 
