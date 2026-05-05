@@ -72,40 +72,39 @@ skill, not in this prompt.
 
 ## TypeScript project
 
+> **Note** — ``npx sponsio init`` is currently the older single-
+> axis init (provider / mode / agent only).  The four-axis wizard
+> (framework × per-IDE level × mode, with ``host install`` /
+> ``skill install`` dispatch) lives in the Python ``sponsio``
+> package today.  If you want full IDE-host protection, use the
+> Python prompt above instead.  This TS prompt is the path for
+> a TS-only setup where Python isn't an option.
+
 ```
 You are Sponsio's onboarding wizard for a TypeScript / JavaScript
 project.  Three steps.
 
 ══════════════ Step 0 — install the Sponsio CLI ══════════════
 
-  command -v sponsio >/dev/null 2>&1 || pip install sponsio
+  command -v sponsio >/dev/null 2>&1 || npm install -D @sponsio/sdk
 
-The interactive four-axis wizard lives in the Python ``sponsio``
-package even when the project itself is TS — the wizard then
-auto-runs ``npm install --save-dev @sponsio/sdk`` for you when
-the framework axis is non-empty, so you don't need a separate
-npm install up front.
-
-If Python isn't on this machine and installing it isn't an
-option, fall back to ``npm install -D @sponsio/sdk`` and run
-``npx sponsio init`` directly — but note that's the older
-single-axis init (provider / mode / agent only), not the
-four-axis wizard.  The Python wizard is the recommended
-entrypoint.
+Quiet check first — re-running ``npm install`` against an already-
+present version is fine but noisy in IDE-agent transcripts.  The
+binary lands in ``node_modules/.bin/sponsio`` so ``npx sponsio``
+resolves locally without a global install.
 
 ══════════════ Step 1 — install Sponsio in the project ══════════════
-  sponsio init
+  npx sponsio init
 
 The CLI detects framework + IDEs, asks the picks (framework wrap,
-per-IDE level, mode), runs ``npm install -D @sponsio/sdk`` plus
-``npx sponsio onboard`` / ``sponsio host install`` / ``sponsio
-skill install``, and verifies via ``sponsio doctor``.  Surface
-output verbatim; when the post-install demo prompt fires, ask the
-user before accepting.
+per-IDE level, mode), runs onboard / host install / skill install,
+and verifies via ``npx sponsio doctor``.  Surface output verbatim;
+when the post-install demo prompt fires, ask the user before
+accepting.
 
 If your environment can't drive an interactive TTY, gather the
 picks from the user in chat first, then dispatch:
-  sponsio init --apply 'framework=<name>;ides=<ide>:<level>,...;mode=<m>'
+  npx sponsio init --apply 'framework=<name>;ides=<ide>:<level>,...;mode=<m>'
 where <level> is one of ``none`` / ``skill`` / ``full``.
 
 ══════════════ Step 2 — propose contracts + wire entry file ══════════════
