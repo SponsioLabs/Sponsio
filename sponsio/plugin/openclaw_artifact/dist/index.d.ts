@@ -177,8 +177,8 @@ interface GuardReply {
 declare function callGuard(payload: object): Promise<GuardReply | null>;
 /**
  * @deprecated Pass ``sponsioOpenClawPlugin`` (or the default export)
- * to ``definePluginEntry`` instead. Kept for the early-prototype consumer
- * who imported the register fn as the default export.
+ * to ``definePluginEntry`` instead. Kept for early consumers who
+ * imported the register fn as the default export.
  */
 export declare function register(api: OpenClawPluginApi): void;
 /** Internal — exported for tests + advanced wrappers only. */
