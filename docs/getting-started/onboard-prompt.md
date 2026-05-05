@@ -203,7 +203,8 @@ Per-IDE level picks (axis 2):
 
 ══════════════ Step 2 — propose contracts + wire entry file ══════════════
 
-Skip this step entirely when ``framework=`` was empty.
+Skip this step entirely when ``framework=`` was empty (the user
+chose to wire it themselves).
 
   npx sponsio onboard . --emit-context > /tmp/sponsio-onboard-context.json
   npx sponsio prompt onboard
