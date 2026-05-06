@@ -432,9 +432,14 @@ def _contract_label(c: Any) -> str:
     desc = getattr(c, "desc", None)
     if desc:
         return str(desc)
-    enforcements = getattr(c, "enforcements", []) or []
-    if enforcements:
-        return str(getattr(enforcements[0], "desc", "") or "")
+    # ``enforcements`` was renamed to ``guarantees`` in the schema-
+    # rename migration (E: → G:); the old attribute no longer exists
+    # on Contract, so this fallback was silently returning empty
+    # strings for every contract that lacked an explicit ``desc:``
+    # before this fix.
+    guarantees = getattr(c, "guarantees", []) or []
+    if guarantees:
+        return str(getattr(guarantees[0], "desc", "") or "")
     return getattr(getattr(c, "agent", None), "id", "") or ""
 
 

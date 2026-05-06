@@ -9,7 +9,7 @@ in a single coherent flow:
    (claude-code / cursor / openclaw).
 3. **Install Sponsio skill** (multi) — which IDEs get the SKILL.md
    drop (axis 2's ``--with-skill`` default already covers picked hosts).
-4. **Mode** (single) — observe (default, shadow) vs enforce (block).
+4. **Mode** (single) — enforce (default, block) vs observe (shadow).
 
 Two surfaces converge on the same dispatch table:
 
@@ -131,7 +131,15 @@ class InitPicks:
 
     framework: str = ""
     ide_levels: dict[str, str] = field(default_factory=dict)
-    mode: str = "observe"
+    mode: str = "enforce"
+    """Default ``enforce`` (not ``observe``) so the user gets actual
+    runtime gating right away.  ``observe`` is the safer-on-paper
+    pick for shadow rollouts but it's also the silent pick — users
+    walked away from the wizard expecting Sponsio to block their
+    next destructive call and were surprised that nothing happened.
+    Every Next: block already says how to step back to observe via
+    ``sponsio mode observe`` if they want to soak first.
+    """
 
     @property
     def hosts(self) -> list[str]:
@@ -202,7 +210,7 @@ def parse_picks(spec: str) -> InitPicks:
                 if v and p.ide_levels.get(v) != "full":
                     p.ide_levels[v] = "skill"
         elif key == "mode":
-            p.mode = val or "observe"
+            p.mode = val or "enforce"
     return p
 
 
@@ -479,14 +487,32 @@ def print_next_steps(picks: "InitPicks", *, ts_project: bool = False) -> None:
         # Project-framework path.
         click.echo(f"    {npx}sponsio onboard . --emit-context > /tmp/ctx.json")
         click.echo(f"    {npx}sponsio prompt onboard")
-        click.echo("      → apply the printed template to ctx.json IN this chat;")
-        click.echo("        WAIT for the user to pick proposals; merge into yaml.")
-        click.echo(f"    {npx}sponsio validate --config sponsio.yaml")
+        click.echo(
+            "      → apply the printed template to ctx.json IN this chat;"
+        )
+        click.echo(
+            "        WAIT for the user to pick proposals; merge into yaml."
+        )
+        click.echo(f"    {npx}sponsio validate sponsio.yaml")
     elif picks.framework == "none":
-        # Bare-loop path.
-        click.echo("    Splice ``wrap_snippet`` from sponsio.yaml's next-step output")
-        click.echo("    into your agent loop (guard.guard_before / _after).")
-        click.echo(f"    {npx}sponsio validate --config sponsio.yaml")
+        # Bare-loop path.  API name is language-specific: TS uses
+        # ``guardBefore``/``guardAfter`` (camelCase, see
+        # ts/packages/sdk/src/index.ts), Python uses
+        # ``guard_before``/``guard_after`` (snake_case, see
+        # sponsio/integrations/base.py).  Print the right one so
+        # the user can grep for it in the SDK they're about to
+        # call.
+        guard_api = (
+            "guard.guardBefore / guardAfter"
+            if ts_project
+            else "guard.guard_before / _after"
+        )
+        click.echo(
+            "    Splice ``wrap_snippet`` from sponsio.yaml's "
+            "next-step output"
+        )
+        click.echo(f"    into your agent loop ({guard_api}).")
+        click.echo(f"    {npx}sponsio validate sponsio.yaml")
 
     # IDE-side guidance — emitted regardless of axis 1.
     full_ides = picks.hosts
@@ -509,11 +535,12 @@ def print_next_steps(picks: "InitPicks", *, ts_project: bool = False) -> None:
         click.echo('      project" / "tune contracts from policy.md" / "explain')
         click.echo('      why C1 fired" — it has the playbook.')
 
-    # Mode flip — applies to every install path.
-    if picks.mode == "observe":
-        click.echo()
-        click.echo("    Soak in observe; flip when ready:")
-        click.echo(f"      {npx}sponsio mode enforce")
+    # Mode flip is already an explicit step in the wizard (axis 3,
+    # observe vs enforce); echoing "flip when ready" here was just
+    # repeating the question the user just answered.  When users
+    # actually want to flip later they can re-run the wizard or
+    # ``sponsio mode enforce`` directly — both are documented in the
+    # main skill / CLI docs.
 
 
 def offer_demo(*, runner=None) -> None:
@@ -678,6 +705,14 @@ def run_interactive(env: Environment) -> InitPicks:
     # ---- Axis 1: framework wrap ----
     _step("Framework wrap")
     fw_choices = []
+    # ``skip`` (sentinel value ``""``) is the "don't touch project
+    # files" pick — wizard runs no ``sponsio onboard``, writes no
+    # ``sponsio.yaml``, splices nothing into the agent entry file.
+    # Use it when the user only wants axis 2 (IDE skill / host plugin)
+    # — e.g. installing the Sponsio Agent Skill into Cursor without
+    # changing the current project.  Distinct from ``none`` below
+    # which DOES run onboard and emits a generic bare-loop scaffold.
+    fw_choices.append(("", "skip — don't touch this project (IDE-only setup)"))
     for fw in SUPPORTED_FRAMEWORKS:
         # ``none`` is a real pick — bare function-calling loop,
         # generic ``guard.guard_before/after`` wiring.  Label it
@@ -688,10 +723,22 @@ def run_interactive(env: Environment) -> InitPicks:
             label = fw
         suffix = "  ← detected" if fw == env.framework else ""
         fw_choices.append((fw, f"{label}{suffix}"))
+    # When detection found a real framework, surface it as the
+    # default so the keyboard ``enter`` accepts the auto-pick.
+    # ``detect_framework`` returns the literal string ``"none"`` as
+    # its negative result (FrameworkHint(framework="none") when
+    # nothing was found) — treat that case the same as "no detection
+    # at all" and default to ``skip`` (sentinel ``""``) instead of
+    # silently auto-picking the bare-loop scaffold for users who may
+    # have come to ``sponsio init`` only to install IDE skills.
+    if env.framework and env.framework != "none":
+        fw_default = env.framework
+    else:
+        fw_default = ""
     framework = _select(
         "Pick framework wrap",
         fw_choices,
-        default=env.framework,
+        default=fw_default,
     )
 
     # ---- Axis 2: per-IDE Sponsio level ----
@@ -704,9 +751,11 @@ def run_interactive(env: Environment) -> InitPicks:
     _step("Sponsio integration per IDE")
     click.echo(
         "none   — leave this IDE alone.\n"
+        "\n"
         "skill  — knowledge layer only.  Drops SKILL.md so this IDE\n"
         "         (and any IDE that has the skill) knows how to drive\n"
         "         Sponsio across any project.  No runtime gating.\n"
+        "\n"
         "full   — skill + host plugin.  The plugin ALSO gates THIS\n"
         "         IDE's own Bash / Edit / Write / MCP calls against\n"
         "         ``~/.sponsio/plugins/_host_<ide>/sponsio.yaml``.\n"
@@ -738,8 +787,8 @@ def run_interactive(env: Environment) -> InitPicks:
     _step("Mode for new contracts")
     mode = _select(
         "Mode",
-        ["observe", "enforce"],
-        default="observe",
+        ["enforce", "observe"],
+        default="enforce",
     )
 
     return InitPicks(

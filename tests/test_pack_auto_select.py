@@ -375,10 +375,13 @@ class TestRunOnboardAutoSelect:
         # ship dozens of contracts each, plus the scan-extracted
         # contracts.  Pin a lower bound that catches "no packs got
         # included" regressions without being brittle to pack churn.
-        # Threshold tracks pack contents (~30 today after the
-        # starter-pack signal-to-noise pass dropped read-tool
-        # loop_detection / global token_budget defaults).
-        assert len(cfg.agents["agent"].contracts) >= 25
+        # Threshold tracks pack contents — was 25 before the shell
+        # pack dropped its session-wide ``loop_detection(exec, 20)``
+        # backstop (false-positived routine coding-agent loops); now
+        # 24 to absorb that delta.  Bump again whenever pack contents
+        # shift; the goal is "are packs included at all", not exact
+        # count parity.
+        assert len(cfg.agents["agent"].contracts) >= 24
 
     def test_filesystem_pack_auto_included_without_workspace(
         self, langgraph_project_with_capabilities

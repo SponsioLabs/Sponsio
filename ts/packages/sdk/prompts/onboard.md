@@ -232,10 +232,12 @@ guard or a partial wire-up that's worse than nothing.
     `ToolNode` / `createReactAgent` with `wrapTools(tools, guard)`.
   - **Claude Agent SDK / OpenAI Agents SDK**: wrap the underlying
     client per the snippet.
-  - **Bare function-calling loop** (no framework): insert
-    `guard.guardBefore(toolName, args)` before the tool executes,
-    `guard.guardAfter(toolName, result)` after. Show the user the
-    diff before applying — this path edits more lines.
+  - **Bare function-calling loop** (no framework): insert a guard
+    call before the tool executes and another after. The API is
+    `guard.guardBefore` / `guard.guardAfter` in TypeScript, or
+    `guard.guard_before` / `guard.guard_after` in Python — match
+    the host project's language. Show the user the diff before
+    applying — this path edits more lines.
 
 **Always**: keep the original imports intact, add Sponsio's *above*
 the agent entry's existing imports, and re-run the project's type

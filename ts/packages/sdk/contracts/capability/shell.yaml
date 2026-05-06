@@ -149,28 +149,21 @@ agents:
           args: [exec, command, 2000]
           source: "library:tier1.shell"
 
-      - desc: "Cap exec calls per session"
-        G:
-          pattern: rate_limit
-          args: [exec, 50]
-          source: "library:tier1.shell"
-
-      # Threshold tuned for shell specifically. Earlier 5 was inherited
-      # from narrow-tool defaults (apply_patch / merge_pr) where 5
-      # consecutive same-tool calls is genuinely suspicious. Shell is a
-      # swiss-army-knife — a normal coding agent doing a refactor will
-      # routinely run pytest → git status → git diff → git add → git
-      # commit → git push back-to-back without ever leaving the shell
-      # tool, which is 6 consecutive calls of legitimate work. 20 still
-      # trips on the runaway pattern (a genuinely stuck self-rewrite
-      # loop hits 20 in a few seconds) without false-positiving real
-      # development workflows. The session-wide rate_limit(exec, 50)
-      # below remains the harder backstop.
-      - desc: "No more than 20 consecutive exec calls (runaway loop cap)"
-        G:
-          pattern: loop_detection
-          args: [exec, 20]
-          source: "library:tier1.shell"
+      # NOTE: Previously shipped two session-wide backstops here:
+      #   1. `rate_limit(exec, 50)` (later 200) — removed earlier; the
+      #      cross-session trace store (24h TTL) made a "per-session"
+      #      cap behave like a rolling 24h cap and false-positive
+      #      heavy interactive work.
+      #   2. `loop_detection(exec, 20)` — also removed.  Even at 20
+      #      consecutive calls the rule false-positived routine
+      #      coding-agent loops (build/lint/test/regen cycles can hit
+      #      20+ shell calls without any of them being destructive),
+      #      and contributed nothing the targeted §1 arg_blacklists
+      #      and §3/§4 confirm-gate didn't already cover.  Runaway
+      #      detection at this layer just generated noise without
+      #      catching real attacks.
+      # When per-session trace isolation lands, we can revisit a
+      # tighter per-session loop cap that won't roll across sessions.
 
       # =================================================================
       # § 3 — Privileged commands require confirmation
@@ -242,5 +235,5 @@ agents:
 # - The LTL contracts in §3 and §4 depend on the `ltl:` schema field
 #   being supported by the config parser.  Until the LTL parser lands,
 #   these can be temporarily commented out; the arg_blacklist contracts
-#   in §1 and the rate_limit / loop_detection / arg_length_limit
+#   in §1 and the arg_length_limit
 #   contracts in §2 work on current master.

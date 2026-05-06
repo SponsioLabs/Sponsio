@@ -513,6 +513,18 @@ function buildConstraint(
     };
   }
 
+  // Per-clause ``desc:`` mirrors the Python ConstraintEntry.desc
+  // field — without it the renderer is stuck using ``parentDesc``
+  // for both A and G (same string for "assume" and "enforce" lines)
+  // or, on the ltl path, the raw formula text. Per-clause desc lets
+  // a contract distinguish "user declared a code freeze" (A) from
+  // "no destructive SQL while the freeze is in effect" (G).
+  const clauseDescRaw = raw["desc"];
+  const clauseDesc =
+    typeof clauseDescRaw === "string" && clauseDescRaw.trim()
+      ? clauseDescRaw.trim()
+      : parentDesc;
+
   // { ltl: "G(!called(foo))" } — raw formula, parsed via parseRepr.
   const ltl = raw["ltl"];
   if (typeof ltl === "string" && ltl.trim()) {
@@ -522,7 +534,10 @@ function buildConstraint(
         kind: "formula",
         formula: {
           formula: f,
-          desc: parentDesc || `ltl(${ltl})`,
+          // Match Python's _compile_ltl: ``entry.desc or entry.ltl``.
+          // Raw LTL text is ugly but consistent across language ports;
+          // ``ltl(...)`` wrapping diverged silently from Python.
+          desc: clauseDesc || ltl,
           patternName: "ltl",
           liveness: false,
         },
@@ -555,7 +570,13 @@ function buildConstraint(
         };
       }
       const det = isAgPair(built) ? built.guarantee : built;
-      return { kind: "formula", formula: det };
+      // ``desc:`` from the YAML overrides the pattern factory's
+      // default — same precedence as Python's _compile_structured.
+      const finalDet =
+        typeof clauseDescRaw === "string" && clauseDescRaw.trim()
+          ? { ...det, desc: clauseDescRaw.trim() }
+          : det;
+      return { kind: "formula", formula: finalDet };
     } catch (err) {
       const msg =
         err instanceof PatternFactoryError ? err.message : String(err);

@@ -3783,9 +3783,17 @@ def init(
     # shim that re-exports ``@sponsio/sdk``'s CLI; counting it as
     # "installed" lets users on the old name finish ``sponsio
     # init`` without an extra install round-trip.
-    _scan_ts_installed = (
-        target_dir / "node_modules" / "@sponsio" / "sdk"
-    ).exists() or (target_dir / "node_modules" / "@sponsio" / "scan-ts").exists()
+    # The package dir alone isn't enough: a half-broken install can
+    # leave ``node_modules/@sponsio/sdk/`` populated but the bin
+    # symlink ``node_modules/.bin/sponsio`` missing — which would
+    # then make ``npx sponsio onboard`` fall through to the npm
+    # public registry (404, since pip-side ``sponsio`` shadows the
+    # name).  Require BOTH for the skip-install path.
+    _scan_ts_pkg = (target_dir / "node_modules" / "@sponsio" / "sdk").exists() or (
+        target_dir / "node_modules" / "@sponsio" / "scan-ts"
+    ).exists()
+    _scan_ts_bin = (target_dir / "node_modules" / ".bin" / "sponsio").exists()
+    _scan_ts_installed = _scan_ts_pkg and _scan_ts_bin
 
     # ---- non-TTY paths: --plan / --apply ----
     if plan_spec is not None:

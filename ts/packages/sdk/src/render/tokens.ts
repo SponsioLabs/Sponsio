@@ -26,6 +26,7 @@ export const STATUS = {
   READY: PALETTE.ready,
   BLOCKED: PALETTE.blocked,
   "WOULD-BLOCK": PALETTE.warn,
+  OBSERVED: PALETTE.warn,
   ALLOWED: PALETTE.ok,
   PASSED: PALETTE.ok,
   ERROR: PALETTE.warn,

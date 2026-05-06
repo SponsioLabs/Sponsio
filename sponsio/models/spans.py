@@ -490,7 +490,7 @@ class SpanCollector:
     def start_guarantee(self, formula_desc: str) -> GuaranteeSpan:
         """Start a guarantee evaluation span."""
         span = GuaranteeSpan(
-            span_type="sponsio.enforcement",
+            span_type="sponsio.guarantee",
             start_time=time.monotonic(),
             formula_desc=formula_desc,
         )
@@ -516,7 +516,7 @@ class SpanCollector:
     def add_enforcement(self, strategy: str, result_action: str) -> EnforcementSpan:
         """Add an enforcement span as a child of the current span (no push)."""
         span = EnforcementSpan(
-            span_type="sponsio.guarantee",
+            span_type="sponsio.enforcement",
             start_time=time.monotonic(),
             strategy=strategy,
             result_action=result_action,

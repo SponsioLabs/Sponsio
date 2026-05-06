@@ -401,7 +401,7 @@ export class Sponsio {
         });
         // Nest violation + enforcement spans under the failed
         // guarantee so the renderer can pick up the verdict word.
-        const enforce = new EnforcementSpan("DetBlock", this.mode === "enforce" ? "blocked" : "blocked");
+        const enforce = new EnforcementSpan("DetBlock", this.mode === "enforce" ? "blocked" : "observed");
         guaranteeSpan.children.push(enforce);
         enforce.finish("violated");
       }

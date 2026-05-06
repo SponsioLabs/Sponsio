@@ -303,13 +303,15 @@ def build_label_map(contracts: list) -> dict[str, str]:
 
 
 def _contract_label(c) -> str:
-    """Best-effort short label: ``Contract.desc`` → first enforcement's
+    """Best-effort short label: ``Contract.desc`` → first guarantee's
     desc → empty string. Matches the existing TerminalReporter heuristic
     so banner labels stay stable across the rewrite."""
     desc = getattr(c, "desc", None)
     if desc:
         return str(desc)
-    enforcements = getattr(c, "enforcements", []) or []
-    if enforcements:
-        return str(getattr(enforcements[0], "desc", "") or "")
+    # ``enforcements`` was renamed to ``guarantees`` in the schema
+    # migration (E: → G:); the old attribute returns empty silently.
+    guarantees = getattr(c, "guarantees", []) or []
+    if guarantees:
+        return str(getattr(guarantees[0], "desc", "") or "")
     return getattr(getattr(c, "agent", None), "id", "") or ""

@@ -766,6 +766,14 @@ export async function runOnboardCli(argv: string[]): Promise<void> {
   for (const line of res.wrapSnippet.split("\n")) {
     process.stdout.write(`    ${style.fg(line)}\n`);
   }
+  // When dispatched from ``sponsio init`` the wizard prints its own
+  // picks-aware ``Next:`` block; emitting ours here too produces a
+  // duplicate.  ``SPONSIO_INIT_DISPATCH=1`` is the same suppress
+  // signal Python's ``cli.py`` already honours for its onboard
+  // recap (cli.py:4169, cli.py:4800), so the convention transfers.
+  if (process.env.SPONSIO_INIT_DISPATCH) {
+    return;
+  }
   process.stdout.write(`\n  ${style.brand("Next:", true)}\n`);
   // Each next-step line: command in brand cyan, ``# comment`` in
   // metadata grey — same split Python's ``cta_line`` / ``Next:``

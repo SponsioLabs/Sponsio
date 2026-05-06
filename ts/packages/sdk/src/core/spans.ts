@@ -114,7 +114,7 @@ export class ViolationSpan extends Span {
 
 export class EnforcementSpan extends Span {
   strategy: string;
-  resultAction: "blocked" | "escalated" | "retrying" | "redirected" | "";
+  resultAction: "blocked" | "observed" | "escalated" | "retrying" | "redirected" | "";
 
   constructor(strategy: string, resultAction: EnforcementSpan["resultAction"] = "") {
     super("sponsio.enforcement");

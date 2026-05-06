@@ -383,9 +383,9 @@ agents:
       - A: "called `modify_order`"
         G: "must call `get_order_details` before `modify_order`"
       # Omit A for unconditional
-      - E: "tool `send_email` is rate-limited to 5 per session"
+      - G: "tool `send_email` is rate-limited to 5 per session"
       # Structured dict (what scan emits for det patterns)
-      - E:
+      - G:
           pattern: must_precede
           args: [check_policy, issue_refund]
           source: scan
@@ -399,7 +399,7 @@ judge:                               # Sponsio Cloud only — required when any 
   model: gpt-4o-mini
 ```
 
-Both `A` and `E` accept: scalar NL string, list (AND), or structured dict `{pattern, args, source?}`.
+Both `A` and `G` accept: scalar NL string, list (AND), or structured dict `{pattern, args, source?}`.
 
 Placeholders rewritten at include-time: `<workspace>/` (from agent's `workspace:`), `<agent>` (from agent id).
 

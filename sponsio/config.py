@@ -107,6 +107,16 @@ class ConstraintEntry:
     output_type: str | None = None
     prompt_override: str | None = None
     threshold: float | None = None
+    desc: str | None = None
+    """Per-clause human-readable label.
+
+    Without this, the loader is stuck using ``entry.ltl`` (the raw
+    formula text) as the DetFormula's desc — the inline trace then
+    prints ``⚙ assume "F(arg_field_has(...))"`` instead of a sentence.
+    Optional: structured patterns already get a decent desc from
+    their factory, but this lets a YAML override it for consistency
+    across A/G clauses inside one contract.
+    """
 
     @property
     def is_structured(self) -> bool:
@@ -498,6 +508,7 @@ def _parse_constraint_entry(item: Any) -> ConstraintEntry:
                 output_type=item.get("output_type"),
                 prompt_override=item.get("prompt_override"),
                 threshold=threshold,
+                desc=item.get("desc"),
             )
         if has_ltl:
             ltl_text = item["ltl"]
@@ -508,9 +519,14 @@ def _parse_constraint_entry(item: Any) -> ConstraintEntry:
             return ConstraintEntry(
                 ltl=ltl_text,
                 source=item.get("source"),
+                desc=item.get("desc"),
             )
         if has_nl:
-            return ConstraintEntry(nl=item["nl"], source=item.get("source"))
+            return ConstraintEntry(
+                nl=item["nl"],
+                source=item.get("source"),
+                desc=item.get("desc"),
+            )
         raise ConfigError(
             "Constraint dict must have 'pattern', 'ltl', or 'nl' key, "
             f"got: {list(item.keys())}"
@@ -1461,6 +1477,32 @@ def _compile_structured(entry: ConstraintEntry) -> Any:
         else:
             coerced_args.append(a)
     compiled = fn(*coerced_args)
+    # ``desc:`` from the YAML overrides the pattern factory's default
+    # desc — useful when one contract has multiple structured clauses
+    # that should share a clearer per-clause label, or when the
+    # factory's auto-generated desc is too terse for the trace view.
+    # ``DetFormula`` is a ``frozen=True`` dataclass, so attribute
+    # assignment fails silently (FrozenInstanceError); use
+    # ``dataclasses.replace`` to construct a new instance with the
+    # overridden desc.
+    if entry.desc and hasattr(compiled, "desc"):
+        import dataclasses
+
+        if dataclasses.is_dataclass(compiled):
+            try:
+                compiled = dataclasses.replace(compiled, desc=entry.desc)
+            except (TypeError, ValueError):
+                # ``replace`` rejects non-init fields or unknown kwargs;
+                # fall through to the assignment branch below for
+                # non-dataclass shapes.
+                pass
+        else:
+            try:
+                compiled.desc = entry.desc
+            except (AttributeError, TypeError):
+                # Slots without ``desc`` or otherwise non-mutable —
+                # accept the factory default rather than crash at load.
+                pass
 
     # Many det patterns (``arg_blacklist``, ``called_with``,
     # ``arg_field_has``-style derivatives, ...) inline regex args
@@ -1517,7 +1559,7 @@ def _compile_ltl(entry: ConstraintEntry) -> Any:
 
     return DetFormula(
         formula=formula,
-        desc=entry.ltl,
+        desc=entry.desc or entry.ltl,
         pattern_name="ltl",
     )
 

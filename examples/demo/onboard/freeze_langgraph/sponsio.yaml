@@ -56,13 +56,16 @@ agents:
 
       - desc: "code freeze: no destructive SQL"
         A:
+          desc: "user declared a code freeze in this session"
           ltl: 'F(arg_field_has(user_instruction, message, "freeze|don.t\\s+touch|no\\s+changes|do\\s+not\\s+modify"))'
         G:
+          desc: "no destructive SQL while the freeze is in effect"
           ltl: 'G(!arg_field_has(execute_sql, query, "\\b(DROP|DELETE|TRUNCATE|ALTER)\\b"))'
         source: agent-extracted
 
       - desc: "after destructive SQL, escalate to a human before any status report"
         A:
+          desc: "destructive SQL has fired in this session"
           ltl: 'F(arg_field_has(execute_sql, query, "\\b(DROP|DELETE|TRUNCATE)\\b"))'
         G:
           pattern: must_precede
@@ -71,15 +74,19 @@ agents:
 
       - desc: "no INSERT after a destructive op (blocks silent reconstruction from memory)"
         A:
+          desc: "destructive SQL has fired in this session"
           ltl: 'F(arg_field_has(execute_sql, query, "\\b(DELETE|DROP|TRUNCATE)\\b"))'
         G:
+          desc: "no INSERT after destructive SQL"
           ltl: 'G(!arg_field_has(execute_sql, query, "\\bINSERT\\b"))'
         source: agent-extracted
 
       - desc: "prod-scoped SQL must be read-only (SELECT / EXPLAIN / SHOW / DESCRIBE)"
         A:
+          desc: "session has connected to the production database"
           ltl: 'F(arg_field_has(connect_db, database, "production|prod|main_prod"))'
         G:
+          desc: "prod-scoped SQL must be read-only (SELECT / EXPLAIN / SHOW / DESCRIBE)"
           ltl: 'G(called(execute_sql) -> arg_field_has(execute_sql, query, "^\\s*(SELECT|EXPLAIN|SHOW|DESCRIBE)\\b"))'
         source: agent-extracted
 
