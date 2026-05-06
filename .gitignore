@@ -85,3 +85,6 @@ sponsio-code-review.md
 # Claude Code
 .claude/
 
+# TS examples — local-only, contains scratch demos and sensitive sample data
+ts/examples/
+
