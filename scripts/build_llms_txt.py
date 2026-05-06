@@ -31,8 +31,9 @@ FILES = [
     "README.md",
     "QUICKSTART.md",
     "docs/index.md",
-    # Getting started (docs/getting-started/quickstart.md is mirrored
-    # from root QUICKSTART.md — skip to avoid duplication).
+    # Getting started.  The quickstart lives at root ``QUICKSTART.md``
+    # (already listed above); ``docs/getting-started/install.md`` and
+    # ``first-contract.md`` are the deeper followups.
     "docs/getting-started/install.md",
     "docs/getting-started/first-contract.md",
     # Concepts.
