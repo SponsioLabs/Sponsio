@@ -12,10 +12,15 @@ broke.
 
 ## [Unreleased]
 
-Open-source launch prep.  Closes the missing-implementation gap in 0.1.0a3
+_Nothing yet._
+
+---
+
+## [0.1.0] — 2026-05-06
+
+Open-source launch build. Closes the missing-implementation gap in 0.1.0a3
 (CLI imported `sponsio.daemon` / `sponsio.plugin.append_ops` but the wheel
-shipped without them) and tunes the bundled capability rules.  Version
-number for this batch is TBD.
+shipped without them) and tunes the bundled capability rules.
 
 ### Added
 
@@ -47,9 +52,9 @@ number for this batch is TBD.
 - `sponsio --version` was hardcoded to "0.2.0a0" in the Click
   `version_option`; now reads `sponsio.__version__` so it tracks
   `pyproject.toml` automatically.
-- 0.1.0a3 wheel was missing `sponsio/daemon/` and
-  `sponsio/plugin/append_ops.py`, causing `sponsio plugin append` and
-  `sponsio daemon …` to ImportError on a fresh `pip install`.
+- 0.1.0a3 wheel was missing `sponsio/daemon/` and `sponsio/plugin/append_ops.py`,
+  causing `sponsio plugin append` and `sponsio daemon …` to ImportError on a
+  fresh `pip install`. 0.1.0 ships them.
 
 ---
 

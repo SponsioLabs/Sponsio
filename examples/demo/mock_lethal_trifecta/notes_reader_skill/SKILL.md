@@ -49,6 +49,5 @@ combined make data theft via prompt injection structurally inevitable
 unless the action boundary is enforced separately.
 
 Sponsio's `mcp-composition` contract pack handles the enforcement
-half — see [`docs/internal/contract-activate-at.md`](../../../../docs/internal/contract-activate-at.md)
-and the Lethal Trifecta demo at
+half — see the Lethal Trifecta demo at
 [`examples/demo/mock_lethal_trifecta/RUN.md`](../RUN.md).

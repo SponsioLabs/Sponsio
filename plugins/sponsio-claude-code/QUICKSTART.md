@@ -47,7 +47,7 @@ Verify:
 
 ```bash
 sponsio --version
-# sponsio, version 0.1.0a0
+# sponsio, version 0.1.0
 
 sponsio plugin --help
 # Host-plugin runtime (Claude Code, …).

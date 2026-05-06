@@ -13,7 +13,7 @@ communication channel).
 ## Reporting
 
 If you experience or witness behavior that violates the Code of Conduct,
-please report it by emailing **folio.ai.initial@gmail.com**. All reports
+please report it by emailing **johnnaliu@sponsio.dev**. All reports
 will be reviewed and investigated promptly and fairly. Project maintainers
 are obligated to respect the privacy and security of the reporter of any
 incident.

@@ -145,7 +145,7 @@ sponsio host status openclaw \
   OPENCLAW_HOME=/tmp/sponsio-trifecta-openclaw-demo/openclaw \
   SPONSIO_PLUGIN_ROOT=/tmp/sponsio-trifecta-openclaw-demo/sponsio-libs
 #   ✓ library: …
-#   ✓ extension: deployed (version 0.1.0-alpha.2)
+#   ✓ extension: deployed (version 0.1.0)
 #   ✓ registration: entry=enabled, install=recorded
 #   ─ contract libraries:
 #       • _host_openclaw  (4 rules)

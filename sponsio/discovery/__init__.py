@@ -149,10 +149,9 @@ def discover(
     # --- Validation ---
     # The OSS ValidationPipeline was removed (its triviality and
     # consistency steps had known false-positive / false-negative
-    # patterns — see docs/internal/proprietary-validation-pipeline.md).
-    # Pre-deploy validation now lives in the proprietary `sponsio-pro`
-    # package; OSS users get a minimal trace replay via the
-    # `sponsio validate --traces` CLI instead.
+    # patterns).  Pre-deploy validation now lives in the proprietary
+    # `sponsio-pro` package; OSS users get a minimal trace replay via
+    # the `sponsio validate --traces` CLI instead.
     if validate and all_proposals:
         import warnings
 

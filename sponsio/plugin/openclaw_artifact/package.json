@@ -1,6 +1,6 @@
 {
   "name": "@sponsio/openclaw",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0",
   "description": "Runtime contract guardrails for OpenClaw plugins (bundled in the sponsio Python wheel; canonical source is plugins/sponsio-openclaw/ in github.com/SponsioLabs/Sponsio).",
   "type": "module",
   "main": "dist/index.js",

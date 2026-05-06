@@ -1,7 +1,7 @@
 {
   "id": "sponsio-openclaw",
   "name": "Sponsio for OpenClaw",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0",
   "description": "Runtime contract guardrails for every tool call in your OpenClaw session — backed by per-plugin contract libraries under ~/.sponsio/plugins/, evaluated by the same Sponsio engine the sponsio-claude-code plugin uses.",
   "configSchema": {
     "type": "object",

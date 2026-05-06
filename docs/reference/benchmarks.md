@@ -1,6 +1,6 @@
 # Benchmarks & Performance
 
-> **Last updated:** 2026-05-02 · **Sponsio version:** 0.1.0a3 · **Python:** 3.12 · **OS:** macOS 15 (Apple Silicon, M-series, 16 GB)
+> **Last updated:** 2026-05-06 · **Sponsio version:** 0.1.0 · **Python:** 3.12 · **OS:** macOS 15 (Apple Silicon, M-series, 16 GB)
 >
 > Latencies measured with `time.perf_counter_ns()` wrapping each `guard_before` / `guard_after` call. Safety numbers come from offline replay against published benchmark trajectories. Every figure is tagged with the dataset, model, and date it was produced.
 

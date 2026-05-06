@@ -3,8 +3,7 @@
 Given a compiled formula and a list of traces, returns pass / fail
 counts and pass_rate.  Counts only — no per-fail attribution, no
 stratification by decision, no repair suggestions.  Those richer
-features live in the proprietary ``sponsio-pro`` package
-(see ``docs/internal/proprietary-validation-pipeline.md``).
+features live in the proprietary ``sponsio-pro`` package.
 
 Used by ``sponsio validate --traces`` to give OSS users a basic
 "would this contract have hit historical traffic" report before they
