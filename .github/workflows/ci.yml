@@ -54,6 +54,41 @@ jobs:
       - name: Run tests
         run: pytest --cov=sponsio --cov-report=term-missing -v
 
+  build-smoke-test:
+    name: Build wheel + install smoke test
+    runs-on: ubuntu-latest
+    # Stand-in for the TestPyPI gate we used to keep in publish.yml.
+    # `twine check` catches the same metadata regressions PyPI rejects on
+    # upload (long-description content-type, classifier validity, etc.);
+    # the install + `sponsio --version`/--help run catches packaging
+    # errors (missing modules, broken entry point) that would brick the
+    # wheel before we burn an immutable PyPI version number.
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Build sdist + wheel
+        run: |
+          pip install build twine
+          python -m build
+          python -m twine check dist/*
+
+      - name: Install built wheel + verify CLI
+        # Install the freshly-built wheel into a clean venv (not editable)
+        # so this catches packaging issues that `pip install -e .` skips —
+        # e.g. missing files in `tool.setuptools.package-data`.
+        run: |
+          python -m venv /tmp/smoke-venv
+          /tmp/smoke-venv/bin/pip install dist/*.whl
+          /tmp/smoke-venv/bin/sponsio --version
+          /tmp/smoke-venv/bin/sponsio --help
+
   test-typescript:
     name: Test (TypeScript — native)
     runs-on: ubuntu-latest
