@@ -477,23 +477,14 @@ def print_next_steps(picks: "InitPicks", *, ts_project: bool = False) -> None:
 
     if picks.framework and picks.framework != "none":
         # Project-framework path.
-        click.echo(
-            f"    {npx}sponsio onboard . --emit-context > /tmp/ctx.json"
-        )
+        click.echo(f"    {npx}sponsio onboard . --emit-context > /tmp/ctx.json")
         click.echo(f"    {npx}sponsio prompt onboard")
-        click.echo(
-            "      → apply the printed template to ctx.json IN this chat;"
-        )
-        click.echo(
-            "        WAIT for the user to pick proposals; merge into yaml."
-        )
+        click.echo("      → apply the printed template to ctx.json IN this chat;")
+        click.echo("        WAIT for the user to pick proposals; merge into yaml.")
         click.echo(f"    {npx}sponsio validate --config sponsio.yaml")
     elif picks.framework == "none":
         # Bare-loop path.
-        click.echo(
-            "    Splice ``wrap_snippet`` from sponsio.yaml's "
-            "next-step output"
-        )
+        click.echo("    Splice ``wrap_snippet`` from sponsio.yaml's next-step output")
         click.echo("    into your agent loop (guard.guard_before / _after).")
         click.echo(f"    {npx}sponsio validate --config sponsio.yaml")
 
@@ -503,34 +494,20 @@ def print_next_steps(picks: "InitPicks", *, ts_project: bool = False) -> None:
     if full_ides:
         click.echo()
         click.echo(
-            f"    {', '.join(full_ides)} — host hook now gates tool calls"
-            f" in observe."
+            f"    {', '.join(full_ides)} — host hook now gates tool calls in observe."
         )
         for ide in full_ides:
-            click.echo(
-                f"      Try a destructive op in {ide}; check the log:"
-            )
+            click.echo(f"      Try a destructive op in {ide}; check the log:")
             click.echo("        sponsio report --since 24h")
-            click.echo(
-                f"      Tune rules per workflow: ask {ide}'s agent to"
-            )
+            click.echo(f"      Tune rules per workflow: ask {ide}'s agent to")
             click.echo(f'        "configure sponsio for {ide}"')
-            click.echo(
-                f"        (it'll invoke the sponsio-{ide}:configure skill)."
-            )
+            click.echo(f"        (it'll invoke the sponsio-{ide}:configure skill).")
     if skill_ides:
         click.echo()
-        click.echo(
-            f"    {', '.join(skill_ides)} — Agent Skill installed."
-        )
-        click.echo(
-            "      Ask the IDE's develop agent: \"set up Sponsio in this"
-        )
-        click.echo(
-            "      project\" / \"tune contracts from policy.md\" / "
-            "\"explain"
-        )
-        click.echo("      why C1 fired\" — it has the playbook.")
+        click.echo(f"    {', '.join(skill_ides)} — Agent Skill installed.")
+        click.echo("      Ask the IDE's develop agent: \"set up Sponsio in this")
+        click.echo('      project" / "tune contracts from policy.md" / "explain')
+        click.echo('      why C1 fired" — it has the playbook.')
 
     # Mode flip — applies to every install path.
     if picks.mode == "observe":

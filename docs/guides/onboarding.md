@@ -43,7 +43,7 @@ The wizard prompts each axis in turn. Defaults are highlighted; press Enter to a
 sponsio init --apply 'framework=langgraph;hosts=cursor;mode=observe'
 ```
 
-Picks format: `framework=<name>;hosts=<a>,<b>;skills=<a>,<b>;mode=<observe|enforce>`. Each axis is optional; omit any axis to take its default.
+Picks format: `framework=<name>;ides=<ide>:<level>,<ide>:<level>;mode=<observe|enforce>` where `<level>` is `none`, `skill`, or `full`. Each axis is optional; omit any axis to take its default. Legacy `hosts=<a>,<b>;skills=<a>,<b>` form is still accepted.
 
 ### Dry-run preview
 

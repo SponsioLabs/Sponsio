@@ -3711,8 +3711,11 @@ def eval_cmd(
     default=None,
     help=(
         "Run the commands for these picks non-interactively.  Picks "
-        "format: ``framework=<name>;hosts=<a>,<b>;skills=<a>,<b>;"
-        "mode=observe|enforce``."
+        "format: ``framework=<name>;ides=<ide>:<level>,<ide>:<level>;"
+        "mode=observe|enforce`` where ``<level>`` is one of ``none`` / "
+        "``skill`` / ``full``.  Legacy ``hosts=`` / ``skills=`` form is "
+        "still accepted (``hosts=X`` ↔ ``X:full``, ``skills=X`` ↔ "
+        "``X:skill``)."
     ),
 )
 @click.option(
@@ -3746,12 +3749,15 @@ def init(
 
     Picks string format::
 
-        framework=<name>;hosts=<a>,<b>;skills=<a>,<b>;mode=<observe|enforce>
+        framework=<name>;ides=<ide>:<level>,<ide>:<level>;mode=<observe|enforce>
+
+    Where ``<level>`` is ``none`` / ``skill`` / ``full``.  Legacy
+    ``hosts=<a>,<b>;skills=<a>,<b>`` form is still accepted.
 
     Examples:\n
         sponsio init\n
-        sponsio init --plan 'framework=langgraph;hosts=cursor;mode=observe'\n
-        sponsio init --apply 'framework=langgraph;hosts=cursor;mode=observe'
+        sponsio init --plan 'framework=langgraph;ides=cursor:skill;mode=observe'\n
+        sponsio init --apply 'framework=langgraph;ides=cursor:skill;mode=observe'
     """
     from sponsio.init_wizard import (
         apply_commands,

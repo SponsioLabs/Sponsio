@@ -119,7 +119,7 @@ const guard = new Sponsio({ config: "sponsio.yaml", agentId: "coding_agent" });
 const toolNode = new ToolNode(wrapTools(tools, guard));
 ```
 
-### For OpenClaw / ClawHub users
+### For OpenClaw Community
 
 The Python prompt above is the install path for you too. Pick `openclaw=full` when the wizard asks about IDE hosts; Sponsio then gates every `before_tool_call` event in your OpenClaw runtime through the contract engine, with ClawHavoc + CVE-2026-25253 coverage via the bundled `sponsio:incident/openclaw` pack.
 

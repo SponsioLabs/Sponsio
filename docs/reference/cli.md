@@ -78,13 +78,14 @@ sponsio init [PATH]
 |---|---|
 | `PATH` | Target directory (default: current). Writes `sponsio.yaml` if not present. |
 | `--plan PICKS` | Print the would-run commands for these picks. Used by IDE-agent wizards for dry-run previews. |
-| `--apply PICKS` | Run non-interactively. Picks format: `framework=<name>;hosts=<a>,<b>;skills=<a>,<b>;mode=observe\|enforce`. |
+| `--apply PICKS` | Run non-interactively. Picks format: `framework=<name>;ides=<ide>:<level>,<ide>:<level>;mode=observe\|enforce` where `<level>` is `none`, `skill`, or `full`. Legacy form with separate `hosts=<a>,<b>;skills=<a>,<b>` lists is still accepted (`hosts=` ↔ level `full`, `skills=` ↔ level `skill`). |
 | `--no-demo` | Skip the post-install demo offer. |
 
 ```bash
-sponsio init .                                              # interactive
-sponsio init . --apply "framework=langgraph;mode=observe"   # non-interactive
-sponsio init . --plan "framework=crewai"                    # dry-run preview
+sponsio init .                                                              # interactive
+sponsio init . --apply "framework=langgraph;mode=observe"                   # non-interactive, no IDE wiring
+sponsio init . --apply "framework=langgraph;ides=claude-code:full;mode=observe"   # + Claude Code plugin (full)
+sponsio init . --plan "framework=crewai;ides=cursor:skill"                  # dry-run preview
 ```
 
 See [getting-started/quickstart.md](../getting-started/quickstart.md) for the typical interactive flow.
