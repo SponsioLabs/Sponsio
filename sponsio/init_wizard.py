@@ -487,12 +487,8 @@ def print_next_steps(picks: "InitPicks", *, ts_project: bool = False) -> None:
         # Project-framework path.
         click.echo(f"    {npx}sponsio onboard . --emit-context > /tmp/ctx.json")
         click.echo(f"    {npx}sponsio prompt onboard")
-        click.echo(
-            "      → apply the printed template to ctx.json IN this chat;"
-        )
-        click.echo(
-            "        WAIT for the user to pick proposals; merge into yaml."
-        )
+        click.echo("      → apply the printed template to ctx.json IN this chat;")
+        click.echo("        WAIT for the user to pick proposals; merge into yaml.")
         click.echo(f"    {npx}sponsio validate sponsio.yaml")
     elif picks.framework == "none":
         # Bare-loop path.  API name is language-specific: TS uses
@@ -507,10 +503,7 @@ def print_next_steps(picks: "InitPicks", *, ts_project: bool = False) -> None:
             if ts_project
             else "guard.guard_before / _after"
         )
-        click.echo(
-            "    Splice ``wrap_snippet`` from sponsio.yaml's "
-            "next-step output"
-        )
+        click.echo("    Splice ``wrap_snippet`` from sponsio.yaml's next-step output")
         click.echo(f"    into your agent loop ({guard_api}).")
         click.echo(f"    {npx}sponsio validate sponsio.yaml")
 

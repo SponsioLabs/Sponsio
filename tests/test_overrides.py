@@ -350,7 +350,7 @@ class TestLoadConfigOverrides:
         assert "sponsio:core/llm_safety" in sources
 
     def test_threshold_override_on_pattern(self, tmp_path):
-        """Loosen the rate_limit threshold across the shell pack.
+        """Loosen the rate_limit threshold across the openclaw pack.
         Verifies field-edit write-back works through the whole load
         pipeline."""
         cfg = load_config(
@@ -360,7 +360,7 @@ class TestLoadConfigOverrides:
             agents:
               bot:
                 workspace: "/proj"
-                include: [sponsio:capability/shell]
+                include: [sponsio:incident/openclaw]
                 customized:
                   - match: {pattern: rate_limit}
                     threshold: 0.42
@@ -374,7 +374,7 @@ class TestLoadConfigOverrides:
             and not isinstance(c.guarantee, list)
             and c.guarantee.pattern == "rate_limit"
         ]
-        assert rates, "expected at least one rate_limit rule in the shell pack"
+        assert rates, "expected at least one rate_limit rule in the openclaw pack"
         for c in rates:
             assert c.guarantee.threshold == 0.42
 
@@ -414,21 +414,24 @@ class TestLoadConfigOverrides:
               bot:
                 workspace: "/proj"
                 tool_rename: {exec: bash}
-                include: [sponsio:capability/shell]
+                include: [sponsio:incident/openclaw]
                 customized:
                   - match: {pattern: rate_limit}
                     threshold: 0.5
             """,
             )
         )
-        # The rate_limit rule should still be present and now
-        # references `bash` after rename
+        # openclaw ships several rate_limit rules; we want the one
+        # whose first arg was `exec` (now `bash` after the rename),
+        # not the per-tool caps for skill installs / web fetches /
+        # message sends.
         rate = next(
             c
             for c in cfg.agents["bot"].contracts
             if c.guarantee
             and not isinstance(c.guarantee, list)
             and c.guarantee.pattern == "rate_limit"
+            and c.guarantee.args[0] == "bash"
         )
         assert rate.guarantee.args[0] == "bash"
         assert rate.guarantee.threshold == 0.5
