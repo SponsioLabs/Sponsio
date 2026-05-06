@@ -14,7 +14,6 @@ integrations/
 │   ├── vercel_ai_guard.py      # Vercel AI SDK — guard.wrap() (middleware)
 │   ├── agents_sdk_guard.py     # OpenAI Agents SDK — guard.wrap(tools)
 │   ├── crewai_guard.py         # CrewAI — guard.wrap(tools)
-│   ├── mcp_guard.py            # MCP — MCPContractProxy
 │   └── shared.py               # Shared mock/real mode toggle
 │
 └── typescript/                 # TypeScript examples (6 — det only)
@@ -65,7 +64,6 @@ node examples/integrations/typescript/langgraph_guard.mjs
 | Vercel AI SDK | `vercel_ai_guard.py` | `vercel_ai_guard.mjs` | `guard.wrap()` / `sponsioMiddleware()` |
 | Sto (tone / llm_judge) | Cloud-only — see Sponsio Cloud `examples/` | Cloud-only — see Sponsio Cloud `examples/` | `E: { pattern: tone, args, threshold }` + `judge:` (requires `pip install sponsio[cloud]`) |
 | CrewAI | `crewai_guard.py` | — | `guard.wrap(tools)` |
-| MCP | `mcp_guard.py` | — | `MCPContractProxy()` |
 
 Python and TypeScript share the **same deterministic LTL engine** — TypeScript has its own native port (no Python runtime or WASM). Cross-language tests in `tests/cross_language/` verify identical block/allow decisions. The TS sto pipeline is intentionally minimal (two atoms: `tone`, `llm_judge`); semantic PII, hallucination, scope respect, and metric integrity remain Python-only today.
 

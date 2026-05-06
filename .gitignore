@@ -116,4 +116,5 @@ examples/integrations/python/all_patterns_showcase.py
 examples/integrations/python/devops_agent_langgraph.py
 examples/integrations/python/rag_assistant_openai.py
 examples/integrations/python/refund_agent_vanilla.py
+examples/integrations/python/mcp_guard.py
 

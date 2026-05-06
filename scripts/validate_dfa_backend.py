@@ -36,7 +36,6 @@ EXAMPLES = [
     "examples/integrations/python/openai_guard.py",
     "examples/integrations/python/crewai_guard.py",
     "examples/integrations/python/agents_sdk_guard.py",
-    "examples/integrations/python/mcp_guard.py",
     "examples/demo/demo_customer_service.py",
     "examples/demo/demo_coding_agent.py",
     "examples/demo/demo_mcp_leak.py",
