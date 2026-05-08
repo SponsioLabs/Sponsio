@@ -66,7 +66,7 @@
     "test:parity": "npx tsx src/__tests__/parity.test.ts && npx tsx src/__tests__/parity.scenarios.test.ts"
   },
   "dependencies": {
-    "yaml": "^2.7.0",
+    "yaml": "^2.8.4",
     "fast-glob": "^3.3.0",
     "js-yaml": "^4.1.0",
     "ts-morph": "^22.0.0"
