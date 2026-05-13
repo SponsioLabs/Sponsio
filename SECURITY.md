@@ -15,7 +15,7 @@ Sponsio is pre-1.0 software. Only the latest published release on PyPI receives 
 
 Report vulnerabilities privately via GitHub's [private vulnerability reporting](https://github.com/SponsioLabs/Sponsio/security/advisories/new) — this creates a private advisory only visible to maintainers.
 
-Alternatively, email **yfxiao16@gmail.com** with:
+Alternatively, email **ethanxiao@sponsio.dev** with:
 
 - A description of the issue and its impact
 - Steps to reproduce (PoC if possible)
@@ -72,6 +72,7 @@ These are the security-relevant properties of Sponsio's deterministic core. They
 - **Determinism / formal verification:** Det contracts compile to LTL → DFA — a formally specified evaluation procedure, not a probabilistic LLM judgment. See [`docs/concepts/formal-methods.md`](docs/concepts/formal-methods.md).
 - **Apache 2.0 license:** No copyleft obligations on downstream usage; commercial use is unrestricted.
 - **NIST AI RMF / EU AI Act mappings:** in development. If you have a specific framework you need cross-referenced, file an issue and we'll prioritize.
+- **Not a compliance certification.** Sponsio enforces the contracts *you* author. It is not a substitute for qualified security audit, legal review, or domain-specific regulatory analysis (HIPAA, GDPR, SOX, EU AI Act, financial services, healthcare). The control coverage we provide is an input to your compliance program, not a replacement for one.
 
 ### Trust boundaries
 
@@ -87,7 +88,7 @@ What Sponsio can and cannot enforce — make sure your threat model matches:
 
 For enterprise security questionnaires, SOC 2 / ISO 27001 evidence requests, threat-model walkthroughs, or pre-deployment security review:
 
-- **Email:** yfxiao16@gmail.com (subject: `[Enterprise security] <your org>`)
+- **Email:** ethanxiao@sponsio.dev (subject: `[Enterprise security] <your org>`)
 - **Topics covered:** data residency, deployment topology, audit pipeline, incident response timing, dependency attestation.
 
 This is a pre-1.0 project; we do not yet hold formal certifications (SOC 2 Type II, ISO 27001). What we *do* offer is full source visibility, reproducible builds, an immutable audit log, and a clear scope of what Sponsio does and does not protect against.
