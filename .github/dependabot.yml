@@ -24,13 +24,3 @@ updates:
     directory: "/ts/packages/sdk"
     schedule:
       interval: "weekly"
-
-  - package-ecosystem: "npm"
-    directory: "/ts/packages/scanner"
-    schedule:
-      interval: "weekly"
-
-  - package-ecosystem: "npm"
-    directory: "/web"
-    schedule:
-      interval: "weekly"
