@@ -69,7 +69,7 @@
     "yaml": "^2.9.0",
     "fast-glob": "^3.3.0",
     "js-yaml": "^4.1.0",
-    "ts-morph": "^22.0.0"
+    "ts-morph": "^28.0.0"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.5",
