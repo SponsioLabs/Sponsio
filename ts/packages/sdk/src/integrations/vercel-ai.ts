@@ -99,9 +99,17 @@ export function sponsioMiddleware(guard: Sponsio) {
           // trailing ``BLOCKED:`` literal doesn't match — flagged as
           // js/polynomial-redos.  64 is comfortably above any real
           // agent.tool prefix.
-          const trimmed = msg
-            .replace(/^[A-Z-]{0,64}BLOCKED:\s*[^—]+—\s*/, "")
-            .replace(/^(?:det\s+constraint\s+)?violated:\s*/i, "");
+          let trimmed = msg.replace(/^[A-Z-]{0,64}BLOCKED:\s*[^—]+—\s*/, "");
+          // Strip "(det constraint )?violated:" via prefix check
+          // instead of regex — the ``\s+`` quantifiers in the
+          // original ``/^(?:det\s+constraint\s+)?violated:\s*/i``
+          // form were still flagged by CodeQL js/polynomial-redos.
+          const head = trimmed.toLowerCase();
+          if (head.startsWith("det constraint violated:")) {
+            trimmed = trimmed.slice("det constraint violated:".length).trimStart();
+          } else if (head.startsWith("violated:")) {
+            trimmed = trimmed.slice("violated:".length).trimStart();
+          }
           const reason = trimmed.split("\n")[0];
           emitBanner(tc.toolName, reason, guard.agentId);
           blockedReasons.push(`${tc.toolName}: ${reason}`);
