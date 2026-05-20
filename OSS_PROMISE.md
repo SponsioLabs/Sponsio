@@ -86,7 +86,7 @@ Apache 2.0.
 
 ## 2. What we sell as Sponsio Cloud
 
-`pip install sponsio[cloud]`. Opens **mid-May 2026**.
+`pip install sponsio[cloud]`.
 
 These are the things that genuinely benefit from being a managed
 service — they need a backend you don't want to operate yourself, or
@@ -225,15 +225,6 @@ If you don't want either, run OSS forever. We mean that.
 | Local HTML report | OSS (`sponsio report --format html`) |
 
 The full mapping lives in [`docs/reference/oss-scope.md`](docs/reference/oss-scope.md).
-
----
-
-## 6. Cloud waitlist
-
-Sponsio Cloud opens **mid-May 2026**. Early-access pricing for the
-first 50 teams.
-
-[**Join the waitlist** →](https://sponsio.dev/cloud)
 
 ---
 
