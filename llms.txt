@@ -9,11 +9,10 @@
 
 ## Reference
 
-- [docs/contracts.md](docs/contracts.md): Contract DSL — deterministic patterns, LTL syntax, YAML schema.
-- [docs/sto-atoms.md](docs/sto-atoms.md): Stochastic atom catalog — LLM-judged evaluators for fuzzy properties.
-- [docs/cli.md](docs/cli.md): CLI reference — scan, validate, check, report, demo, onboard, serve, refresh.
-- [docs/integrations.md](docs/integrations.md): Per-framework integration guides.
-- [docs/architecture.md](docs/architecture.md): Design — LTL evaluator, det/sto pipelines, grounding.
+- [docs/concepts/contracts.md](docs/concepts/contracts.md): Contract DSL — deterministic patterns, LTL syntax, YAML schema.
+- [docs/reference/cli.md](docs/reference/cli.md): CLI reference — scan, validate, check, report, demo, onboard, serve, refresh.
+- [docs/integrations/index.md](docs/integrations/index.md): Per-framework integration guides.
+- [docs/concepts/architecture.md](docs/concepts/architecture.md): Design — LTL evaluator, det/sto pipelines, grounding.
 - [docs/owasp-agentic-top-10.md](docs/owasp-agentic-top-10.md): OWASP Agentic Top 10 (2026) → Sponsio control mapping.
 
 ## Governance
