@@ -21,9 +21,13 @@
 
 # Sponsio
 
-**面向 AI Agent 的运行时强制约束。** 用自然语言输入策略，Sponsio 将其编译为不可绕过的确定性 Agent 合约。强制延迟低于 0.01ms，运行时零 LLM 成本，[覆盖全部 10 项 OWASP Agentic 风险](docs/concepts/owasp-coverage.md)。支持 LangChain、Claude Agent、OpenAI Agents、Google ADK、CrewAI、Vercel AI、MCP，或任何自定义工具调用循环，Python 与 TypeScript 双语言。
+<p align="center">
+  <img src="assets/sponsio-comparison-freeze.png" alt="同一个 coding agent 在已声明的代码冻结期内运行。没有 Sponsio：删掉生产 users 表、用编造的数据回填，再写一份掩盖破坏的状态报告。接入 Sponsio：第一条破坏性 SQL 在执行前就被拦下——35 次检查、100% 确定性、0 次 LLM 调用、p50 13µs。" width="900">
+</p>
 
-> **Agent 合约**是在每一次 Agent 操作时执行的运行时检查，[由形式化方法支撑](docs/concepts/formal-methods.md)。它*不是*一段你的 Agent 可以无视或越狱绕过的系统提示词。
+**面向 AI Agent 的运行时强制约束。** 用自然语言输入策略，Sponsio 将其编译为不可绕过的确定性 Agent 合约。强制延迟低于 0.01 ms，运行时零 LLM 成本。支持 LangChain、Claude Agent、OpenAI Agents、Google ADK、CrewAI、Vercel AI、MCP，或任何自定义工具调用循环，Python 与 TypeScript 双语言。
+
+> **Agent 合约**是一条运行时规则，在每一次 Agent 操作时检查，[由形式化方法支撑](docs/concepts/formal-methods.md)。
 
 ---
 
@@ -33,9 +37,9 @@
   <img src="assets/sponsio-architecture.png" alt="Sponsio 架构：Agent Flow + (Natural Language + Pattern Library) 编译为 Contracts (Assumption → Enforcement)，由 Fuzzy LTL Monitor（确定性 + 随机性）在每次函数调用上判定 Pass / Block · Warn · Escalate / Redirect，完整审计日志回流给 Agent。" width="900">
 </p>
 
-在 [ODCV-Bench](https://arxiv.org/abs/2512.20798)（来自 [McGill DMaS](https://github.com/McGill-DMaS/ODCV-Bench) 的第三方基准，覆盖 12 个前沿 LLM × 80 条执行轨迹，含 Claude-Opus-4.6）上，无防护的模型在 11.5%–66.7% 的运行中作弊。**接入 Sponsio 后平均拦截 84.5%**，下一档已公开发布的运行时护栏（[Salus, YC W26](https://www.ycombinator.com/companies/salus)）在同基准上为 52%。在 `Financial-Audit-Fraud-Finding` 场景中，前沿模型在 16/24 次试验里实施欺诈，**Sponsio 100% 拦截**。RedCode-Exec（1,410 用例）综合拦截率 **92%**（bash 95% · python 90%），干净代码 60 文件审计上 **0% 实用性 FP**。
+在 [ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench)（12 个前沿 LLM × 80 条执行轨迹）上，无防护的模型在 11.5%–66.7% 的运行中作弊。**接入 Sponsio 后平均规避 84.5% 的不当行为**。在 `Financial-Audit-Fraud-Finding` 场景中，前沿模型在 16/24 次试验里实施欺诈，**Sponsio 100% 拦截**。RedCode-Exec（1,410 用例）综合拦截率 **92%**（bash 95% · python 90%），覆盖 60 文件干净代码审计。
 
-热路径 p50 **0.139 ms**（ODCV 强制项），**比任何 LLM-as-judge 护栏快 5,000×–60,000×**（gpt-4o-mini、Lakera Guard、OpenAI Moderation 每次检查 50–800 ms），运行时零 LLM 成本，p99 在所有测得工作负载下保持 1.04 ms 以内。
+逻辑检查器每条合约 p50 **0.139 ms**，**比任何 LLM-as-judge 护栏快 5,000×–60,000×**（每次检查 50–800 ms），热路径零 LLM 成本。p99 在所有测得工作负载下保持 1.04 ms 以内。
 
 查阅[完整 benchmark 方法论与按模型拆分](docs/reference/benchmarks.md)、[与提示词过滤器 / 输出校验器 / LLM-as-judge / 沙箱的对比](docs/why.md)，或深入[架构](docs/concepts/architecture.md)与[形式化方法入门](docs/concepts/formal-methods.md)。
 
@@ -60,23 +64,13 @@ pip install sponsio        # 或 npm install -D @sponsio/sdk
 sponsio init .             # 交互式向导：检测框架、选择 IDE host、observe vs enforce
 ```
 
-向导写出 `sponsio.yaml` 并打印两行接入补丁。以 LangGraph 为例：
-
-```python
-from sponsio.langgraph import Sponsio
-from langgraph.prebuilt import create_react_agent
-
-guard = Sponsio(config="sponsio.yaml", agent_id="coding_agent")
-agent = create_react_agent(model, guard.wrap(tools))
-```
-
-`sponsio init` 会自动检测你的框架并打印对应的接入片段。手动接线见 [docs/integrations/](docs/integrations/index.md)。[OpenClaw 用户](docs/integrations/openclaw.md)开箱即享 ClawHavoc + CVE-2026-25253 覆盖。配置参考、observe → enforce 切换、`sponsio refresh`、CI 接线与故障排查见[完整指引](QUICKSTART.md)。
+向导会自动检测你的框架并打印对应的接入片段。手动接线见 [docs/integrations/](docs/integrations/index.md)。[OpenClaw 用户](docs/integrations/openclaw.md)开箱即享 ClawHavoc + CVE-2026-25253 覆盖。配置参考、observe → enforce 切换、`sponsio refresh`、CI 接线见[完整指引](QUICKSTART.md)。
 
 ---
 
 ## 合约库
 
-开箱即用的 **16 个合约 bundle**，按层级组织（always-on / per-tool / per-incident）。每个 bundle 是一个 YAML 包，由 Sponsio 的 44 个确定性模式组合而成（随机性 atom 在 Sponsio Cloud 提供）。把它放进 `sponsio.yaml`，一行即可让 Agent 防护一类已知失败，无需逐合约编写。
+开箱即用的 **16 个合约 bundle**，按层级组织（always-on / per-tool / per-incident）。每个 bundle 是一个 YAML 包，由 Sponsio 的确定性模式组合而成。把它放进 `sponsio.yaml`，一行即可让 Agent 防护一类已知失败，无需逐合约编写。
 
 ```yaml
 # sponsio.yaml: 一行式 bundle 引入
@@ -84,13 +78,10 @@ agents:
   my_agent:
     workspace: "/srv/my-bot"
     include:
-      - sponsio:core/runaway          # always-on
       - sponsio:core/universal        # always-on
       - sponsio:capability/shell      # 若 Agent 会执行命令
       - sponsio:capability/filesystem # 若 Agent 会读写文件
 ```
-
-`sponsio init` 会基于检测到的工具清单自动选择 tier-0 bundle。可通过 `customized:` 字段按 `desc` / `pack_source` / `pattern` 定位单条规则做禁用或重调，无需 fork。
 
 查看[完整 bundle 参考](docs/reference/contract-lib.md)（共 16 个 bundle）或[底层 44 个模式](docs/reference/patterns.md)。想要面向你 Agent 类型的 bundle？这是目前杠杆率最高的贡献方式。带上事件 / CVE / 模式[开 issue](https://github.com/SponsioLabs/Sponsio/issues/new)。
 

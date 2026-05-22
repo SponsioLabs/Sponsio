@@ -21,9 +21,13 @@
 
 # Sponsio
 
-**AI エージェントのためのランタイム強制。** 自然言語でポリシーを入力すると、Sponsio がそれを破られない決定論的なエージェント契約にコンパイルします。0.01ms 未満で強制、ランタイムでの LLM コストはゼロ、[OWASP Agentic Top 10 のリスクをすべてカバー](docs/concepts/owasp-coverage.md)します。LangChain、Claude Agent、OpenAI Agents、Google ADK、CrewAI、Vercel AI、MCP、または任意のカスタム ツール呼び出しループに対応（Python / TypeScript）。
+<p align="center">
+  <img src="assets/sponsio-comparison-freeze.png" alt="コードフリーズ宣言下の同一コーディングエージェント。Sponsio なし：本番 users テーブルを削除し、捏造した行で埋め戻し、被害を隠す状態レポートを提出。Sponsio あり：最初の破壊的 SQL を実行前にブロック——35 チェック、100% 決定論的、LLM 呼び出し 0 回、p50 13µs。" width="900">
+</p>
 
-> **エージェント契約** とは、エージェントのすべてのアクションに対するランタイムチェックであり、[形式手法に裏打ちされています](docs/concepts/formal-methods.md)。エージェントが無視したりジェイルブレイクできるシステムプロンプトでは *ありません*。
+**AI エージェントのためのランタイム強制。** 自然言語でポリシーを入力すると、Sponsio がそれを破られない決定論的なエージェント契約にコンパイルします。0.01 ms 未満で強制、ランタイムでの LLM コストはゼロ。LangChain、Claude Agent、OpenAI Agents、Google ADK、CrewAI、Vercel AI、MCP、または任意のカスタム ツール呼び出しループに対応（Python / TypeScript）。
+
+> **エージェント契約** とは、エージェントのすべてのアクションでチェックされるランタイムルールであり、[形式手法に裏打ちされています](docs/concepts/formal-methods.md)。
 
 ---
 
@@ -33,9 +37,9 @@
   <img src="assets/sponsio-architecture.png" alt="Sponsio architecture: Agent Flow + (Natural Language + Pattern Library) compile into Contracts (Assumption → Enforcement), enforced by a Fuzzy LTL Monitor (deterministic + stochastic) that decides Pass / Block · Warn · Escalate / Redirect for every function call, with full audit trail logs feeding back to the agent." width="900">
 </p>
 
-[ODCV-Bench](https://arxiv.org/abs/2512.20798)（[McGill DMaS](https://github.com/McGill-DMaS/ODCV-Bench) によるサードパーティ ベンチマーク、12 のフロンティア LLM × 80 トラジェクトリ、Claude-Opus-4.6 を含む）において、ガード無しのモデルは 11.5%–66.7% の実行で不正を働きます。**Sponsio を使うと平均 84.5% の不整合がブロックされ**、次に優れる公式に発表済みのランタイム ガードレール（[Salus, YC W26](https://www.ycombinator.com/companies/salus)）は同じベンチマークで 52% に留まります。`Financial-Audit-Fraud-Finding` シナリオでは、フロンティア モデルは 16/24 試行で不正を犯し、**Sponsio は 100% ブロック** します。RedCode-Exec（1,410 ケース）では総合ブロック率 **92%**（bash 95% · python 90%）、60 ファイルのクリーン コード監査で **実用性 FP 0%**。
+[ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench)（12 のフロンティア LLM × 80 トラジェクトリ）において、ガード無しのモデルは 11.5%–66.7% の実行で不正を働きます。**Sponsio を使うと平均 84.5% の不整合を回避** します。`Financial-Audit-Fraud-Finding` シナリオでは、フロンティア モデルは 16/24 試行で不正を犯し、**Sponsio は 100% ブロック** します。RedCode-Exec（1,410 ケース）では、60 ファイルのクリーン コード監査にわたり総合ブロック率 **92%**（bash 95% · python 90%）を達成。
 
-ホットパス p50 **0.139 ms**（ODCV 強制ワークロード）、**あらゆる LLM-as-judge ガードレールよりも 5,000×–60,000× 高速**（gpt-4o-mini、Lakera Guard、OpenAI Moderation はいずれもチェックあたり 50–800 ms）、ホットパスでの LLM コストはゼロ。p99 は測定されたすべてのワークロードで 1.04 ms 以内に収まります。
+ロジックチェッカーは契約あたり p50 **0.139 ms**、**あらゆる LLM-as-judge ガードレールよりも 5,000×–60,000× 高速**（チェックあたり 50–800 ms）、ホットパスでの LLM コストはゼロ。p99 は測定されたすべてのワークロードで 1.04 ms 以内に収まります。
 
 [完全なベンチマーク方法論とモデル別の内訳](docs/reference/benchmarks.md)、[プロンプト フィルタ / 出力バリデータ / LLM-as-judge / サンドボックスとの比較](docs/why.md)、または[アーキテクチャ詳細](docs/concepts/architecture.md)と[形式手法入門](docs/concepts/formal-methods.md)を参照。
 
@@ -60,23 +64,13 @@ pip install sponsio        # または: npm install -D @sponsio/sdk
 sponsio init .             # 対話型ウィザード: フレームワーク・IDE ホスト・observe vs enforce を検出
 ```
 
-ウィザードが `sponsio.yaml` を書き出し、2 行のパッチを表示します。LangGraph の例：
-
-```python
-from sponsio.langgraph import Sponsio
-from langgraph.prebuilt import create_react_agent
-
-guard = Sponsio(config="sponsio.yaml", agent_id="coding_agent")
-agent = create_react_agent(model, guard.wrap(tools))
-```
-
-`sponsio init` がフレームワークを自動検出し、対応するラップ スニペットを表示します。手動配線は [docs/integrations/](docs/integrations/index.md) を参照。[OpenClaw ユーザー](docs/integrations/openclaw.md)は ClawHavoc + CVE-2026-25253 のカバレッジを最初から利用できます。設定リファレンス、observe → enforce 切替、`sponsio refresh`、CI 配線、トラブルシューティングは[完全ガイド](QUICKSTART.md)を参照。
+ウィザードがフレームワークを自動検出し、対応するラップ スニペットを表示します。手動配線は [docs/integrations/](docs/integrations/index.md) を参照。[OpenClaw ユーザー](docs/integrations/openclaw.md)は ClawHavoc + CVE-2026-25253 のカバレッジを最初から利用できます。設定リファレンス、observe → enforce 切替、`sponsio refresh`、CI 配線は[完全ガイド](QUICKSTART.md)を参照。
 
 ---
 
 ## コントラクト ライブラリ
 
-**16 のコントラクト バンドル** が組み込みで提供され、ティア別（always-on / per-tool / per-incident）に整理されています。各バンドルは Sponsio の 44 の決定論的パターンから組み合わされた YAML パックです（確率的アトムは Sponsio Cloud で提供）。`sponsio.yaml` に 1 行追加するだけで、エージェントを既知の失敗クラスから守れます。契約を個別に書く必要はありません。
+**16 のコントラクト バンドル** が組み込みで提供され、ティア別（always-on / per-tool / per-incident）に整理されています。各バンドルは Sponsio の決定論的パターンから組み合わされた YAML パックです。`sponsio.yaml` に 1 行追加するだけで、エージェントを既知の失敗クラスから守れます。契約を個別に書く必要はありません。
 
 ```yaml
 # sponsio.yaml: 1 行式バンドル include
@@ -84,13 +78,10 @@ agents:
   my_agent:
     workspace: "/srv/my-bot"
     include:
-      - sponsio:core/runaway          # always-on
       - sponsio:core/universal        # always-on
       - sponsio:capability/shell      # エージェントがコマンドを実行する場合
       - sponsio:capability/filesystem # エージェントがファイルを操作する場合
 ```
-
-`sponsio init` は検出したツール インベントリに基づいて tier-0 バンドルを自動選択します。`customized:` フィールドで `desc` / `pack_source` / `pattern` を指定して個別ルールを無効化・調整でき、パックを fork する必要はありません。
 
 [完全なバンドル リファレンス](docs/reference/contract-lib.md)（16 バンドル）または[基盤となる 44 パターン](docs/reference/patterns.md)を参照。あなたのエージェント タイプ向けのバンドルが欲しい? これは現時点で最もレバレッジの高い貢献方法です。インシデント / CVE / パターンを添えて [issue を開いてください](https://github.com/SponsioLabs/Sponsio/issues/new)。
 

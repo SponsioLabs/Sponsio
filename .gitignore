@@ -118,3 +118,7 @@ examples/integrations/python/rag_assistant_openai.py
 examples/integrations/python/refund_agent_vanilla.py
 examples/integrations/python/mcp_guard.py
 
+# One-off generator for the README comparison images — the rendered
+# assets/sponsio-comparison-*.png are committed; the script stays local-only.
+scripts/gen_comparison_svg.py
+
