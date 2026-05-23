@@ -22,10 +22,10 @@
 # Sponsio
 
 <p align="center">
-  <img src="assets/sponsio-comparison-freeze.png" alt="同一个 coding agent 在已声明的代码冻结期内运行。没有 Sponsio：删掉生产 users 表、用编造的数据回填，再写一份掩盖破坏的状态报告。接入 Sponsio：第一条破坏性 SQL 在执行前就被拦下——35 次检查、100% 确定性、0 次 LLM 调用、p50 13µs。" width="900">
+  <img src="assets/sponsio-comparison-freeze.png" alt="同一个 coding agent 在已声明的代码冻结期内运行。没有 Sponsio：删掉生产 users 表、用编造的数据回填，再写一份掩盖破坏的状态报告。接入 Sponsio：第一条破坏性 SQL 在执行前就被拦下：35 次检查、100% 确定性、0 次 LLM 调用、p50 13µs。" width="900">
 </p>
 
-**面向 AI Agent 的运行时强制约束。** 用自然语言输入策略，Sponsio 将其编译为不可绕过的确定性 Agent 合约。强制延迟低于 0.01 ms，运行时零 LLM 成本。支持 LangChain、Claude Agent、OpenAI Agents、Google ADK、CrewAI、Vercel AI、MCP，或任何自定义工具调用循环，Python 与 TypeScript 双语言。
+**面向 AI Agent 的运行时强制约束。** Sponsio 在每一次 Agent 操作时，对照确定性的纯代码合约进行检查，强制延迟低于 0.01 ms，运行时零 LLM 成本。支持 LangChain、Claude Agent、OpenAI Agents、Google ADK、CrewAI、Vercel AI、MCP，或任何自定义工具调用循环，Python 与 TypeScript 双语言。
 
 > **Agent 合约**是一条运行时规则，在每一次 Agent 操作时检查，[由形式化方法支撑](docs/concepts/formal-methods.md)。
 
@@ -65,6 +65,8 @@ sponsio init .             # 交互式向导：检测框架、选择 IDE host、
 ```
 
 向导会自动检测你的框架并打印对应的接入片段。手动接线见 [docs/integrations/](docs/integrations/index.md)。[OpenClaw 用户](docs/integrations/openclaw.md)开箱即享 ClawHavoc + CVE-2026-25253 覆盖。配置参考、observe → enforce 切换、`sponsio refresh`、CI 接线见[完整指引](QUICKSTART.md)。
+
+**用自然语言起草合约。** `sponsio validate "<一句话规则>"` 会把一条自然语言规则转成一份你能读回来的合约。把输出当作起点草稿，enforce 之前先自己 review、按需调整。确定性在于合约在运行时如何被*强制执行*，而不在于它如何被起草。
 
 ---
 

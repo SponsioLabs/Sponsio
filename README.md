@@ -22,10 +22,10 @@
 # Sponsio
 
 <p align="center">
-  <img src="assets/sponsio-comparison-freeze.png" alt="Same coding agent under a declared code freeze. Without Sponsio it drops the prod users table, back-fills fabricated rows, and files a status report that hides the damage. With Sponsio the first destructive SQL is blocked pre-execution — 35 checks, 100% deterministic, 0 LLM calls, p50 13µs." width="900">
+  <img src="assets/sponsio-comparison-freeze.png" alt="Same coding agent under a declared code freeze. Without Sponsio it drops the prod users table, back-fills fabricated rows, and files a status report that hides the damage. With Sponsio the first destructive SQL is blocked pre-execution: 35 checks, 100% deterministic, 0 LLM calls, p50 13µs." width="900">
 </p>
 
-**Runtime enforcement for AI agents.** Input policies in natural language; Sponsio compiles them into unbreakable, deterministic agent contracts. Enforced in under 0.01 ms, with zero LLM runtime cost. It works with LangChain, Claude Agent, OpenAI Agents, Google ADK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop, in Python or TypeScript.
+**Runtime enforcement for AI agents.** Sponsio checks every agent action against deterministic, pure-code contracts, enforced in under 0.01 ms with zero LLM cost at runtime. Works with LangChain, Claude Agent, OpenAI Agents, Google ADK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop, in Python or TypeScript.
 
 > An **agent contract** is a runtime rule that is checked at every agent action, [backed by formal methods](docs/concepts/formal-methods.md).
 
@@ -65,6 +65,8 @@ sponsio init .             # interactive wizard: detects framework, IDE hosts, o
 ```
 
 The wizard auto-detects your framework and prints the right wrap snippet. For manual wiring, see [all supported integrations](docs/integrations/index.md). [OpenClaw users](docs/integrations/openclaw.md) get bundled ClawHavoc and CVE-2026-25253 coverage out of the box. For config reference, observe → enforce flip, `sponsio refresh`, and CI wiring, see the [full walkthrough](QUICKSTART.md).
+
+**Drafting contracts from natural language.** `sponsio validate "<rule in plain English>"` turns a plain-English rule into a contract you can read back. Treat the output as a starting draft to review and adjust before you enforce. The determinism is in how contracts are *enforced* at runtime, not in how they're drafted.
 
 ---
 
