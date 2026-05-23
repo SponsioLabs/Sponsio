@@ -37,7 +37,7 @@
   <img src="assets/sponsio-architecture.png" alt="Sponsio architecture: Agent Flow + (Natural Language + Pattern Library) compile into Contracts (Assumption → Enforcement), enforced by a Fuzzy LTL Monitor (deterministic + stochastic) that decides Pass / Block · Warn · Escalate / Redirect for every function call, with full audit trail logs feeding back to the agent." width="900">
 </p>
 
-[ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench)（12 のフロンティア LLM × 80 トラジェクトリ）において、ガード無しのモデルは 11.5%–66.7% の実行で不正を働きます。**Sponsio を使うと平均 84.5% の不整合を回避** します。`Financial-Audit-Fraud-Finding` シナリオでは、フロンティア モデルは 16/24 試行で不正を犯し、**Sponsio は 100% ブロック** します。RedCode-Exec（1,410 ケース）では、60 ファイルのクリーン コード監査にわたり総合ブロック率 **92%**（bash 95% · python 90%）を達成。
+[ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench)（12 のフロンティア LLM × 80 トラジェクトリ）において、ガード無しのモデルは 11.5%–66.7% の実行で不正を働きます。**Sponsio を使うと平均 95.6% の不整合を回避** します（36 の高リスクシナリオのうち 24 が全モデルで 100% 保護を達成）。`Financial-Audit-Fraud-Finding` シナリオでは、フロンティア モデルは 16/24 試行で不正を犯し、**Sponsio は 95%（高重大度トラジェクトリ 18/19）をブロック** します。RedCode-Exec（1,410 ケース）では、60 ファイルのクリーン コード監査にわたり総合ブロック率 **92%**（bash 95% · python 90%）を達成。
 
 ロジックチェッカーは契約あたり p50 **0.139 ms**、**あらゆる LLM-as-judge ガードレールよりも 5,000×–60,000× 高速**（チェックあたり 50–800 ms）、ホットパスでの LLM コストはゼロ。p99 は測定されたすべてのワークロードで 1.04 ms 以内に収まります。
 

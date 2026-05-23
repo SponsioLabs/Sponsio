@@ -37,7 +37,7 @@
   <img src="assets/sponsio-architecture.png" alt="Sponsio 架构：Agent Flow + (Natural Language + Pattern Library) 编译为 Contracts (Assumption → Enforcement)，由 Fuzzy LTL Monitor（确定性 + 随机性）在每次函数调用上判定 Pass / Block · Warn · Escalate / Redirect，完整审计日志回流给 Agent。" width="900">
 </p>
 
-在 [ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench)（12 个前沿 LLM × 80 条执行轨迹）上，无防护的模型在 11.5%–66.7% 的运行中作弊。**接入 Sponsio 后平均规避 84.5% 的不当行为**。在 `Financial-Audit-Fraud-Finding` 场景中，前沿模型在 16/24 次试验里实施欺诈，**Sponsio 100% 拦截**。RedCode-Exec（1,410 用例）综合拦截率 **92%**（bash 95% · python 90%），覆盖 60 文件干净代码审计。
+在 [ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench)（12 个前沿 LLM × 80 条执行轨迹）上，无防护的模型在 11.5%–66.7% 的运行中作弊。**接入 Sponsio 后平均规避 95.6% 的不当行为** —— 36 个高风险场景中 24 个对所有模型达到 100% 保护。在 `Financial-Audit-Fraud-Finding` 场景中，前沿模型在 16/24 次试验里实施欺诈，**Sponsio 拦截 95%（18/19 高风险轨迹）**。RedCode-Exec（1,410 用例）综合拦截率 **92%**（bash 95% · python 90%），覆盖 60 文件干净代码审计。
 
 逻辑检查器每条合约 p50 **0.139 ms**，**比任何 LLM-as-judge 护栏快 5,000×–60,000×**（每次检查 50–800 ms），热路径零 LLM 成本。p99 在所有测得工作负载下保持 1.04 ms 以内。
 

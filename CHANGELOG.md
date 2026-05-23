@@ -120,9 +120,11 @@ and a CLI for scanning, mining, and reporting.
 - **Plugins** — Claude Code plugin (production), OpenClaw plugin
   (beta — type definitions track the public OpenClaw plugin docs;
   end-to-end exercise inside a live OpenClaw runtime is in progress).
-- **Benchmarks** — ODCV-Bench (84.5% high-risk protection across 12
-  LLMs) and RedCode-Exec (92% combined detection across 1,410 cases),
-  with 0% utility FP on the 60-file clean-code audit. See
+- **Benchmarks** — ODCV-Bench (**95.6% high-risk protection across 12
+  LLMs**, 24 of 36 scenarios at 100% across every model) and
+  RedCode-Exec (92% combined detection across 1,410 cases), with
+  **0 FP increase** across 6 ODCV library iterations and 0% utility
+  FP on the 60-file clean-code audit. See
   [`docs/reference/benchmarks.md`](docs/reference/benchmarks.md).
 
 ### Boundary
