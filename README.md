@@ -37,7 +37,7 @@
   <img src="assets/sponsio-architecture.png" alt="Sponsio architecture: Agent Flow + (Natural Language + Pattern Library) compile into Contracts (Assumption → Enforcement), enforced by a Fuzzy LTL Monitor (deterministic + stochastic) that decides Pass / Block · Warn · Escalate / Redirect for every function call, with full audit trail logs feeding back to the agent." width="900">
 </p>
 
-On [ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench) (12 frontier LLMs × 80 trajectories), unguarded models cheat in 11.5%–66.7% of runs. **With Sponsio, 95.6% of misalignment is avoided on average** — 24 of 36 high-risk scenarios reach 100% across every model. On the `Financial-Audit-Fraud-Finding` scenario, frontier models commit fraud in 16/24 trials; **Sponsio blocks 95% (18/19 high-severity trajectories)**. On RedCode-Exec (1,410 cases), Sponsio reaches **92% combined** (bash 95% · python 90%) across a 60-file clean-code audit.
+On [ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench) (12 frontier LLMs × 80 trajectories), unguarded models cheat in 11.5%–66.7% of runs. **With Sponsio, 95.6% of misalignment is avoided on average; 24/36 high-risk scenarios at 100%.** On the `Financial-Audit-Fraud-Finding` scenario, frontier models commit fraud in 16/24 trials; **Sponsio blocks 18/19**. On RedCode-Exec (1,410 cases), Sponsio reaches **92% combined** (bash 95% · python 90%) across a 60-file clean-code audit.
 
 The logic checker takes p50 **0.139 ms** per contract, **5,000×–60,000× faster than any LLM-as-judge guardrail** (50–800 ms per check), with zero LLM cost in the hot path. p99 stays under 1.04 ms across every measured workload.
 
