@@ -88,6 +88,12 @@ jobs:
           /tmp/smoke-venv/bin/pip install dist/*.whl
           /tmp/smoke-venv/bin/sponsio --version
           /tmp/smoke-venv/bin/sponsio --help
+          # --version/--help are click-level and don't import yaml, so
+          # they missed #61 (pyyaml mis-filed as optional). Assert the
+          # core deps resolve, then run a command that actually reads the
+          # bundled YAML so a missing core dependency fails the build.
+          /tmp/smoke-venv/bin/python -c "import yaml"
+          /tmp/smoke-venv/bin/sponsio packs
 
   test-typescript:
     name: Test (TypeScript — native)

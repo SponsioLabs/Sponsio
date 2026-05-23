@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sponsio"
-version = "0.1.0"
+version = "0.1.1"
 description = "Runtime contract enforcement for LLM agent systems"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -32,7 +32,12 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-dependencies = ["click>=8.0", "rich>=13.0", "questionary>=2.0"]
+# pyyaml is a HARD dependency, not optional: the config loader
+# (sponsio/config.py), the CLI host/plugin install path, sponsiorc,
+# and plugin scan/append all `import yaml` on the core code path.
+# A base `pip install sponsio` (or `pipx install sponsio`) must ship
+# it or `sponsio` onboarding crashes with ModuleNotFoundError (#61).
+dependencies = ["click>=8.0", "rich>=13.0", "questionary>=2.0", "pyyaml>=6.0"]
 
 [project.scripts]
 sponsio = "sponsio.cli:main"
@@ -54,6 +59,8 @@ claude-agent = ["claude-agent-sdk"]
 google-adk = ["google-adk"]
 vercel-ai = ["vercel-ai-sdk"]
 web = ["fastapi>=0.100", "uvicorn[standard]>=0.20", "python-multipart>=0.0.6"]
+# Redundant now that pyyaml is a core dependency; kept so existing
+# `pip install sponsio[config]` invocations keep resolving.
 config = ["pyyaml>=6.0"]
 pdf = ["pdfplumber>=0.10"]
 calibration = ["scikit-learn>=1.3"]

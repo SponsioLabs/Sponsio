@@ -16,6 +16,29 @@ _Nothing yet._
 
 ---
 
+## [0.1.1] — 2026-05-22
+
+### Fixed
+
+- **`pyyaml` is now a core dependency.** It was previously declared only
+  under the `config` / `all` optional-dependency groups, but the config
+  loader, the `sponsio host install` path, `sponsiorc`, and plugin
+  scan/append all import `yaml` on the core code path. A base
+  `pip install sponsio` (or `pipx install sponsio` / `mise use
+  pipx:sponsio`) shipped without it, so the onboarding wizard crashed
+  with `ModuleNotFoundError: No module named 'yaml'` on the first
+  `sponsio host install`. ([#61](https://github.com/SponsioLabs/Sponsio/issues/61))
+
+### Changed
+
+- The build smoke-test in CI now runs `python -c "import yaml"` and
+  `sponsio packs` (a YAML-reading command) in the clean-install venv, in
+  addition to `--version` / `--help`. The old smoke test only exercised
+  click-level commands, which is why the missing core dependency slipped
+  through to a release.
+
+---
+
 ## [0.1.0] — 2026-05-06
 
 Open-source launch build. Closes the missing-implementation gap in 0.1.0a3
