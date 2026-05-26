@@ -1,18 +1,17 @@
 ---
 title: Concepts overview
-description: The concept stack, the trace, the atom vocabulary, and how to pick between deterministic and stochastic contracts.
+description: The concept stack, the trace, and the atom vocabulary that define Sponsio's deterministic contracts.
 ---
 
 # Concepts overview
 
 The [README](../../README.md) explains what Sponsio does. This page explains how to think about it when you sit down to write contracts.
 
-Four ideas carry most of the system. Once they are straight, the pattern library, the atom catalog, the integrations, and the CLI all read as small variations on the same theme.
+Three ideas carry most of the system. Once they are straight, the pattern library, the atom catalog, the integrations, and the CLI all read as small variations on the same theme.
 
 1. **The concept stack**: atom → pattern → formula → contract.
 2. **The trace**: what contracts are actually evaluated against.
 3. **The atom vocabulary**: where Sponsio's observation boundary lies.
-4. **Two pipelines**: how to choose between deterministic and stochastic.
 
 For the full design rationale and LTL semantics, see [Architecture](architecture.md). This page bridges the README's three-line architecture summary and that document.
 
@@ -48,7 +47,7 @@ Four layers build on each other.
 
 **Formula**: an LTL expression over atoms. This is what the evaluator actually checks. Anything expressible in LTL over the available atom vocabulary can be enforced.
 
-**Contract**: an (assumption, guarantee) pair bound to one or more agents, with a strategy for what to do on violation (block, escalate, retry, redirect). The assumption tells the engine *when* the rule applies; the guarantee tells it *what must hold* when it does.
+**Contract**: an (assumption, guarantee) pair bound to one or more agents, with a strategy for what to do on violation (block or escalate). The assumption tells the engine *when* the rule applies; the guarantee tells it *what must hold* when it does.
 
 ```python
 contract("policy gate before refund")
@@ -87,20 +86,19 @@ The full list, with the formal signature of each atom and the patterns that use 
 
 ---
 
-## 4. Choosing between the two pipelines
+## 4. When a deterministic contract fits
 
-|  | Deterministic (OSS) | Stochastic (Sponsio Cloud) |
-|---|---|---|
-| **Ships in** | `pip install sponsio` | `pip install sponsio[cloud]` |
-| **Use when** | Property is structurally observable (counter, regex, path, ordering) | Property needs semantic judgment |
-| **Examples** | Tool ordering, rate limits, retries, loop detection, destructive gates, irreversible-once, path / argument blacklists, scope and length limits, exact-regex PII, format checks, permissions, allowlists, segregation of duty | Tone, relevance, scope respect, semantic PII, hallucination, faithfulness, metric integrity |
-| **Cost** | Microseconds, zero LLM calls | One LLM judge call per check |
-| **Pipeline** | LTL evaluator (formal) | LLM judge |
-| **In OSS** | Runs | Parses, then raises `RuntimeError` at runtime. Install `sponsio[cloud]` to evaluate. |
+Sponsio's deterministic contracts apply when a property is **structurally observable**: expressible with a counter, a regex, a path check, or an ordering relation.
 
-The rule of thumb: do not reach for a judge call to check things a regex already checks, and do not force a regex to check things that only make sense semantically.
+| | Deterministic contract |
+|---|---|
+| **Ships in** | `pip install sponsio` |
+| **Use when** | Property is structurally observable (counter, regex, path, ordering) |
+| **Examples** | Tool ordering, rate limits, retries, loop detection, destructive gates, irreversible-once, path / argument blacklists, scope and length limits, exact-regex PII, format checks, permissions, allowlists, segregation of duty |
+| **Cost** | Microseconds, zero LLM calls |
+| **Pipeline** | LTL evaluator (formal) |
 
-> One contract, one pipeline. A single contract is evaluated by exactly one pipeline. Det and sto atoms do not mix inside one rule. If you need both, declare two contracts.
+The rule of thumb: keep contracts to things a counter, regex, path, or ordering relation can check. Properties that only make sense semantically (tone, relevance, whether text is *truly* off-topic) are outside the deterministic engine's scope.
 
 ---
 
@@ -121,20 +119,18 @@ The rule of thumb: do not reach for a judge call to check things a regex already
  │                         │  + atoms    │  grounding layer    │
  │                         └─────────────┘                     │
  │                                │                            │
- │                    ┌───────────┴───────────┐                │
- │                    ▼                       ▼                │
- │            ┌───────────────┐       ┌───────────────┐        │
- │            │  det formula  │       │  sto judge    │        │
- │            │   evaluator   │       │  (LLM)        │        │
- │            └───────┬───────┘       └───────┬───────┘        │
- │                    │                       │                │
- │                    └───────────┬───────────┘                │
  │                                ▼                            │
- │                      block / retry / redirect               │
+ │                        ┌───────────────┐                    │
+ │                        │  det formula  │                    │
+ │                        │   evaluator   │                    │
+ │                        └───────┬───────┘                    │
+ │                                │                            │
+ │                                ▼                            │
+ │                      block / escalate                       │
  └─────────────────────────────────────────────────────────────┘
 ```
 
-Deterministic formulas are evaluated in microseconds. Stochastic atoms are judged only when a contract that uses them triggers. A violation routes through a **strategy**: block, retry with a constraint, redirect to a safe path, or escalate to a human.
+Deterministic formulas are evaluated in microseconds. A violation routes through a **strategy**: block the call or escalate to a human.
 
 ---
 
@@ -142,6 +138,5 @@ Deterministic formulas are evaluated in microseconds. Stochastic atoms are judge
 
 - [Architecture](architecture.md): LTL semantics, grounding internals, why the atom vocabulary is the observation boundary.
 - [Deterministic contracts](contracts.md): the pattern library and how each pattern compiles to LTL.
-- *Stochastic contracts* (Sponsio Cloud, `pip install sponsio[cloud]`): the judge pipeline, scoring, and retry strategies.
 - [Write your first contract](../getting-started/first-contract.md): hands-on walkthrough.
 - [Integrations](../integrations/index.md): wire it into your framework (LangGraph, Claude Agent SDK, OpenAI, CrewAI, Google ADK, Vercel AI, MCP, or custom).

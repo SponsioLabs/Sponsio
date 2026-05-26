@@ -44,12 +44,9 @@ contracts:
     G: { pattern: untrusted_source_gate,
          args: [[fetch_email, web_fetch, read_pdf],
                 [send_email, http_post, file_upload]] }
-  # The line below is Sponsio Cloud only. The OSS engine raises at runtime.
-  - desc: "Response must be free of prompt-injection framings"
-    G: { sto: injection_free, threshold: 0.9 }
 ```
 
-Reads as: once any source has been called, every sink call must be preceded by a confirmation. Before any source fires, sinks are unrestricted. The det contract is structural. The sto atom is a belt-and-braces score on the model's response (Cloud feature).
+Reads as: once any source has been called, every sink call must be preceded by a confirmation. Before any source fires, sinks are unrestricted. The contract is structural: ordering and confirmation are checkable from the trace alone.
 
 ## ASI-02 Tool misuse
 
@@ -139,9 +136,6 @@ contracts:
     args: [approve_refund, content_source, "^canonical:/policies/"]
   - pattern: data_intact
     args: [approve_refund, ["/canonical/policies/", "/canonical/rules/"]]
-  # Sponsio Cloud only:
-  - desc: "Response must be faithful to retrieved canonical source"
-    G: { sto: faithfulness, threshold: 0.85 }
 ```
 
 Coverage condition: tag each retrieved chunk with its source.
@@ -228,12 +222,9 @@ contracts:
            [verify_vendor_identity, verify_bank_details, compliance_approve]]
   - pattern: irreversible_once
     args: [approve_invoice]
-  # Sponsio Cloud only:
-  - desc: "Summary must not omit risk-material facts before confirm"
-    G: { sto: no_omission, threshold: 0.9 }
 ```
 
-On an $847k wire to an unverified vendor, three contracts fire on the same call: amount over cap, no compliance approval, no confirm on file. The `required_steps_completion` rule handles the skipped-onboarding case. The `no_omission` sto catches summaries that hide the "new vendor, large amount" framing.
+On an $847k wire to an unverified vendor, three contracts fire on the same call: amount over cap, no compliance approval, no confirm on file. The `required_steps_completion` rule handles the skipped-onboarding case.
 
 ## ASI-10 Rogue agents
 
@@ -252,9 +243,6 @@ contracts:
   - pattern: required_steps_completion
     args: [delete_snapshot,
            [verify_not_in_dr_window, estimate_savings, log_decision]]
-  # Sponsio Cloud only:
-  - desc: "Cost reports include DR/RPO impact metrics"
-    G: { sto: metric_integrity, threshold: 0.9 }
 ```
 
 The rogue-agent pattern is rational cost-optimal behavior under the wrong KPI. Each guardrail covers a corner the agent might cut: wrong path, wrong age, wrong velocity, no human, missing audit, misleading report. The failure mode is structural, so the fix is structural.

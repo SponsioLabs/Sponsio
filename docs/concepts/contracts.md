@@ -73,7 +73,7 @@ Typical det use cases:
 - **Permissions**: static role-based access to certain tools.
 - **Exact-regex PII**: SSN, credit card, email patterns that a regex can reliably catch.
 
-Anti-pattern: do not reach for a det contract for properties that need reading the text semantically (tone, relevance, whether something is *truly* PII). Those belong in a *stochastic contract* (Sponsio Cloud).
+Anti-pattern: do not reach for a det contract for properties that need reading the text semantically (tone, relevance, whether something is *truly* PII). Sponsio's deterministic engine does not evaluate those; keep contracts to what is structurally observable.
 
 ---
 
@@ -94,6 +94,5 @@ In **observe mode**, no strategy runs. Violations are logged and surfaced in rep
 ## Next
 
 - [Pattern catalog](../reference/patterns.md). Every det pattern that ships, with NL form.
-- *Stochastic contracts* (Sponsio Cloud, `pip install sponsio[cloud]`). When structural checks are not enough.
 - [Architecture](architecture.md). LTL semantics, grounding internals, atom vocabulary.
 - [Write your first contract](../getting-started/first-contract.md). Hands-on walkthrough.

@@ -359,7 +359,7 @@ Apply this matrix:
 | Local dev | leave defaults |
 | Staging | enable `audit_after` on destructive tools (logs every action); keep delete rules permissive |
 | Production | move `delete_*` from `rate_limit 0` to **assumption-gated** — require an explicit `confirm_reconfirmed` tool emission (see existing pattern in `capability/shell` §4) |
-| Regulated / PII | tighten sto rules — `core/universal`'s β from 0.95 → 0.99; force `semantic_pii_free` even on agents that don't currently include it |
+| Regulated / PII | tighten the deterministic PII / dangerous-arg rules and lower their thresholds; add `no_pii` response checks on agents that don't currently include them |
 
 ### 4.4 — known-false-positive customizations
 

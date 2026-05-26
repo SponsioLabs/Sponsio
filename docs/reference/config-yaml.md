@@ -40,12 +40,9 @@ agents:
       - name: "refund rate limit"
         G: "tool `issue_refund` at most 5 times"
         strategy: escalate
-      - name: "response scope"
-        G:
-          pattern: scope_respect
-          args: ["customer support about orders, refunds, accounts"]
-        beta: 0.85
-        risk_profile: cautious
+      - name: "no destructive deletes"
+        G: "bash command must not contain `rm -rf`"
+        strategy: block
 ```
 
 ---
@@ -87,9 +84,6 @@ Each entry in `contracts:` has these fields:
 | `E` | string \| object | yes | Enforcement. The rule itself. |
 | `strategy` | string | no | `block`, `escalate`, `retry_with_constraint`, `redirect_to_safe`, or a dotted callable path. |
 | `mode` | `observe` \| `enforce` | no | Per-contract override. |
-| `alpha` | float 0–1 | no | Sto only. Assumption confidence threshold. |
-| `beta` | float 0–1 | no | Sto only. Guarantee confidence threshold. |
-| `risk_profile` | string | no | Sto only, `cautious`, `balanced`, `permissive`; sets α/β for you. |
 
 ### Shorthand form
 
@@ -107,13 +101,11 @@ For patterns that need typed arguments (lists, regex tuples, threshold floats). 
 
 ```yaml
 - G:
-    pattern: scope_respect
-    args: ["customer support about orders, refunds, accounts"]
-    context_scope: event         # event | last_k | full_trace
-  beta: 0.85
+    pattern: arg_blacklist
+    args: ["bash", "rm -rf"]
 ```
 
-See the [pattern catalog](patterns.md) for det patterns and the *sto atom catalog* (Sponsio Cloud) for sto atoms.
+See the [pattern catalog](patterns.md) for the full list of deterministic patterns.
 
 ---
 
@@ -163,7 +155,6 @@ guard = Sponsio(config="sponsio.yaml", agent_id="support_bot")
 
 ## Next
 
-- [Pattern catalog](patterns.md). Every det pattern with NL form.
-- *Sto atom catalog* (Sponsio Cloud). Every sto atom.
+- [Pattern catalog](patterns.md). Every deterministic pattern with NL form.
 - [CLI reference](cli.md), `sponsio scan`, `sponsio validate`, `sponsio doctor`.
 - [Contract sources](../guides/contract-sources.md). Scan, policy-doc mining, trace mining.

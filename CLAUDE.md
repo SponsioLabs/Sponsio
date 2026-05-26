@@ -17,7 +17,7 @@ import sponsio
 guard = sponsio.Sponsio(...)
 ```
 
-Sponsio Cloud (`pip install sponsio[cloud]`) adds a separate stochastic pipeline for fuzzy properties (tone, relevance, semantic PII, scope respect, hallucination, metric integrity) backed by LLM-judged atoms. The OSS engine ships **only deterministic contracts** — a YAML library that names a sto pattern raises `ConfigError` at load with a pointer to the Cloud install. Deterministic patterns covering syntactic PII / response length / response keyword bans (`no_pii`, `max_length`, `no_keywords`) remain available in OSS; they're regex-against-`llm_said` and don't need a judge. See [docs/reference/oss-scope.md](docs/reference/oss-scope.md) for the full OSS / Cloud boundary.
+Sponsio ships **only deterministic contracts**: pure-Python checks over the trace, with no LLM in the runtime hot path. Patterns covering syntactic PII / response length / response keyword bans (`no_pii`, `max_length`, `no_keywords`) are regex-against-`llm_said` and need no judge.
 
 ## Positioning
 
@@ -27,7 +27,6 @@ When explaining Sponsio, emphasize:
 - **Temporal trace contracts**: Rules can express ordering and history, such as "A before B", "never B after A", "at most N calls", or "after AML check, loan files are immutable".
 - **Deterministic hot path**: Det checks are pure Python and do not call an LLM at runtime.
 - **Framework optionality**: Users do not need an agent framework. Custom function-calling loops can use `guard.guard_before()` / `guard.guard_after()` directly.
-- **Sto as a second pipeline**: Sponsio also supports LLM-judged stochastic atoms for fuzzy response/trace properties when deterministic checks are not enough.
 
 Do **not** describe Sponsio as only an output assertion library, only a prompt guardrail, or primarily a drift/reliability scoring framework. A concise distinction:
 
@@ -39,22 +38,21 @@ For product-level questions:
 
 - `README.md` — public positioning, quick start, demos, benchmarks
 - `QUICKSTART.md` — install and first integration (repo root)
-- `docs/reference/cli.md` — `sponsio scan`, `validate`, `check`, `demo`, `report`, `serve`
+- `docs/reference/cli.md` — `sponsio scan`, `validate`, `check`, `demo`, `report`
 - `docs/integrations/index.md` — framework-specific wiring
 
 For architecture and contract questions:
 
 - `docs/concepts/architecture.md` — conceptual model, atoms, patterns, grounding, observation boundaries
 - `docs/concepts/contracts.md` — deterministic constraints and atom vocabulary
-- *(Sponsio Cloud)* `docs/sto-atoms.md` — stochastic atom catalog and framework wiring (in the cloud repo)
+
 For implementation:
 
 - `sponsio/core.py` — `sponsio.Sponsio()` factory and framework resolution
 - `sponsio/integrations/base.py` — `BaseGuard`, contract compilation, enforcement hooks
-- `sponsio/runtime/monitor.py` — det/sto dispatch and enforcement routing
+- `sponsio/runtime/monitor.py` — det dispatch and enforcement routing
 - `sponsio/runtime/verifier.py` — trace-aware contract verification
 - `sponsio/patterns/library.py` — deterministic pattern factories
-- *(Sponsio Cloud)* `sponsio/patterns/sto_catalog.py` — built-in stochastic evaluators/atoms; OSS ships an empty stub. The full catalog lives in the cloud repo
 - `sponsio/generation/nl_to_contract.py` — natural-language parsing
 - `sponsio/tracer/grounding.py` — event-to-atom grounding
 - `sponsio/formulas/formula.py` and `sponsio/formulas/evaluator.py` — formula AST and finite-trace evaluator
@@ -64,7 +62,7 @@ For implementation:
 ```text
 sponsio/
 ├── core.py            public entrypoint: sponsio.Sponsio()
-├── cli.py             CLI: scan, validate, check, serve, demo, patterns, report
+├── cli.py             CLI: scan, validate, check, demo, patterns, report
 ├── config.py          YAML config loader
 ├── demos/             packaged mock demos used by `sponsio demo`
 ├── discovery/         code/docs/traces -> proposed contracts
@@ -72,7 +70,7 @@ sponsio/
 ├── generation/        NL -> contract parsing and optional LLM extraction
 ├── integrations/      framework adapters; all contract logic lives in BaseGuard
 ├── models/            Agent, Contract, System, Trace, Event, spans
-├── patterns/          deterministic library + stochastic catalog/registry
+├── patterns/          deterministic pattern library
 ├── reporting/         shadow-mode report aggregation/rendering
 ├── runtime/           monitor, verifier, strategies, feedback, session logging
 ├── scoring/           tool configuration risk scoring
@@ -81,18 +79,14 @@ sponsio/
 ts/                    TypeScript workspace (npm workspaces)
 ├── packages/sdk/      @sponsio/sdk: det engine + framework integrations
 └── packages/sdk/  @sponsio/sdk: AST static scanner CLI
-docs/                  user-facing documentation (see `docs/reference/oss-scope.md`
-                       for the OSS / Sponsio Cloud boundary)
+docs/                  user-facing documentation
 scripts/               one-off maintenance utilities (e.g. plugin sync)
 tests/                 pytest suite
 ```
 
-The `api/` FastAPI backend AND the `web/` React dashboard (multi-tenant
-auth, OTel ingest, monitor / score / leaderboard / playground routers
-+ the matching frontend) were moved to Sponsio Cloud (`pip install
-sponsio[cloud]`); neither ships in OSS. Local single-user observability
-uses `sponsio host trace --follow` / `sponsio report` / `sponsio replay
-<session>` / `sponsio explain <contract>` /
+The `api/` and `web/` directories are not part of this repo. Local
+single-user observability uses `sponsio host trace --follow` / `sponsio
+report` / `sponsio replay <session>` / `sponsio explain <contract>` /
 `sponsio.tracer.exporters.OtlpHttpExporter`.
 
 ## Core Invariants
@@ -100,13 +94,12 @@ uses `sponsio host trace --follow` / `sponsio report` / `sponsio replay
 - `sponsio/` core should avoid hard dependencies on framework packages. Framework deps belong in `[project.optional-dependencies]`.
 - Framework adapters should inherit from `BaseGuard` and keep framework-specific code thin.
 - Det violations route through det strategies such as `DetBlock` or `EscalateToHuman`.
-- Sto violations route through sto strategies such as `RetryWithConstraint` or `RedirectToSafe`.
 - The trace is append-only during a session. In enforce mode, a hard-blocked event may be rolled back so later checks are not poisoned.
 - Grounding produces one valuation dict per timestep; formula evaluators consume valuations, not raw events.
 
-## Deterministic vs Stochastic
+## What Deterministic Contracts Cover
 
-Use deterministic contracts when the property is structurally observable:
+Deterministic contracts handle properties that are structurally observable:
 
 - tool ordering
 - rate limits
@@ -116,17 +109,7 @@ Use deterministic contracts when the property is structurally observable:
 - exact PII regexes, length, format
 - permissions and allowlists
 
-Use stochastic constraints when the property needs semantic judgment:
-
-- tone
-- relevance
-- semantic PII
-- scope respect
-- hallucination
-- faithfulness
-- metric integrity / omission
-
-Do not suggest a judge call for properties that are exactly checkable with regexes, counters, paths, or ordering.
+These are exactly checkable with regexes, counters, paths, or ordering, with no LLM judge in the loop.
 
 ## Python / TypeScript Parity
 
@@ -142,7 +125,7 @@ Python and TypeScript share the deterministic core. When changing these Python f
 
 Cross-language scenarios live in `tests/cross_language/scenarios.json`.
 
-The TS SDK covers deterministic runtime enforcement. Python currently has the broader surface: sto pipeline, DFA/verifier work, YAML config, discovery, dashboard, OTEL, and reporting.
+The TS SDK covers deterministic runtime enforcement. Python currently has the broader surface: DFA/verifier work, YAML config, discovery, OTEL, and reporting.
 
 ## Common Tasks
 
@@ -154,13 +137,6 @@ The TS SDK covers deterministic runtime enforcement. Python currently has the br
 4. Add tests for pattern behavior and NL parsing.
 5. Update README/docs if the pattern is public.
 6. Check TypeScript parity if the pattern belongs in the TS det core.
-
-### Add a stochastic atom
-
-1. *Sponsio Cloud only.* Register it in `sponsio/patterns/sto_catalog.py` with `@register_sto_atom` (in the cloud repo — OSS exports an empty registry).
-2. Decide the context scope: event, last_k, or full_trace.
-3. Add tests around evaluator behavior and prompting.
-4. Document wiring in the cloud-side `docs/sto-atoms.md` if user-facing.
 
 ### Add an integration
 
@@ -176,8 +152,6 @@ The TS SDK covers deterministic runtime enforcement. Python currently has the br
 - The import path is `sponsio`, not `Sponsio`.
 - Prefer the framework-specific factory for new examples — e.g. `from sponsio.langgraph import Sponsio` then `guard = Sponsio(...)`. The generic `sponsio.Sponsio(framework="langgraph", ...)` works too but is less idiomatic.
 - `DetFormula` wraps a raw formula plus metadata. Use `.formula` for the AST and `.desc` for the human-readable description.
-- Do not claim all constraints are deterministic. Sponsio has both det and sto pipelines.
-- Do not claim sto checks are zero-LLM. Some are lightweight, but LLM-judged sto atoms require a configured judge.
 - Do not claim OTEL ingestion can block actions. OTEL-based observation is post-hoc unless combined with framework hooks.
 - Do not claim prompt engineering is unnecessary. Prompting still defines intent; Sponsio enforces action boundaries.
 - Do not invent benchmark numbers. Cite the root `README.md` § Benchmarks table if present, or internal eval notes — detailed benchmark tables are not maintained in the public documentation tree.
@@ -192,11 +166,4 @@ ruff check sponsio/ tests/ scripts/
 ruff format sponsio/ tests/ scripts/
 sponsio demo --scenario freeze --fast
 sponsio validate "tool `check_policy` must precede `issue_refund`"
-```
-
-Frontend/dashboard:
-
-```bash
-cd web && npm install && npm run dev
-sponsio serve --dev   # Sponsio Cloud (`pip install sponsio[cloud]`)
 ```

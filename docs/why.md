@@ -13,7 +13,7 @@ Sponsio operates at the **action boundary** — checking which tool a model is a
 | ------------------------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | **Prompt-injection Filters**          | Pre-generation, on input text                               | Drifts on novel phrasings; sees text, not tool calls; no notion of action history                        | Enforces *which* tools may run, *in what* order, *with what* arguments, before function call executes, with full trace context            |
 | **Output Validators**                 | Post-generation, on response strings                        | The mistakes (e.g. refund, DB write, API call) may already have fired                                    | Blocks the call *before* execution; reasons over the full action history, not just the latest string                                      |
-| **LLM-as-Judge**                      | Flexible, handles fuzzy properties; useful for offline eval | Stochastic verdicts, hundreds-of-ms latency, itself prompt-injectable — unsuitable as a synchronous gate | Sub-0.01ms deterministic checks, zero LLM in the hot path; stochastic pipeline is opt-in for fuzzy properties                             |
+| **LLM-as-Judge**                      | Flexible, handles fuzzy properties; useful for offline eval | Non-deterministic verdicts, hundreds-of-ms latency, itself prompt-injectable, unsuitable as a synchronous gate | Sub-0.01ms deterministic checks, zero LLM in the hot path                             |
 | **Sandboxing & Access Control Lists** | Strong perimeter for identity- and resource-level isolation | Narrows agent capability. Gates by *who* and *what resource*, not by *behavior sequence*                 | Enforces temporal contracts over the action sequence, including ordering, history, and multi-step invariants, preserving agent capability |
 
 ## Compared to other deterministic enforcers
@@ -25,7 +25,7 @@ Sponsio operates at the **action boundary** — checking which tool a model is a
 **3. Zero to protected in minutes, no DSL learning curve.** Existing tools require hand-written YAML / Rego / Cedar policies from scratch. Sponsio offers four paths in:
 
 - **Auto-inferred** — `sponsio init` (interactive wizard) reads your tool signatures and writes starter contracts
-- **Contract library** — include pre-built bundles by capability (`sponsio:capability/shell`, `…/filesystem`) or by incident (`sponsio:incident/openclaw`); each bundle composes 44 det patterns underneath (sto atoms ship in Sponsio Cloud)
+- **Contract library** — include pre-built bundles by capability (`sponsio:capability/shell`, `…/filesystem`) or by incident (`sponsio:incident/openclaw`); each bundle composes 44 deterministic patterns underneath
 - **Natural language** — `sponsio validate "..."` compiles plain English to LTL
 - **Policy doc** — `sponsio scan --policy security.md` parses an existing compliance document
 

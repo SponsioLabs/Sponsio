@@ -97,6 +97,6 @@ Patches, issue reports, and new pattern proposals are welcome. Start with [CONTR
 
 ## License
 
-Apache 2.0 ([LICENSE](LICENSE)). Sponsio Cloud (`pip install sponsio[cloud]`) opens mid-May 2026 with the managed LLM-judge pipeline, cross-customer pattern intelligence, and hosted multi-tenant dashboard; the [OSS / Cloud boundary](OSS_PROMISE.md) is documented.
+Apache 2.0 ([LICENSE](LICENSE)).
 
 *AI agents reading this repo: [`llms.txt`](llms.txt) lists canonical doc paths; [`llms-full.txt`](llms-full.txt) is the concatenated full context dump.*

@@ -20,9 +20,9 @@ of what is and isn't available in TS so users can plan around it.
 - Cross-language test scenarios in [`tests/cross_language/scenarios.json`](../../tests/cross_language/scenarios.json)
   pass on both runtimes
 
-## OSS scope: both sides are det-only
+## Both sides are det-only
 
-Stochastic atoms are not shipped in the OSS engine, on either Python or TS. Python's `sponsio/patterns/sto.py` has been removed; TS's `core/sto.ts` is a schema-only stub. The sto pipeline is a Sponsio Cloud feature on both sides. So the parity gap discussed below is the gap between two **det** runtimes.
+The engine is deterministic on both Python and TS. So the parity gap discussed below is the gap between two **det** runtimes.
 
 ## What's missing on the TS side
 
@@ -44,7 +44,7 @@ The TS pattern library (`ts/packages/sdk/src/core/patterns.ts`) implements rough
 | `data_intact(action, paths)` | Path immutability |
 | Plus a few smaller helpers around content / data-flow |
 
-Workaround: express these as raw `Atom` formulas, or run them through the Python guard via the dashboard or OTEL bridge.
+Workaround: express these as raw `Atom` formulas, or run them through the Python guard via the OTEL bridge.
 
 ### Grounding predicates (atoms)
 
@@ -84,8 +84,8 @@ Track issues tagged `area:ts-parity` for status. Priority order:
 
 ## What to do today if you need a missing feature
 
-1. **Run the Python guard alongside the TS app.** The dashboard / OTEL
-   bridge accepts traces from either runtime; mixed deployments work.
+1. **Run the Python guard alongside the TS app.** The OTEL bridge
+   accepts traces from either runtime; mixed deployments work.
 2. **Construct the AST manually.** If the missing piece is a pattern
    that compiles to existing TS nodes, you can build the `Formula`
    directly. Patterns are just factories.

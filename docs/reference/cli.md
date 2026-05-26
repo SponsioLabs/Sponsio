@@ -185,7 +185,7 @@ Health checks: install integrity, config syntax, framework wiring.
 sponsio doctor
 ```
 
-## sponsio refresh (Sponsio Cloud)
+## sponsio refresh
 
 Re-mine `source: trace` contracts from recent sessions.
 
@@ -194,15 +194,7 @@ sponsio refresh --since 7d           # dry-run
 sponsio refresh --since 7d --apply   # write back, with .sponsio.bak
 ```
 
-User-written rules and `customized:` blocks pass through unchanged. Requires `pip install sponsio[cloud]`.
-
-## sponsio serve (Sponsio Cloud)
-
-```bash
-sponsio serve
-```
-
-The OSS package ships a stub that exits 2 and points at the Cloud install. For OSS-only observability, use `sponsio host trace --follow` (live stream) or `sponsio report --since 1h` (summary).
+User-written rules and `customized:` blocks pass through unchanged. Mines your own local session log.
 
 ## sponsio packs
 
@@ -212,7 +204,7 @@ List shipped contract packs with rule counts and `include:` syntax.
 sponsio packs
 ```
 
-Reads from `sponsio/contracts/` and prints one row per pack: spec name, tier, rule count, det / sto / mixed, one-line summary. Useful right after `sponsio scan` / `sponsio init` to see what a generated yaml's `include:` lines pull in.
+Reads from `sponsio/contracts/` and prints one row per pack: spec name, tier, rule count, one-line summary. Useful right after `sponsio scan` / `sponsio init` to see what a generated yaml's `include:` lines pull in.
 
 ## sponsio eval
 
@@ -328,4 +320,3 @@ Cross-language scenarios in `tests/cross_language/` validate identical verdicts 
 |---|---|
 | 0 | Success |
 | 1 | Parse error, violation, or missing input |
-| 2 | Cloud-only command in OSS install |

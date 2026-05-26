@@ -47,14 +47,11 @@ Source of truth: [`sponsio/tracer/semconv.py`](../../sponsio/tracer/semconv.py).
 
 ```
 sponsio.agent_turn                 (root, one per check_action)
-├── sponsio.contract_check         (one per contract evaluated)
-│   ├── sponsio.precondition       (assumption phase, det only)
-│   ├── sponsio.guarantee          (enforcement phase, det only)
-│   ├── sponsio.sto_eval           (sto judge call, sto pipeline)
-│   ├── sponsio.violation          (only when a phase fails)
-│   └── sponsio.enforcement        (only when a strategy fires)
-└── sponsio.sto_check              (container for the sto pipeline)
-    └── sponsio.sto_eval           (per-prop evaluations)
+└── sponsio.contract_check         (one per contract evaluated)
+    ├── sponsio.precondition       (assumption phase)
+    ├── sponsio.guarantee          (enforcement phase)
+    ├── sponsio.violation          (only when a phase fails)
+    └── sponsio.enforcement        (only when a strategy fires)
 ```
 
 ### Root: `sponsio.agent_turn`
@@ -70,8 +67,7 @@ sponsio.agent_turn                 (root, one per check_action)
 | `sponsio.outcome.blocked` | Did any contract block this turn? |
 | `sponsio.outcome.status` | `ok`, `violated`, `error`. |
 | `sponsio.contracts_checked` | Total contracts evaluated. |
-| `sponsio.det_violations` | Det-pipeline violations. |
-| `sponsio.sto_violations` | Sto-pipeline violations. |
+| `sponsio.det_violations` | Contract violations. |
 | `sponsio.turn.duration_ns` | Total time spent in `check_action`. |
 
 ### Contract: `sponsio.contract_check`
@@ -80,10 +76,7 @@ sponsio.agent_turn                 (root, one per check_action)
 |---|---|
 | `sponsio.contract.label` | Human description from the yaml `desc:` field. |
 | `sponsio.contract.id` | Stable id for cross-session aggregation. |
-| `sponsio.contract.pipeline` | `det` or `sto`. |
 | `sponsio.contract.source` | `user_policy`, `shipped_pack`, `agent_inferred`, `manual`. |
-| `sponsio.contract.alpha` | Sto assumption-trigger threshold. |
-| `sponsio.contract.beta` | Sto enforcement-pass threshold. |
 | `sponsio.contract.assumption_holds` | Final assumption verdict. |
 | `sponsio.contract.enforcement_holds` | Final enforcement verdict. |
 
@@ -97,26 +90,11 @@ sponsio.agent_turn                 (root, one per check_action)
 | `sponsio.constraint.fresh` | True iff the just-appended event caused the failure. |
 | `sponsio.constraint.eval_pos` | Position the contract was evaluated at. |
 
-### Sto eval: `sponsio.sto_eval`
-
-These attributes only emit on Sponsio Cloud installs (`pip install sponsio[cloud]`). The OSS engine ships no sto evaluator, so no `sto_eval` spans are produced.
-
-| Attribute | Description |
-|---|---|
-| `sponsio.constraint.atom` | Registered atom name (`no_pii`, `tone_polite`). |
-| `sponsio.constraint.score` | Judge confidence in [0, 1]. |
-| `sponsio.constraint.threshold` | Pass/fail threshold (β). |
-| `sponsio.constraint.passed` | `score >= threshold`. |
-| `sponsio.constraint.evidence` | Judge's one-line explanation, truncated to 1 KB. |
-| `sponsio.constraint.suggestion` | Optional fix hint surfaced into retry prompts. |
-| `sponsio.judge.model` | LLM model identifier. |
-| `sponsio.judge.latency_ms` | Wall-clock judge call latency. |
-
 ### Violation: `sponsio.violation`
 
 | Attribute | Description |
 |---|---|
-| `sponsio.violation.kind` | `assumption`, `guarantee`, `sto`, `liveness`. |
+| `sponsio.violation.kind` | `assumption`, `guarantee`, `liveness`. |
 | `sponsio.violation.severity` | `HIGH`, `MEDIUM`, `LOW`. |
 | `sponsio.violation.evidence` | Human-readable evidence. |
 | `sponsio.violation.policy_ref` | Optional traceback to source-of-truth (`policy.md ¶1`). |
@@ -127,7 +105,7 @@ These attributes only emit on Sponsio Cloud installs (`pip install sponsio[cloud
 |---|---|
 | `sponsio.enforcement.strategy` | `DetBlock`, `EscalateToHuman`, `RetryWithConstraint`, `RedirectToSafe`. |
 | `sponsio.enforcement.action` | `blocked`, `escalated`, `retrying`, `redirected`, `observed`. |
-| `sponsio.enforcement.retry_prompt` | Sto retry-with-lesson prompt, truncated to 2 KB. |
+| `sponsio.enforcement.retry_prompt` | Retry-with-lesson prompt, truncated to 2 KB. |
 | `sponsio.enforcement.fallback_action` | Fallback action name for RedirectToSafe. |
 
 ## Privacy and cost defaults
@@ -135,7 +113,7 @@ These attributes only emit on Sponsio Cloud installs (`pip install sponsio[cloud
 The writer is conservative by default.
 
 - `redact_args=True` strips values from any key matching `password|token|secret|key|auth` (case-insensitive, leaves key names visible).
-- `truncate=True` caps tool args at 4 KB, sto evidence at 1 KB, sto retry prompts at 2 KB. Truncation marks bytes lost (`(+1.2 KB truncated)`).
+- `truncate=True` caps tool args at 4 KB and retry prompts at 2 KB. Truncation marks bytes lost (`(+1.2 KB truncated)`).
 - Per-conversation trace files under `~/.sponsio/plugins/<bucket>/conv-*.shield-trace.jsonl` are never exported. They live only on the local filesystem.
 
 For full fidelity (regression test corpora, internal incident replay), opt out:
@@ -150,7 +128,6 @@ OtlpHttpExporter(redact_args=False, truncate=False)
 |---|---|
 | Per-conversation `shield-trace.jsonl` | Carries raw tool args from prior subprocesses with no verdict context. Internal cross-process trace state. |
 | `~/.sponsio/cursor-subagents.jsonl` | Internal subagent registry, not user-facing. |
-| Atom caches | Score memo, no audit value. |
 | User prompt original text | Default redacted because user prompts can carry PII or secrets. Opt in to `redact_args=False` only after legal sign-off. |
 
 ## Versioning

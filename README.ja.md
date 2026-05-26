@@ -97,6 +97,6 @@ agents:
 
 ## ライセンス
 
-Apache 2.0（[LICENSE](LICENSE)）。Sponsio Cloud（`pip install sponsio[cloud]`）は 2026 年 5 月中旬にオープンし、マネージド LLM-judge パイプライン、顧客横断のパターン インテリジェンス、ホストされたマルチテナント ダッシュボードを追加します。[OSS / Cloud の境界](OSS_PROMISE.md) は完全に文書化されています。
+Apache 2.0（[LICENSE](LICENSE)）。
 
 *このリポジトリを読む AI エージェントへ: [`llms.txt`](llms.txt) は正規ドキュメント パスをリストし、[`llms-full.txt`](llms-full.txt) は完全な文脈の連結ダンプです。*
