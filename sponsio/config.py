@@ -187,17 +187,17 @@ class ExtractorSection:
 
 @dataclass
 class JudgeSection:
-    """Runtime sto-judge config (consumed by Cloud's StoEvaluator).
+    """Runtime sto-judge config (consumed by sto evaluators).
 
-    Runtime judging happens on every guarded turn — latency, cost,
+    Runtime judging happens on every guarded turn: latency, cost,
     and resilience matter.  Most users want a *cheaper, faster* model
     here (e.g. ``gpt-4o-mini``, ``gemini-2.5-flash``) and care about
     the fault-tolerance knobs.
 
-    Sponsio Cloud only — OSS rejects sto contracts at config load
-    and never reaches a judge. Defaults match Cloud's
-    ``CloudStoEvaluator`` so an empty section behaves exactly like
-    the programmatic default once Cloud is installed.
+    The sto pipeline is an extension point; this build rejects sto
+    contracts at config load and never reaches a judge. Defaults match
+    the reference sto evaluator so an empty section behaves like the
+    programmatic default once an implementation is plugged in.
     """
 
     provider: str | None = None
@@ -1454,9 +1454,9 @@ def _compile_structured(entry: ConstraintEntry) -> Any:
 
     Resolves ``entry.pattern`` against the deterministic pattern library
     (:func:`sponsio.generation.nl_to_contract.get_available_patterns`).
-    Stochastic / LLM-judged contracts are a Sponsio Cloud feature; the
-    OSS engine doesn't ship that pipeline, so an unknown pattern here
-    is a hard parse error rather than a silent fall-through.
+    Stochastic / LLM-judged contracts are an extension point that this
+    build does not ship, so an unknown pattern here is a hard parse
+    error rather than a silent fall-through.
     """
     from sponsio.generation.nl_to_contract import get_available_patterns
 
@@ -1465,8 +1465,8 @@ def _compile_structured(entry: ConstraintEntry) -> Any:
         raise ConfigError(
             f"Unknown pattern '{entry.pattern}'. "
             f"Available patterns: {sorted(det_registry.keys())}. "
-            f"(LLM-judged stochastic patterns require Sponsio Cloud — "
-            f"`pip install sponsio[cloud]`.)"
+            f"(LLM-judged stochastic patterns are not supported in this "
+            f"build; the engine is deterministic-only.)"
         )
 
     fn = det_registry[entry.pattern]
@@ -1792,18 +1792,18 @@ def build_extractor(section: ExtractorSection) -> Any:
 def build_sto_evaluator(section: JudgeSection) -> Any:
     """Construct a ``StoEvaluator`` from a ``judge:`` section.
 
-    OSS ships no ``StoEvaluator`` implementation; this helper is a
-    thin wrapper over the entry-point auto-discovery that lives in
-    :func:`sponsio.integrations.base._discover_sto_evaluator`. When
-    Cloud is installed the discovered ``CloudStoEvaluator`` is
-    instantiated and returned (without forwarding section knobs —
-    the Cloud impl reads its own config); otherwise raises with a
-    pointer to ``pip install sponsio[cloud]``.
+    This build ships no ``StoEvaluator`` implementation; this helper is
+    a thin wrapper over the entry-point auto-discovery that lives in
+    :func:`sponsio.integrations.base._discover_sto_evaluator`. When an
+    implementation is registered via the ``sponsio.evaluators``
+    entry-point group it is instantiated and returned (without
+    forwarding section knobs, since the impl reads its own config);
+    otherwise raises ``ConfigError``.
 
-    Section knobs (``fallback_mode``, ``circuit_breaker``, …) are
+    Section knobs (``fallback_mode``, ``circuit_breaker``, ...) are
     parsed and validated by ``JudgeSection`` itself; they're advisory
-    here because the OSS layer can't know which Cloud impl is going
-    to be discovered or what its constructor expects.
+    here because this layer can't know which impl is going to be
+    discovered or what its constructor expects.
     """
     from sponsio.integrations.base import _discover_sto_evaluator
 
@@ -1811,12 +1811,11 @@ def build_sto_evaluator(section: JudgeSection) -> Any:
     if ev is None:
         raise ConfigError(
             "judge: section requires a StoEvaluator implementation. "
-            "The OSS engine ships none — install Sponsio Cloud with "
-            "`pip install sponsio[cloud]` and the implementation will "
-            "be auto-discovered via the `sponsio.evaluators` "
-            "entry-point group."
+            "This build ships none; register one via the "
+            "`sponsio.evaluators` entry-point group for it to be "
+            "auto-discovered."
         )
-    # Section is currently unused — Cloud impls read their own config.
+    # Section is currently unused; impls read their own config.
     # Kept on the signature so existing callers pass through unchanged.
     del section
     return ev

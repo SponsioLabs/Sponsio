@@ -77,11 +77,11 @@ class Verdict:
         suggestion: Optional fix hint surfaced into retry prompts.
         policy_key: Stable lookup key for the user-configured policy map.
             For det verdicts this equals ``desc``. For sto verdicts ``desc``
-            is augmented with ``[conf=…, β=…]`` for human display, but
-            ``policy_key`` keeps the bare ``_describe(constraint, …)``
+            is augmented with ``[conf=..., beta=...]`` for human display,
+            but ``policy_key`` keeps the bare ``_describe(constraint, ...)``
             string so ``self._policy[stable_key]`` still resolves the
-            user's policy overrides (Cloud's RetryWithConstraint /
-            RedirectToSafe land on this same key).
+            user's policy overrides (any RetryWithConstraint /
+            RedirectToSafe strategy lands on this same key).
             Empty string falls back to ``desc`` for backward compatibility.
         fresh: Whether the latest trace event itself caused this verdict's
             outcome. Only meaningful for ``holds=False`` guarantees:
@@ -123,12 +123,13 @@ class Verdict:
     def is_sto(self) -> bool:
         """True iff this verdict came from the probabilistic-lifting path.
 
-        Always ``False`` in OSS (the lifting path lives in
-        ``sponsio_cloud.sto.lifting``). Cloud sets ``score`` on verdicts
-        it produces so its own dispatch can pick the sto-aware
-        enforcement path (``RetryWithConstraint`` + lesson) over the
-        det ``DetBlock`` path. Kept in the OSS schema so callers /
-        reporters / session-loggers can branch consistently.
+        Always ``False`` in this build (the lifting path is an
+        extension point with no implementation included). An injected
+        sto evaluator can set ``score`` on verdicts it produces so its
+        own dispatch can pick the sto-aware enforcement path
+        (``RetryWithConstraint`` + lesson) over the det ``DetBlock``
+        path. Kept in the schema so callers / reporters /
+        session-loggers can branch consistently.
         """
         return self.score is not None
 
@@ -536,7 +537,8 @@ class TraceVerifier:
             raise ValueError(
                 f"check_nl() only supports det (formal) rules; "
                 f"{nl!r} parsed as a sto constraint. Sto evaluation is "
-                f"a Sponsio Cloud feature — `pip install sponsio[cloud]`."
+                f"not supported in this build (the engine is "
+                f"deterministic-only)."
             )
         raise ValueError(
             f"check_nl() could not parse {nl!r} as a det rule. "

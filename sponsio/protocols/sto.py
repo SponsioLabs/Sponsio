@@ -1,16 +1,15 @@
 """Stochastic-evaluation Protocol surface.
 
-The OSS engine doesn't ship an LLM-judged sto pipeline; that's a
-proprietary feature shipped in the ``sponsio-cloud`` package
-(``pip install sponsio[cloud]``). This module defines the abstract
-contract a sto pipeline must honour. ``BaseGuard.__init__`` accepts an
-optional ``sto_evaluator: StoEvaluator | None`` argument typed against
-this Protocol — any object whose method signatures match is accepted,
-regardless of inheritance.
+This build doesn't ship an LLM-judged sto pipeline; sto is an
+extension point with no implementation included. This module defines
+the abstract contract a sto pipeline must honour. ``BaseGuard.__init__``
+accepts an optional ``sto_evaluator: StoEvaluator | None`` argument
+typed against this Protocol; any object whose method signatures match
+is accepted, regardless of inheritance.
 
-Cloud / third-party implementations live in their own packages and
-register themselves via the ``sponsio.evaluators`` entry-point group
-so users get auto-discovery without explicit injection.
+Third-party implementations live in their own packages and register
+themselves via the ``sponsio.evaluators`` entry-point group so users
+get auto-discovery without explicit injection.
 """
 
 from __future__ import annotations
@@ -26,9 +25,9 @@ class StoResult:
     """Result of evaluating one sto constraint against a trace.
 
     Implementations return one of these per registered evaluator.
-    OSS treats it as an opaque scored verdict; downstream rendering
-    code (``sponsio explain``, dashboards) reads the fields directly,
-    so the schema is part of the public contract.
+    The runtime treats it as an opaque scored verdict; downstream
+    rendering code (``sponsio explain``, dashboards) reads the fields
+    directly, so the schema is part of the public contract.
 
     Attributes:
         score: Confidence score in ``[0.0, 1.0]``. Higher = more
@@ -49,14 +48,13 @@ class StoResult:
 
 @runtime_checkable
 class StoEvaluator(Protocol):
-    """Sto constraint evaluator interface — implemented out-of-tree.
+    """Sto constraint evaluator interface, implemented out-of-tree.
 
-    Sponsio Cloud's ``CloudStoEvaluator`` (in the proprietary
-    ``sponsio-cloud`` package) is the canonical implementation. Third
-    parties can implement this Protocol against their own LLM-judge
-    backends; structural typing means no inheritance is required.
+    No implementation is bundled with this build. Third parties can
+    implement this Protocol against their own LLM-judge backends;
+    structural typing means no inheritance is required.
 
-    The OSS runtime never instantiates an ``StoEvaluator``; it only
+    The runtime never instantiates an ``StoEvaluator``; it only
     *consumes* one passed in via ``BaseGuard(sto_evaluator=...)`` or
     discovered via the ``sponsio.evaluators`` entry-point group.
     """

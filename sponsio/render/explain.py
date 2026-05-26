@@ -10,8 +10,8 @@ answers that:
     the local session log, if any
   - shows a generic "how to resolve" pointer
 
-OSS-only — Cloud installs layer LLM-driven fix hints + cross-trace
-patterns on top via a separate ``cloud.explain`` overlay.
+Richer overlays (LLM-driven fix hints, cross-trace patterns) are an
+extension point and not part of this build.
 """
 
 from __future__ import annotations
@@ -329,8 +329,9 @@ def _trim(s: str, n: int) -> str:
 def _resolution_hints(contract: Any) -> list[str]:
     """Generic hints derived from contract shape.
 
-    Cloud's overlay replaces this with LLM-judged contextual fixes; in
-    OSS we lean on what's structurally inferable from the pattern type.
+    An optional overlay can replace this with LLM-judged contextual
+    fixes; here we lean on what's structurally inferable from the
+    pattern type.
     """
     hints: list[str] = []
     pattern = _detect_pattern_kind(contract)

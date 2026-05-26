@@ -9,13 +9,13 @@ This is the central enforcement point.  Every agent action flows through
     -> fail:  DetBlock | EscalateToHuman | WarnOnly
 
 Each ``Contract`` is a single (assumption, enforcement) pair. Contracts
-are evaluated independently — an assumption on one contract never gates
+are evaluated independently: an assumption on one contract never gates
 the enforcement of another contract.
 
-The OSS engine is det-only. The LLM-judged stochastic pipeline (sto
+This build is det-only. The LLM-judged stochastic pipeline (sto
 evaluator + retry / redirect strategies + feedback generator + the
-sto-specific dispatch this module used to host) lives in the
-proprietary ``sponsio-cloud`` package. ``BaseGuard`` keeps a public
+sto-specific dispatch this module used to host) is an extension point
+not part of this build. ``BaseGuard`` keeps a public
 ``sto_evaluator: StoEvaluator | None`` hook (typed against
 :mod:`sponsio.protocols.sto`) and delegates to it through the
 ``check_soft`` / ``refine`` surface; this monitor stays oblivious.
@@ -56,15 +56,15 @@ class MonitorEvent:
         action: Action/tool being checked.
         constraint_name: Name of the violated constraint.
         result: The enforcement result.
-        pipeline: Which pipeline produced the event — always ``"det"``
-            from the OSS monitor. Cloud's ``StoEvaluator`` populates
+        pipeline: Which pipeline produced the event: always ``"det"``
+            from this monitor. An injected ``StoEvaluator`` populates
             ``"sto"`` on the events it emits through ``BaseGuard``.
             Kept on the dataclass so dashboards / session-loggers /
             OTel exporters can group events without sniffing the
             ``StoResult`` payload.
-        sto_result: Cloud-only sidecar populated on sto violations
-            (score, evidence, suggestion). ``None`` for everything the
-            OSS monitor emits.
+        sto_result: Sidecar populated on sto violations (score,
+            evidence, suggestion). ``None`` for everything this
+            monitor emits.
     """
 
     agent_id: str
@@ -80,20 +80,21 @@ class RuntimeMonitor:
 
     Intercepts agent actions, evaluates them against det contracts,
     and applies per-constraint enforcement strategies. Sto contracts
-    (LLM-judged atoms) are a Sponsio Cloud feature — this monitor
-    knows nothing about them; ``BaseGuard`` routes those through its
-    own ``StoEvaluator`` hook.
+    (LLM-judged atoms) are an extension point that this monitor does
+    not handle directly; ``BaseGuard`` routes those through its own
+    ``StoEvaluator`` hook.
 
     Thread safety: ``check_action``, ``reset``, ``import_trace``, and
     the ``log`` / ``turn_spans`` snapshot accessors are serialised by
     an internal :class:`~threading.RLock`. This is the configuration
-    that matters for the FastAPI demo server (``api/state.py`` —
-    thread-pool sync routes) and the MCP proxy (``sponsio.integrations.mcp`` —
-    one proxy shared across concurrent tool clients). Callbacks fire
-    *outside* the lock so a slow exporter (dashboard HTTP, OTel) can't
-    stall the agent loop. Contract authoring APIs on the underlying
-    ``System`` (e.g. ``system._contracts.append``) are **not** guarded —
-    treat contracts as write-once at startup.
+    that matters for the FastAPI demo server (``api/state.py``,
+    thread-pool sync routes) and the MCP proxy
+    (``sponsio.integrations.mcp``, one proxy shared across concurrent
+    tool clients). Callbacks fire *outside* the lock so a slow exporter
+    (dashboard HTTP, OTel) can't stall the agent loop. Contract
+    authoring APIs on the underlying ``System`` (e.g.
+    ``system._contracts.append``) are **not** guarded; treat contracts
+    as write-once at startup.
 
     Args:
         system: The System whose contracts are being enforced.

@@ -2,10 +2,10 @@
 
 DetEvaluator -> {prop: bool} -> feeds the formula evaluator / Z3.
 
-The OSS engine is det-only. The LLM-judged stochastic pipeline (the
-old ``StoEvaluator`` impl that lived here) moved to the proprietary
-``sponsio-cloud`` package; the abstract Protocol that describes the
-contract Cloud implements lives in :mod:`sponsio.protocols.sto`.
+This build is det-only. The LLM-judged stochastic pipeline is an
+extension point; no ``StoEvaluator`` implementation ships here. The
+abstract Protocol that describes the contract an implementation must
+honour lives in :mod:`sponsio.protocols.sto`.
 """
 
 from __future__ import annotations

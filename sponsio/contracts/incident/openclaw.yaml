@@ -5,10 +5,11 @@
 # Mixed det / sto pack: the §0 LLM-output contracts (injection_free,
 # jailbreak_free, harmful, semantic_pii_free, toxic_free) and §9
 # capability-specific atoms (scope_respect) are LLM-judged stochastic
-# atoms that require Sponsio Cloud (`pip install sponsio[cloud]`). The
-# OSS engine refuses to load them with a clear pointer; det rules in §1–§8
-# load and enforce as usual either way. Cloud installs activate the full
-# pack transparently via the `sponsio.evaluators` entry-point group.
+# atoms that are not supported in this build (the engine is
+# deterministic-only). The engine refuses to load them; det rules in
+# §1–§8 load and enforce as usual either way. External builds with a
+# real StoEvaluator activate the full pack transparently via the
+# `sponsio.evaluators` entry-point group.
 #
 # Schema conventions used in this file:
 #   - `desc:`                 — human-readable explanation (rendering only)

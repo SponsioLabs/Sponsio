@@ -344,9 +344,10 @@ def patterns():
         "cyan",
     )
 
-    # OSS ships only deterministic patterns. Stochastic / LLM-judged
-    # evaluators (tone, relevance, generic LLM judge, …) are a Sponsio
-    # Cloud feature; ``sponsio patterns`` shows det only.
+    # This build ships only deterministic patterns. Stochastic /
+    # LLM-judged evaluators (tone, relevance, generic LLM judge, ...)
+    # are an extension point with no implementation included;
+    # ``sponsio patterns`` shows det only.
 
 
 # ---------------------------------------------------------------------------
@@ -1634,8 +1635,8 @@ def explain(
         (scanning ``~/.sponsio/sessions/<agent>/*.jsonl``)
       - generic resolution hints based on pattern shape
 
-    The Cloud overlay layers LLM-driven contextual fix hints +
-    cross-trace pattern stats on top of the same data shape.
+    Richer overlays (LLM-driven contextual fix hints, cross-trace
+    pattern stats) are an extension point not part of this build.
     """
     import os
 
@@ -2083,7 +2084,7 @@ def report(
 
 
 # ---------------------------------------------------------------------------
-# serve (Sponsio Cloud feature stub in OSS)
+# serve (dashboard server stub)
 # ---------------------------------------------------------------------------
 
 
@@ -2092,30 +2093,23 @@ def report(
 @click.option("--port", "-p", default=DASHBOARD_DEFAULT_PORT, type=int)
 @click.option("--dev", is_flag=True)
 def serve(host: str, port: int, dev: bool):
-    """Start the Sponsio dashboard server (Sponsio Cloud feature).
+    """Start the Sponsio dashboard server.
 
-    The OSS engine ships the contract runtime + CLI; the long-lived
-    HTTP backend that serves the web dashboard is a Sponsio Cloud
-    feature. To inspect contract activity locally, use:
+    This build ships the contract runtime + CLI; the long-lived HTTP
+    backend that serves the web dashboard is not part of this
+    distribution. To inspect contract activity locally, use:
 
     \b
         sponsio host trace --follow      # live coloured stream
         sponsio report --since 1h        # session log summary
         sponsio replay <session>         # re-render a recorded session
         sponsio export-sessions --to ... # ship audit to your collector
-
-    To enable the dashboard, install the cloud package:
-
-    \b
-        pip install sponsio[cloud]
-
-    Or contact your Sponsio account team for hosted dashboard access.
     """
     click.echo(
         click.style("sponsio serve", bold=True)
-        + " requires Sponsio Cloud (the OSS engine ships CLI + runtime only).\n"
-        "  pip install sponsio[cloud]   # for the dashboard backend + frontend\n"
-        "  sponsio host trace --follow  # live alternative in pure OSS\n"
+        + ": the dashboard server is not part of this distribution "
+        "(the engine ships CLI + runtime only).\n"
+        "  sponsio host trace --follow  # live alternative\n"
         "  sponsio replay <session>     # re-render a recorded session view\n"
         "  sponsio report --since 1h    # session-log summary\n",
         err=True,

@@ -895,8 +895,8 @@ def _compose_yaml(
     lines.append(
         "# Runtime sto-judge (evaluates stochastic atoms like `injection_free`)"
     )
-    lines.append("# on the agent's hot path.  Sponsio Cloud only — `pip install")
-    lines.append("# sponsio[cloud]` to activate; OSS ignores this stanza. Favour")
+    lines.append("# on the agent's hot path. Not supported in this build; the")
+    lines.append("# stanza is ignored unless a sto evaluator is plugged in. Favour")
     lines.append("# a cheap+fast model and keep the circuit breaker on so judge")
     lines.append("# outages don't cascade into agent outages.")
     lines.append("judge:")

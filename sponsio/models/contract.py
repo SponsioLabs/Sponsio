@@ -8,23 +8,23 @@ no new container type is needed.
 
 Naming follows the standard A/G contract literature (Benveniste et al.,
 "Contracts for System Design," FnT EDA 2018; Nuzzo et al. CHASE / Pacti).
-The OSS engine ships only the boolean degenerate case; Sponsio Cloud
-adds probabilistic relaxation. Action-layer types (``EnforcementStrategy``,
-``DetBlock``, …) keep "Enforcement" in the name because they describe
-*how* the guarantee is enforced at runtime, not the property itself.
+This build ships only the boolean degenerate case; probabilistic
+relaxation is an extension point with no implementation included.
+Action-layer types (``EnforcementStrategy``, ``DetBlock``, ...) keep
+"Enforcement" in the name because they describe *how* the guarantee is
+enforced at runtime, not the property itself.
 
 Both ``assumption`` and ``guarantee`` accept either a single constraint
 or a list. A list is interpreted as the logical AND of its elements.
 ``assumption=None`` (the default) means the contract is unconditional.
 
 Threshold fields (``alpha``, ``beta``) are part of the schema for
-stochastic relaxation: a sto contract holds when ``conf(A) ≥ alpha``
-implies ``conf(G) ≥ beta``. The OSS engine exposes only the
+stochastic relaxation: a sto contract holds when ``conf(A) >= alpha``
+implies ``conf(G) >= beta``. This build exposes only the
 ``alpha == beta == 1.0`` degenerate case (boolean det); ``BaseGuard``
-rejects non-default values at construction time with a pointer to
-``pip install sponsio[cloud]``. The probabilistic-lifting math
-(``conf(·)``, independent-product semantics, threshold composition)
-lives in ``sponsio_cloud.sto.lifting``.
+rejects non-default values at construction time. The
+probabilistic-lifting math (``conf(.)``, independent-product semantics,
+threshold composition) is not part of this build.
 """
 
 from __future__ import annotations
@@ -80,12 +80,12 @@ def _unwrap(item: Any) -> Any:
 def _formula_is_pure_det(formula: Any) -> bool:
     """Recursively check whether every ``Atom`` leaf has ``atom_type == "det"``.
 
-    Lives in OSS so ``Contract.is_pure_det`` doesn't need to reach into
-    the (Cloud-only) sto lifting module to decide dispatch. Mirrors the
-    canonical implementation in ``sponsio_cloud.sto.lifting._all_det``;
-    the two must stay in sync — Cloud's evaluator decides what to do
-    with non-pure-det contracts, but the structural classification is
-    the same on both sides.
+    Lives here so ``Contract.is_pure_det`` doesn't need to reach into
+    a sto lifting module to decide dispatch. Mirrors the canonical
+    implementation expected by sto evaluators; if a sto pipeline is
+    plugged in, its evaluator decides what to do with non-pure-det
+    contracts, but the structural classification is the same on both
+    sides.
     """
     from sponsio.formulas.formula import (
         And,
@@ -120,8 +120,8 @@ def _formula_is_pure_det(formula: Any) -> bool:
         )
     if isinstance(formula, (G, F, X)):
         return _formula_is_pure_det(formula.child)
-    # Unknown node — treat as non-det so dispatch routes it away from
-    # the det fast path. A future lifting-aware integrator (Cloud) can
+    # Unknown node: treat as non-det so dispatch routes it away from
+    # the det fast path. A future lifting-aware integrator can
     # override the decision after construction.
     return False
 
@@ -145,13 +145,14 @@ class Contract:
             contract is unconditional. May be a single constraint or a
             list (list = logical AND).
         desc: Optional human-readable label for this contract.
-        alpha: Assumption trigger threshold in [0, 1]. OSS exposes only
-            ``alpha == 1.0`` (boolean det); Cloud relaxes this to a
-            stochastic threshold over ``conf(A)``. ``BaseGuard`` rejects
-            non-default values without a configured StoEvaluator.
+        alpha: Assumption trigger threshold in [0, 1]. This build
+            exposes only ``alpha == 1.0`` (boolean det); a sto
+            evaluator may relax this to a stochastic threshold over
+            ``conf(A)``. ``BaseGuard`` rejects non-default values
+            without a configured StoEvaluator.
         beta: Guarantee satisfaction threshold in [0, 1]. Same
-            shape as ``alpha`` — OSS only uses 1.0; Cloud handles
-            ``conf(G) ≥ beta``. See ``sponsio_cloud.sto.lifting``.
+            shape as ``alpha``: this build only uses 1.0; a sto
+            evaluator handles ``conf(G) >= beta``.
         activate_at: When the assumption A is satisfied, *where* the
             guarantee G should start being checked.
 

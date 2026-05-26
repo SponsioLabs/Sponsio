@@ -267,11 +267,12 @@ def render_sponsiorc(answers: SetupAnswers) -> str:
     lines.extend(
         [
             "",
-            "# Runtime stochastic-judge — Sponsio Cloud only. Used at agent",
-            "# runtime to score stochastic atoms (injection_free, harmful,",
-            "# etc.). OSS ignores this stanza; `pip install sponsio[cloud]`",
-            "# activates the judge pipeline. Same provider as extractor by",
-            "# default; override here for a cheaper / different hot-path model.",
+            "# Runtime stochastic-judge: not supported in this build.",
+            "# Used at agent runtime to score stochastic atoms",
+            "# (injection_free, harmful, etc.). This stanza is ignored",
+            "# unless a sto evaluator is plugged in. Same provider as",
+            "# extractor by default; override here for a cheaper /",
+            "# different hot-path model.",
             "judge:",
             f"  provider: {answers.provider or 'none'}",
         ]

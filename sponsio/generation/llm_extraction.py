@@ -115,12 +115,12 @@ G(Atom("injection_free", atom_type="sto", output_type="classify",
 def _render_sto_atoms() -> str:
     """Auto-generate the sto-atom section of the LLM prompt.
 
-    Reads metadata from ``sponsio_cloud.sto.registry`` when Sponsio
-    Cloud is installed; returns an empty string otherwise so the OSS
+    Reads metadata from the sto registry when a sto package is
+    installed alongside; returns an empty string otherwise so the
     extractor doesn't hallucinate sto atoms it can't compile. Adding a
     new atom with ``@register_sto_atom(..., description=...,
-    required_args=..., default_context_scope=...)`` on the Cloud side
-    auto-populates this section.
+    required_args=..., default_context_scope=...)`` in the registering
+    package auto-populates this section.
     """
     try:
         from sponsio_cloud.sto.registry import list_sto_atom_infos
@@ -555,11 +555,10 @@ def _compile_det(item: dict) -> ExtractionResult:
 def _compile_sto(item: dict) -> ExtractionResult:
     """Compile a single sto constraint from LLM JSON output.
 
-    Stochastic compilation (soft catalog + ``StoFormula``) lives in
-    Sponsio Cloud. The OSS engine ships no implementation, so we
-    surface the constraint as an extraction error pointing at
-    ``pip install sponsio[cloud]`` rather than crashing on a missing
-    import or — worse — accepting a half-built result that the
+    Stochastic compilation (soft catalog + ``StoFormula``) is an
+    extension point: this build ships no implementation, so we surface
+    the constraint as an extraction error rather than crashing on a
+    missing import or, worse, accepting a half-built result that the
     monitor classifies as pure-det and silently passes.
     """
     nl = item.get("nl", "")
@@ -572,9 +571,9 @@ def _compile_sto(item: dict) -> ExtractionResult:
         nl_description=nl,
         source_quote=item.get("source_quote", ""),
         error=(
-            f"Stochastic constraint '{nl or category}' requires Sponsio Cloud "
-            f"(`pip install sponsio[cloud]`). The OSS engine ships no sto "
-            f"evaluator catalog."
+            f"Stochastic constraint '{nl or category}' is not supported "
+            f"in this build (the engine is deterministic-only); no sto "
+            f"evaluator catalog is shipped."
         ),
     )
 

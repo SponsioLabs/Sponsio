@@ -1,26 +1,24 @@
 # =============================================================================
 # sponsio/contracts/core/llm_safety.yaml
 #
-# !! Sponsio Cloud only !! — this pack is composed entirely of LLM-judged
-# stochastic atoms (`injection_free`, `jailbreak_free`, `harmful`,
-# `toxic_free`, `semantic_pii_free`). The OSS engine ships no evaluator
-# for them and will refuse to load this pack with a clear pointer to
-# `pip install sponsio[cloud]`.
+# !! Not supported in this build !! , this pack is composed entirely of
+# LLM-judged stochastic atoms (`injection_free`, `jailbreak_free`,
+# `harmful`, `toxic_free`, `semantic_pii_free`). The deterministic
+# engine ships no evaluator for them and will refuse to load this pack.
 #
-# It still ships in the OSS package so Cloud installs see the same on-disk
-# layout — Cloud's StoEvaluator (auto-discovered via the
-# `sponsio.evaluators` entry-point group) is what actually evaluates
-# these contracts.
+# It still ships on disk so external builds with a real StoEvaluator
+# (auto-discovered via the `sponsio.evaluators` entry-point group)
+# see the same on-disk layout and can evaluate these contracts.
 #
-# Once Cloud is installed, opt in from your config:
+# Once an evaluator is available, opt in from your config:
 #
 #     include:
 #       - sponsio:core/llm_safety
 #
-# Why opt-in even on Cloud: every contract here triggers a judge LLM call
-# on each evaluation. That's the right default for response-quality work
-# but the wrong default for tool-call-only agents (no LLM responses to
-# score → judge calls add latency without value). Splitting out of
+# Why opt-in: every contract here triggers a judge LLM call on each
+# evaluation. That's the right default for response-quality work but
+# the wrong default for tool-call-only agents (no LLM responses to
+# score, judge calls add latency without value). Splitting out of
 # `core/universal` was the user-driven fix for "why is the SRE tool-call
 # demo running prompt-injection scoring".
 #

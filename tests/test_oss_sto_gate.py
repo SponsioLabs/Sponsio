@@ -1,10 +1,10 @@
-"""OSS-side gate: refuse to run sto contracts without a StoEvaluator.
+"""Gate: refuse to run sto contracts without a StoEvaluator.
 
-Sto contracts (atom_type="sto", or det atoms with non-default α/β) are a
-Sponsio Cloud feature. The OSS engine ships no evaluator that can score
-them, so silently registering them and returning vacuous-true verdicts
-would mislead operators into believing their guard was active when it
-wasn't. This test locks the loud-failure contract.
+Sto contracts (atom_type="sto", or det atoms with non-default alpha/beta)
+need a StoEvaluator implementation. This build ships none, so silently
+registering them and returning vacuous-true verdicts would mislead
+operators into believing their guard was active when it wasn't. This
+test locks the loud-failure contract.
 """
 
 from __future__ import annotations
@@ -17,9 +17,9 @@ from sponsio.formulas.formula import Atom, G
 
 def test_sto_atom_in_python_api_raises_without_evaluator():
     """A contract built via the Python API with a sto Atom must fail
-    loudly when no StoEvaluator is wired up — not silently no-op.
+    loudly when no StoEvaluator is wired up, not silently no-op.
     """
-    with pytest.raises(RuntimeError, match=r"sponsio\[cloud\]"):
+    with pytest.raises(RuntimeError, match=r"StoEvaluator"):
         sponsio.Sponsio(
             agent_id="bot",
             contracts=[
@@ -33,10 +33,11 @@ def test_sto_atom_in_python_api_raises_without_evaluator():
 
 
 def test_non_default_beta_treated_as_sto():
-    """A structurally-det contract with β < 1.0 still needs Cloud — the
-    threshold can only be evaluated by the lifting pipeline.
+    """A structurally-det contract with beta < 1.0 still needs a sto
+    evaluator: the threshold can only be evaluated by the lifting
+    pipeline.
     """
-    with pytest.raises(RuntimeError, match=r"sponsio\[cloud\]"):
+    with pytest.raises(RuntimeError, match=r"StoEvaluator"):
         sponsio.Sponsio(
             agent_id="bot",
             contracts=[
@@ -63,7 +64,7 @@ def test_pure_det_contracts_compile_unaffected():
 
 def test_explicit_sto_evaluator_satisfies_gate():
     """An injected StoEvaluator (mock for the Protocol) lets sto
-    contracts through without the Cloud install.
+    contracts through without any extra install.
     """
 
     class FakeEvaluator:

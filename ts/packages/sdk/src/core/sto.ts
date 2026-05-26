@@ -1,45 +1,39 @@
 /**
- * OSS↔Cloud schema surface for the sto (stochastic / LLM-judge) pipeline.
+ * Schema surface for the sto (stochastic / LLM-judge) pipeline extension point.
  *
- * The TS SDK is **det-only**, mirroring Sponsio Python's OSS engine.
+ * The TS SDK is **det-only**, mirroring the Python deterministic engine.
  * The managed evaluator catalog (``tone`` / ``relevance`` / ``llm_judge`` /
- * ``hallucination_free`` …), the OpenAI-compatible judge client, and the
- * per-evaluator scoring code are Sponsio Cloud features. They live in
- * the proprietary ``sponsio_cloud.sto.*`` Python package; a Cloud-TS
- * package will mirror them later.
+ * ``hallucination_free`` ...), an OpenAI-compatible judge client, and the
+ * per-evaluator scoring code are not part of this build (the deterministic
+ * engine provides no implementation).
  *
- * What this file ships in OSS:
+ * What this file ships:
  *
- *   - **Type contracts** — ``StoEvaluator`` / ``StoResult`` / ``StoInput`` /
+ *   - **Type contracts**, ``StoEvaluator`` / ``StoResult`` / ``StoInput`` /
  *     ``StoContract`` / ``JudgeClient`` / ``JudgeConfig`` /
- *     ``StoContextSnapshot``. Cloud subclasses / OSS callers consuming the
- *     schema (session loggers, dashboards) reference these.
- *   - ``CloudFeatureError`` — the exception any Cloud-only code path
- *     raises when reached on the OSS engine.
- *   - ``parseScore`` — a pure utility that converts a 0-1 score from a
+ *     ``StoContextSnapshot``. External callers consuming the schema
+ *     (session loggers, dashboards) reference these.
+ *   - ``CloudFeatureError``, the exception any code path raises when an
+ *     unimplemented sto feature is reached. The class name is kept for
+ *     ABI stability, the message is neutral.
+ *   - ``parseScore``, a pure utility that converts a 0-1 score from a
  *     judge response. Kept because it never contacts an LLM.
  *
- * What this file does NOT ship in OSS (deleted alongside the Python
- * mirrors — ``RetryWithConstraint`` / ``RedirectToSafe`` /
- * ``FeedbackGenerator`` / the per-atom evaluator stubs):
+ * What this file does NOT ship (deleted alongside the Python mirrors,
+ * ``RetryWithConstraint`` / ``RedirectToSafe`` / ``FeedbackGenerator`` /
+ * the per-atom evaluator stubs):
  *
- *   - ``createJudge`` — judge construction
+ *   - ``createJudge``, judge construction
  *   - ``LlmJudgeEvaluator`` / ``ToneEvaluator`` / ``RelevanceEvaluator``
  *     / ``SemanticPiiFreeEvaluator`` / ``HallucinationFreeEvaluator``
  *     / ``ScopeRespectEvaluator`` / ``MetricIntegrityEvaluator``
  *     / ``InjectionFreeEvaluator``
  *
  * The Sponsio constructor rejects yaml-declared sto contracts and any
- * ``judge:`` option at config-load time, so OSS callers never reach a
- * code path that would have built one of these. Cloud installs will
- * supply real implementations of the same Protocol surface.
- *
- * Operators who want the sto pipeline:
- *
- *     pip install sponsio[cloud]
- *
- * or contact your Sponsio account team for managed sto access. See
- * ``docs/oss_scope.md`` for the OSS / Cloud boundary.
+ * ``judge:`` option at config-load time, so callers never reach a code
+ * path that would have built one of these. This file is an extension
+ * point: external builds can supply real implementations of the same
+ * Protocol surface.
  */
 
 // ----- Types (kept; parity with @sponsio/sdk public surface) ---------
@@ -91,14 +85,14 @@ export interface StoContract {
 // ----- CloudFeatureError ---------------------------------------------
 
 const CLOUD_HINT =
-  "Sponsio's sto (LLM-judge) pipeline is a Cloud feature, not bundled " +
-  "with the OSS engine. Install `sponsio[cloud]` (Python) or contact " +
-  "your Sponsio account team for managed sto access. See " +
-  "https://github.com/SponsioLabs/Sponsio/blob/main/docs/oss_scope.md.";
+  "Sponsio's sto (LLM-judge) pipeline is not supported in this build " +
+  "(the engine is deterministic-only). The schema types remain as an " +
+  "extension point so external implementations can supply real " +
+  "evaluators behind the same Protocol surface.";
 
 export class CloudFeatureError extends Error {
   constructor(featureName: string) {
-    super(`[sponsio] ${featureName} is not available in OSS. ${CLOUD_HINT}`);
+    super(`[sponsio] ${featureName} is not supported in this build. ${CLOUD_HINT}`);
     this.name = "CloudFeatureError";
   }
 }
