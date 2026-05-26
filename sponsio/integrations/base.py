@@ -32,11 +32,11 @@ from sponsio.models.system import System
 from sponsio.models.trace import Trace
 from sponsio.protocols.sto import StoEvaluator, StoResult
 
-# FeedbackGenerator moved to sponsio-cloud (sto retry feedback is a
-# Cloud-pipeline concern). The minimal feedback formatting OSS still
-# needs lives inline below as ``_format_sto_feedback`` so the
+# FeedbackGenerator is not part of this build (sto retry feedback is
+# a sto-pipeline concern). The minimal feedback formatting still
+# needed here lives inline below as ``_format_sto_feedback`` so the
 # delegation surface (``check_soft`` / ``refine``) keeps working when
-# Cloud injects a sto evaluator.
+# an external sto evaluator is injected.
 from sponsio.runtime.monitor import RuntimeMonitor
 from sponsio.runtime.session_log import SessionLogger
 from sponsio.runtime.strategies import (
@@ -299,11 +299,10 @@ class CheckResult:
 
 # ---------------------------------------------------------------------------
 # Sto feedback formatting (used by ``check_soft`` / ``refine`` to render
-# a retry hint string from a ``StoResult``). The classy version with
-# template registries lives in the proprietary ``sponsio-cloud`` package
-# alongside the rest of the sto pipeline; this is the minimum shape
-# needed for OSS-side delegation to keep working when Cloud injects a
-# sto evaluator.
+# a retry hint string from a ``StoResult``). A richer version with
+# template registries is an extension-point concern and not part of
+# this build; this is the minimum shape needed for the delegation
+# surface to keep working when an external sto evaluator is injected.
 # ---------------------------------------------------------------------------
 
 
@@ -337,19 +336,18 @@ def _format_sto_feedback(
 def _discover_sto_evaluator() -> StoEvaluator | None:
     """Auto-discover a registered ``StoEvaluator`` implementation.
 
-    Looks up the ``sponsio.evaluators`` entry-point group; the Cloud
-    package (``sponsio-cloud``) registers a ``default`` entry pointing
-    at ``CloudStoEvaluator`` so users get the LLM-judge pipeline
-    automatically when ``pip install sponsio[cloud]`` is present.
+    Looks up the ``sponsio.evaluators`` entry-point group. A separately
+    installed sto package may register a ``default`` entry pointing at
+    its evaluator so users get the LLM-judge pipeline automatically.
 
-    Returns ``None`` if no implementation is registered — caller
+    Returns ``None`` if no implementation is registered; the caller
     decides whether that's a hard error or fine (depends on whether
     the config actually carries soft constraints).
 
     Defensive: any exception during discovery (broken third-party
     plugin, missing dependency, instantiation error) returns ``None``
     and logs at debug. We don't want a flaky third-party plugin to
-    crash an OSS-only ``BaseGuard`` construction.
+    crash ``BaseGuard`` construction.
     """
     import importlib.metadata as _md
     import logging as _logging
@@ -363,7 +361,7 @@ def _discover_sto_evaluator() -> StoEvaluator | None:
 
     # Prefer the conventional ``default`` name; fall back to the first
     # registered entry if present. Multiple entries are uncommon (one
-    # per installed Cloud-tier package) but if it happens we pick the
+    # per installed evaluator package) but if it happens we pick the
     # alphabetically-first ``default``-named one for stability.
     candidates = list(eps)
     if not candidates:
@@ -417,12 +415,13 @@ class BaseGuard:
         system: Pre-built System (alternative to the above).
         policy: Per-constraint enforcement strategy overrides.
             Keys are constraint descriptions, values are strategy instances.
-            OSS default: det → DetBlock. Cloud installs default sto rules
-            to ``RetryWithConstraint``.
-        sto_evaluator: Optional StoEvaluator for sto constraints. Sponsio
-            Cloud only — auto-discovered via the ``sponsio.evaluators``
-            entry-point group when ``pip install sponsio[cloud]`` is
-            present; explicit injection still wins.
+            Default: det -> DetBlock. When a sto evaluator is plugged in,
+            sto rules default to ``RetryWithConstraint``.
+        sto_evaluator: Optional StoEvaluator for sto constraints. The
+            sto pipeline is an extension point; this build ships no
+            implementation, but one may be auto-discovered via the
+            ``sponsio.evaluators`` entry-point group. Explicit injection
+            still wins.
         store: Optional PatternStore. If provided, user-written NL
             contracts are automatically registered as ``user_defined``.
     """
@@ -529,15 +528,14 @@ class BaseGuard:
 
         # Auto-register sto constraints on the StoEvaluator.
         #
-        # OSS ships no StoEvaluator implementation — that's a Sponsio
-        # Cloud feature (``pip install sponsio[cloud]``). When a config
-        # carries soft constraints we resolve the evaluator in this
-        # order:
+        # This build ships no StoEvaluator implementation; the sto
+        # pipeline is an extension point. When a config carries soft
+        # constraints we resolve the evaluator in this order:
         #   1. Explicit ``sto_evaluator=`` kwarg (caller passed one in)
         #   2. Auto-discovery via the ``sponsio.evaluators`` entry-
-        #      point group (Cloud / third-party packages register
-        #      themselves at install time)
-        #   3. Hard error pointing at the Cloud install
+        #      point group (third-party packages register themselves
+        #      at install time)
+        #   3. Hard error
         #
         # Two intake paths feed this gate:
         #   * legacy ``StoFormula`` closures collected as
@@ -546,7 +544,7 @@ class BaseGuard:
         #     ``Atom(atom_type="sto", ...)`` (built directly via
         #     ``contract().guarantees(G(Atom(...)))``). Without this
         #     check those contracts would slip past the dispatch in
-        #     ``RuntimeMonitor._check_det`` and silently no-op — see
+        #     ``RuntimeMonitor._check_det`` and silently no-op; see
         #     ``Contract.is_pure_det`` for the structural decision.
         non_pure_det = [c for c in self._system._contracts if not c.is_pure_det]
         if soft_constraints or non_pure_det:
@@ -563,9 +561,9 @@ class BaseGuard:
                 )
                 raise RuntimeError(
                     "Stochastic (sto) constraints require a StoEvaluator "
-                    "implementation. The OSS engine ships none — install "
-                    "the Cloud package with `pip install sponsio[cloud]`, "
-                    "or pass an explicit `sto_evaluator=` matching the "
+                    "implementation. This build ships none; register one "
+                    "via the `sponsio.evaluators` entry-point group, or "
+                    "pass an explicit `sto_evaluator=` matching the "
                     f"`sponsio.protocols.sto.StoEvaluator` Protocol.{detail}"
                 )
             for sc in soft_constraints:
@@ -608,19 +606,19 @@ class BaseGuard:
                         self._policy[desc_key] = DetBlock()
 
         # --- Create monitor ---
-        # The OSS monitor is det-only — sto plumbing lives on this
-        # BaseGuard (``self._sto_evaluator``) and only fires through
-        # the ``check_soft`` / ``refine`` delegation surface. Cloud
-        # subclasses can ship their own monitor with a sto pipeline if
-        # they want it on the hot path.
+        # The monitor is det-only: sto plumbing lives on this BaseGuard
+        # (``self._sto_evaluator``) and only fires through the
+        # ``check_soft`` / ``refine`` delegation surface. Subclasses
+        # can ship their own monitor with a sto pipeline if they want
+        # it on the hot path.
         self._monitor = RuntimeMonitor(
             system=self._system,
             policy=self._policy,
             mode=self._mode,
         )
-        # Stash the (possibly Cloud-injected) sto evaluator on this
-        # guard so ``check_soft`` / ``refine`` can reach it without
-        # poking at monitor internals.
+        # Stash the (possibly externally-injected) sto evaluator on
+        # this guard so ``check_soft`` / ``refine`` can reach it
+        # without poking at monitor internals.
         self._sto_evaluator = sto_evaluator
         self._sto_judge = sto_judge
 
@@ -1248,10 +1246,10 @@ class BaseGuard:
                 if prop_name in owned_by_contract and prop_name not in gated_pass:
                     continue
 
-                # ``get_feedback_template`` is an optional method on the
-                # StoEvaluator Protocol — Cloud's CloudStoEvaluator
-                # provides it; third-party impls may not. ``getattr``
-                # fallback keeps the contract minimal.
+                # ``get_feedback_template`` is an optional method on
+                # the StoEvaluator Protocol; some impls provide it,
+                # others may not. ``getattr`` fallback keeps the
+                # contract minimal.
                 template = None
                 getter = getattr(self._sto_evaluator, "get_feedback_template", None)
                 if getter is not None:

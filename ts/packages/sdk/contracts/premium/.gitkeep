@@ -1,7 +1,6 @@
-# Reserved namespace for Sponsio premium contracts.
+# Reserved namespace for future Sponsio premium contracts.
 #
-# The OSS engine ships ``sponsio:capability/*`` (universal safety
-# packs) and ``sponsio:incident/*`` (public CVE / Reddit-incident
-# replicas). This directory holds bespoke threat patterns derived
-# from internal threat-research engagements, which Sponsio Cloud
-# customers receive as a pack subscription. Empty in OSS by design.
+# The engine ships ``sponsio:capability/*`` (universal safety packs)
+# and ``sponsio:incident/*`` (public CVE / Reddit-incident replicas).
+# This directory is a placeholder for future expansion; not part of
+# this build. Empty by design.

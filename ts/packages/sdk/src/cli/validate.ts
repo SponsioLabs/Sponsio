@@ -176,9 +176,9 @@ export async function runValidateCli(argv: string[]): Promise<void> {
   const hasWarnings =
     result.skipped.length > 0 ||
     result.unparseableNl.length > 0 ||
-    // Sto contracts in OSS are Cloud-only — `pip install sponsio[cloud]`
-    // activates the judge pipeline. Without Cloud, OSS rejects them at
-    // load time. Surface as a strict-mode warning so CI catches it.
+    // Sto contracts are not supported in this build (the engine is
+    // deterministic-only). They are rejected at load time. Surface as
+    // a strict-mode warning so CI catches it.
     result.stoContracts > 0;
   if (args.strict && hasWarnings) process.exit(2);
 }
@@ -190,10 +190,10 @@ function renderText(r: ValidateResult): string {
   lines.push(`  runtime.mode:     ${r.mode ?? "(unset — falls to observe)"}`);
   lines.push(`  det contracts:    ${r.detContracts}`);
   lines.push(
-    `  sto contracts:    ${r.stoContracts}${r.stoContracts > 0 ? " (!! Sponsio Cloud only — `pip install sponsio[cloud]`)" : ""}`,
+    `  sto contracts:    ${r.stoContracts}${r.stoContracts > 0 ? " (not supported in this build)" : ""}`,
   );
   lines.push(
-    `  judge configured: ${r.judgeConfigured ? "yes (Cloud only)" : "no"}`,
+    `  judge configured: ${r.judgeConfigured ? "yes (not supported in this build)" : "no"}`,
   );
   if (r.unparseableNl.length) {
     lines.push("");

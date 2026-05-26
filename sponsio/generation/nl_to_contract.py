@@ -1912,7 +1912,7 @@ def _validate_formula(constraint: ParsedConstraint) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Unified parse: deterministic patterns only (sto pipeline is Cloud)
+# Unified parse: deterministic patterns only (sto pipeline is an extension point)
 # ---------------------------------------------------------------------------
 
 
@@ -1975,11 +1975,11 @@ parse_nl_rule_based = parse_dsl
 def classify_sto(nl_text: str, llm_client: Any = None) -> Any:
     """Classify an NL string as a sto constraint.
 
-    The OSS engine ships no LLM-judged stochastic pipeline — that's a
-    Sponsio Cloud feature (`pip install sponsio[cloud]`). This stub
-    always returns ``None`` so :func:`parse_contract` falls through to
-    the deterministic-pattern path or raises a syntax error if nothing
-    matches there either.
+    This build ships no LLM-judged stochastic pipeline; sto
+    classification is an extension point with no implementation
+    included. This stub always returns ``None`` so :func:`parse_contract`
+    falls through to the deterministic-pattern path or raises a syntax
+    error if nothing matches there either.
     """
     return None
 

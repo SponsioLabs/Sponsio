@@ -26,9 +26,9 @@ from sponsio.patterns.library import (
     scope_limit,
 )
 
-# NOTE: stochastic atom catalog / registry / evaluator live in the
-# proprietary ``sponsio-cloud`` package (``sponsio_cloud.sto.*``).
-# OSS exports only deterministic pattern factories from this module.
+# NOTE: stochastic atom catalog / registry / evaluator are an
+# extension point not part of this build. This module exports only
+# deterministic pattern factories.
 
 __all__ = [
     "always_followed_by",

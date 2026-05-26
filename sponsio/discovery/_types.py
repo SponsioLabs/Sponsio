@@ -9,11 +9,11 @@ from typing import TYPE_CHECKING, Any
 from sponsio.patterns.library import DetFormula
 
 if TYPE_CHECKING:
-    # ``StoFormula`` lives in the (cloud) sto pipeline; the OSS engine
-    # ships only the type hint so dataclass annotations resolve cleanly
-    # without importing the missing module at runtime. ``ProposedConstraint.sto``
-    # stays typed for downstream consumers; assigning a real ``StoFormula``
-    # to it requires ``sponsio[cloud]``.
+    # ``StoFormula`` belongs to the sto pipeline extension point; this
+    # build ships only the type hint so dataclass annotations resolve
+    # cleanly without importing the missing module at runtime.
+    # ``ProposedConstraint.sto`` stays typed for downstream consumers;
+    # assigning a real ``StoFormula`` requires a sto implementation.
     pass  # type: ignore[import-not-found]
 
 
@@ -54,7 +54,7 @@ class ProposedConstraint:
 
     formula: DetFormula | None = None
     assumption: DetFormula | None = None
-    sto: Any = None  # StoFormula in cloud builds; Any in OSS to keep import-light
+    sto: Any = None  # StoFormula when a sto pipeline is plugged in; Any otherwise
     source: DiscoverySource = DiscoverySource.AUTO_EXTRACTED
     extractor: str = ""
     confidence: float = 1.0

@@ -216,9 +216,9 @@ class TestJudgeSection:
             load_config(path)
 
     def test_build_sto_evaluator_requires_cloud(self):
-        """OSS ships no StoEvaluator implementation; ``build_sto_evaluator``
-        must surface a Cloud-pointing ConfigError instead of silently
-        returning some no-op stub."""
+        """This build ships no StoEvaluator implementation;
+        ``build_sto_evaluator`` must surface a ConfigError instead of
+        silently returning some no-op stub."""
         from sponsio.config import ConfigError
 
         section = JudgeSection(
@@ -227,7 +227,7 @@ class TestJudgeSection:
             failure_threshold=7,
             cooldown_seconds=42.0,
         )
-        with pytest.raises(ConfigError, match="sponsio\\[cloud\\]"):
+        with pytest.raises(ConfigError, match="StoEvaluator"):
             build_sto_evaluator(section)
 
 

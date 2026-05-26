@@ -25,13 +25,13 @@ const PACKS: Pack[] = [
     name: "sponsio:core/universal",
     rules: 0,
     ruleType: "det",
-    description: "Empty stub on OSS. The output-quality contracts (injection / jailbreak / toxic / PII / harm) moved to sponsio:core/llm_safety and require Sponsio Cloud.",
+    description: "Empty stub in this build. The output-quality contracts (injection / jailbreak / toxic / PII / harm) moved to sponsio:core/llm_safety, which is not supported in this build (the engine is deterministic-only).",
   },
   {
     name: "sponsio:core/llm_safety",
     rules: 5,
     ruleType: "sto",
-    description: "Sponsio Cloud only. LLM-judge safety net — injection_free / jailbreak_free / harmful / toxic_free / semantic_pii_free. Install with `pip install sponsio[cloud]`.",
+    description: "Not supported in this build (the engine is deterministic-only). LLM-judge safety net: injection_free / jailbreak_free / harmful / toxic_free / semantic_pii_free.",
   },
   {
     name: "sponsio:core/runaway",
@@ -91,7 +91,7 @@ const PACKS: Pack[] = [
     name: "sponsio:incident/openclaw",
     rules: 45,
     ruleType: "mixed",
-    description: "Opt-in. CVE-derived rules for OpenClaw-style agents. Det rules (§1–§8) load on OSS; sto rules (§0 LLM-output, §9 capability atoms) require Sponsio Cloud.",
+    description: "Opt-in. CVE-derived rules for OpenClaw-style agents. Det rules (§1–§8) load in this build; sto rules (§0 LLM-output, §9 capability atoms) are not supported here (the engine is deterministic-only).",
   },
   {
     name: "sponsio:incident/subagent-escape",

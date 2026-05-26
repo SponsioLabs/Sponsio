@@ -1,8 +1,9 @@
 /**
- * ``sponsio patterns`` — browse the deterministic pattern library.
- * Parity with Python's ``sponsio patterns`` (det only on the OSS
- * engine; LLM-judged stochastic atoms — ``tone`` / ``injection_free``
- * / ``semantic_pii_free`` / ... — live in Sponsio Cloud).
+ * ``sponsio patterns`` , browse the deterministic pattern library.
+ * Parity with Python's ``sponsio patterns`` (det only in this build;
+ * LLM-judged stochastic atoms , ``tone`` / ``injection_free`` /
+ * ``semantic_pii_free`` / ... , are not part of this build, the
+ * deterministic engine provides no implementation).
  *
  * Output is grouped the same way the main README tabulates them so
  * users can eyeball what's available without clicking through to
@@ -71,9 +72,9 @@ const ROWS: PatternRow[] = [
 
   // LLM-judged stochastic atoms (`tone` / `llm_judge` / `relevance` /
   // `semantic_pii_free` / `hallucination_free` / `scope_respect` /
-  // `metric_integrity` / `injection_free`) ship in Sponsio Cloud
-  // (`pip install sponsio[cloud]`). The OSS TS SDK lists det only,
-  // matching Python's `sponsio patterns`.
+  // `metric_integrity` / `injection_free`) are not part of this build
+  // (the deterministic engine provides no implementation). The TS SDK
+  // lists det only, matching Python's `sponsio patterns`.
 ];
 
 interface PatternsArgs {
@@ -95,9 +96,9 @@ const HELP =
     "  -h, --help             Show this help",
     "",
     "NOTE:",
-    "  LLM-judged stochastic atoms (tone, injection_free, semantic_pii_free, …)",
-    "  ship in Sponsio Cloud — `pip install sponsio[cloud]`. The OSS engine is",
-    "  det-only, matching Python's `sponsio patterns`.",
+    "  LLM-judged stochastic atoms (tone, injection_free, semantic_pii_free, ...)",
+    "  are not supported in this build (the engine is deterministic-only),",
+    "  matching Python's `sponsio patterns`.",
   ].join("\n") + "\n";
 
 function parseArgs(argv: string[]): PatternsArgs {

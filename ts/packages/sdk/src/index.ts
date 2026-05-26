@@ -161,12 +161,13 @@ export interface CheckResult {
    */
   detViolations: DetViolation[];
   /**
-   * Sto-pipeline violations — Sponsio Cloud only. Always ``[]`` on
-   * the OSS TS SDK (the ctor rejects yaml sto contracts at load time
-   * and never builds a judge). Cloud subclasses populate this with
-   * results from stochastic contracts (``tone`` / ``llm_judge`` /
-   * ``injection_free`` / …). Kept on the schema so dashboards /
-   * session loggers branch consistently across both surfaces.
+   * Sto-pipeline violations. Not part of this build (the engine is
+   * deterministic-only). Always ``[]`` on the TS SDK (the ctor
+   * rejects yaml sto contracts at load time and never builds a
+   * judge). External subclasses can populate this with results from
+   * stochastic contracts (``tone`` / ``llm_judge`` / ``injection_free``
+   * / ...). Kept on the schema so dashboards / session loggers branch
+   * consistently across both surfaces.
    */
   stoViolations: DetViolation[];
 }
@@ -219,13 +220,13 @@ export interface SponsoOptions {
   sessionLogBaseDir?: string;
 
   /**
-   * Judge config for the sto pipeline. **Sponsio Cloud only.**
-   * Either a plain config object (provider / model / apiKey /
-   * baseUrl / fallbackMode) or a pre-built ``JudgeClient``. The OSS
-   * TS SDK accepts the option for shared-yaml compatibility but
-   * never constructs a judge — passing this without Cloud
-   * installed surfaces a warning via the skipped-items path and
-   * the field is otherwise ignored.
+   * Judge config for the sto pipeline. **Not supported in this build**
+   * (the engine is deterministic-only). Either a plain config object
+   * (provider / model / apiKey / baseUrl / fallbackMode) or a pre-built
+   * ``JudgeClient``. The TS SDK accepts the option for shared-yaml
+   * compatibility but never constructs a judge: passing this surfaces
+   * a warning via the skipped-items path and the field is otherwise
+   * ignored.
    */
   judge?: JudgeConfig | JudgeClient;
 }
@@ -234,9 +235,9 @@ export class Sponsio {
   readonly agentId: string;
   readonly mode: SponsoMode;
   private _contracts: DetFormula[];
-  // Sto state. Always empty/null in OSS — the constructor rejects yaml
-  // sto contracts and inline `judge:` at config load. Kept as
-  // schema-stable surface for Cloud-side composition / wrapping.
+  // Sto state. Always empty/null in this build, the constructor
+  // rejects yaml sto contracts and inline `judge:` at config load.
+  // Kept as schema-stable surface for external composition / wrapping.
   private _stoContracts: StoContract[];
   private _stoContext: StoContextSnapshot;
   private _trace: Valuation[];
@@ -289,30 +290,31 @@ export class Sponsio {
       }
     }
 
-    // ── Sto pipeline is a Sponsio Cloud feature ──────────────────────
+    // ── Sto pipeline is not part of this build ──────────────────────
     // The managed LLM-judge catalog (`tone` / `relevance` / `llm_judge`
-    // …) and the judge client live in the proprietary `sponsio_cloud`
-    // package. The OSS engine logs-and-skips any yaml sto contracts
-    // and any inline `judge:` option, never constructs an evaluator,
-    // never contacts an LLM. The API surface (`guardAfter`,
-    // `setContext`, `judge` ctor option) is preserved so a shared yaml
-    // between Cloud and OSS-TS doesn't refuse to load.
+    // ...) and the judge client are not part of this build (the
+    // deterministic engine provides no implementation). The engine
+    // logs-and-skips any yaml sto contracts and any inline `judge:`
+    // option, never constructs an evaluator, never contacts an LLM.
+    // The API surface (`guardAfter`, `setContext`, `judge` ctor
+    // option) is preserved so a shared yaml between deterministic
+    // builds and external sto implementations doesn't refuse to load.
     for (const spec of yamlStoSpecs) {
       yamlSkipped.push({
         kind: "sto-contract",
-        detail: `${spec.desc} (sto pipeline is a Sponsio Cloud feature; pip install sponsio[cloud])`,
+        detail: `${spec.desc} (sto pipeline is not supported in this build)`,
       });
     }
     if (options.judge) {
       yamlSkipped.push({
         kind: "sto-contract",
         detail:
-          "`judge:` option ignored (sto pipeline is a Sponsio Cloud feature; pip install sponsio[cloud])",
+          "`judge:` option ignored (sto pipeline is not supported in this build)",
       });
     }
-    // Reference yamlJudge so unused-var lints don't fire — the field
-    // is parsed by the loader for shared-yaml compatibility but the
-    // OSS engine never builds a judge from it.
+    // Reference yamlJudge so unused-var lints don't fire: the field
+    // is parsed by the loader for shared-yaml compatibility but this
+    // build never constructs a judge from it.
     void yamlJudge;
 
     // ── Warn once about yaml features the TS runtime can't handle ───
@@ -660,26 +662,27 @@ export class Sponsio {
   /**
    * Record tool output after execution.
    *
-   * The OSS engine ships **no sto pipeline** — Cloud's stochastic
-   * (LLM-judged) atoms are what populate ``stoViolations``. With no
-   * Cloud installed and no sto contracts loaded (sto entries in yaml
-   * are rejected at config load), ``stoViolations`` is always
-   * ``[]`` and ``allowed: true``.
+   * This build ships **no sto pipeline** (the engine is deterministic-only).
+   * Stochastic (LLM-judged) atoms are the extension point that would
+   * populate ``stoViolations``; with no external implementation and no
+   * sto contracts loaded (sto entries in yaml are rejected at config
+   * load), ``stoViolations`` is always ``[]`` and ``allowed: true``.
    *
-   * The method stays ``async`` for API parity with Cloud's override —
-   * a Cloud-side subclass / wrapper can run the judge pipeline and
-   * surface real ``stoViolations`` without changing the call site.
-   * In **enforce mode** Cloud subclasses flip ``blocked: true`` on
-   * the first sto violation; the tool output has already executed,
-   * so the caller is responsible for routing the result (retry with
+   * The method stays ``async`` for API parity: an external subclass
+   * or wrapper can run the judge pipeline and surface real
+   * ``stoViolations`` without changing the call site. In **enforce
+   * mode** such subclasses can flip ``blocked: true`` on the first
+   * sto violation; the tool output has already executed, so the
+   * caller is responsible for routing the result (retry with
    * feedback, redirect to safe, etc.).
    */
   async guardAfter(
     _toolName: string,
     _output: string = "",
   ): Promise<CheckResult> {
-    // OSS is det-only — sto pipeline lives in Sponsio Cloud. Always
-    // return clean-pass; Cloud subclasses override.
+    // This build is deterministic-only, the sto pipeline is not
+    // implemented. Always return clean-pass; external subclasses can
+    // override.
     return emptyAllow();
   }
 
@@ -701,13 +704,13 @@ export class Sponsio {
   /**
    * Stash per-turn context for the sto pipeline.
    *
-   * Sponsio Cloud only — atoms that need grounding (``relevance`` →
-   * ``query``, ``hallucination_free`` → ``source``, ``scope_respect``
-   * → ``scope`` override, ``metric_integrity`` → ``history``) read
-   * from this snapshot on the next ``guardAfter`` call. The OSS
-   * engine accepts the call as a no-op so shared agent code can
-   * stay framework-neutral; without Cloud, the snapshot is never
-   * consumed.
+   * Not supported in this build (the engine is deterministic-only).
+   * Atoms that need grounding (``relevance`` -> ``query``,
+   * ``hallucination_free`` -> ``source``, ``scope_respect`` ->
+   * ``scope`` override, ``metric_integrity`` -> ``history``) would
+   * read from this snapshot on the next ``guardAfter`` call. This
+   * build accepts the call as a no-op so shared agent code can stay
+   * framework-neutral; the snapshot is never consumed.
    *
    * Merges with any previously-set context; pass ``{ query: undefined }``
    * to explicitly clear a field. ``reset()`` clears the whole snapshot.
@@ -773,9 +776,10 @@ function resolveMode(
 let _skippedWarned = false;
 
 // Note: ``resolveJudge`` / ``buildStoContract`` / ``isJudgeClient``
-// helpers were removed when the sto pipeline became Sponsio Cloud-only.
-// The OSS engine never constructs a judge or evaluator; yaml sto
-// specs flow through the ``yamlSkipped`` warning path in the ctor.
+// helpers were removed when the sto pipeline became an external
+// extension point. This build never constructs a judge or evaluator;
+// yaml sto specs flow through the ``yamlSkipped`` warning path in
+// the ctor.
 
 function emptyAllow(): CheckResult {
   return {
@@ -815,7 +819,7 @@ function warnOnceAboutSkipped(skipped: SkippedItem[]): void {
 
   const stoNote =
     sto > 0
-      ? " Sto (LLM-judge) contracts are part of Sponsio Cloud — install `sponsio[cloud]` for the managed pipeline."
+      ? " Sto (LLM-judge) contracts are not supported in this build (the engine is deterministic-only)."
       : "";
   console.warn(
     "[sponsio] skipped unsupported yaml items: " +

@@ -12,11 +12,11 @@ from sponsio.discovery._types import (
 )
 
 # ``PatternStore`` is the cross-customer aggregate persistence layer
-# and lives in Sponsio Cloud. The OSS package keeps the import
-# best-effort so single-project use of ``discover()`` keeps working;
-# any cloud caller passing a real ``PatternStore`` instance keeps
-# working when the cloud package is also installed.
-try:  # pragma: no cover - guard against the cloud module being absent
+# and is not part of this build. The import is kept best-effort so
+# single-project use of ``discover()`` keeps working; any caller
+# passing a real ``PatternStore`` instance continues to work when a
+# separate implementation is installed alongside.
+try:  # pragma: no cover - guard against the module being absent
     from sponsio.discovery.store import PatternStore  # type: ignore[import-not-found]
 except ImportError:
     PatternStore = None  # type: ignore[assignment,misc]
@@ -120,9 +120,9 @@ def discover(
             pass  # openai not installed
 
     # --- Phase 2: Trace mining ---
-    # Cross-trace pattern mining is a Sponsio Cloud feature
-    # (`sponsio refresh` is the user-facing entry point for it). In OSS
-    # we skip Phase 2 silently when the cloud module is absent so
+    # Cross-trace pattern mining is an extension point not shipped in
+    # this build (`sponsio refresh` is its user-facing entry point).
+    # We skip Phase 2 silently when the module is absent so
     # `discover(documents=[...], code_paths=[...])` still works for
     # the single-project case.
     if all_traces:

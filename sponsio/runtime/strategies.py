@@ -1,9 +1,9 @@
 """Enforcement strategies for runtime constraint violations.
 
-OSS strategies are det-only: DetBlock | EscalateToHuman | WarnOnly.
-The sto-pipeline strategies (RetryWithConstraint, RedirectToSafe) and
-their feedback / lesson formatting live in
-``sponsio_cloud.sto.strategies`` — see ``pip install sponsio[cloud]``.
+This build ships det-only strategies: DetBlock | EscalateToHuman |
+WarnOnly. The sto-pipeline strategies (RetryWithConstraint,
+RedirectToSafe) and their feedback / lesson formatting are an
+extension point; no implementation is included.
 """
 
 from __future__ import annotations
@@ -217,9 +217,9 @@ class OutcomeBuilder:
         )
 
     # OutcomeBuilder.for_sto_* helpers (for_sto_retry,
-    # for_sto_block_after_max, for_sto_redirect) live in the
-    # proprietary sponsio-cloud package alongside the strategies that
-    # consume them. The OSS engine builds only det outcomes here.
+    # for_sto_block_after_max, for_sto_redirect) are an extension
+    # point not part of this build, alongside the strategies that
+    # consume them. Only det outcomes are built here.
 
 
 @runtime_checkable
@@ -284,8 +284,7 @@ class WarnOnly:
         return OutcomeBuilder.for_det_warn(violation, context)
 
 
-# Sto-pipeline strategies (RetryWithConstraint, RedirectToSafe) live
-# in the proprietary ``sponsio-cloud`` package — see
-# ``sponsio_cloud/sto/strategies.py``. OSS exports only the
-# deterministic strategies above (DetBlock / EscalateToHuman /
-# WarnOnly).
+# Sto-pipeline strategies (RetryWithConstraint, RedirectToSafe) are
+# an extension point not part of this build. Only the deterministic
+# strategies above (DetBlock / EscalateToHuman / WarnOnly) are
+# exported here.

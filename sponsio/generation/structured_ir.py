@@ -972,16 +972,17 @@ def _compile_ir_sto(
 ) -> IRCompilationResult:
     """Compile a sto (soft) constraint from IR.
 
-    Stochastic compilation lives in Sponsio Cloud (the soft catalog +
-    ``StoFormula`` constructor). The OSS engine intentionally drops the
-    constraint into ``result.error`` rather than synthesising a fake
-    evaluator — silent fall-through would produce a contract that the
-    OSS monitor classifies as pure-det and accepts vacuously.
+    Stochastic compilation is an extension point: this build provides
+    no soft catalog or ``StoFormula`` constructor. We deliberately drop
+    the constraint into ``result.error`` rather than synthesising a
+    fake evaluator, because silent fall-through would produce a
+    contract that the monitor classifies as pure-det and accepts
+    vacuously.
     """
     result.error = (
-        f"Stochastic constraint '{ir.nl or ir.sto_category or ir.subject}' requires "
-        f"Sponsio Cloud (`pip install sponsio[cloud]`). The OSS engine ships no "
-        f"sto evaluator catalog."
+        f"Stochastic constraint '{ir.nl or ir.sto_category or ir.subject}' is not "
+        f"supported in this build (the engine is deterministic-only); no sto "
+        f"evaluator catalog is shipped."
     )
     result.compiled = None
     return result

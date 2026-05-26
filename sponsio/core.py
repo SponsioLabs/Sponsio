@@ -320,36 +320,20 @@ def Sponsio(  # noqa: N802 — branded factory function
         verbose: Enable terminal output (default True).
         verbosity: Detail level (0=violations, 1=all, 2=spans).
         otel_exporter: Optional OTEL exporter for span export.
-        mode: Enforcement mode. ``"enforce"`` blocks on det violations
-            (Cloud adds sto-retry on top); ``"observe"`` (default) logs
-            every violation to ``~/.sponsio/sessions/<agent_id>/*.jsonl``
-            without blocking — the recommended first-run setting when
-            adopting Sponsio on a live agent. Falls back to
-            ``SPONSIO_MODE`` env var, then to ``runtime.mode`` in
-            ``sponsio.yaml`` when ``config=`` is given. Precedence:
-            env > ctor arg > yaml > ``"observe"``.
-        sto_judge: A :class:`BooleanJudge` (or compatible) used by sto
-            atom evaluators. Sponsio Cloud only — OSS rejects sto
-            contracts at config load and never reaches the judge path.
-            With ``pip install sponsio[cloud]`` installed::
-
-                from sponsio_cloud.sto.judge import BooleanJudge
-                from sponsio_cloud.sto.llm_client import OpenAILogprobClient
-                import openai
-
-                from sponsio.langgraph import Sponsio
-
-                guard = Sponsio(
-                    contracts=[...],
-                    sto_judge=BooleanJudge(
-                        OpenAILogprobClient(openai.OpenAI(), "gpt-4o-mini")
-                    ),
-                )
-
-            If omitted, falls back to the global judge set by
-            :func:`sponsio_cloud.sto.catalog.set_default_judge` (or
-            raises ``RuntimeError`` when a sto contract evaluates and
-            neither is configured).
+        mode: Enforcement mode. ``"enforce"`` blocks on det violations;
+            ``"observe"`` (default) logs every violation to
+            ``~/.sponsio/sessions/<agent_id>/*.jsonl`` without blocking,
+            the recommended first-run setting when adopting Sponsio on a
+            live agent. Falls back to ``SPONSIO_MODE`` env var, then to
+            ``runtime.mode`` in ``sponsio.yaml`` when ``config=`` is
+            given. Precedence: env > ctor arg > yaml > ``"observe"``.
+        sto_judge: A judge object consumed by sto atom evaluators. The
+            sto pipeline is an extension point: this build ships no
+            evaluator implementation and rejects sto contracts at config
+            load, so the judge path is never reached. If omitted, falls
+            back to the global judge set by the catalog's
+            ``set_default_judge`` hook (or raises ``RuntimeError`` when
+            a sto contract evaluates and neither is configured).
 
     Returns:
         A configured Guard instance.

@@ -67,11 +67,11 @@ SURFACE: list[tuple[tuple[str, ...], list[str]]] = [
         ("scan",),
         ["--agent", "--llm", "--policy", "-t", "-o", "--append"],
     ),
-    # ``refresh`` was moved to Sponsio Cloud — cross-trace pattern
-    # mining is the cloud-side feature ``sponsio refresh`` backs. The
-    # SKILL.md still describes the workflow narratively (W3b) so
-    # contract authors know it exists, but the OSS CLI no longer
-    # exposes the subcommand.
+    # ``refresh`` is not part of this build: cross-trace pattern
+    # mining is an extension point that ``sponsio refresh`` would back.
+    # The SKILL.md still describes the workflow narratively (W3b) so
+    # contract authors know it exists, but the CLI no longer exposes
+    # the subcommand.
     (("validate",), ["--config", "--json"]),
     (("check",), ["--trace", "--config", "--agent"]),
     (("report",), ["--agent", "--since"]),
@@ -141,10 +141,10 @@ _NOT_SUBCOMMANDS: frozenset[str] = frozenset(
         "runtime",
         "auto",
         "skill",  # bare "sponsio skill" — the group, not a subcommand invocation
-        # ``refresh`` and ``bench`` were moved out of OSS — refresh →
-        # Sponsio Cloud (cross-trace pattern mining), bench deleted.
-        # SKILL.md still mentions them in narrative context to explain
-        # the cloud surface to users authoring contracts.
+        # ``refresh`` and ``bench`` are not part of this build: refresh
+        # is an extension point (cross-trace pattern mining), bench
+        # deleted. SKILL.md still mentions them in narrative context to
+        # explain the broader surface to users authoring contracts.
         "refresh",
         "bench",
     }
