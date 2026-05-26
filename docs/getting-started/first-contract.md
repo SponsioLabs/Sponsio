@@ -126,5 +126,4 @@ See [Observe vs. enforce](../guides/observe-vs-enforce.md) for the full rollout.
 
 - **Add more contracts.** The [pattern catalog](../reference/patterns.md) lists all 44 deterministic patterns with NL examples. Pick the ones that match your failure modes.
 - **Generate contracts automatically.** `sponsio scan src/` reads your tool definitions and drafts a `sponsio.yaml` with candidate contracts. See [contract sources](../guides/contract-sources.md).
-- **Cover semantic properties.** Tone, relevance, scope respect need *stochastic contracts* (Sponsio Cloud). Start with `injection_free`, `toxic_free`, `semantic_pii_free`.
 - **Wire a different framework.** Claude Agent SDK, OpenAI, CrewAI, Google ADK, Vercel AI, MCP. See [Integrations](../integrations/index.md).

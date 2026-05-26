@@ -96,7 +96,7 @@ sponsio/
 ├── cli.py            sponsio scan|validate|check|serve|demo|patterns
 ├── formulas/         LTL AST + evaluators
 ├── models/           Agent, Contract, System, Trace, Event
-├── patterns/         det patterns + sto catalog
+├── patterns/         deterministic pattern library
 ├── runtime/          RuntimeMonitor, strategies, terminal reporter
 ├── generation/       NL → contract (rules + optional LLM)
 ├── tracer/           event collection + grounding
@@ -116,8 +116,7 @@ will reject PRs that break them:
 2. All framework integrations inherit from `BaseGuard`. No duplicated
    pre-check / post-check logic.
 3. Det violations route to `DetBlock` or `EscalateToHuman` only.
-   Sto violations route to `RetryWithConstraint` or `RedirectToSafe`
-   only. `RuntimeMonitor` enforces this separation. Don't bypass it.
+   `RuntimeMonitor` enforces this routing. Don't bypass it.
 4. The trace is append-only during a session. Rollback is only
    permitted on a hard block, and only in `mode="enforce"`.
 
@@ -133,7 +132,7 @@ Three issue templates exist:
 
 - **Bug Report**: unexpected behavior, crashes, wrong verdicts.
 - **Feature Request**: new capability or ergonomic improvement.
-- **New Constraint Pattern**: proposal for a new det or sto pattern.
+- **New Constraint Pattern**: proposal for a new deterministic pattern.
 
 ### 2. Branch, write, test
 
@@ -334,10 +333,6 @@ Before opening the PR:
 - [ ] `[Unreleased]` entry in `CHANGELOG.md`.
 - [ ] `pytest -v` and `ruff check sponsio/ tests/` both green.
 
-### Stochastic atoms
-
-Stochastic atoms (LLM-judge evaluators) are part of [Sponsio Cloud](docs/reference/oss-scope.md#in-sponsio-cloud-commercial--pip-install-sponsiocloud); the OSS engine ships an empty sto registry plus a `Judge` extension point. Patches that add new sto evaluators land in the cloud repo and are not accepted here. Patches that improve the OSS extension point are very welcome.
-
 ---
 
 ## Adding a new integration
@@ -375,7 +370,7 @@ path. We'll acknowledge within 72 hours and coordinate disclosure.
 
 ## What belongs in this repo (and what doesn't)
 
-**Ship with open source:** user-facing guides, contract and architecture reference, design notes (e.g. [`docs/cost-based-thresholds.md`](docs/cost-based-thresholds.md)), and sto calibration concepts.
+**Ship with open source:** user-facing guides, contract and architecture reference, and design notes (e.g. [`docs/cost-based-thresholds.md`](docs/cost-based-thresholds.md)).
 
 **Keep out of the public tree** (or redact before publishing):
 

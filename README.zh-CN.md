@@ -97,6 +97,6 @@ agents:
 
 ## 许可证
 
-Apache 2.0（[LICENSE](LICENSE)）。Sponsio Cloud（`pip install sponsio[cloud]`）将于 2026 年 5 月中旬开放，提供托管的 LLM-judge 流水线、跨客户的模式情报，以及托管的多租户仪表盘；[OSS / Cloud 边界](OSS_PROMISE.md)有完整文档。
+Apache 2.0（[LICENSE](LICENSE)）。
 
 *阅读本仓库的 AI Agent：[`llms.txt`](llms.txt) 列出了规范文档路径；[`llms-full.txt`](llms-full.txt) 是完整上下文的拼接全量。*

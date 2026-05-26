@@ -41,7 +41,6 @@ With `--llm`, the LLM sees the full source and discovers constraints static anal
 - `always_followed_by` (liveness obligations)
 - `rate_limit` (from constants like `MAX_RETRIES = 3`)
 - `no_reversal` (from business logic semantics)
-- Sto constraints (output quality requirements). These compile to `pattern: <atom>` entries that fail loudly under OSS and run only with `pip install sponsio[cloud]`.
 
 ```bash
 sponsio scan src/agents/ --llm -o sponsio.yaml
@@ -60,7 +59,7 @@ sponsio scan src/agents/ -o sponsio.yaml
 sponsio scan src/agents/ --policy security_policy.md --llm -o sponsio.yaml --append
 ```
 
-The tool inventory is critical. Without it the LLM produces generic sto constraints. With it, policy maps to specific tools:
+The tool inventory is critical. Without it the LLM produces generic constraints. With it, policy maps to specific tools:
 
 ```
 Policy:           "All refunds require supervisor approval"
@@ -87,7 +86,7 @@ agents:
 
 Each entry is one `(assumption, guarantee)` pair. `A` is optional, `G` is required. Each field can be a scalar or a list (lists are ANDed). The legacy keys `E:` / `enforcement:` are still accepted for back-compat.
 
-Det syntax (must use backtick-quoted tool names):
+Deterministic syntax (must use backtick-quoted tool names):
 
 ```
 tool `A` must precede `B`
@@ -98,16 +97,7 @@ after `A`, tool `B` is forbidden
 tool `A` cooldown of N steps
 ```
 
-Sto syntax (Sponsio Cloud only). The OSS engine accepts these strings at parse time but raises `RuntimeError` at runtime, since no judge is wired up:
-
-```
-response must not contain PII
-response must be empathetic
-output must be in JSON format
-response under 200 words
-```
-
-Sponsio parses NL strings through three stages: rule-based first (free), sto keyword next (Cloud), LLM fallback last (requires API key).
+Sponsio parses NL strings through two stages: rule-based first (free), LLM fallback last (requires API key).
 
 ### Structured entries
 

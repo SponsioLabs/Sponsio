@@ -263,7 +263,7 @@ agents:
 | Local dev | leave defaults |
 | Staging | enable `audit_after` on destructive tools |
 | Production | move `delete_*` from `rate_limit 0` to assumption-gated (require explicit `confirm_reconfirmed`) |
-| Regulated / PII | tighten sto rules — `core/universal`'s β from 0.95 → 0.99 |
+| Regulated / PII | tighten the deterministic PII / dangerous-arg rules and lower their thresholds |
 
 ### 4.3 — known-false-positive customizations
 

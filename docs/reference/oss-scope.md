@@ -1,24 +1,18 @@
-# Sponsio OSS scope and Cloud boundary
+# Sponsio OSS scope
 
-This repository ships the **Sponsio OSS engine**: the deterministic
+This repository ships the Sponsio OSS engine: the deterministic
 contract runtime, framework adapters, CLI, and the pattern library
-that powers it. Sponsio Cloud is a separate product layer
-(`sponsio[cloud]` install extra) that adds the LLM-judge sto pipeline,
-cross-customer pattern mining, multi-tenant dashboard backend, and
-hosted retention.
-
-The split below is the long-term boundary; this is a permanent
-commitment, not a "temporarily open" status.
+that powers it. Everything here is Apache 2.0 and deterministic. There
+is no LLM call on the enforcement path.
 
 ---
 
-## In OSS (Apache 2.0). Permanently free
+## What ships (Apache 2.0)
 
 ### Runtime engine
 - `sponsio/formulas/`: LTL AST, evaluator, DFA monitor
-- `sponsio/runtime/verifier.py`, `monitor.py` (det path), `strategies.py`,
+- `sponsio/runtime/verifier.py`, `monitor.py`, `strategies.py`,
   `feedback.py`, `session_log.py`, `perf.py`, `evaluators.py`
-  (DetEvaluator only)
 - `sponsio/tracer/grounding.py`, `otel_writer.py`, `exporters.py`,
   `semconv.py`
 
@@ -68,12 +62,11 @@ commitment, not a "temporarily open" status.
 - `sponsio/discovery/trace_replay.py`: `sponsio eval` replay engine
 - `sponsio/refresh.py` + `sponsio refresh` CLI. Local trace mining
   over your own `~/.sponsio/sessions/*` (proposes new contracts from
-  patterns repeating in your traces). Cloud adds *cross-customer*
-  pattern intelligence on top of the same command.
+  patterns repeating in your traces).
 
 ### Generation
 - `sponsio/generation/nl_to_contract.py`: NL → contract parser
-  (deterministic patterns only; sto patterns require Cloud)
+  (deterministic patterns)
 - `sponsio/generation/structured_ir.py`: IR for the deterministic
   pipeline
 
@@ -87,95 +80,28 @@ commitment, not a "temporarily open" status.
 
 ---
 
-## In Sponsio Cloud (commercial), `pip install sponsio[cloud]`
+## Deterministic only
 
-### Sto (stochastic) pipeline. Cloud only, not in OSS at all
-- `sponsio.patterns.sto_catalog`: every built-in LLM-judge
-  evaluator (`no_pii`, `tone_polite`, `injection_free`,
-  `jailbreak_free`, `toxic_free`, `semantic_pii_free`, `scope_respect`,
-  `hallucination_free`, `harmful`, `faithfulness`, plus
-  pii/length/format/relevance evaluators)
-- `sponsio.patterns.sto_registry`: atom registration mechanism
-- `sponsio.patterns.sto`, `sponsio.patterns.soft`,
-  `sponsio.patterns.soft_catalog`: sto formula AST + legacy aliases
-- `sponsio.runtime.sto_lifting`: probabilistic-lifting (α/β-threshold)
-  evaluation
-- `sponsio.runtime.judge`: judge harness
-- `sponsio.runtime.llm_client`: judge LLM call adapters
-- `sponsio.runtime.calibrator`: sto threshold calibration
-- The OSS engine ships **no** stochastic atoms or sto compilation
-  path. A YAML library that names a sto pattern (``pattern: tone_polite``,
-  ``pattern: injection_free``, …) raises ``ConfigError`` at load with a
-  pointer to ``pip install sponsio[cloud]``. The deterministic patterns
-  ``no_pii`` / ``max_length`` / ``no_keywords`` are intentionally
-  ship-as-det (regex against ``llm_said``) and remain available in OSS.
+The OSS engine evaluates deterministic LTL contracts: ordering, rate
+limits, retries/loops, destructive-action gates, path/argument
+blacklists, exact PII regexes, length, format, permissions, and
+allowlists. The deterministic patterns `no_pii` / `max_length` /
+`no_keywords` are regex against `llm_said` and remain available. There
+is no judge or LLM call on the enforcement path.
 
-### Cross-corpus mining + cloud backend
-- *Cross-customer* extension to `sponsio refresh`: anonymized
-  pattern intelligence drawn from the cross-deployment trace pool.
-  The local version of `sponsio refresh` (single-project mining
-  over your own session log) is **OSS**: see above.
-- `sponsio.discovery.extractors.trace_mining`: cross-trace pattern
-  mining at the corpus level
-- `sponsio.discovery.store`: cross-customer pattern store
-- `api/`: full FastAPI backend (auth, multi-tenant, OTel ingest,
-  monitor / leaderboard / score / playground / discovery routers)
-- `web/`: React + Vite frontend (Monitor / Rulebook / Playground /
-  Integrate / ScanAgent pages, design tokens, theming)
-- `sponsio serve`: dashboard backend + frontend launcher (in OSS this
-  is a stub pointing at the cloud install)
-
-### Premium content packs
-- `sponsio/contracts/premium/*.yaml`: bespoke threat patterns from
-  internal customer engagements (empty in OSS. Namespace reserved)
-
-### Bench
-- `sponsio bench` CLI. Synthetic-benchmark runner (deleted from OSS,
-  not currently in Cloud either; reach out for benchmark requests)
-
----
-
-## Boundary rules of thumb
-
-| Question | OSS or Cloud? |
-|---|---|
-| Is it a deterministic LTL contract / pattern? | OSS |
-| Does it call an LLM at runtime to score output? | Cloud |
-| Does it need cross-trace / cross-customer aggregation? | Cloud |
-| Is it a single-project static scan? | OSS |
-| Is it a per-host hook adapter (Cursor / Claude Code / OpenClaw)? | OSS |
-| Does it serve a web dashboard (single- or multi-user)? | Cloud |
-| Does it accept hosted span ingestion from remote agents? | Cloud |
-| Is it a session-log ship-out to your own collector? | OSS (`sponsio export-sessions` + `sponsio.tracer.exporters`) |
-| Is it an in-process OTel exporter that POSTs to your endpoint? | OSS (`sponsio.tracer.exporters.OtlpHttpExporter`) |
-
----
-
-## What "log-and-skip" looks like in practice
-
-A YAML library that mixes det + sto contracts loads cleanly under OSS.
-At evaluation time, det contracts enforce normally; sto contracts emit
-a one-time warning per contract:
-
-```
-WARNING:sponsio.runtime.monitor:Skipping stochastic contract
-'response must be polite' — the sto pipeline (LLM-judge atoms) is a
-Sponsio Cloud feature, not bundled with the OSS engine. Det contracts
-in the same library continue to enforce. Install ``sponsio[cloud]`` or
-contact your account team to enable the sto pipeline.
-```
-
-The trace records the contract as "checked, no result" so audits show
-the gap explicitly.
+### Session-log ship-out
+- `sponsio export-sessions` + `sponsio.tracer.exporters`: write your
+  session log to your own collector.
+- `sponsio.tracer.exporters.OtlpHttpExporter`: in-process OTel exporter
+  that POSTs to your endpoint.
 
 ---
 
 ## Versioning + the OSS Promise
 
-Apache 2.0 is permanent. Anything currently in OSS stays in OSS. We
-will not relicense or remove. New work in OSS-scope directories
-(per the table above) ships under the same license. New work in
-Cloud-scope directories doesn't appear in this repo.
+Apache 2.0 is permanent. Anything in OSS stays in OSS. We will not
+relicense or remove. New work in OSS-scope directories ships under the
+same license.
 
 The `SCHEMA_VERSION` in `sponsio/tracer/semconv.py` covers the
 observability contract and follows semver: any rename of an existing

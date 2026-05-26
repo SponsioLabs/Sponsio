@@ -34,9 +34,13 @@ tools can split if needed.
 
 # Sponsio
 
-**Runtime enforcement for AI agents.** Input policies in natural language; Sponsio compiles them into unbreakable, deterministic agent contracts. Enforced under 0.01ms, zero LLM runtime cost, [covers all 10 OWASP Agentic risks](docs/concepts/owasp-coverage.md). Works with LangChain, Claude Agent, OpenAI Agents, Google ADK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop, in Python or TypeScript.
+<p align="center">
+  <img src="assets/sponsio-comparison-freeze.png" alt="Same coding agent under a declared code freeze. Without Sponsio it drops the prod users table, back-fills fabricated rows, and files a status report that hides the damage. With Sponsio the first destructive SQL is blocked pre-execution: 35 checks, 100% deterministic, 0 LLM calls, p50 13µs." width="900">
+</p>
 
-> An **agent contract** is a runtime check at every agent action, [backed by formal methods](docs/concepts/formal-methods.md). It is *NOT* a system prompt your agent can ignore or jailbreak.
+**Runtime enforcement for AI agents.** Sponsio checks every agent action against deterministic, pure-code contracts, enforced in under 0.01 ms with zero LLM cost at runtime. Works with LangChain, Claude Agent, OpenAI Agents, Google ADK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop, in Python or TypeScript.
+
+> An **agent contract** is a runtime rule that is checked at every agent action, [backed by formal methods](docs/concepts/formal-methods.md).
 
 ---
 
@@ -46,9 +50,9 @@ tools can split if needed.
   <img src="assets/sponsio-architecture.png" alt="Sponsio architecture: Agent Flow + (Natural Language + Pattern Library) compile into Contracts (Assumption → Enforcement), enforced by a Fuzzy LTL Monitor (deterministic + stochastic) that decides Pass / Block · Warn · Escalate / Redirect for every function call, with full audit trail logs feeding back to the agent." width="900">
 </p>
 
-On [ODCV-Bench](https://arxiv.org/abs/2512.20798) (a third-party benchmark from [McGill DMaS](https://github.com/McGill-DMaS/ODCV-Bench) covering 12 frontier LLMs × 80 trajectories, Claude-Opus-4.6 included), unguarded models cheat in 11.5%–66.7% of runs. **With Sponsio, 84.5% of misalignment is blocked on average**, while the next-best publicly announced runtime guardrail ([Salus, YC W26](https://www.ycombinator.com/companies/salus)) reaches 52% on the same benchmark. On the `Financial-Audit-Fraud-Finding` scenario, frontier models commit fraud in 16/24 trials; **Sponsio blocks 100%**. On RedCode-Exec (1,410 cases), Sponsio reaches **92% combined** (bash 95% · python 90%) with **0% utility FP** across a 60-file clean-code audit.
+On [ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench) (12 frontier LLMs × 80 trajectories), unguarded models cheat in 11.5%–66.7% of runs. **With Sponsio, 95.6% of misalignment is avoided on average; 24/36 high-risk scenarios at 100%.** On the `Financial-Audit-Fraud-Finding` scenario, frontier models commit fraud in 16/24 trials; **Sponsio blocks 18/19**. On RedCode-Exec (1,410 cases), Sponsio reaches **92% combined** (bash 95% · python 90%) across a 60-file clean-code audit.
 
-Hot path p50 **0.139 ms** on the ODCV mandated workload, **5,000×–60,000× faster than any LLM-as-judge guardrail** (gpt-4o-mini, Lakera Guard, OpenAI Moderation all run at 50–800 ms per check), with zero LLM cost in the hot path. p99 stays under 1.04 ms across every measured workload.
+The logic checker takes p50 **0.139 ms** per contract, **5,000×–60,000× faster than any LLM-as-judge guardrail** (50–800 ms per check), with zero LLM cost in the hot path. p99 stays under 1.04 ms across every measured workload.
 
 See the [full benchmark methodology and per-model breakdown](docs/reference/benchmarks.md), [how Sponsio compares against prompt filters, output validators, LLM-as-judge, and sandboxing](docs/why.md), or dive into the [architecture](docs/concepts/architecture.md) and [formal methods primer](docs/concepts/formal-methods.md).
 
@@ -73,23 +77,15 @@ pip install sponsio        # or: npm install -D @sponsio/sdk
 sponsio init .             # interactive wizard: detects framework, IDE hosts, observe vs enforce
 ```
 
-The wizard writes `sponsio.yaml` and prints a 2-line patch. For example, LangGraph:
+The wizard auto-detects your framework and prints the right wrap snippet. For manual wiring, see [all supported integrations](docs/integrations/index.md). [OpenClaw users](docs/integrations/openclaw.md) get bundled ClawHavoc and CVE-2026-25253 coverage out of the box. For config reference, observe → enforce flip, `sponsio refresh`, and CI wiring, see the [full walkthrough](QUICKSTART.md).
 
-```python
-from sponsio.langgraph import Sponsio
-from langgraph.prebuilt import create_react_agent
-
-guard = Sponsio(config="sponsio.yaml", agent_id="coding_agent")
-agent = create_react_agent(model, guard.wrap(tools))
-```
-
-`sponsio init` auto-detects your framework and prints the right wrap snippet. For manual wiring, see [all supported integrations](docs/integrations/index.md). [OpenClaw users](docs/integrations/openclaw.md) get bundled ClawHavoc and CVE-2026-25253 coverage out of the box. For config reference, observe → enforce flip, `sponsio refresh`, and CI wiring, see the [full walkthrough](QUICKSTART.md).
+**Drafting contracts from natural language.** `sponsio validate "<rule in plain English>"` turns a plain-English rule into a contract you can read back. Treat the output as a starting draft to review and adjust before you enforce. The determinism is in how contracts are *enforced* at runtime, not in how they're drafted.
 
 ---
 
 ## Contract Library
 
-Sixteen **contract bundles** ship out of the box, organized by tier (always-on / per-tool / per-incident). Each bundle is a YAML pack composed from Sponsio's 44 deterministic patterns (stochastic atoms ship in Sponsio Cloud). Drop one into `sponsio.yaml` and your agent is guarded against a known failure class in one line, with no per-contract authoring.
+Sixteen **contract bundles** ship out of the box, organized by tier (always-on / per-tool / per-incident). Each bundle is a YAML pack composed from Sponsio's deterministic patterns. Drop one into `sponsio.yaml` and your agent is guarded against a known failure class in one line, with no per-contract authoring.
 
 ```yaml
 # sponsio.yaml: one-line bundle inclusion
@@ -97,13 +93,10 @@ agents:
   my_agent:
     workspace: "/srv/my-bot"
     include:
-      - sponsio:core/runaway          # always-on
       - sponsio:core/universal        # always-on
       - sponsio:capability/shell      # if your agent runs commands
       - sponsio:capability/filesystem # if your agent touches files
 ```
-
-`sponsio init` auto-selects tier-0 bundles based on your detected tool inventory. You can disable or retune individual rules via `customized:` (targeting by `desc`, `pack_source`, or `pattern`) without forking the pack.
 
 See the [full bundle reference](docs/reference/contract-lib.md) for all 16 bundles, or the [44 underlying patterns](docs/reference/patterns.md) for the primitives they compose. Want a bundle for your agent type? That's currently the highest-leverage way to contribute. [Open an issue](https://github.com/SponsioLabs/Sponsio/issues/new) with your incident, CVE, or pattern.
 
@@ -117,7 +110,7 @@ Patches, issue reports, and new pattern proposals are welcome. Start with [CONTR
 
 ## License
 
-Apache 2.0 ([LICENSE](LICENSE)). Sponsio Cloud (`pip install sponsio[cloud]`) opens mid-May 2026 with the managed LLM-judge pipeline, cross-customer pattern intelligence, and hosted multi-tenant dashboard; the [OSS / Cloud boundary](OSS_PROMISE.md) is documented.
+Apache 2.0 ([LICENSE](LICENSE)).
 
 *AI agents reading this repo: [`llms.txt`](llms.txt) lists canonical doc paths; [`llms-full.txt`](llms-full.txt) is the concatenated full context dump.*
 
@@ -529,7 +522,6 @@ See [Observe vs. enforce](../guides/observe-vs-enforce.md) for the full rollout.
 
 - **Add more contracts.** The [pattern catalog](../reference/patterns.md) lists all 44 deterministic patterns with NL examples. Pick the ones that match your failure modes.
 - **Generate contracts automatically.** `sponsio scan src/` reads your tool definitions and drafts a `sponsio.yaml` with candidate contracts. See [contract sources](../guides/contract-sources.md).
-- **Cover semantic properties.** Tone, relevance, scope respect need *stochastic contracts* (Sponsio Cloud). Start with `injection_free`, `toxic_free`, `semantic_pii_free`.
 - **Wire a different framework.** Claude Agent SDK, OpenAI, CrewAI, Google ADK, Vercel AI, MCP. See [Integrations](../integrations/index.md).
 
 
@@ -539,19 +531,18 @@ See [Observe vs. enforce](../guides/observe-vs-enforce.md) for the full rollout.
 
 ---
 title: Concepts overview
-description: The concept stack, the trace, the atom vocabulary, and how to pick between deterministic and stochastic contracts.
+description: The concept stack, the trace, and the atom vocabulary that define Sponsio's deterministic contracts.
 ---
 
 # Concepts overview
 
 The [README](../../README.md) explains what Sponsio does. This page explains how to think about it when you sit down to write contracts.
 
-Four ideas carry most of the system. Once they are straight, the pattern library, the atom catalog, the integrations, and the CLI all read as small variations on the same theme.
+Three ideas carry most of the system. Once they are straight, the pattern library, the atom catalog, the integrations, and the CLI all read as small variations on the same theme.
 
 1. **The concept stack**: atom → pattern → formula → contract.
 2. **The trace**: what contracts are actually evaluated against.
 3. **The atom vocabulary**: where Sponsio's observation boundary lies.
-4. **Two pipelines**: how to choose between deterministic and stochastic.
 
 For the full design rationale and LTL semantics, see [Architecture](architecture.md). This page bridges the README's three-line architecture summary and that document.
 
@@ -587,7 +578,7 @@ Four layers build on each other.
 
 **Formula**: an LTL expression over atoms. This is what the evaluator actually checks. Anything expressible in LTL over the available atom vocabulary can be enforced.
 
-**Contract**: an (assumption, guarantee) pair bound to one or more agents, with a strategy for what to do on violation (block, escalate, retry, redirect). The assumption tells the engine *when* the rule applies; the guarantee tells it *what must hold* when it does.
+**Contract**: an (assumption, guarantee) pair bound to one or more agents, with a strategy for what to do on violation (block or escalate). The assumption tells the engine *when* the rule applies; the guarantee tells it *what must hold* when it does.
 
 ```python
 contract("policy gate before refund")
@@ -626,20 +617,19 @@ The full list, with the formal signature of each atom and the patterns that use 
 
 ---
 
-## 4. Choosing between the two pipelines
+## 4. When a deterministic contract fits
 
-|  | Deterministic (OSS) | Stochastic (Sponsio Cloud) |
-|---|---|---|
-| **Ships in** | `pip install sponsio` | `pip install sponsio[cloud]` |
-| **Use when** | Property is structurally observable (counter, regex, path, ordering) | Property needs semantic judgment |
-| **Examples** | Tool ordering, rate limits, retries, loop detection, destructive gates, irreversible-once, path / argument blacklists, scope and length limits, exact-regex PII, format checks, permissions, allowlists, segregation of duty | Tone, relevance, scope respect, semantic PII, hallucination, faithfulness, metric integrity |
-| **Cost** | Microseconds, zero LLM calls | One LLM judge call per check |
-| **Pipeline** | LTL evaluator (formal) | LLM judge |
-| **In OSS** | Runs | Parses, then raises `RuntimeError` at runtime. Install `sponsio[cloud]` to evaluate. |
+Sponsio's deterministic contracts apply when a property is **structurally observable**: expressible with a counter, a regex, a path check, or an ordering relation.
 
-The rule of thumb: do not reach for a judge call to check things a regex already checks, and do not force a regex to check things that only make sense semantically.
+| | Deterministic contract |
+|---|---|
+| **Ships in** | `pip install sponsio` |
+| **Use when** | Property is structurally observable (counter, regex, path, ordering) |
+| **Examples** | Tool ordering, rate limits, retries, loop detection, destructive gates, irreversible-once, path / argument blacklists, scope and length limits, exact-regex PII, format checks, permissions, allowlists, segregation of duty |
+| **Cost** | Microseconds, zero LLM calls |
+| **Pipeline** | LTL evaluator (formal) |
 
-> One contract, one pipeline. A single contract is evaluated by exactly one pipeline. Det and sto atoms do not mix inside one rule. If you need both, declare two contracts.
+The rule of thumb: keep contracts to things a counter, regex, path, or ordering relation can check. Properties that only make sense semantically (tone, relevance, whether text is *truly* off-topic) are outside the deterministic engine's scope.
 
 ---
 
@@ -660,20 +650,18 @@ The rule of thumb: do not reach for a judge call to check things a regex already
  │                         │  + atoms    │  grounding layer    │
  │                         └─────────────┘                     │
  │                                │                            │
- │                    ┌───────────┴───────────┐                │
- │                    ▼                       ▼                │
- │            ┌───────────────┐       ┌───────────────┐        │
- │            │  det formula  │       │  sto judge    │        │
- │            │   evaluator   │       │  (LLM)        │        │
- │            └───────┬───────┘       └───────┬───────┘        │
- │                    │                       │                │
- │                    └───────────┬───────────┘                │
  │                                ▼                            │
- │                      block / retry / redirect               │
+ │                        ┌───────────────┐                    │
+ │                        │  det formula  │                    │
+ │                        │   evaluator   │                    │
+ │                        └───────┬───────┘                    │
+ │                                │                            │
+ │                                ▼                            │
+ │                      block / escalate                       │
  └─────────────────────────────────────────────────────────────┘
 ```
 
-Deterministic formulas are evaluated in microseconds. Stochastic atoms are judged only when a contract that uses them triggers. A violation routes through a **strategy**: block, retry with a constraint, redirect to a safe path, or escalate to a human.
+Deterministic formulas are evaluated in microseconds. A violation routes through a **strategy**: block the call or escalate to a human.
 
 ---
 
@@ -681,7 +669,6 @@ Deterministic formulas are evaluated in microseconds. Stochastic atoms are judge
 
 - [Architecture](architecture.md): LTL semantics, grounding internals, why the atom vocabulary is the observation boundary.
 - [Deterministic contracts](contracts.md): the pattern library and how each pattern compiles to LTL.
-- *Stochastic contracts* (Sponsio Cloud, `pip install sponsio[cloud]`): the judge pipeline, scoring, and retry strategies.
 - [Write your first contract](../getting-started/first-contract.md): hands-on walkthrough.
 - [Integrations](../integrations/index.md): wire it into your framework (LangGraph, Claude Agent SDK, OpenAI, CrewAI, Google ADK, Vercel AI, MCP, or custom).
 
@@ -883,10 +870,9 @@ Use both. Integration hooks for real-time enforcement (block dangerous tool call
 | Component | Status | Direction | Purpose |
 |---|---|---|---|
 | `sponsio/tracer/exporters.py` (`OtlpHttpExporter`) | Yes | Sponsio → OTLP | Push contract-checking span tree to any OTLP/HTTP collector (Datadog, Honeycomb, Grafana) |
-| OTLP ingestion at the dashboard | Sponsio Cloud | OTLP → Dashboard | Multi-tenant ingest with auth + retention; in OSS, ship spans to your own collector |
 | OTEL Consumer / Atom Adapter | Not yet | OTEL → Evaluator | Extract atoms from framework OTEL spans, run LTL evaluation |
 
-Outbound (exporter) and storage (ingestion) work today. The consumer that closes the loop from OTEL spans back to contract verification is the missing piece.
+The outbound exporter works today: ship spans to your own OTLP/HTTP collector. The consumer that closes the loop from OTEL spans back to contract verification is the missing piece.
 
 ---
 
@@ -1009,7 +995,7 @@ Typical det use cases:
 - **Permissions**: static role-based access to certain tools.
 - **Exact-regex PII**: SSN, credit card, email patterns that a regex can reliably catch.
 
-Anti-pattern: do not reach for a det contract for properties that need reading the text semantically (tone, relevance, whether something is *truly* PII). Those belong in a *stochastic contract* (Sponsio Cloud).
+Anti-pattern: do not reach for a det contract for properties that need reading the text semantically (tone, relevance, whether something is *truly* PII). Sponsio's deterministic engine does not evaluate those; keep contracts to what is structurally observable.
 
 ---
 
@@ -1030,7 +1016,6 @@ In **observe mode**, no strategy runs. Violations are logged and surfaced in rep
 ## Next
 
 - [Pattern catalog](../reference/patterns.md). Every det pattern that ships, with NL form.
-- *Stochastic contracts* (Sponsio Cloud, `pip install sponsio[cloud]`). When structural checks are not enough.
 - [Architecture](architecture.md). LTL semantics, grounding internals, atom vocabulary.
 - [Write your first contract](../getting-started/first-contract.md). Hands-on walkthrough.
 
@@ -1089,7 +1074,6 @@ With `--llm`, the LLM sees the full source and discovers constraints static anal
 - `always_followed_by` (liveness obligations)
 - `rate_limit` (from constants like `MAX_RETRIES = 3`)
 - `no_reversal` (from business logic semantics)
-- Sto constraints (output quality requirements). These compile to `pattern: <atom>` entries that fail loudly under OSS and run only with `pip install sponsio[cloud]`.
 
 ```bash
 sponsio scan src/agents/ --llm -o sponsio.yaml
@@ -1108,7 +1092,7 @@ sponsio scan src/agents/ -o sponsio.yaml
 sponsio scan src/agents/ --policy security_policy.md --llm -o sponsio.yaml --append
 ```
 
-The tool inventory is critical. Without it the LLM produces generic sto constraints. With it, policy maps to specific tools:
+The tool inventory is critical. Without it the LLM produces generic constraints. With it, policy maps to specific tools:
 
 ```
 Policy:           "All refunds require supervisor approval"
@@ -1135,7 +1119,7 @@ agents:
 
 Each entry is one `(assumption, guarantee)` pair. `A` is optional, `G` is required. Each field can be a scalar or a list (lists are ANDed). The legacy keys `E:` / `enforcement:` are still accepted for back-compat.
 
-Det syntax (must use backtick-quoted tool names):
+Deterministic syntax (must use backtick-quoted tool names):
 
 ```
 tool `A` must precede `B`
@@ -1146,16 +1130,7 @@ after `A`, tool `B` is forbidden
 tool `A` cooldown of N steps
 ```
 
-Sto syntax (Sponsio Cloud only). The OSS engine accepts these strings at parse time but raises `RuntimeError` at runtime, since no judge is wired up:
-
-```
-response must not contain PII
-response must be empathetic
-output must be in JSON format
-response under 200 words
-```
-
-Sponsio parses NL strings through three stages: rule-based first (free), sto keyword next (Cloud), LLM fallback last (requires API key).
+Sponsio parses NL strings through two stages: rule-based first (free), LLM fallback last (requires API key).
 
 ### Structured entries
 
@@ -1581,14 +1556,11 @@ Source of truth: [`sponsio/tracer/semconv.py`](../../sponsio/tracer/semconv.py).
 
 ```
 sponsio.agent_turn                 (root, one per check_action)
-├── sponsio.contract_check         (one per contract evaluated)
-│   ├── sponsio.precondition       (assumption phase, det only)
-│   ├── sponsio.guarantee          (enforcement phase, det only)
-│   ├── sponsio.sto_eval           (sto judge call, sto pipeline)
-│   ├── sponsio.violation          (only when a phase fails)
-│   └── sponsio.enforcement        (only when a strategy fires)
-└── sponsio.sto_check              (container for the sto pipeline)
-    └── sponsio.sto_eval           (per-prop evaluations)
+└── sponsio.contract_check         (one per contract evaluated)
+    ├── sponsio.precondition       (assumption phase)
+    ├── sponsio.guarantee          (enforcement phase)
+    ├── sponsio.violation          (only when a phase fails)
+    └── sponsio.enforcement        (only when a strategy fires)
 ```
 
 ### Root: `sponsio.agent_turn`
@@ -1604,8 +1576,7 @@ sponsio.agent_turn                 (root, one per check_action)
 | `sponsio.outcome.blocked` | Did any contract block this turn? |
 | `sponsio.outcome.status` | `ok`, `violated`, `error`. |
 | `sponsio.contracts_checked` | Total contracts evaluated. |
-| `sponsio.det_violations` | Det-pipeline violations. |
-| `sponsio.sto_violations` | Sto-pipeline violations. |
+| `sponsio.det_violations` | Contract violations. |
 | `sponsio.turn.duration_ns` | Total time spent in `check_action`. |
 
 ### Contract: `sponsio.contract_check`
@@ -1614,10 +1585,7 @@ sponsio.agent_turn                 (root, one per check_action)
 |---|---|
 | `sponsio.contract.label` | Human description from the yaml `desc:` field. |
 | `sponsio.contract.id` | Stable id for cross-session aggregation. |
-| `sponsio.contract.pipeline` | `det` or `sto`. |
 | `sponsio.contract.source` | `user_policy`, `shipped_pack`, `agent_inferred`, `manual`. |
-| `sponsio.contract.alpha` | Sto assumption-trigger threshold. |
-| `sponsio.contract.beta` | Sto enforcement-pass threshold. |
 | `sponsio.contract.assumption_holds` | Final assumption verdict. |
 | `sponsio.contract.enforcement_holds` | Final enforcement verdict. |
 
@@ -1631,26 +1599,11 @@ sponsio.agent_turn                 (root, one per check_action)
 | `sponsio.constraint.fresh` | True iff the just-appended event caused the failure. |
 | `sponsio.constraint.eval_pos` | Position the contract was evaluated at. |
 
-### Sto eval: `sponsio.sto_eval`
-
-These attributes only emit on Sponsio Cloud installs (`pip install sponsio[cloud]`). The OSS engine ships no sto evaluator, so no `sto_eval` spans are produced.
-
-| Attribute | Description |
-|---|---|
-| `sponsio.constraint.atom` | Registered atom name (`no_pii`, `tone_polite`). |
-| `sponsio.constraint.score` | Judge confidence in [0, 1]. |
-| `sponsio.constraint.threshold` | Pass/fail threshold (β). |
-| `sponsio.constraint.passed` | `score >= threshold`. |
-| `sponsio.constraint.evidence` | Judge's one-line explanation, truncated to 1 KB. |
-| `sponsio.constraint.suggestion` | Optional fix hint surfaced into retry prompts. |
-| `sponsio.judge.model` | LLM model identifier. |
-| `sponsio.judge.latency_ms` | Wall-clock judge call latency. |
-
 ### Violation: `sponsio.violation`
 
 | Attribute | Description |
 |---|---|
-| `sponsio.violation.kind` | `assumption`, `guarantee`, `sto`, `liveness`. |
+| `sponsio.violation.kind` | `assumption`, `guarantee`, `liveness`. |
 | `sponsio.violation.severity` | `HIGH`, `MEDIUM`, `LOW`. |
 | `sponsio.violation.evidence` | Human-readable evidence. |
 | `sponsio.violation.policy_ref` | Optional traceback to source-of-truth (`policy.md ¶1`). |
@@ -1661,7 +1614,7 @@ These attributes only emit on Sponsio Cloud installs (`pip install sponsio[cloud
 |---|---|
 | `sponsio.enforcement.strategy` | `DetBlock`, `EscalateToHuman`, `RetryWithConstraint`, `RedirectToSafe`. |
 | `sponsio.enforcement.action` | `blocked`, `escalated`, `retrying`, `redirected`, `observed`. |
-| `sponsio.enforcement.retry_prompt` | Sto retry-with-lesson prompt, truncated to 2 KB. |
+| `sponsio.enforcement.retry_prompt` | Retry-with-lesson prompt, truncated to 2 KB. |
 | `sponsio.enforcement.fallback_action` | Fallback action name for RedirectToSafe. |
 
 ## Privacy and cost defaults
@@ -1669,7 +1622,7 @@ These attributes only emit on Sponsio Cloud installs (`pip install sponsio[cloud
 The writer is conservative by default.
 
 - `redact_args=True` strips values from any key matching `password|token|secret|key|auth` (case-insensitive, leaves key names visible).
-- `truncate=True` caps tool args at 4 KB, sto evidence at 1 KB, sto retry prompts at 2 KB. Truncation marks bytes lost (`(+1.2 KB truncated)`).
+- `truncate=True` caps tool args at 4 KB and retry prompts at 2 KB. Truncation marks bytes lost (`(+1.2 KB truncated)`).
 - Per-conversation trace files under `~/.sponsio/plugins/<bucket>/conv-*.shield-trace.jsonl` are never exported. They live only on the local filesystem.
 
 For full fidelity (regression test corpora, internal incident replay), opt out:
@@ -1684,7 +1637,6 @@ OtlpHttpExporter(redact_args=False, truncate=False)
 |---|---|
 | Per-conversation `shield-trace.jsonl` | Carries raw tool args from prior subprocesses with no verdict context. Internal cross-process trace state. |
 | `~/.sponsio/cursor-subagents.jsonl` | Internal subagent registry, not user-facing. |
-| Atom caches | Score memo, no audit value. |
 | User prompt original text | Default redacted because user prompts can carry PII or secrets. Opt in to `redact_args=False` only after legal sign-off. |
 
 ## Versioning
@@ -2068,7 +2020,7 @@ Health checks: install integrity, config syntax, framework wiring.
 sponsio doctor
 ```
 
-## sponsio refresh (Sponsio Cloud)
+## sponsio refresh
 
 Re-mine `source: trace` contracts from recent sessions.
 
@@ -2077,15 +2029,7 @@ sponsio refresh --since 7d           # dry-run
 sponsio refresh --since 7d --apply   # write back, with .sponsio.bak
 ```
 
-User-written rules and `customized:` blocks pass through unchanged. Requires `pip install sponsio[cloud]`.
-
-## sponsio serve (Sponsio Cloud)
-
-```bash
-sponsio serve
-```
-
-The OSS package ships a stub that exits 2 and points at the Cloud install. For OSS-only observability, use `sponsio host trace --follow` (live stream) or `sponsio report --since 1h` (summary).
+User-written rules and `customized:` blocks pass through unchanged. Mines your own local session log.
 
 ## sponsio packs
 
@@ -2095,7 +2039,7 @@ List shipped contract packs with rule counts and `include:` syntax.
 sponsio packs
 ```
 
-Reads from `sponsio/contracts/` and prints one row per pack: spec name, tier, rule count, det / sto / mixed, one-line summary. Useful right after `sponsio scan` / `sponsio init` to see what a generated yaml's `include:` lines pull in.
+Reads from `sponsio/contracts/` and prints one row per pack: spec name, tier, rule count, one-line summary. Useful right after `sponsio scan` / `sponsio init` to see what a generated yaml's `include:` lines pull in.
 
 ## sponsio eval
 
@@ -2211,7 +2155,6 @@ Cross-language scenarios in `tests/cross_language/` validate identical verdicts 
 |---|---|
 | 0 | Success |
 | 1 | Parse error, violation, or missing input |
-| 2 | Cloud-only command in OSS install |
 
 
 <!-- ====================================================================== -->
@@ -2431,12 +2374,9 @@ agents:
       - name: "refund rate limit"
         G: "tool `issue_refund` at most 5 times"
         strategy: escalate
-      - name: "response scope"
-        G:
-          pattern: scope_respect
-          args: ["customer support about orders, refunds, accounts"]
-        beta: 0.85
-        risk_profile: cautious
+      - name: "no destructive deletes"
+        G: "bash command must not contain `rm -rf`"
+        strategy: block
 ```
 
 ---
@@ -2478,9 +2418,6 @@ Each entry in `contracts:` has these fields:
 | `E` | string \| object | yes | Enforcement. The rule itself. |
 | `strategy` | string | no | `block`, `escalate`, `retry_with_constraint`, `redirect_to_safe`, or a dotted callable path. |
 | `mode` | `observe` \| `enforce` | no | Per-contract override. |
-| `alpha` | float 0–1 | no | Sto only. Assumption confidence threshold. |
-| `beta` | float 0–1 | no | Sto only. Guarantee confidence threshold. |
-| `risk_profile` | string | no | Sto only, `cautious`, `balanced`, `permissive`; sets α/β for you. |
 
 ### Shorthand form
 
@@ -2498,13 +2435,11 @@ For patterns that need typed arguments (lists, regex tuples, threshold floats). 
 
 ```yaml
 - G:
-    pattern: scope_respect
-    args: ["customer support about orders, refunds, accounts"]
-    context_scope: event         # event | last_k | full_trace
-  beta: 0.85
+    pattern: arg_blacklist
+    args: ["bash", "rm -rf"]
 ```
 
-See the [pattern catalog](patterns.md) for det patterns and the *sto atom catalog* (Sponsio Cloud) for sto atoms.
+See the [pattern catalog](patterns.md) for the full list of deterministic patterns.
 
 ---
 
@@ -2554,8 +2489,7 @@ guard = Sponsio(config="sponsio.yaml", agent_id="support_bot")
 
 ## Next
 
-- [Pattern catalog](patterns.md). Every det pattern with NL form.
-- *Sto atom catalog* (Sponsio Cloud). Every sto atom.
+- [Pattern catalog](patterns.md). Every deterministic pattern with NL form.
 - [CLI reference](cli.md), `sponsio scan`, `sponsio validate`, `sponsio doctor`.
 - [Contract sources](../guides/contract-sources.md). Scan, policy-doc mining, trace mining.
 
@@ -2591,7 +2525,7 @@ description: Common questions and pitfalls when adopting Sponsio.
 
 ### Is Sponsio a prompt-injection shield?
 
-No. Sponsio checks actions, not text. If you need prompt-injection detection, use a stochastic contract with the `injection_free` atom (Sponsio Cloud), but understand that's one atom in a larger system. The main value is blocking unsafe *tool calls* regardless of whether the reason was injection, misalignment, or a plain bug.
+No. Sponsio checks actions, not text. The main value is blocking unsafe *tool calls* regardless of whether the reason was injection, misalignment, or a plain bug.
 
 ### Is it an output-assertion library?
 
@@ -2613,18 +2547,6 @@ Prompt engineering defines intent. Sponsio enforces the action boundary. A well-
 
 No, by design. The atom vocabulary is the observation boundary. If you need a new atom, add it (see [Architecture](../concepts/architecture.md)) and then write patterns over it. The engine can only reason about facts the grounding layer produces.
 
-### Do det and sto mix inside one contract?
-
-No. A single contract is evaluated by exactly one pipeline. If you need both a structural check and a semantic check for the same situation, declare two contracts.
-
-### Should I turn on every sto atom I can?
-
-No. Every sto atom costs one LLM judge call per check (and sto runs only in Sponsio Cloud). The recommended minimum is `injection_free`, `toxic_free`, `semantic_pii_free`: then add atoms that match actual failure modes in your product.
-
-### Is sto free?
-
-No. Sto uses an LLM-as-judge and ships in Sponsio Cloud (`pip install sponsio[cloud]`). Some atoms are lightweight (logprob-based boolean judges), but LLM-judged sto atoms require a configured judge and incur per-check cost.
-
 ### Can OTEL do the blocking?
 
 No. OTEL is post-hoc. Blocking has to happen synchronously between the LLM and the tool, which is where the framework integration sits. Use OTEL for observation, not enforcement.
@@ -2643,7 +2565,7 @@ No. If your LLM app calls tools, APIs, databases, or files, you can use Sponsio 
 
 ### Python and TypeScript. Same semantics?
 
-For deterministic contracts, yes. The Python and TS engines share the same LTL core and produce identical block/allow decisions over the same trace. The DFA/verifier, YAML config, discovery, dashboard, and OTEL export are Python-only today. The stochastic pipeline ships in Sponsio Cloud on both sides; the OSS engine on Python and TS is det-only.
+For deterministic contracts, yes. The Python and TS engines share the same LTL core and produce identical block/allow decisions over the same trace. The DFA/verifier, YAML config, discovery, and OTEL export are Python-only today.
 
 ---
 
@@ -2673,17 +2595,13 @@ Yes. That's the point. The det pipeline is designed to stay there: pure Python, 
 
 Yes. The evaluator uses per-position caching and DFA-compiled formulas where possible. On a 1000-event trace, det checks stay under 20μs.
 
-### Does sto scale?
-
-Sto cost is dominated by judge-call latency, which is 100ms–1s per atom. Keep `context_scope="event"` as the default; reserve `full_trace` for the few atoms that need it.
-
 ---
 
 ## Benchmarks
 
 ### Where are the numbers from?
 
-`sponsio scan` + offline replay against [ODCV-Bench](https://github.com/your-org/odcv-bench). ~84% average protection on high-risk trajectories across 12 mainstream LLMs. Full methodology and per-model results: *Benchmarks* (separate report. Contact Sponsio for current numbers).
+`sponsio scan` + offline replay against [ODCV-Bench](https://github.com/your-org/odcv-bench). **95.6%** average protection on high-risk trajectories across 12 mainstream LLMs; **24 of 36 scenarios at 100%** across every model. Full methodology and per-model / per-scenario results: *Benchmarks* (separate report. Contact Sponsio for current numbers).
 
 ### Can I reproduce them?
 
@@ -2750,12 +2668,9 @@ contracts:
     G: { pattern: untrusted_source_gate,
          args: [[fetch_email, web_fetch, read_pdf],
                 [send_email, http_post, file_upload]] }
-  # The line below is Sponsio Cloud only. The OSS engine raises at runtime.
-  - desc: "Response must be free of prompt-injection framings"
-    G: { sto: injection_free, threshold: 0.9 }
 ```
 
-Reads as: once any source has been called, every sink call must be preceded by a confirmation. Before any source fires, sinks are unrestricted. The det contract is structural. The sto atom is a belt-and-braces score on the model's response (Cloud feature).
+Reads as: once any source has been called, every sink call must be preceded by a confirmation. Before any source fires, sinks are unrestricted. The contract is structural: ordering and confirmation are checkable from the trace alone.
 
 ## ASI-02 Tool misuse
 
@@ -2845,9 +2760,6 @@ contracts:
     args: [approve_refund, content_source, "^canonical:/policies/"]
   - pattern: data_intact
     args: [approve_refund, ["/canonical/policies/", "/canonical/rules/"]]
-  # Sponsio Cloud only:
-  - desc: "Response must be faithful to retrieved canonical source"
-    G: { sto: faithfulness, threshold: 0.85 }
 ```
 
 Coverage condition: tag each retrieved chunk with its source.
@@ -2934,12 +2846,9 @@ contracts:
            [verify_vendor_identity, verify_bank_details, compliance_approve]]
   - pattern: irreversible_once
     args: [approve_invoice]
-  # Sponsio Cloud only:
-  - desc: "Summary must not omit risk-material facts before confirm"
-    G: { sto: no_omission, threshold: 0.9 }
 ```
 
-On an $847k wire to an unverified vendor, three contracts fire on the same call: amount over cap, no compliance approval, no confirm on file. The `required_steps_completion` rule handles the skipped-onboarding case. The `no_omission` sto catches summaries that hide the "new vendor, large amount" framing.
+On an $847k wire to an unverified vendor, three contracts fire on the same call: amount over cap, no compliance approval, no confirm on file. The `required_steps_completion` rule handles the skipped-onboarding case.
 
 ## ASI-10 Rogue agents
 
@@ -2958,9 +2867,6 @@ contracts:
   - pattern: required_steps_completion
     args: [delete_snapshot,
            [verify_not_in_dr_window, estimate_savings, log_decision]]
-  # Sponsio Cloud only:
-  - desc: "Cost reports include DR/RPO impact metrics"
-    G: { sto: metric_integrity, threshold: 0.9 }
 ```
 
 The rogue-agent pattern is rational cost-optimal behavior under the wrong KPI. Each guardrail covers a corner the agent might cut: wrong path, wrong age, wrong velocity, no human, missing audit, misleading report. The failure mode is structural, so the fix is structural.
@@ -3085,7 +2991,7 @@ sponsio/
 ├── cli.py            sponsio scan|validate|check|serve|demo|patterns
 ├── formulas/         LTL AST + evaluators
 ├── models/           Agent, Contract, System, Trace, Event
-├── patterns/         det patterns + sto catalog
+├── patterns/         deterministic pattern library
 ├── runtime/          RuntimeMonitor, strategies, terminal reporter
 ├── generation/       NL → contract (rules + optional LLM)
 ├── tracer/           event collection + grounding
@@ -3105,8 +3011,7 @@ will reject PRs that break them:
 2. All framework integrations inherit from `BaseGuard`. No duplicated
    pre-check / post-check logic.
 3. Det violations route to `DetBlock` or `EscalateToHuman` only.
-   Sto violations route to `RetryWithConstraint` or `RedirectToSafe`
-   only. `RuntimeMonitor` enforces this separation. Don't bypass it.
+   `RuntimeMonitor` enforces this routing. Don't bypass it.
 4. The trace is append-only during a session. Rollback is only
    permitted on a hard block, and only in `mode="enforce"`.
 
@@ -3122,7 +3027,7 @@ Three issue templates exist:
 
 - **Bug Report**: unexpected behavior, crashes, wrong verdicts.
 - **Feature Request**: new capability or ergonomic improvement.
-- **New Constraint Pattern**: proposal for a new det or sto pattern.
+- **New Constraint Pattern**: proposal for a new deterministic pattern.
 
 ### 2. Branch, write, test
 
@@ -3323,10 +3228,6 @@ Before opening the PR:
 - [ ] `[Unreleased]` entry in `CHANGELOG.md`.
 - [ ] `pytest -v` and `ruff check sponsio/ tests/` both green.
 
-### Stochastic atoms
-
-Stochastic atoms (LLM-judge evaluators) are part of [Sponsio Cloud](docs/reference/oss-scope.md#in-sponsio-cloud-commercial--pip-install-sponsiocloud); the OSS engine ships an empty sto registry plus a `Judge` extension point. Patches that add new sto evaluators land in the cloud repo and are not accepted here. Patches that improve the OSS extension point are very welcome.
-
 ---
 
 ## Adding a new integration
@@ -3364,7 +3265,7 @@ path. We'll acknowledge within 72 hours and coordinate disclosure.
 
 ## What belongs in this repo (and what doesn't)
 
-**Ship with open source:** user-facing guides, contract and architecture reference, design notes (e.g. [`docs/cost-based-thresholds.md`](docs/cost-based-thresholds.md)), and sto calibration concepts.
+**Ship with open source:** user-facing guides, contract and architecture reference, and design notes (e.g. [`docs/cost-based-thresholds.md`](docs/cost-based-thresholds.md)).
 
 **Keep out of the public tree** (or redact before publishing):
 
@@ -3400,6 +3301,29 @@ broke.
 ## [Unreleased]
 
 _Nothing yet._
+
+---
+
+## [0.1.1] — 2026-05-22
+
+### Fixed
+
+- **`pyyaml` is now a core dependency.** It was previously declared only
+  under the `config` / `all` optional-dependency groups, but the config
+  loader, the `sponsio host install` path, `sponsiorc`, and plugin
+  scan/append all import `yaml` on the core code path. A base
+  `pip install sponsio` (or `pipx install sponsio` / `mise use
+  pipx:sponsio`) shipped without it, so the onboarding wizard crashed
+  with `ModuleNotFoundError: No module named 'yaml'` on the first
+  `sponsio host install`. ([#61](https://github.com/SponsioLabs/Sponsio/issues/61))
+
+### Changed
+
+- The build smoke-test in CI now runs `python -c "import yaml"` and
+  `sponsio packs` (a YAML-reading command) in the clean-install venv, in
+  addition to `--version` / `--help`. The old smoke test only exercised
+  click-level commands, which is why the missing core dependency slipped
+  through to a release.
 
 ---
 
@@ -3484,20 +3408,12 @@ and a CLI for scanning, mining, and reporting.
 - **Plugins** — Claude Code plugin (production), OpenClaw plugin
   (beta — type definitions track the public OpenClaw plugin docs;
   end-to-end exercise inside a live OpenClaw runtime is in progress).
-- **Benchmarks** — ODCV-Bench (84.5% high-risk protection across 12
-  LLMs) and RedCode-Exec (92% combined detection across 1,410 cases),
-  with 0% utility FP on the 60-file clean-code audit. See
+- **Benchmarks** — ODCV-Bench (**95.6% high-risk protection across 12
+  LLMs**, 24 of 36 scenarios at 100% across every model) and
+  RedCode-Exec (92% combined detection across 1,410 cases), with
+  **0 FP increase** across 6 ODCV library iterations and 0% utility
+  FP on the 60-file clean-code audit. See
   [`docs/reference/benchmarks.md`](docs/reference/benchmarks.md).
-
-### Boundary
-
-Sponsio Cloud is a separate commercial product layer; the
-[OSS / Cloud boundary](docs/reference/oss-scope.md) is documented and committed.
-The OSS engine ships everything above; the managed sto pipeline,
-cross-customer pattern intelligence, hosted dashboard, and
-multi-tenant retention live in `sponsio[cloud]`. The OSS monitor
-log-and-skips sto contracts with a one-time warning so libraries that
-mix det + sto load cleanly under either install.
 
 ### Notes
 
@@ -3505,4 +3421,4 @@ mix det + sto load cleanly under either install.
   and CLI surface follow [SemVer](https://semver.org/) for breaking
   changes from 0.2 onward.
 - Apache 2.0 — see [LICENSE](LICENSE) and the
-  [OSS Promise](docs/reference/oss-scope.md#versioning--the-oss-promise).
+  [OSS Promise](OSS_PROMISE.md).

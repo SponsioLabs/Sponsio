@@ -16,7 +16,7 @@ integrations/
 │   ├── crewai_guard.py         # CrewAI — guard.wrap(tools)
 │   └── shared.py               # Shared mock/real mode toggle
 │
-└── typescript/                 # TypeScript examples (6 — det only)
+└── typescript/                 # TypeScript examples (6)
     ├── vanilla_guard.mjs          # No framework — guardBefore/guardAfter + contract() builder
     ├── langgraph_guard.mjs        # LangChain.js — wrapTools(tools, guard)
     ├── openai_guard.mjs           # OpenAI SDK — patchOpenAI(client, guard)
@@ -24,8 +24,6 @@ integrations/
     ├── claude_agent_guard.mjs     # Claude Agent SDK — sponsioHooks(guard)
     └── vercel_ai_guard.mjs        # Vercel AI SDK — sponsioMiddleware(guard)
 ```
-
-LLM-judged stochastic atoms (`injection_free`, `tone_*`, `semantic_pii_free`, ...) are a Sponsio Cloud feature — install with `pip install sponsio[cloud]`. The Python sto integration examples live in the Cloud repo's `examples/` directory; OSS only ships deterministic guards.
 
 ## Quick Start
 
@@ -62,10 +60,9 @@ node examples/integrations/typescript/langgraph_guard.mjs
 | OpenAI Agents SDK | `agents_sdk_guard.py` | `openai_agents_guard.mjs` | `guard.wrap(tools)` / `wrapAgentsTools()` |
 | Claude Agent SDK | `claude_agent_guard.py` | `claude_agent_guard.mjs` | `guard.hooks()` / `sponsioHooks()` |
 | Vercel AI SDK | `vercel_ai_guard.py` | `vercel_ai_guard.mjs` | `guard.wrap()` / `sponsioMiddleware()` |
-| Sto (tone / llm_judge) | Cloud-only — see Sponsio Cloud `examples/` | Cloud-only — see Sponsio Cloud `examples/` | `E: { pattern: tone, args, threshold }` + `judge:` (requires `pip install sponsio[cloud]`) |
 | CrewAI | `crewai_guard.py` | — | `guard.wrap(tools)` |
 
-Python and TypeScript share the **same deterministic LTL engine** — TypeScript has its own native port (no Python runtime or WASM). Cross-language tests in `tests/cross_language/` verify identical block/allow decisions. The TS sto pipeline is intentionally minimal (two atoms: `tone`, `llm_judge`); semantic PII, hallucination, scope respect, and metric integrity remain Python-only today.
+Python and TypeScript share the **same deterministic LTL engine**. TypeScript has its own native port (no Python runtime or WASM). Cross-language tests in `tests/cross_language/` verify identical block/allow decisions.
 
 ## API Keys
 

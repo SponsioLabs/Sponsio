@@ -64,7 +64,7 @@ The two safety benchmarks split cleanly along this axis:
 | **ODCV-Bench** | tool-call (data tampering, script edits, monitor disabling) | Det → 95.6% × 12 LLMs |
 | **RedCode-Exec** | tool-call + finite code-text surface (incl. logic-flaw) | Det → 95% bash / 92% combined |
 
-Sto handles what det fundamentally cannot see: properties of the agent's generated response text (toxicity, hallucination, faithfulness, contextual PII, scope drift in natural language, tone). These live in the LLM's free-form output, so no det rule can fingerprint them. The stochastic pipeline (managed LLM-judge service) is a [Sponsio Cloud](oss-scope.md#in-sponsio-cloud-commercial--pip-install-sponsiocloud) feature; the OSS engine ships an extension point so you can plug your own judge.
+What deterministic contracts fundamentally cannot see are properties of the agent's generated response text (toxicity, hallucination, faithfulness, contextual PII, scope drift in natural language, tone). These live in the LLM's free-form output, so no det rule can fingerprint them, and they fall outside the deterministic engine's scope.
 
 ### The continuous-improvement loop
 
@@ -265,7 +265,7 @@ Each of the seven new logic-flaw layers ran as a single-contract guard against 6
 | bash, `guard_after` | 3,338 | 3,292 | 0.3 ms | 0.333 ms | 0.378 ms |
 | python, `guard_before` per script | 810 | 1,216 | 0.811 ms | 0.912 ms | 1.035 ms |
 
-**Key takeaway:** **95% on bash, 90% on python, 92% combined**, with **0% utility FP** on the clean-code audit. The earlier "logic-flaw categories require sto" framing was wrong: every such failure surfaces as a finite code-text fingerprint, and det binds once the patterns are written.
+**Key takeaway:** **95% on bash, 90% on python, 92% combined**, with **0% utility FP** on the clean-code audit. The earlier "logic-flaw categories can't be caught deterministically" framing was wrong: every such failure surfaces as a finite code-text fingerprint, and det binds once the patterns are written.
 
 ---
 
@@ -289,7 +289,7 @@ Where Sponsio's enforcement overhead sits relative to typical operations in an a
 
 Sponsio's hot path adds **less overhead than a single local Redis read** and is **5,000× to 60,000× faster** than the cheapest LLM-as-judge guardrail on the same per-tool-call workload. For structurally observable properties, this is three to four orders of magnitude of headroom.
 
-For semantic properties (tone, relevance, hallucination, scope respect, semantic prompt injection), Sponsio's stochastic pipeline runs LLM-as-judge calls where they belong: after the deterministic layer has handled the structural cases. The managed sto pipeline is part of Sponsio Cloud (`pip install sponsio[cloud]`); the OSS engine ships an extension point so you can plug your own judge. See [OSS scope](oss-scope.md) and [Architecture](../concepts/architecture.md).
+Semantic properties (tone, relevance, hallucination, scope respect, semantic prompt injection) live in the LLM's free-form output and fall outside the deterministic engine's scope. Sponsio handles the structurally observable cases on the deterministic hot path. See [OSS scope](oss-scope.md) and [Architecture](../concepts/architecture.md).
 
 ---
 

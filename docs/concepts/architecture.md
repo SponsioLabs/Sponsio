@@ -191,10 +191,9 @@ Use both. Integration hooks for real-time enforcement (block dangerous tool call
 | Component | Status | Direction | Purpose |
 |---|---|---|---|
 | `sponsio/tracer/exporters.py` (`OtlpHttpExporter`) | Yes | Sponsio → OTLP | Push contract-checking span tree to any OTLP/HTTP collector (Datadog, Honeycomb, Grafana) |
-| OTLP ingestion at the dashboard | Sponsio Cloud | OTLP → Dashboard | Multi-tenant ingest with auth + retention; in OSS, ship spans to your own collector |
 | OTEL Consumer / Atom Adapter | Not yet | OTEL → Evaluator | Extract atoms from framework OTEL spans, run LTL evaluation |
 
-Outbound (exporter) and storage (ingestion) work today. The consumer that closes the loop from OTEL spans back to contract verification is the missing piece.
+The outbound exporter works today: ship spans to your own OTLP/HTTP collector. The consumer that closes the loop from OTEL spans back to contract verification is the missing piece.
 
 ---
 

@@ -33,10 +33,9 @@ A JSON object from `sponsio onboard --emit-context`:
 ## Hard rules (apply before authoring anything)
 
 - **Deterministic atoms only.**  Use ONLY pattern names from the
-  *Pattern vocabulary* section below.  Do NOT propose stochastic
-  atoms (`injection_free`, `pii_free`, `semantic_pii`, `faithful`,
-  `harmful`, `tone_*`, `relevant`, `metric_integrity`, etc.).
-  Sponsio OSS does not load them; the YAML will fail to parse.
+  *Pattern vocabulary* section below.  The engine is
+  deterministic-only; any pattern name outside that vocabulary will
+  fail to parse.
 
 - **Dedupe against `pre_existing_contracts`.**  The CLI already
   emitted starter rules (likely `idempotent`, generic
@@ -56,9 +55,8 @@ A JSON object from `sponsio onboard --emit-context`:
 - **One contract per concrete failure mode.**  Plain-English
   `desc:` so the user can review by reading.  No omnibus rules.
 
-- **Strip `extractor:` / `judge:` blocks.**  Those drive Sponsio
-  Cloud features (parse-time / runtime LLM judges) and add noise
-  to the OSS file unless the user explicitly asks for them.
+- **Strip `extractor:` / `judge:` blocks.**  The engine does not use
+  them; they only add noise to the file.
 
 - **Placeholders only as last resort.**  Use `___AGENT_ID___`,
   `___WORKSPACE___`, `___ALLOWED_HOST___` etc. ONLY when no

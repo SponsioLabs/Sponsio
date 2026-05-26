@@ -6,7 +6,7 @@ When the README says Sponsio's deterministic contracts are "backed by formal met
 
 Most agent-safety tools enforce rules by asking another LLM whether a tool call looks bad. That answer is probabilistic. It depends on the judge model's mood, prompt, and prior context. Two identical traces can get different verdicts.
 
-Sponsio's deterministic path doesn't ask a model anything. Each contract you write (*"after `run_aml_check`, no edits to loan files"*, *"`run_tests` must precede `deploy_production`"*, *"`issue_refund` at most 3 times"*) gets compiled into a **Linear Temporal Logic (LTL) formula**, then into a **deterministic finite automaton (DFA)** that walks the trace one event at a time and outputs **pass** or **fail**. No randomness. Same trace in → same verdict out, every time.
+Sponsio doesn't ask a model anything. Each contract you write (*"after `run_aml_check`, no edits to loan files"*, *"`run_tests` must precede `deploy_production`"*, *"`issue_refund` at most 3 times"*) gets compiled into a **Linear Temporal Logic (LTL) formula**, then into a **deterministic finite automaton (DFA)** that walks the trace one event at a time and outputs **pass** or **fail**. No randomness. Same trace in → same verdict out, every time.
 
 That's what "formal" buys you: instead of "the judge thinks this is fine" you get "by the structure of your trace, this rule is provably satisfied or provably violated."
 
@@ -59,7 +59,7 @@ Formal methods do not magic away every failure mode:
 
 - **Spec correctness.** Sponsio guarantees your contract is enforced *as written.* If you write the wrong rule (missed an edge case, bad atom name), the engine enforces the wrong thing. Fast and reliably. Spec review is your job; we just give you a tight loop to iterate (write rule → `sponsio check --trace` → adjust).
 - **Atom grounding.** The DFA reasons over events, not raw English. Your tool wrappers / framework hooks have to emit the right events for the rule to fire. `sponsio init` and the integration adapters handle the common case; custom atoms need a one-time mapping.
-- **Semantic checks.** Some properties are inherently fuzzy, "is this response off-topic?", "did the agent omit a material fact?", "does this PII look exfiltrated?". Those go through the **stochastic pipeline** (LLM-judged atoms, Sponsio Cloud), not the formal one. The two pipelines are clearly separated.
+- **Semantic checks.** Some properties are inherently fuzzy, "is this response off-topic?", "did the agent omit a material fact?", "does this PII look exfiltrated?". Sponsio's deterministic engine does not attempt these; it enforces what is structurally observable.
 
 ## Further reading
 
@@ -67,7 +67,6 @@ Formal methods do not magic away every failure mode:
 - Baier & Katoen, *Principles of Model Checking* (2008). Chapters 5–7 cover LTL → automata in depth.
 - [Architecture](architecture.md). How Sponsio's grounding, monitor, and verifier components fit together.
 - [Contracts](contracts.md). The actual atom vocabulary and contract DSL syntax.
-- *Stochastic atom catalog* (Sponsio Cloud). The complementary stochastic pipeline.
 
 ---
 

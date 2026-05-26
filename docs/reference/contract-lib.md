@@ -11,23 +11,20 @@ Sponsio ships a set of pre-built contract **packs** under [`sponsio/contracts/`]
 
 ## The packs
 
-Sixteen packs ship out of the box. Run `sponsio packs` for the full inventory with rule counts. The seven most commonly used:
+Several deterministic packs ship out of the box. Run `sponsio packs` for the full inventory with rule counts. The most commonly used:
 
-| Spec | Tier | Contracts | OSS / Cloud | When to include |
-|---|---|---|---|---|
-| `sponsio:core/universal` | 0 | 5 (sto) | **Cloud only** (sto pipeline) | Any LLM agent. Injection, jailbreak, toxic, harmful, semantic-PII response checks. |
-| `sponsio:core/runaway` | 0 | 5 (det) | OSS | Any agent with token usage, sub-agent delegation, or tool loops. Token budgets, delegation depth, loop caps. |
-| `sponsio:capability/filesystem` | 1 | 13 (det) | OSS | Agent exposes `read` / `write` / `edit` / `apply_patch`. Sensitive-path denies, workspace scoping, self-modification gate. |
-| `sponsio:capability/shell` | 1 | 11 (det) | OSS | Agent exposes `exec` / `bash`. `rm -rf /`, fork bomb, curl\|bash, reverse shell, confirmation gates. |
-| `sponsio:incident/openclaw` | 2 | 45 (mixed) | det rules in OSS, sto rules need Cloud | Reference pack mirroring real 2026 OpenClaw incidents (CVE-2026-25253, ClawHavoc, weather-skill). Mostly a worked example. Pick individual rules from it. |
-| `sponsio:incident/cursor-railway-wipe` | 2 | mixed | det rules in OSS, sto rules need Cloud | Replays the PocketOS production-DB wipe (Apr 2026): credential-scope abuse + destructive-API gates. |
-| `sponsio:incident/claude-code-secret-bypass` | 2 | mixed | det rules in OSS, sto rules need Cloud | Replays CVE-2025-55284 (broad safe-command allowlist) + the deny-rule cap bypass. Catches secret reads + arg-padding evasion. |
+| Spec | Tier | Contracts | When to include |
+|---|---|---|---|
+| `sponsio:core/runaway` | 0 | 5 | Any agent with token usage, sub-agent delegation, or tool loops. Token budgets, delegation depth, loop caps. |
+| `sponsio:capability/filesystem` | 1 | 13 | Agent exposes `read` / `write` / `edit` / `apply_patch`. Sensitive-path denies, workspace scoping, self-modification gate. |
+| `sponsio:capability/shell` | 1 | 11 | Agent exposes `exec` / `bash`. `rm -rf /`, fork bomb, curl\|bash, reverse shell, confirmation gates. |
+| `sponsio:incident/openclaw` | 2 | 45 | Reference pack mirroring real 2026 OpenClaw incidents (CVE-2026-25253, ClawHavoc, weather-skill). Mostly a worked example. Pick individual rules from it. |
+| `sponsio:incident/cursor-railway-wipe` | 2 | mixed | Replays the PocketOS production-DB wipe (Apr 2026): credential-scope abuse + destructive-API gates. |
+| `sponsio:incident/claude-code-secret-bypass` | 2 | mixed | Replays CVE-2025-55284 (broad safe-command allowlist) + the deny-rule cap bypass. Catches secret reads + arg-padding evasion. |
 
 Other shipped packs: `core/llm_safety`; `capability/{credentials, database, filesystem-strict, host-config-integrity, self-modify, subagent}`; `incident/{mcp-composition, subagent-escape}`.
 
 Tier 0 is the default-on baseline. Tier 1 is capability-indexed. Include it when your agent exposes that capability. Tier 2 is scenario-specific.
-
-A pack containing sto contracts loads cleanly under OSS, but trying to evaluate the sto rules raises a `RuntimeError` directing to `pip install sponsio[cloud]`. Det rules in the same pack continue to enforce.
 
 ## Using a pack
 
@@ -68,11 +65,9 @@ agents:
         disabled: true
       - match: { pack_source: "sponsio:capability/shell" }
         disabled: true                     # kill-switch the whole pack
-      - match: { pattern: injection_free }
-        threshold: 0.85                    # loosen beta on one sto rule
 ```
 
-Supported `match:` keys: `desc`, `pack_source`, `source` (the `library:tier*` tag in each rule), `pattern`. Supported effects: `disabled`, `threshold`, `prompt_override`, `context_scope`. An override that matches nothing is surfaced by `sponsio validate`: no silent misses.
+Supported `match:` keys: `desc`, `pack_source`, `source` (the `library:tier*` tag in each rule), `pattern`. Supported effects: `disabled`, `prompt_override`, `context_scope`. An override that matches nothing is surfaced by `sponsio validate`: no silent misses.
 
 ## Renaming tools
 
@@ -104,20 +99,6 @@ Some pack rules reference *marker* tool names that your integration must emit:
 Until a marker is ever emitted, any rule gated on it is either vacuously true (for `A:`-conditional rules) or fails closed. Check each pack's trailing "Integration requirements" section before enabling enforce mode.
 
 ## Pack-by-pack reference
-
-### `sponsio:core/universal`: 5 sto contracts (Sponsio Cloud)
-
-Response-scoped checks for any LLM agent. No `tools:` section. These evaluate against `llm_response` events, not tool calls. **Requires `pip install sponsio[cloud]`.** Under OSS the pack loads but each sto contract raises at evaluation time.
-
-| Rule (β default) | Pattern |
-|---|---|
-| Response free of prompt-injection compliance (β=0.95) | `injection_free` (full_trace) |
-| No jailbreak compliance. DAN, roleplay, hypothetical bypass (β=0.90) | `jailbreak_free` |
-| Must not encourage or enable real-world harm (β=0.95) | `harmful` |
-| Free of toxic / harassing language (β=0.90) | `toxic_free` |
-| Free of contextual PII. Names tied to conditions, inferable identity (β=0.95) | `semantic_pii_free` |
-
-`scope_respect` is deliberately **not** shipped on by default. It needs an agent-specific scope string. See the YAML header comment for a template.
 
 ### `sponsio:core/runaway`: 5 det contracts
 
@@ -155,12 +136,11 @@ Mostly a worked example of tier-0 + tier-1 + incident tags composed together. Fo
 sponsio validate sponsio.yaml   # resolves every include, reports unmatched overrides, type-checks patterns
 ```
 
-Source attribution is preserved through loading: every compiled contract knows its `pack_source` and `library:tier*` tag, which surfaces in `sponsio scan`, `sponsio report`, and the dashboard's Contract Library panel.
+Source attribution is preserved through loading: every compiled contract knows its `pack_source` and `library:tier*` tag, which surfaces in `sponsio scan` and `sponsio report`.
 
 ## See also
 
 - [`sponsio.yaml` reference](config-yaml.md). Top-level schema, `include:` / `customized:` / `tool_rename:` / `workspace:` mechanics.
 - [Pattern catalog](patterns.md). The Python factories each pack rule compiles into.
-- *Sto atom catalog* (Sponsio Cloud). The LLM-judged atoms used by `core/universal`.
 - [Onboarding guide](../guides/onboarding.md), `sponsio init` auto-selects tier-0 packs based on detected tools.
-- *Benchmark contract libraries* (no longer shipped in OSS). Hand-curated libraries that drive Sponsio's published RedCode-Exec and ODCV-Bench headlines. Distinct from the capability packs above: benchmark-reproduction artefacts, not auto-included by `onboard`.
+- *Benchmark contract libraries* (no longer shipped as packaged bundles). Hand-curated libraries that drive Sponsio's published RedCode-Exec and ODCV-Bench headlines. Distinct from the capability packs above: benchmark-reproduction artefacts, not auto-included by `onboard`.

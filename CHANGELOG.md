@@ -127,20 +127,10 @@ and a CLI for scanning, mining, and reporting.
   FP on the 60-file clean-code audit. See
   [`docs/reference/benchmarks.md`](docs/reference/benchmarks.md).
 
-### Boundary
-
-Sponsio Cloud is a separate commercial product layer; the
-[OSS / Cloud boundary](docs/reference/oss-scope.md) is documented and committed.
-The OSS engine ships everything above; the managed sto pipeline,
-cross-customer pattern intelligence, hosted dashboard, and
-multi-tenant retention live in `sponsio[cloud]`. The OSS monitor
-log-and-skips sto contracts with a one-time warning so libraries that
-mix det + sto load cleanly under either install.
-
 ### Notes
 
 - Status: alpha. APIs may shift before 1.0; the trace event schema
   and CLI surface follow [SemVer](https://semver.org/) for breaking
   changes from 0.2 onward.
 - Apache 2.0 — see [LICENSE](LICENSE) and the
-  [OSS Promise](docs/reference/oss-scope.md#versioning--the-oss-promise).
+  [OSS Promise](OSS_PROMISE.md).

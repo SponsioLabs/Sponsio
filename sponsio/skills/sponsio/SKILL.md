@@ -5,7 +5,7 @@ description: Install, observe, tune, enforce, and periodically refresh Sponsio �
 
 # Sponsio — Agent Safety Lifecycle Companion
 
-Sponsio is a Python/TypeScript runtime safety layer for LLM agents: it evaluates deterministic contracts against each tool call and can block (enforce) or just log (observe) violations. (LLM-judged stochastic contracts — tone, prompt-injection, semantic PII, scope respect — are a Sponsio Cloud feature available via `pip install sponsio[cloud]`; the OSS engine is det-only.) This skill covers the full lifecycle — first-time setup, contract authoring/review, observe-mode tuning, and flipping to enforce — by orchestrating Sponsio's CLI and explaining its output in plain language.
+Sponsio is a Python/TypeScript runtime safety layer for LLM agents: it evaluates deterministic contracts against each tool call and can block (enforce) or just log (observe) violations. The engine is deterministic-only. This skill covers the full lifecycle — first-time setup, contract authoring/review, observe-mode tuning, and flipping to enforce — by orchestrating Sponsio's CLI and explaining its output in plain language.
 
 This skill does NOT reimplement Sponsio's logic; it calls the CLI and interprets results.
 
@@ -333,7 +333,7 @@ not surprised when it appears.
 
 | Pack | Auto-included when… | Notes |
 |---|---|---|
-| `sponsio:core/universal` | Always | Empty stub on OSS — kept so existing `include:` lines don't error. The output-quality contracts (injection / jailbreak / toxic / PII / harm) live in `sponsio:core/llm_safety` and require Sponsio Cloud (`pip install sponsio[cloud]`) |
+| `sponsio:core/universal` | Always | Empty stub, kept so existing `include:` lines don't error. |
 | `sponsio:core/runaway` | Framework runs a multi-step loop (langgraph/crewai/…) | token budget, delegation depth, loop detection; no LLM calls |
 | `sponsio:capability/shell` | A tool name matches `{bash, shell, exec, execute, execute_command, run_command, run_shell, run_bash, terminal, subprocess}` | Auto-fills `tool_rename:` if the user's tool name isn't the canonical `exec` |
 | `sponsio:capability/filesystem` | A tool name matches `{read, read_file, open_file, write, write_file, edit, edit_file, apply_patch, patch_file, ...}` | Auto-fills `tool_rename:` and `workspace:` |
@@ -390,7 +390,7 @@ Sponsio contracts come from four sources, mixable in one yaml:
 | 1 | **Shipped packs** | Pre-built, parameterized rule sets (`sponsio:core/universal`, `sponsio:capability/shell`, …) | Hand-add `include: [sponsio:<spec>]` — or W1's `onboard` does it automatically |
 | 2 | **Extraction** | AST + optional LLM inference from your code / policy docs / execution traces | `sponsio scan <paths> [--llm] [--policy <doc>] [-t <trace-glob>]` |
 | 3 | **User input** | An NL sentence or a structured dict the user writes | Hand-edit `sponsio.yaml`; validate a single NL string with `sponsio validate "<NL>"` |
-| 4 | **Pattern library** | Deterministic parameterized templates (`rate_limit`, `must_precede`, `arg_blacklist`, …) — full list via `sponsio patterns`. Stochastic templates (`injection_free`, `tone`, `llm_judge`, …) live in Sponsio Cloud | `sponsio patterns` to browse; hand-write the YAML entry |
+| 4 | **Pattern library** | Deterministic parameterized templates (`rate_limit`, `must_precede`, `arg_blacklist`, …) — full list via `sponsio patterns` | `sponsio patterns` to browse; hand-write the YAML entry |
 
 Match the user's input to the source(s):
 
@@ -440,7 +440,7 @@ sponsio validate --config ./sponsio.yaml
      --target {{HOST_BUCKET}} --dry-run
    ```
 
-3. Apply.  The CLI rejects anything beyond additive `contracts:` entries — no `customized:`, no `disabled:`, no desc collisions with existing rules, no top-level `runtime:` / `judge:` / `include:` smuggling.  It validates the merged file via the loader before declaring success.
+3. Apply.  The CLI rejects anything beyond additive `contracts:` entries — no `customized:`, no `disabled:`, no desc collisions with existing rules, no top-level `runtime:` / `include:` smuggling.  It validates the merged file via the loader before declaring success.
 
    ```bash
    sponsio plugin append --from <staging-path> --target {{HOST_BUCKET}}
@@ -467,7 +467,7 @@ sponsio scan <PATHS> --policy <doc> --llm \
 sponsio validate --config ./sponsio.yaml --json
 ```
 
-JSON shape per entry: `{nl, ok, type: "det"|"sto"|"unknown", pattern, formula, agent, section}`. `ok: false` means the NL didn't match any pattern — surface those as "ambiguous — needs refinement".
+JSON shape per entry: `{nl, ok, type: "det"|"unknown", pattern, formula, agent, section}`. `ok: false` means the NL didn't match any pattern — surface those as "ambiguous — needs refinement".
 
 ### Explain contracts (use this as the report template)
 
@@ -477,7 +477,7 @@ JSON shape per entry: `{nl, ok, type: "det"|"sto"|"unknown", pattern, formula, a
 **Setup**: <N> contracts total, <sources breakdown>. Mode: <observe|enforce>.
 
 ### Active packs
-- `sponsio:core/universal` (empty stub on OSS — judge-based output safety lives in `sponsio:core/llm_safety` and requires Sponsio Cloud)
+- `sponsio:core/universal` (empty stub, kept so existing `include:` lines don't error)
 - `sponsio:capability/shell` (11 det) — guards on <tool name after rename>
 <...>
 
@@ -798,7 +798,6 @@ Check in this order:
 1. `sponsio validate --config sponsio.yaml --json` — does the contract parse? `ok: false` means it was silently dropped.
 2. The tool name in the contract matches the actual tool name the agent calls (LangGraph `node_id` vs the `@tool` Python name is a common trap; see `tool_rename:`).
 3. The rule has an `A:` (assumption) that isn't holding. Look at the trace — is the precondition ever true?
-4. The rule is a `sto` pattern (`injection_free`, `tone_*`, `semantic_pii_free`, …). The OSS engine ships no evaluator for those — `pip install sponsio[cloud]` to activate the judge pipeline. Without Cloud, OSS rejects the contract loudly at config load.
 
 ### "A rule is firing that shouldn't."
 
@@ -860,10 +859,6 @@ agents:
 runtime:
   mode: observe                      # "observe" | "enforce"
   dashboard: http://localhost:8000   # URL | true | false | null
-
-judge:                               # Sponsio Cloud only — required when any include uses sto patterns
-  provider: openai                   # openai | anthropic | gemini
-  model: gpt-4o-mini
 ```
 
 Both `A` and `G` accept: scalar NL string, list (AND), or structured dict `{pattern, args, source?}`.
@@ -874,7 +869,7 @@ Placeholders rewritten at include-time: `<workspace>/` (from agent's `workspace:
 
 ## Pattern reference
 
-Full list: `sponsio patterns` (deterministic templates only). LLM-judged stochastic templates are a Sponsio Cloud feature.
+Full list: `sponsio patterns` (deterministic templates only).
 
 ### Core Temporal (14 det)
 | Pattern | Meaning |
@@ -903,8 +898,8 @@ Full list: `sponsio patterns` (deterministic templates only). LLM-judged stochas
 ### Resource & Delegation (3 det)
 `token_budget(max_tokens)` · `arg_value_range(tool, field, min, max)` · `delegation_depth_limit(max_depth)`
 
-### Soft Evaluators
-LLM-judged stochastic atoms (`tone_*`, `relevance`, `llm_judge`, `injection_free`, `semantic_pii_free`, `scope_respect`, …) ship in Sponsio Cloud (`pip install sponsio[cloud]`). The OSS engine refuses to load them at config time with a clear pointer. Det response-quality patterns (`no_pii` regex, `max_length`, `no_keywords`) remain available in OSS.
+### Response-quality patterns (3 det)
+Deterministic response-quality patterns (`no_pii` regex, `max_length`, `no_keywords`) check `llm_said` and need no judge.
 
 ---
 
@@ -960,7 +955,7 @@ If asked for something out of scope (e.g., "also check my DB schema"), say so an
 This skill only uses these. Internal refactors are safe as long as these stay stable.
 
 1. **CLI**: `sponsio onboard`, `sponsio scan PATHS [--agent N] [--llm] [--policy P] [-t GLOB] [-o FILE] [--append]`, `sponsio refresh [-c FILE] [-a AGENT] [-t GLOB] [--since DUR] [--mode add-only|replace-trace] [--apply]`, `sponsio validate [--config FILE | "NL string"] [--json]`, `sponsio check --trace FILE --config FILE --agent ID`, `sponsio report --agent ID --since DUR`, `sponsio doctor`, `sponsio patterns`, `sponsio packs`, `sponsio skill install [--tool cursor|claude|codex|both|auto]`. Exit 0 on success.
-2. **YAML**: top-level `agents:` as dict; each agent has optional `include:` / `tool_rename:` / `customized:` / `workspace:` and required `contracts:`; top-level `runtime:` and `judge:`.
+2. **YAML**: top-level `agents:` as dict; each agent has optional `include:` / `tool_rename:` / `customized:` / `workspace:` and required `contracts:`; top-level `runtime:`.
 3. **Patterns**: names in the table above keep their semantics. Renaming is a breaking change for this skill.
 4. **`validate --json` shape**: per-contract `ok` / `type` / `pattern` / `formula` / `agent`.
 5. **`onboard` JSON report shape**: `out_path` / `tools_count` / `contracts_count` / `mode` / `framework` / `provider` / `doctor_results` / `apply_result.diff`.
