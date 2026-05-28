@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from sponsio.generation.nl_to_contract import parse_nl_unified
+from sponsio.generation.dsl_to_contract import parse_nl_unified
 from sponsio.models.agent import Agent
 from sponsio.models.contract import Contract
 from sponsio.models.spans import AgentTurnSpan, render_tree

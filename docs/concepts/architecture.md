@@ -122,7 +122,7 @@ It takes user-friendly arguments, constructs a formula from atoms, and wraps it 
 
 1. Write the factory in `patterns/library.py`. Return `DetFormula` and populate `args=(...)` with the raw arguments so the pattern store can round-trip them.
 2. If the formula uses atoms not yet in grounding, add the extraction logic to `tracer/grounding.py`.
-3. Add NL keyword rules in `generation/nl_to_contract.py`.
+3. Add DSL keyword rules in `generation/dsl_to_contract.py`.
 4. Add tests in `tests/test_pattern_e2e.py` covering NL → guard → enforcement.
 
 A pattern that only uses existing atoms (composing `called()` and `count()`) requires zero grounding changes.

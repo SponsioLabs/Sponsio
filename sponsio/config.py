@@ -1453,12 +1453,12 @@ def _compile_structured(entry: ConstraintEntry) -> Any:
     """Compile a structured constraint entry to a deterministic formula.
 
     Resolves ``entry.pattern`` against the deterministic pattern library
-    (:func:`sponsio.generation.nl_to_contract.get_available_patterns`).
+    (:func:`sponsio.generation.dsl_to_contract.get_available_patterns`).
     Stochastic / LLM-judged contracts are an extension point that this
     build does not ship, so an unknown pattern here is a hard parse
     error rather than a silent fall-through.
     """
-    from sponsio.generation.nl_to_contract import get_available_patterns
+    from sponsio.generation.dsl_to_contract import get_available_patterns
 
     det_registry = get_available_patterns()
     if entry.pattern not in det_registry:
@@ -1590,7 +1590,7 @@ def _compile_single(
     llm_extractor: Any = None,
     tool_inventory: list[dict] | None = None,
 ) -> Any:
-    from sponsio.generation.nl_to_contract import (
+    from sponsio.generation.dsl_to_contract import (
         ContractSyntaxError,
         parse_nl_unified,
     )

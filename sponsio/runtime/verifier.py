@@ -495,7 +495,7 @@ class TraceVerifier:
         """Parse a natural-language rule and check it on the synced trace.
 
         Convenience for REPL / notebook / quick-script use. Delegates to
-        :func:`sponsio.generation.nl_to_contract.parse_nl_unified` for
+        :func:`sponsio.generation.dsl_to_contract.parse_nl_unified` for
         the full "NL string → pattern → raw LTL AST" compile chain, then
         hands the resulting formula to :meth:`check`.
 
@@ -528,7 +528,7 @@ class TraceVerifier:
             ValueError: If the NL string cannot be parsed as a det rule
                 (e.g. unsupported pattern, ambiguous, or sto-only text).
         """
-        from sponsio.generation.nl_to_contract import parse_nl_unified
+        from sponsio.generation.dsl_to_contract import parse_nl_unified
 
         result = parse_nl_unified(nl)
         if result.is_det:

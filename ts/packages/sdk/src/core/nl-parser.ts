@@ -1,7 +1,7 @@
 /**
  * NL → Formula parser (rule-based keyword matching).
  *
- * Simplified port of sponsio/generation/nl_to_contract.py.
+ * Simplified port of sponsio/generation/dsl_to_contract.py.
  * Handles common NL patterns like:
  *   "tool `A` must precede `B`"
  *   "tool `X` at most 3 times"
@@ -46,7 +46,7 @@ interface KeywordRule {
 
 const KEYWORD_RULES: KeywordRule[] = [
   // Deadline (before rate_limit so "within N steps" doesn't get swallowed by
-  // any "N times"-style rule). Mirrors the Python ``nl_to_contract`` regex set.
+  // any "N times"-style rule). Mirrors the Python ``dsl_to_contract`` regex set.
   {
     patterns: [
       /within\s+\d+\s+steps?\s+(?:of|after)/,

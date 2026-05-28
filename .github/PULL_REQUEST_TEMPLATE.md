@@ -59,6 +59,6 @@ Example:
 - [ ] No new external dependency added to `sponsio/` core (framework
       deps go in `[project.optional-dependencies]`).
 - [ ] For new patterns: both `patterns/library.py` and
-      `generation/nl_to_contract.py` updated.
+      `generation/dsl_to_contract.py` updated.
 - [ ] For new integrations: inherits `BaseGuard`; no duplicated
       pre/post-check logic.

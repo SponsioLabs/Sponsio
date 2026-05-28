@@ -9,7 +9,7 @@ Public entry points:
   LLM translator can classify an input.
 """
 
-from sponsio.generation.nl_to_contract import (
+from sponsio.generation.dsl_to_contract import (
     ContractParseResult,
     ContractSyntaxError,
     LLMBackend,

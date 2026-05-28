@@ -1,12 +1,50 @@
-"""NL → Contract: translate natural language descriptions to pattern-based contracts.
+"""Sponsio contract DSL → :class:`DetFormula` over the pattern library.
 
-This is the primary user-facing path for contract acquisition. Users describe
-constraints in natural language; this module maps them to existing pattern
-functions (must_precede, always_followed_by, never_together, etc.) and
-validates the results via the formula evaluator.
+This module owns the **text DSL** layer: a bounded set of English-shaped
+phrasings (e.g. ``tool `check_policy` must precede `issue_refund```) that
+compile, via regex/keyword matching, into calls on
+:mod:`sponsio.patterns.library` and validated :class:`DetFormula`
+objects. The DSL is intentionally small — it is not a free-form NL
+parser.
 
-The module provides both an LLM-assisted path (requires an API key) and a
-rule-based fallback that uses keyword matching for common constraint patterns.
+Layer diagram::
+
+    free-form NL   ──(optional LLM extractor)──▶  text DSL  ──▶  patterns  ──▶  DetFormula
+                                                  (this file)     (library.py)
+
+Entry points (cheapest first):
+
+* :func:`parse_dsl` — strict rule-based DSL parser. Pure Python, no LLM.
+* :func:`parse_contract` (aliased as ``parse_nl_unified``) — tries
+  ``parse_dsl``, then ``classify_sto``, then optionally an
+  ``llm_extractor`` for free-form NL → DSL translation. Raises
+  :class:`ContractSyntaxError` if nothing matches.
+* :func:`nl_to_contracts` / :func:`build_contracts` — batch helpers
+  used by older callers.
+
+If a contract string looks like English but is **not** in the DSL, the
+right fix is almost never "add another regex rule" — it's to translate
+it into the DSL up front, or pass ``llm_extractor=`` to
+:func:`parse_contract`. Loosening the rule cascade tends to create
+spurious matches on plain English ("delivered before christmas"). The
+DSL is a feature, not a fallback.
+
+Supported phrasing shapes (non-exhaustive — see ``_KEYWORD_RULES`` for
+the full table)::
+
+    `A` must precede `B`               → must_precede
+    `A` always followed by `B`         → always_followed_by
+    never call `A` and `B` together    → mutual_exclusion
+    `A` at most N times                → rate_limit / bounded_retry
+    cooldown of N steps between `A`s   → cooldown
+    `A` requires permission `P`        → requires_permission
+    `tool` args must not contain "X"   → arg_blacklist
+    response under N words / no PII    → max_length / no_pii / no_keywords
+    called `A`                         → trigger atom (for ``.assume()``)
+
+:class:`OpenAIBackend` provides the ``nl_to_contracts(llm_backend=…)``
+path, which is a thinner per-line translator distinct from the
+unified-pipeline LLM extractor (see :mod:`sponsio.generation.llm_extraction`).
 """
 
 from __future__ import annotations
@@ -1922,7 +1960,7 @@ class ContractSyntaxError(ValueError):
     NL into DSL.
 
     Sponsio's rule-based contract parser is a DSL (see
-    :mod:`sponsio.generation.nl_to_contract`) — a bounded set of phrasings
+    :mod:`sponsio.generation.dsl_to_contract`) — a bounded set of phrasings
     that map to patterns in :mod:`sponsio.patterns.library`. Input that
     doesn't match any rule is a syntax error in that DSL, not a "probably
     sto, let's no-op it" situation. Raising is the only way to prevent

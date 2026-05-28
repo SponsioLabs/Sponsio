@@ -801,7 +801,7 @@ It takes user-friendly arguments, constructs a formula from atoms, and wraps it 
 
 1. Write the factory in `patterns/library.py`. Return `DetFormula` and populate `args=(...)` with the raw arguments so the pattern store can round-trip them.
 2. If the formula uses atoms not yet in grounding, add the extraction logic to `tracer/grounding.py`.
-3. Add NL keyword rules in `generation/nl_to_contract.py`.
+3. Add DSL keyword rules in `generation/dsl_to_contract.py`.
 4. Add tests in `tests/test_pattern_e2e.py` covering NL → guard → enforcement.
 
 A pattern that only uses existing atoms (composing `called()` and `count()`) requires zero grounding changes.
@@ -2313,7 +2313,7 @@ Six steps:
 
 1. Add a factory to [`sponsio/patterns/library.py`](../../sponsio/patterns/library.py).
 2. If it needs a new observable, add atom extraction in [`sponsio/tracer/grounding.py`](../../sponsio/tracer/grounding.py).
-3. Register it for NL parsing in [`sponsio/generation/nl_to_contract.py`](../../sponsio/generation/nl_to_contract.py).
+3. Register it in the text DSL at [`sponsio/generation/dsl_to_contract.py`](../../sponsio/generation/dsl_to_contract.py).
 4. Tests in [`tests/test_patterns.py`](../../tests/test_patterns.py) (formula) and [`tests/test_nl_parser.py`](../../tests/test_nl_parser.py) (NL round-trip).
 5. Mirror in [`ts/packages/sdk/src/core/patterns.ts`](../../ts/packages/sdk/src/core/patterns.ts), or add a row to [`ts-sdk-parity.md`](ts-sdk-parity.md) if TS can't ground the atoms it uses.
 6. Document a row here, plus a `### Added` entry in `CHANGELOG.md`.
@@ -3049,7 +3049,7 @@ touched these:
 
 | Change | Update |
 |--------|--------|
-| New pattern | `sponsio/patterns/library.py` + `sponsio/generation/nl_to_contract.py` + `README.md` Pattern Library table + `docs/concepts/contracts.md` |
+| New pattern | `sponsio/patterns/library.py` + `sponsio/generation/dsl_to_contract.py` + `README.md` Pattern Library table + `docs/concepts/contracts.md` |
 | New integration | `sponsio/integrations/` + `README.md` Integrations table + `docs/integrations/index.md` |
 | New CLI subcommand | `sponsio/cli.py` + `docs/reference/cli.md` + `README.md` |
 | Public API change | `CHANGELOG.md` under `[Unreleased]` with `### Changed` or `### Added` |
@@ -3132,9 +3132,9 @@ Most patterns compose existing atoms. Skip this step if yours does. If you do ne
 
 `sanitized_before_sink` only uses `called(...)`, so step 2 is N/A.
 
-### 3. Register the pattern for NL parsing
+### 3. Register the pattern in the text DSL
 
-Add it to [`sponsio/generation/nl_to_contract.py`](sponsio/generation/nl_to_contract.py) so users can write the pattern as natural language.
+Add it to [`sponsio/generation/dsl_to_contract.py`](sponsio/generation/dsl_to_contract.py) so users can express the pattern in the Sponsio contract DSL (the small set of phrasings the rule-based parser recognizes). Free-form NL beyond the DSL goes through the optional LLM extractor, not new regex rules here.
 
 ```python
 # top-of-file import
@@ -3220,7 +3220,7 @@ Three places. All required.
 Before opening the PR:
 
 - [ ] Factory in `sponsio/patterns/library.py` returns `DetFormula` with correct `pattern_name` and `args`.
-- [ ] Pattern registered in `nl_to_contract.py` (import, registry, dispatch).
+- [ ] Pattern registered in `dsl_to_contract.py` (import, registry, dispatch).
 - [ ] Formula test in `tests/test_patterns.py`.
 - [ ] NL test in `tests/test_nl_parser.py`.
 - [ ] TS mirror landed, OR row added to `ts-sdk-parity.md`.

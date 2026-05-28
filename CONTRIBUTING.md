@@ -154,7 +154,7 @@ touched these:
 
 | Change | Update |
 |--------|--------|
-| New pattern | `sponsio/patterns/library.py` + `sponsio/generation/nl_to_contract.py` + `README.md` Pattern Library table + `docs/concepts/contracts.md` |
+| New pattern | `sponsio/patterns/library.py` + `sponsio/generation/dsl_to_contract.py` + `README.md` Pattern Library table + `docs/concepts/contracts.md` |
 | New integration | `sponsio/integrations/` + `README.md` Integrations table + `docs/integrations/index.md` |
 | New CLI subcommand | `sponsio/cli.py` + `docs/reference/cli.md` + `README.md` |
 | Public API change | `CHANGELOG.md` under `[Unreleased]` with `### Changed` or `### Added` |
@@ -237,9 +237,9 @@ Most patterns compose existing atoms. Skip this step if yours does. If you do ne
 
 `sanitized_before_sink` only uses `called(...)`, so step 2 is N/A.
 
-### 3. Register the pattern for NL parsing
+### 3. Register the pattern in the text DSL
 
-Add it to [`sponsio/generation/nl_to_contract.py`](sponsio/generation/nl_to_contract.py) so users can write the pattern as natural language.
+Add it to [`sponsio/generation/dsl_to_contract.py`](sponsio/generation/dsl_to_contract.py) so users can express the pattern in the Sponsio contract DSL (the small set of phrasings the rule-based parser recognizes). Free-form NL beyond the DSL goes through the optional LLM extractor, not new regex rules here.
 
 ```python
 # top-of-file import
@@ -325,7 +325,7 @@ Three places. All required.
 Before opening the PR:
 
 - [ ] Factory in `sponsio/patterns/library.py` returns `DetFormula` with correct `pattern_name` and `args`.
-- [ ] Pattern registered in `nl_to_contract.py` (import, registry, dispatch).
+- [ ] Pattern registered in `dsl_to_contract.py` (import, registry, dispatch).
 - [ ] Formula test in `tests/test_patterns.py`.
 - [ ] NL test in `tests/test_nl_parser.py`.
 - [ ] TS mirror landed, OR row added to `ts-sdk-parity.md`.

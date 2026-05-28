@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from sponsio.generation.nl_to_contract import (
+from sponsio.generation.dsl_to_contract import (
     _extract_actions,
     _extract_allowlist_patterns,
     _extract_blacklist_patterns,

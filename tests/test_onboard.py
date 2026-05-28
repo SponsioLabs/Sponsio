@@ -142,7 +142,7 @@ class TestStarterContracts:
         """Every proposal's evidence['args'] must splat cleanly into
         the pattern function via _compile_structured.  This is the
         single invariant that guarantees the YAML round-trips."""
-        from sponsio.generation.nl_to_contract import get_available_patterns
+        from sponsio.generation.dsl_to_contract import get_available_patterns
 
         registry = get_available_patterns()
         props = starter_contracts(

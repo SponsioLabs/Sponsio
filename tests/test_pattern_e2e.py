@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import warnings
 
-from sponsio.generation.nl_to_contract import parse_nl_rule_based
+from sponsio.generation.dsl_to_contract import parse_nl_rule_based
 from sponsio.integrations.base import BaseGuard
 
 

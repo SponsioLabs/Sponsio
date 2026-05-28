@@ -53,7 +53,7 @@ For implementation:
 - `sponsio/runtime/monitor.py` — det dispatch and enforcement routing
 - `sponsio/runtime/verifier.py` — trace-aware contract verification
 - `sponsio/patterns/library.py` — deterministic pattern factories
-- `sponsio/generation/nl_to_contract.py` — natural-language parsing
+- `sponsio/generation/dsl_to_contract.py` — text DSL → pattern-library calls (rule-based; LLM extractor is a separate, opt-in stage in `parse_contract`)
 - `sponsio/tracer/grounding.py` — event-to-atom grounding
 - `sponsio/formulas/formula.py` and `sponsio/formulas/evaluator.py` — formula AST and finite-trace evaluator
 
@@ -67,7 +67,7 @@ sponsio/
 ├── demos/             packaged mock demos used by `sponsio demo`
 ├── discovery/         code/docs/traces -> proposed contracts
 ├── formulas/          LTL/propositional/arithmetic AST + evaluators
-├── generation/        NL -> contract parsing and optional LLM extraction
+├── generation/        text DSL -> contract parsing and optional LLM extractor for free-form NL
 ├── integrations/      framework adapters; all contract logic lives in BaseGuard
 ├── models/            Agent, Contract, System, Trace, Event, spans
 ├── patterns/          deterministic pattern library
@@ -121,7 +121,7 @@ Python and TypeScript share the deterministic core. When changing these Python f
 | `sponsio/formulas/evaluator.py` | `core/evaluator.ts` |
 | `sponsio/tracer/grounding.py` | `core/grounding.ts` |
 | `sponsio/patterns/library.py` | `core/patterns.ts` |
-| `sponsio/generation/nl_to_contract.py` | `core/nl-parser.ts` |
+| `sponsio/generation/dsl_to_contract.py` | `core/nl-parser.ts` |
 
 Cross-language scenarios live in `tests/cross_language/scenarios.json`.
 
@@ -133,7 +133,7 @@ The TS SDK covers deterministic runtime enforcement. Python currently has the br
 
 1. Add a factory to `sponsio/patterns/library.py`.
 2. If it needs a new observable, add atom extraction in `sponsio/tracer/grounding.py`.
-3. Add NL parsing in `sponsio/generation/nl_to_contract.py`.
+3. Add DSL parsing in `sponsio/generation/dsl_to_contract.py`.
 4. Add tests for pattern behavior and NL parsing.
 5. Update README/docs if the pattern is public.
 6. Check TypeScript parity if the pattern belongs in the TS det core.

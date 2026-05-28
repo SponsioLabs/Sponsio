@@ -405,7 +405,7 @@ def _suggest_pattern(text: str, error: str) -> str:
         )
 
     # Check if pattern name is close to a known pattern
-    from sponsio.generation.nl_to_contract import _PATTERN_REGISTRY
+    from sponsio.generation.dsl_to_contract import _PATTERN_REGISTRY
 
     lower_text = text.lower()
     for pname in _PATTERN_REGISTRY:
@@ -507,7 +507,7 @@ def _compile_det(item: dict) -> ExtractionResult:
         return result
 
     # Path 2: Legacy pattern function call
-    from sponsio.generation.nl_to_contract import _PATTERN_REGISTRY
+    from sponsio.generation.dsl_to_contract import _PATTERN_REGISTRY
 
     if pattern_name not in _PATTERN_REGISTRY:
         result.error = (

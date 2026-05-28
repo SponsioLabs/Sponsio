@@ -961,7 +961,7 @@ def validate(contracts, config_path, agent_id, as_json, trace_paths):
         sponsio validate --config sponsio.yaml --traces traces/\n
         sponsio validate ./sponsio.yaml   # same as --config when file looks like a project config
     """
-    from sponsio.generation.nl_to_contract import (
+    from sponsio.generation.dsl_to_contract import (
         ContractSyntaxError,
         parse_nl_unified,
     )
@@ -1297,7 +1297,7 @@ def _resolve_entry(entry):
     For NL strings, runs through parse_nl_unified.
     """
     from sponsio.config import ConstraintEntry, _compile_structured
-    from sponsio.generation.nl_to_contract import (
+    from sponsio.generation.dsl_to_contract import (
         ContractSyntaxError,
         UnifiedParseResult,
         parse_nl_unified,
@@ -2556,7 +2556,7 @@ def _filter_invalid_contracts(yaml_content: str) -> tuple[str, list[dict]]:
             _compile_structured,
             _parse_constraint_entry,
         )
-        from sponsio.generation.nl_to_contract import (
+        from sponsio.generation.dsl_to_contract import (
             ContractSyntaxError,
             parse_nl_unified,
         )

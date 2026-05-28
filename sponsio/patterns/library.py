@@ -1,13 +1,16 @@
-"""Pattern library -- the user-facing constraint DSL.
+"""Pattern library — the constraint primitive layer.
 
-Users describe constraints by calling pattern functions.  Each function
-compiles a human-readable description into an LTL formula wrapped in a
-``DetFormula`` (which carries the description + pattern name for
-diagnostics).
+Patterns are the building blocks the rest of Sponsio compiles to: each
+function takes plain string args and returns a ``DetFormula`` (an LTL
+AST plus the original description + pattern name, for diagnostics).
+Users never need to write raw LTL.
 
-Users never need to write raw LTL.  The NL parser
-(``generation/nl_to_contract.py``) maps natural language strings to
-calls into this library.
+The pattern library is *not* itself the contract DSL — the DSL is the
+text layer above it (``generation/dsl_to_contract.py``), which parses
+phrasings like ``tool `check_policy` must precede `issue_refund``` into
+the corresponding pattern call. Patterns can also be invoked directly
+from Python or produced by the LLM extractor; the DSL is just one of
+several front-ends.
 
 Available patterns (35 det + 1 deprecated):
 

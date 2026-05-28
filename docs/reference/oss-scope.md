@@ -65,8 +65,9 @@ is no LLM call on the enforcement path.
   patterns repeating in your traces).
 
 ### Generation
-- `sponsio/generation/nl_to_contract.py`: NL → contract parser
-  (deterministic patterns)
+- `sponsio/generation/dsl_to_contract.py`: text DSL → contract parser
+  (deterministic patterns; free-form NL goes through the optional
+  LLM extractor in `parse_contract`)
 - `sponsio/generation/structured_ir.py`: IR for the deterministic
   pipeline
 
