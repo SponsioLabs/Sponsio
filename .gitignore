@@ -82,6 +82,16 @@ docs/benchmark-results.md
 examples/scan_test_agent_run_debug.py
 sponsio-code-review.md
 
+# Meeting / discussion materials — Office docs and slides are binary
+# working artifacts (notes, pitch decks, comparison write-ups), not
+# part of the codebase. Keep them local.
+*.pptx
+*.docx
+*.xlsx
+*.key
+*.numbers
+*.pages
+
 # Claude Code
 .claude/
 
