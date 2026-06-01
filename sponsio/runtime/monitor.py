@@ -187,6 +187,13 @@ class RuntimeMonitor:
         # Users who want it disabled can still access a summary with
         # n=0 — no code path branches on "tracker is None".
         self._perf_tracker = PerformanceTracker()
+        # Dry-run depth: > 0 means we're inside a probe (e.g.
+        # ``filter_tools``) and must suppress every side-effect surface
+        # — MonitorEvent log writes, turn-span appends, perf samples,
+        # observe-mode downgrades. We use a counter (not a bool) so a
+        # probe inside a probe still composes; in practice the depth
+        # never exceeds 1, but the counter keeps the contract simple.
+        self._dry_run_depth = 0
 
     @property
     def mode(self) -> str:
@@ -198,7 +205,16 @@ class RuntimeMonitor:
 
         The original action is preserved in the message so reporters and
         JSONL sessions can see what *would* have happened.
+
+        During a dry-run probe (``_dry_run_depth > 0``) the downgrade is
+        bypassed so callers like ``filter_tools`` see the raw
+        ``"blocked"`` outcome regardless of mode. Conceptually
+        "would this tool be legal?" is mode-independent: in observe mode
+        the constraint still detects a violation, it just chooses not to
+        enforce it.
         """
+        if self._dry_run_depth > 0:
+            return result
         if self._mode != "observe":
             return result
         original = result.action
@@ -235,6 +251,13 @@ class RuntimeMonitor:
             self._callbacks.append(fn)
 
     def _emit(self, event: MonitorEvent) -> None:
+        # Dry-run probes (``filter_tools``) suppress every observable
+        # side effect: no log entry, no callbacks, no OTEL push, no
+        # session-log write. The probe still mutates the verifier's
+        # atom cache, but ``rollback_last_event`` clears that on the
+        # way out.
+        if self._dry_run_depth > 0:
+            return
         with self._lock:
             self._log.append(event)
             callbacks = list(self._callbacks)
@@ -421,6 +444,7 @@ class RuntimeMonitor:
         action: str,
         event_type: str = "tool_call",
         metadata: dict | None = None,
+        dry_run: bool = False,
     ) -> list[EnforcementResult]:
         """Checks a proposed agent action against all applicable contracts.
 
@@ -434,50 +458,67 @@ class RuntimeMonitor:
         ``verifier.sync``: one writes ts=5, the other writes ts=5 too,
         the verifier double-processes the same slot, atom caches
         interleave, and the resulting trace is silently inconsistent.
+
+        Args:
+            dry_run: When True, the call runs as a side-effect-free
+                probe — MonitorEvent log writes, callback fanout,
+                turn-span recording, perf samples, and observe-mode
+                downgrades are all suppressed. Returns the raw
+                enforcement results so callers like ``filter_tools``
+                can decide whether the action *would* be blocked. The
+                caller is still responsible for ``rollback_last_event``
+                to undo the appended trace event.
         """
         with self._lock:
-            meta = metadata or {}
+            if dry_run:
+                self._dry_run_depth += 1
+            try:
+                meta = metadata or {}
 
-            event = Event(
-                ts=len(self._trace.events),
-                agent=agent_id,
-                event_type=event_type,
-                tool=action if event_type == "tool_call" else None,
-                key=meta.get("key"),
-                contains=meta.get("contains"),
-                to=meta.get("to"),
-                args=meta.get("args"),
-                content=meta.get("content"),
-            )
-            self._trace.events.append(event)
-
-            context = ActionContext(
-                agent_id=agent_id,
-                action=action,
-                trace_length=len(self._trace.events),
-                metadata=meta,
-            )
-
-            results: list[EnforcementResult] = []
-
-            with SpanCollector(agent_id, action) as collector:
-                hard_results = self._check_det(agent_id, context, collector)
-                results.extend(hard_results)
-
-                collector.root.total_contracts_checked = sum(
-                    1
-                    for c in collector.root.children
-                    if c.span_type == "sponsio.contract_check"
+                event = Event(
+                    ts=len(self._trace.events),
+                    agent=agent_id,
+                    event_type=event_type,
+                    tool=action if event_type == "tool_call" else None,
+                    key=meta.get("key"),
+                    contains=meta.get("contains"),
+                    to=meta.get("to"),
+                    args=meta.get("args"),
+                    content=meta.get("content"),
                 )
-                collector.root.det_violations = len(hard_results)
-                collector.root.blocked = any(r.action == "blocked" for r in results)
-                if results:
-                    collector.root.status = "violated"
+                self._trace.events.append(event)
 
-            self._last_turn_span = collector.root
-            self._turn_spans.append(collector.root)
+                context = ActionContext(
+                    agent_id=agent_id,
+                    action=action,
+                    trace_length=len(self._trace.events),
+                    metadata=meta,
+                )
 
-            return results
+                results: list[EnforcementResult] = []
+
+                with SpanCollector(agent_id, action) as collector:
+                    hard_results = self._check_det(agent_id, context, collector)
+                    results.extend(hard_results)
+
+                    collector.root.total_contracts_checked = sum(
+                        1
+                        for c in collector.root.children
+                        if c.span_type == "sponsio.contract_check"
+                    )
+                    collector.root.det_violations = len(hard_results)
+                    collector.root.blocked = any(r.action == "blocked" for r in results)
+                    if results:
+                        collector.root.status = "violated"
+
+                if not dry_run:
+                    self._last_turn_span = collector.root
+                    self._turn_spans.append(collector.root)
+
+                return results
+            finally:
+                if dry_run:
+                    self._dry_run_depth -= 1
 
     # -----------------------------------------------------------------
     # Det pipeline
@@ -521,8 +562,11 @@ class RuntimeMonitor:
             # ``is_pure_det=True`` is the guarantee we can hand to the
             # CheckTimer: this branch mathematically cannot make an LLM
             # call, so the sample will end up in the ``pure_det`` bucket
-            # no matter what.
-            with CheckTimer(self._perf_tracker, label, is_pure_det=True):
+            # no matter what. During a dry-run probe (``filter_tools``)
+            # we pass ``None`` so the probe doesn't pollute perf stats
+            # with synthetic 20+ samples per model turn.
+            timer_tracker = None if self._dry_run_depth > 0 else self._perf_tracker
+            with CheckTimer(timer_tracker, label, is_pure_det=True):
                 verdict = self._verifier.check_contract(contract)
 
             # --- Assumption phase ---
@@ -689,6 +733,12 @@ class RuntimeMonitor:
         )
 
         strategy = self._policy.get(e_verdict.lookup_key)
+        if strategy is None:
+            # Patterns can attach a strategy at construction (e.g.
+            # ``redirect_to_safe`` bundles ``RedirectToSafe``); honour
+            # that before falling back to the default block. Explicit
+            # ``policy={...}`` from the user above still wins.
+            strategy = getattr(e_verdict.formula, "enforcement_strategy", None)
         if strategy is None:
             strategy = DetBlock()
 

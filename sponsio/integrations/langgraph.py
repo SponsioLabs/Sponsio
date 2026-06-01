@@ -148,7 +148,24 @@ class LangGraphGuard(BaseGuard):
                 "langgraph is required. Install with: pip install langgraph"
             )
 
-        wrapped = [self._wrap_tool(t) for t in tools]
+        # v0.2 enforcement: proactive — drop denied tools at wrap time
+        # so the LangGraph agent never sees them in its bound toolset.
+        # No-op under the default ``reactive`` enforcement; falls through
+        # to the existing per-call ``guard_before`` block in that case.
+        # LangChain Tool objects expose ``.name``; plain callables fall
+        # back to ``__name__``.
+        tools = self._proactive_filter_tools(
+            list(tools),
+            name_fn=lambda t: getattr(t, "name", None) or getattr(t, "__name__", ""),
+        )
+        # Build the name → tool registry once so wrapped tools can
+        # dispatch to a substitute on ``redirect_to_safe`` outcomes.
+        # Keys mirror the name resolution above to stay consistent
+        # with how the proactive filter sees tools.
+        registry = {
+            (getattr(t, "name", None) or getattr(t, "__name__", "")): t for t in tools
+        }
+        wrapped = [self._wrap_tool(t, registry=registry) for t in tools]
         return ToolNode(wrapped, handle_tool_errors=True)
 
     def tool_node(self, *args, **kwargs):
@@ -194,24 +211,66 @@ class LangGraphGuard(BaseGuard):
             return format_sto_retry_message(post.feedback, result)
         return result
 
-    def _wrap_tool(self, tool: Any) -> Any:
-        """Wrap a single LangChain tool with contract enforcement."""
+    def _wrap_tool(self, tool: Any, registry: dict[str, Any] | None = None) -> Any:
+        """Wrap a single LangChain tool with contract enforcement.
+
+        Args:
+            tool: The LangChain tool to wrap.
+            registry: Optional name-to-tool map used to resolve a
+                ``redirect_to_safe`` substitute. When the guard returns
+                ``redirected_to=safe_name``, the wrapper looks up
+                ``registry[safe_name]`` and invokes its original
+                function with the same kwargs. If ``None`` (legacy
+                direct callers), redirect outcomes degrade to a block.
+        """
         from langchain_core.tools import StructuredTool
 
         guard = self
         original_func = tool.func
         original_coro = getattr(tool, "coroutine", None)
+        registry = registry or {}
 
         def guarded_func(**kwargs):
-            guard._guard_check(tool.name, kwargs)
+            check = guard.guard_before(tool.name, kwargs)
+            if check.redirected and check.redirected_to:
+                return guard._invoke_safe_tool(
+                    unsafe_name=tool.name,
+                    safe_name=check.redirected_to,
+                    kwargs=kwargs,
+                    registry=registry,
+                    sync=True,
+                )
+            if check.blocked:
+                msg = select_agent_message(
+                    check.det_violations, fallback="contract violated"
+                )
+                raise ToolCallBlocked(
+                    tool_name=tool.name,
+                    constraint=msg,
+                    message=f"BLOCKED by contract: {msg}",
+                )
             result = original_func(**kwargs)
-            # _guard_post_check returns the (possibly patched) result —
-            # a plain string if the sto pipeline flagged it, otherwise
-            # the original tool output unchanged.
             return guard._guard_post_check(tool.name, result)
 
         async def guarded_coro(**kwargs):
-            guard._guard_check(tool.name, kwargs)
+            check = guard.guard_before(tool.name, kwargs)
+            if check.redirected and check.redirected_to:
+                return await guard._invoke_safe_tool(
+                    unsafe_name=tool.name,
+                    safe_name=check.redirected_to,
+                    kwargs=kwargs,
+                    registry=registry,
+                    sync=False,
+                )
+            if check.blocked:
+                msg = select_agent_message(
+                    check.det_violations, fallback="contract violated"
+                )
+                raise ToolCallBlocked(
+                    tool_name=tool.name,
+                    constraint=msg,
+                    message=f"BLOCKED by contract: {msg}",
+                )
             result = await original_coro(**kwargs)
             return guard._guard_post_check(tool.name, result)
 
@@ -222,6 +281,83 @@ class LangGraphGuard(BaseGuard):
             func=guarded_func,
             coroutine=guarded_coro if original_coro else None,
         )
+
+    def _invoke_safe_tool(
+        self,
+        *,
+        unsafe_name: str,
+        safe_name: str,
+        kwargs: dict,
+        registry: dict[str, Any],
+        sync: bool,
+    ):
+        """Dispatch a ``redirect_to_safe`` substitute call.
+
+        Resolves ``safe_name`` against the wrap-time registry, runs the
+        substitute through its own ``guard_before`` so the trace
+        records the real call, executes it, and returns the result.
+        The original ``unsafe_name`` event was already rolled back by
+        ``guard_before`` on the redirect path, so downstream rules see
+        only the safe call.
+
+        Failure modes:
+
+        * ``safe_name`` not in the registry → ``ToolCallBlocked``. The
+          contract author named a tool the framework doesn't know;
+          fail loud rather than silently executing the unsafe one.
+        * The substitute itself is blocked by another contract →
+          ``ToolCallBlocked`` with both rule names in the message. A
+          ``redirect → blocked`` chain stays blocked; we don't recurse
+          into further redirects to avoid loops.
+
+        Args:
+            unsafe_name: Original tool the model tried to call. Only
+                used for error messages.
+            safe_name: The ``redirected_to`` target.
+            kwargs: Arguments the model supplied for ``unsafe_name``.
+                Passed verbatim — the user is responsible for ensuring
+                schema compatibility.
+            registry: Name → tool map from ``wrap()``.
+            sync: True for the sync wrapper, False for the async one.
+                The coroutine path awaits the substitute's coroutine.
+        """
+        safe_tool = registry.get(safe_name)
+        if safe_tool is None:
+            raise ToolCallBlocked(
+                tool_name=unsafe_name,
+                constraint=f"redirect target {safe_name!r} not in toolset",
+                message=(
+                    f"redirect failed: pattern wanted to substitute "
+                    f"`{safe_name}` for `{unsafe_name}` but `{safe_name}` "
+                    f"isn't registered with this LangGraph guard. Add it "
+                    f"to the ``guard.wrap([...])`` list."
+                ),
+            )
+        check = self.guard_before(safe_name, kwargs)
+        if check.blocked:
+            msg = select_agent_message(
+                check.det_violations, fallback="safe tool also blocked"
+            )
+            raise ToolCallBlocked(
+                tool_name=safe_name,
+                constraint=msg,
+                message=(
+                    f"BLOCKED: redirected `{unsafe_name}` → `{safe_name}` "
+                    f"but the substitute is also blocked: {msg}"
+                ),
+            )
+        if sync:
+            result = safe_tool.func(**kwargs)
+            return self._guard_post_check(safe_name, result)
+
+        async def _run_async():
+            coro = getattr(safe_tool, "coroutine", None) or safe_tool.func
+            value = coro(**kwargs)
+            if hasattr(value, "__await__"):
+                value = await value
+            return self._guard_post_check(safe_name, value)
+
+        return _run_async()
 
     # -----------------------------------------------------------------
     # Direct API (for manual use or non-LangGraph frameworks)

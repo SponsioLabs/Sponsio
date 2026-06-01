@@ -140,9 +140,14 @@ def contracts_table(rows: Iterable[tuple[str, str, str]]) -> Table:
     t.add_column(width=10, justify="right")
     for alias, name, status in rows:
         color = STATUS.get(status.upper(), PALETTE["metadata"])
+        # Wrap the name in ``Text(...)`` so Rich doesn't parse
+        # square-bracket markup inside contract descs (e.g.
+        # ``only [search, read_file] approved`` would have its
+        # bracketed segment silently swallowed as a malformed
+        # ``[search, read_file]...`` markup tag otherwise).
         t.add_row(
             alias,
-            name,
+            Text(name),
             Text(status.upper(), style=f"bold {color}"),
         )
     return t

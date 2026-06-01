@@ -284,6 +284,39 @@ class RuntimeSection:
 
 
 @dataclass
+class ToolPolicySection:
+    """Top-level tool-access policy.
+
+    Sponsio's existing ``tool_allowlist`` pattern checks at call time:
+    the agent picks a tool, ``guard_before`` blocks it. This section
+    lifts the *posture* to a one-place declaration ("default deny") and
+    pairs it with the static approved set, so adding a new tool to the
+    underlying framework cannot accidentally hand it to the agent.
+
+    Fields:
+      * ``default``: ``"deny"`` (no tool may be called unless listed in
+        ``approved``) or ``"allow"`` (anything goes; ``approved`` is
+        ignored). Defaults to ``"allow"`` so existing yaml files keep
+        working byte-for-byte; users opt into deny.
+      * ``approved``: explicit list of tool names that are permitted
+        under ``default: deny``. Empty + deny blocks every tool, which
+        is a useful "lock down completely" posture but loud, so the
+        loader logs it.
+      * ``enforcement``: ``"reactive"`` (existing behaviour: the agent
+        sees every approved tool, violations get blocked at the call
+        boundary) or ``"proactive"`` (the framework's tool listing is
+        filtered before the model turn; the agent never sees a denied
+        tool). ``proactive`` is wired by integration adapters in a
+        follow-up. Parsed now so the schema stays stable across the
+        rollout.
+    """
+
+    default: str = "allow"
+    approved: list[str] = field(default_factory=list)
+    enforcement: str = "reactive"
+
+
+@dataclass
 class SponsoConfig:
     """Top-level parsed config."""
 
@@ -295,6 +328,7 @@ class SponsoConfig:
     judge: JudgeSection = field(default_factory=JudgeSection)
     performance: PerformanceSection = field(default_factory=PerformanceSection)
     runtime: RuntimeSection = field(default_factory=RuntimeSection)
+    tool_policy: ToolPolicySection = field(default_factory=ToolPolicySection)
 
 
 class ConfigError(Exception):
@@ -427,6 +461,62 @@ def _parse_runtime_section(raw: Any) -> RuntimeSection:
         )
 
     return RuntimeSection(mode=mode, dashboard=dashboard)
+
+
+_VALID_TOOL_POLICY_DEFAULTS = frozenset({"allow", "deny"})
+_VALID_TOOL_POLICY_ENFORCEMENT = frozenset({"reactive", "proactive"})
+
+
+def _parse_tool_policy_section(raw: Any) -> ToolPolicySection:
+    """Parse the optional ``tool_policy:`` block.
+
+    Fails fast on typos so an operator who meant ``default: deny`` but
+    typed ``deni`` does not silently fall back to allow and ship an
+    insecure runtime. ``approved`` accepts both a YAML list and the
+    nested form ``approved: {tools: [...]}`` so future per-host /
+    per-agent scoping can layer on without breaking the flat form.
+    """
+    if raw is None:
+        return ToolPolicySection()
+    if not isinstance(raw, dict):
+        raise ConfigError(f"'tool_policy' must be a mapping, got {type(raw).__name__}")
+
+    default = raw.get("default", "allow")
+    if not isinstance(default, str) or default not in _VALID_TOOL_POLICY_DEFAULTS:
+        raise ConfigError(
+            f"tool_policy.default must be one of "
+            f"{sorted(_VALID_TOOL_POLICY_DEFAULTS)}, got {default!r}"
+        )
+
+    approved_raw = raw.get("approved", [])
+    if isinstance(approved_raw, dict):
+        approved_raw = approved_raw.get("tools", [])
+    if not isinstance(approved_raw, list):
+        raise ConfigError(
+            f"tool_policy.approved must be a list of tool names, "
+            f"got {type(approved_raw).__name__}"
+        )
+    approved: list[str] = []
+    for i, name in enumerate(approved_raw):
+        if not isinstance(name, str) or not name.strip():
+            raise ConfigError(
+                f"tool_policy.approved[{i}] must be a non-empty string, got {name!r}"
+            )
+        approved.append(name.strip())
+
+    enforcement = raw.get("enforcement", "reactive")
+    if (
+        not isinstance(enforcement, str)
+        or enforcement not in _VALID_TOOL_POLICY_ENFORCEMENT
+    ):
+        raise ConfigError(
+            f"tool_policy.enforcement must be one of "
+            f"{sorted(_VALID_TOOL_POLICY_ENFORCEMENT)}, got {enforcement!r}"
+        )
+
+    return ToolPolicySection(
+        default=default, approved=approved, enforcement=enforcement
+    )
 
 
 def _parse_judge_section(raw: Any) -> JudgeSection:
@@ -1328,6 +1418,7 @@ def load_config(path: str | Path) -> SponsoConfig:
         judge=_parse_judge_section(raw.get("judge")),
         performance=_parse_performance_section(raw.get("performance")),
         runtime=_parse_runtime_section(raw.get("runtime")),
+        tool_policy=_parse_tool_policy_section(raw.get("tool_policy")),
     )
 
     # Parse tools section
@@ -1665,6 +1756,35 @@ def _short_constraint_label(value: Any) -> str:
     return str(value)[:120]
 
 
+def _synthesize_tool_policy_contract(
+    policy: ToolPolicySection,
+) -> dict[str, Any] | None:
+    """Build a synthetic ``tool_allowlist`` contract dict from a
+    ``ToolPolicySection``.
+
+    Returns ``None`` when policy is ``allow`` (no injection). Returns a
+    contract dict ready for ``BaseGuard``'s ``contracts=`` kwarg when
+    policy is ``deny``. ``approved=[]`` under deny still produces a
+    contract: the empty allowlist semantically means "block every
+    tool", and ``tool_allowlist([])`` already handles that.
+
+    The synthesized contract carries a clear desc so a violation in
+    the trace surfaces as "tool_policy: default-deny blocked X" rather
+    than the generic "only [] may be called".
+    """
+    if policy.default != "deny":
+        return None
+    from sponsio.patterns.library import tool_allowlist
+
+    if policy.approved:
+        tools_label = ", ".join(policy.approved)
+        desc = f"tool_policy default-deny: only [{tools_label}] approved"
+    else:
+        desc = "tool_policy default-deny: no tools approved (everything blocked)"
+    formula = tool_allowlist(policy.approved, desc=desc)
+    return {"guarantee": formula, "desc": desc}
+
+
 def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any]:
     """Extract BaseGuard constructor kwargs for a specific agent.
 
@@ -1749,6 +1869,10 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
             UserWarning,
             stacklevel=2,
         )
+
+    policy_contract = _synthesize_tool_policy_contract(config.tool_policy)
+    if policy_contract is not None:
+        contract_dicts.insert(0, policy_contract)
 
     kwargs: dict[str, Any] = {
         "agent_id": agent_id,
@@ -1851,8 +1975,17 @@ def config_to_system(
         ]
 
     contracts: list[Contract] = []
+    policy_contract = _synthesize_tool_policy_contract(config.tool_policy)
     for agent_id, ac in config.agents.items():
         agent_obj = Agent(id=agent_id)
+        if policy_contract is not None:
+            contracts.append(
+                Contract(
+                    agent=agent_obj,
+                    guarantee=policy_contract["guarantee"],
+                    desc=policy_contract["desc"],
+                )
+            )
         for ce in ac.contracts:
             e = _compile_field(ce.guarantee, llm_extractor, tool_inventory)
             a = _compile_field(ce.assumption, llm_extractor, tool_inventory)

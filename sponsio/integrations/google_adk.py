@@ -120,7 +120,17 @@ class GoogleADKGuard(BaseGuard):
         return guarded_sync
 
     def wrap(self, tools: list[Callable[..., Any]]) -> list[Callable[..., Any]]:
-        """Wrap tools before passing them to ``Agent(tools=...)``."""
+        """Wrap tools before passing them to ``Agent(tools=...)``.
+
+        Under ``enforcement: proactive`` the static deny-list is
+        applied first so the ADK Agent never binds tools the policy
+        forbids. ``reactive`` (default) passes everything through;
+        denied calls still get caught by ``guard_before`` at call time.
+        """
+        tools = self._proactive_filter_tools(
+            list(tools),
+            name_fn=lambda t: getattr(t, "__name__", "") or getattr(t, "name", ""),
+        )
         return [self.wrap_tool(t) for t in tools]
 
     def tools(self, *args, **kwargs):

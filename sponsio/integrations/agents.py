@@ -183,6 +183,15 @@ class AgentsSDKGuard(BaseGuard):
         Returns:
             List of wrapped tools with contract enforcement.
         """
+        # v0.2 enforcement: proactive — strip denied tools at wrap
+        # time before the Agents SDK ever binds them. Mirrors the
+        # name-extraction in ``wrap_tool`` so the same tool object
+        # reports the same name in both paths.
+        tools = self._proactive_filter_tools(
+            list(tools),
+            name_fn=lambda t: getattr(t, "name", None)
+            or getattr(t, "__name__", str(t)),
+        )
         return [self.wrap_tool(t) for t in tools]
 
     def wrap_tools(self, *args, **kwargs):

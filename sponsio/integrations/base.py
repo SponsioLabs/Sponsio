@@ -274,6 +274,14 @@ class CheckResult:
         feedback: Discriminative feedback prompt for sto retry.
             Inject this into the agent's next prompt to guide regeneration.
         rollback_performed: Whether the trace was rolled back (hard block).
+        redirected_to: Tool name to invoke instead when a det violation
+            fired a ``RedirectToSafe`` strategy. ``None`` for plain
+            blocks; populated with the safe tool name when redirect
+            fired. Adapters consume this to substitute the original
+            ``unsafe`` call with ``safe`` transparently. Only the
+            first redirect outcome surfaces here when multiple fire —
+            adapters should treat it as the canonical substitution
+            target; chained redirects aren't supported.
     """
 
     allowed: bool = True
@@ -281,11 +289,17 @@ class CheckResult:
     sto_violations: list[EnforcementResult] = field(default_factory=list)
     feedback: str | None = None
     rollback_performed: bool = False
+    redirected_to: str | None = None
 
     @property
     def blocked(self) -> bool:
         """True if any det violation resulted in a block."""
         return any(r.action == "blocked" for r in self.det_violations)
+
+    @property
+    def redirected(self) -> bool:
+        """True if any det violation returned a redirect outcome."""
+        return any(r.action == "redirected" for r in self.det_violations)
 
     @property
     def needs_retry(self) -> bool:
@@ -446,6 +460,7 @@ class BaseGuard:
         session_log_dir: str | Path | None = None,
         tag_outputs: bool = True,
         tag_pii: bool = False,
+        tool_policy: Any | None = None,
     ) -> None:
         # --- Config file support ---
         if config is not None:
@@ -475,8 +490,13 @@ class BaseGuard:
             # report mode / export path in __init__ below, and size
             # the ring buffer before any checks happen.
             self._perf_config = parsed.performance
+            # Surface the parsed ``tool_policy:`` so the kwarg branch
+            # below can fall back to the yaml-supplied policy. An
+            # explicit ``tool_policy=`` kwarg still wins.
+            self._yaml_tool_policy = parsed.tool_policy
         else:
             self._perf_config = None
+            self._yaml_tool_policy = None
 
         self.agent_id = agent_id
         self._mode = _resolve_mode(mode)
@@ -509,6 +529,30 @@ class BaseGuard:
         # generic tags like ``contains(pii)`` / ``contains(ssn)``.
         self._tag_outputs = tag_outputs
         self._tag_pii = tag_pii
+
+        # --- Tool policy (v0.2 enforcement: proactive) ---
+        # Stored even when ``allow`` so adapters can introspect freely
+        # without a None guard. Precedence: explicit ``tool_policy=``
+        # kwarg > parsed YAML's ``tool_policy:`` block > defaults
+        # (allow, no approved list, reactive). Same precedence shape
+        # we use for ``mode`` and ``dashboard``.
+        from sponsio.config import ToolPolicySection
+
+        if tool_policy is None:
+            tool_policy = self._yaml_tool_policy
+        if tool_policy is None:
+            self._tool_policy = ToolPolicySection()
+        elif isinstance(tool_policy, ToolPolicySection):
+            self._tool_policy = tool_policy
+        elif isinstance(tool_policy, dict):
+            from sponsio.config import _parse_tool_policy_section
+
+            self._tool_policy = _parse_tool_policy_section(tool_policy)
+        else:
+            raise TypeError(
+                f"tool_policy must be a dict, ToolPolicySection, or None; "
+                f"got {type(tool_policy).__name__}"
+            )
 
         # --- Build system from contracts ---
         self._system = system if system is not None else System(name="guarded")
@@ -603,7 +647,17 @@ class BaseGuard:
                     if action in ("warn", "log"):
                         self._policy[desc_key] = WarnOnly()
                     else:
-                        self._policy[desc_key] = DetBlock()
+                        # Honour pattern-supplied strategies (e.g.
+                        # ``redirect_to_safe`` ships a
+                        # ``RedirectToSafe``). Falling through to
+                        # ``DetBlock`` here would silently override the
+                        # pattern's intent — the user wrote
+                        # ``redirect_to_safe(unsafe, safe)`` for a
+                        # reason. Explicit ``policy={...}`` from the
+                        # constructor still wins because that branch
+                        # bypasses this loop entirely.
+                        attached = getattr(e, "enforcement_strategy", None)
+                        self._policy[desc_key] = attached or DetBlock()
 
         # --- Create monitor ---
         # The monitor is det-only: sto plumbing lives on this BaseGuard
@@ -1128,18 +1182,29 @@ class BaseGuard:
             hard = [r for r in results if r.action in ("blocked", "escalated")]
             warned = [r for r in results if r.action == "warned"]
             observed = [r for r in results if r.action == "observed"]
-            sto_list = [r for r in results if r.action in ("retrying", "redirected")]
+            redirected = [r for r in results if r.action == "redirected"]
+            sto_list = [r for r in results if r.action == "retrying"]
 
             result = CheckResult(
                 allowed=not any(r.action == "blocked" for r in hard),
-                det_violations=hard + warned + observed,
+                det_violations=hard + warned + observed + redirected,
                 sto_violations=sto_list,
+                redirected_to=(
+                    redirected[0].fallback_action if redirected else None
+                ),
             )
 
-            # Rollback blocked events from trace (NOT for warned/observed).
+            # Rollback blocked OR redirected events. For redirect, the
+            # adapter will explicitly invoke ``guard_before(safe, args)``
+            # next, which records the substitute call against the trace.
+            # Keeping the unsafe event around would double-count toward
+            # downstream rules (count_at_most(unsafe), rate_limit, …).
             # Observe mode never rolls back — the whole point is to show
             # users the trace their agent would have produced.
-            if self._mode != "observe" and result.blocked:
+            should_rollback = result.blocked or (
+                self._mode != "observe" and result.redirected
+            )
+            if self._mode != "observe" and should_rollback:
                 # ``rollback_last_event`` clears the trace event AND every
                 # derived cache (verifier valuations, G-cache, DFA progress,
                 # per-contract sto atom cache). Doing that as one operation
@@ -1167,6 +1232,95 @@ class BaseGuard:
         self._push_to_dashboard("tool_call", tool=tool_name)
         self._otel_export()
         return result
+
+    def _proactive_filter_tools(
+        self,
+        tools: list,
+        *,
+        name_fn,
+    ) -> list:
+        """Wrap-time static filter for adapter ``wrap(tools)`` methods.
+
+        Applies only the ``tool_policy.approved`` static allowlist when
+        ``tool_policy.enforcement == "proactive"`` and
+        ``tool_policy.default == "deny"``. Other contracts (temporal,
+        count, arg-level) are NOT consulted here — they keep firing
+        reactively via ``guard_before`` at call time. Doing otherwise
+        would mean a ``must_precede(A, B)`` rule permanently filters B
+        out of the menu (assumption A hasn't fired on the empty
+        wrap-time trace), which is the opposite of what the rule
+        encodes.
+
+        Adapters should call this in their ``wrap()`` so static
+        deny-list tools never reach the agent's tool surface in the
+        first place. With ``enforcement: reactive`` (the default) this
+        is a no-op and tools pass through unchanged.
+
+        Args:
+            tools: The framework-native tool objects the adapter is
+                about to bind to the agent.
+            name_fn: Callable returning the tool name string for a
+                tool object — extraction is framework-specific
+                (``t.name`` for LangChain/CrewAI Tool objects,
+                ``t.__name__`` for plain callables, etc.).
+
+        Returns:
+            The same list when proactive filtering is off or the
+            policy is ``allow``. Otherwise the subset whose names
+            appear in ``tool_policy.approved`` (preserving order).
+        """
+        policy = self._tool_policy
+        if policy.enforcement != "proactive" or policy.default != "deny":
+            return tools
+        approved = set(policy.approved)
+        return [t for t in tools if name_fn(t) in approved]
+
+    def filter_tools(self, candidates: list[str]) -> list[str]:
+        """Return the subset of ``candidates`` legal to call right now.
+
+        Probes each candidate against the current trace + det contracts
+        and returns only those whose call would not be blocked. Pure
+        and side-effect free: no MonitorEvent log entries, no callback
+        fanout, no OTEL push, no perf samples, no observe-mode message
+        wrapping. The trace ends in the same shape it started in.
+
+        This is the v0.2 ``enforcement: proactive`` primitive — call it
+        before each model turn to pre-filter the tool list the agent
+        sees, so the agent never even *attempts* an unsafe call.
+        Adapters (Claude Agent SDK ``allowed_tools``, OpenAI ``tools=``,
+        LangGraph ``bind_tools``, MCP ``list_tools``) wire it in via
+        their own listing entry points.
+
+        Limitation: filters at the tool-*name* level only. Args-level
+        rules (``arg_allowlist``, ``path_blacklist``,
+        ``arg_field_has``) can't be evaluated without the args the
+        model hasn't generated yet, so those still apply at call time
+        via ``guard_before``. Treat ``filter_tools`` as a first-line
+        defence, not a replacement for ``guard_before``.
+
+        Args:
+            candidates: Tool names the framework would normally expose
+                to the agent for the next turn.
+
+        Returns:
+            The subset of ``candidates`` (preserving order) for which
+            no det contract reports a ``blocked`` outcome.
+        """
+        with self._lock:
+            allowed: list[str] = []
+            for tool_name in candidates:
+                results = self._monitor.check_action(
+                    agent_id=self.agent_id,
+                    action=tool_name,
+                    dry_run=True,
+                )
+                # The probe appends a synthetic event so verifiers can
+                # see the candidate call; we always pop it on the way
+                # out so the trace is restored to its real state.
+                self._monitor.rollback_last_event()
+                if not any(r.action == "blocked" for r in results):
+                    allowed.append(tool_name)
+            return allowed
 
     def guard_after(self, tool_name: str, output: Any) -> CheckResult:
         """Check sto constraints AFTER tool execution.

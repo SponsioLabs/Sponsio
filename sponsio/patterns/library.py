@@ -66,6 +66,8 @@ from __future__ import annotations
 
 import re as _re
 from dataclasses import dataclass
+from typing import Any
+
 from sponsio.formulas.formula import (
     Atom,
     Not,
@@ -172,6 +174,16 @@ class DetFormula:
     pattern_name: str
     liveness: bool = False
     args: tuple = ()
+    enforcement_strategy: Any = None
+    """Optional per-pattern strategy override. When set, the monitor
+    routes a violation of this formula to ``enforcement_strategy``
+    instead of the default ``DetBlock``. Used by patterns whose
+    intent is something other than "block on violation" — currently
+    ``redirect_to_safe`` (which attaches a ``RedirectToSafe`` so a
+    violation surfaces as a substitute tool call). The user's
+    explicit ``policy={...}`` mapping still wins over this when both
+    are set, since the user has the final say on enforcement choice.
+    """
 
     # Delegate all formula operations to the inner formula
     def __rshift__(self, other):
@@ -1332,6 +1344,75 @@ def tool_allowlist(allowed_tools: list[str], desc: str = "") -> DetFormula:
         desc=desc or f"only [{tools_str}] may be called",
         pattern_name="tool_allowlist",
         args=(tuple(allowed_tools),),
+    )
+
+
+def redirect_to_safe(
+    unsafe: str,
+    safe: str,
+    message: str = "",
+) -> DetFormula:
+    """Substitute a forbidden tool call with a pre-approved safe one.
+
+    Compiles to ``G(Not(called(unsafe)))`` — any call to ``unsafe`` is
+    a violation. The bundled ``RedirectToSafe`` strategy turns that
+    violation into a ``redirected`` outcome carrying ``safe`` as the
+    fallback tool name; adapters then invoke ``safe`` in place of the
+    original call, transparently to the model.
+
+    Combine with an assumption to make the redirect conditional::
+
+        contract("refund safety")
+            .assume("amount > 10000")
+            .guarantees(redirect_to_safe("issue_refund", "log_refund_request"))
+
+    Without an assumption, every call to ``unsafe`` is redirected. The
+    user must register both tools with the integration framework
+    — Sponsio does NOT synthesize tools. For a clean model experience,
+    ``safe`` should accept the same arguments as ``unsafe`` (or the
+    adapter must coerce them).
+
+    Args:
+        unsafe: Tool name whose calls should be substituted.
+        safe: Tool name to invoke instead. Must already be registered
+            with the framework (LangGraph ``ToolNode``, CrewAI agent
+            tools, etc.).
+        message: Optional human-readable note appended to the
+            enforcement message (visible in logs / dashboard).
+
+    Returns:
+        A ``DetFormula`` whose ``enforcement_strategy`` is bound to a
+        ``RedirectToSafe(safe=safe)`` instance.
+
+    Raises:
+        ValueError: If ``unsafe`` / ``safe`` are empty or identical.
+    """
+    _ensure_non_empty(unsafe, pattern="redirect_to_safe", arg="unsafe")
+    _ensure_non_empty(safe, pattern="redirect_to_safe", arg="safe")
+    _ensure_distinct(
+        unsafe,
+        safe,
+        pattern="redirect_to_safe",
+        arg_a="unsafe",
+        arg_b="safe",
+    )
+
+    # Local import keeps ``patterns.library`` free of a hard runtime
+    # dependency at import time; the strategy class only matters when
+    # the formula actually fires.
+    from sponsio.runtime.strategies import RedirectToSafe
+
+    formula = G(Not(_called(unsafe)))
+    desc = f"redirect `{unsafe}` → `{safe}`"
+    if message:
+        desc = f"{desc} ({message})"
+
+    return DetFormula(
+        formula=formula,
+        desc=desc,
+        pattern_name="redirect_to_safe",
+        args=(unsafe, safe, message),
+        enforcement_strategy=RedirectToSafe(safe=safe, message=message),
     )
 
 

@@ -1,8 +1,9 @@
 """Runtime enforcement layer for multi-agent contract monitoring.
 
-OSS is det-only. Sto-pipeline classes (``StoEvaluator``,
-``StoResult``, ``FeedbackGenerator``, ``RetryWithConstraint``,
-``RedirectToSafe``) live in the proprietary ``sponsio-cloud``
+OSS includes the det enforcement strategies (``DetBlock``,
+``EscalateToHuman``, ``WarnOnly``, ``RedirectToSafe``). Sto-pipeline
+classes (``StoEvaluator``, ``StoResult``, ``FeedbackGenerator``,
+``RetryWithConstraint``) live in the proprietary ``sponsio-cloud``
 package. The Protocol that describes the sto contract Cloud
 implements is :mod:`sponsio.protocols.sto`.
 """
@@ -14,6 +15,8 @@ from sponsio.runtime.strategies import (
     EnforcementResult,
     EnforcementStrategy,
     EscalateToHuman,
+    RedirectToSafe,
+    WarnOnly,
 )
 from sponsio.runtime.monitor import RuntimeMonitor, MonitorEvent
 from sponsio.runtime.session_log import SessionLogger
@@ -25,6 +28,8 @@ __all__ = [
     "EnforcementStrategy",
     "DetBlock",
     "EscalateToHuman",
+    "RedirectToSafe",
+    "WarnOnly",
     "RuntimeMonitor",
     "MonitorEvent",
     "SessionLogger",

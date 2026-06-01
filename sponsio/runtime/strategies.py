@@ -216,10 +216,39 @@ class OutcomeBuilder:
             rule_id=rule,
         )
 
+    @staticmethod
+    def for_det_redirect(
+        violation: Violation,
+        context: ActionContext,
+        safe: str,
+        message: str = "",
+    ) -> EnforcementResult:
+        """Outcome for ``RedirectToSafe``.
+
+        The unsafe action is suppressed (caller rolls it back from the
+        trace, same as a block) and the integration adapter substitutes
+        the ``safe`` tool. ``fallback_action`` carries the safe tool
+        name so the adapter knows what to invoke; ``agent_msg`` stays
+        empty by default — the substitution is meant to be transparent
+        to the model, which simply sees the safe tool's result.
+        """
+        rule = _rule_id_from_violation(violation)
+        msg = (
+            f"REDIRECTED: {context.agent_id}.{context.action} → {safe}"
+            + (f" ({message})" if message else "")
+        )
+        return EnforcementResult(
+            action="redirected",
+            message=msg,
+            rule_id=rule,
+            fallback_action=safe,
+            agent_msg="",
+            alternatives=[safe],
+        )
+
     # OutcomeBuilder.for_sto_* helpers (for_sto_retry,
-    # for_sto_block_after_max, for_sto_redirect) are an extension
-    # point not part of this build, alongside the strategies that
-    # consume them. Only det outcomes are built here.
+    # for_sto_block_after_max) are an extension point not part of this
+    # build, alongside the strategies that consume them.
 
 
 @runtime_checkable
@@ -284,7 +313,45 @@ class WarnOnly:
         return OutcomeBuilder.for_det_warn(violation, context)
 
 
-# Sto-pipeline strategies (RetryWithConstraint, RedirectToSafe) are
-# an extension point not part of this build. Only the deterministic
-# strategies above (DetBlock / EscalateToHuman / WarnOnly) are
+class RedirectToSafe:
+    """Substitute the offending call with a pre-declared safe tool.
+
+    Use when an action that's banned in this specific context has a
+    pre-approved equivalent: ``issue_refund`` → ``log_refund_request``,
+    ``run_sql_destructive`` → ``select_only_dryrun``, ``send_email`` →
+    ``draft_email``. The model keeps making progress; it just can't do
+    the unsafe thing.
+
+    Both ``unsafe`` and ``safe`` must be tools the integration adapter
+    already knows about — Sponsio doesn't synthesize tools. The safe
+    tool should accept the same arguments as the unsafe one (or the
+    adapter must coerce them); a schema mismatch will confuse the
+    model when it sees an unexpected result shape.
+
+    The trace is rolled back the same way ``DetBlock`` rolls back, so
+    downstream contracts (count limits, ordering) don't double-count
+    the attempted call. The adapter records the substitute tool's
+    real call via the normal ``guard_before(safe, args)`` path, so
+    audit logs honestly show what executed.
+    """
+
+    def __init__(self, safe: str, message: str = "") -> None:
+        if not isinstance(safe, str) or not safe.strip():
+            raise ValueError(
+                "RedirectToSafe: 'safe' must be a non-empty tool name."
+            )
+        self._safe = safe
+        self._message = message
+
+    def enforce(
+        self, violation: Violation, context: ActionContext
+    ) -> EnforcementResult:
+        return OutcomeBuilder.for_det_redirect(
+            violation, context, safe=self._safe, message=self._message
+        )
+
+
+# Sto-pipeline strategy ``RetryWithConstraint`` is an extension point
+# not part of this build. Only the deterministic strategies above
+# (DetBlock / EscalateToHuman / WarnOnly / RedirectToSafe) are
 # exported here.

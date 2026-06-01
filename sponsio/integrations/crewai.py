@@ -161,6 +161,15 @@ class CrewAIGuard(BaseGuard):
                 "crewai is required. Install with: pip install crewai"
             ) from e
 
+        # v0.2 enforcement: proactive — strip denied tools at wrap
+        # time. Accepts both plain callables (name from ``__name__``)
+        # and pre-built CrewAI Tool objects (``.name``).
+        tools = self._proactive_filter_tools(
+            list(tools),
+            name_fn=lambda t: getattr(t, "name", None)
+            or getattr(getattr(t, "func", t), "__name__", ""),
+        )
+
         guard = self
         wrapped: list[Any] = []
         for fn in tools:

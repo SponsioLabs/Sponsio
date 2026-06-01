@@ -280,6 +280,7 @@ def Sponsio(  # noqa: N802 — branded factory function
     otel_exporter: Any | None = None,
     mode: str | None = None,
     sto_judge: Any | None = None,
+    tool_policy: dict[str, Any] | Any | None = None,
     **kwargs: Any,
 ) -> BaseGuard:
     """Create a Sponsio guard for a given framework.
@@ -334,6 +335,21 @@ def Sponsio(  # noqa: N802 — branded factory function
             back to the global judge set by the catalog's
             ``set_default_judge`` hook (or raises ``RuntimeError`` when
             a sto contract evaluates and neither is configured).
+        tool_policy: Inline equivalent of the YAML ``tool_policy:``
+            section. Accepts the same dict shape::
+
+                tool_policy={
+                    "default": "deny",          # allow | deny
+                    "approved": ["search"],     # tools permitted under deny
+                    "enforcement": "reactive",  # reactive | proactive
+                }
+
+            When set with ``default: deny``, a ``tool_allowlist`` det
+            contract is synthesized and prepended to ``contracts``.
+            Mutually exclusive with ``config=`` (YAML wins; pass via
+            the YAML's ``tool_policy:`` block instead). A
+            ``ToolPolicySection`` instance is also accepted for callers
+            that have already parsed one.
 
     Returns:
         A configured Guard instance.
@@ -351,9 +367,38 @@ def Sponsio(  # noqa: N802 — branded factory function
                 "Cannot combine 'config' with 'contracts'. "
                 "Use either a config file or inline contracts, not both."
             )
+        if tool_policy is not None:
+            raise ValueError(
+                "Cannot combine 'config' with 'tool_policy'. "
+                "Set 'tool_policy:' inside the YAML file instead."
+            )
         from sponsio.config import load_config
 
         parsed = load_config(config)
+
+    # --- Resolve inline tool_policy → synthesized contract.
+    # Accept a dict (yaml-shape) or a pre-parsed ToolPolicySection.
+    # The synthesized contract is prepended to ``contracts`` in the
+    # inline branch below; this resolution happens here so a misconfig
+    # (e.g. unknown ``default:`` value) raises before the guard exists.
+    inline_policy_contract = None
+    if tool_policy is not None:
+        from sponsio.config import (
+            ToolPolicySection,
+            _parse_tool_policy_section,
+            _synthesize_tool_policy_contract,
+        )
+
+        if isinstance(tool_policy, ToolPolicySection):
+            policy = tool_policy
+        elif isinstance(tool_policy, dict):
+            policy = _parse_tool_policy_section(tool_policy)
+        else:
+            raise TypeError(
+                f"tool_policy must be a dict or ToolPolicySection, "
+                f"got {type(tool_policy).__name__}"
+            )
+        inline_policy_contract = _synthesize_tool_policy_contract(policy)
 
     # --- Resolve mode (ctor arg > SPONSIO_MODE env > yaml > default).
     # ``_resolve_mode`` inside BaseGuard still re-checks the env var so
@@ -437,11 +482,22 @@ def Sponsio(  # noqa: N802 — branded factory function
             cfg_kwargs["mode"] = mode
         if sto_judge is not None:
             cfg_kwargs["sto_judge"] = sto_judge
+        # Forward the yaml's ``tool_policy:`` block so adapters'
+        # ``wrap()`` see the ``enforcement:`` knob. An explicit
+        # ``tool_policy=`` kwarg still wins via the ``kwargs.update``
+        # below — same precedence as ``mode`` (kwarg > yaml > default).
+        cfg_kwargs["tool_policy"] = parsed.tool_policy
         cfg_kwargs.update(kwargs)
 
         return guard_cls(**cfg_kwargs)
 
     # Inline mode
+    if inline_policy_contract is not None:
+        contracts = [inline_policy_contract, *(contracts or [])]
+    # Forward the parsed/typed policy so adapters' wrap() see the
+    # ``enforcement`` knob, not just the synthesized det contract.
+    if tool_policy is not None and "tool_policy" not in kwargs:
+        kwargs["tool_policy"] = tool_policy
     return guard_cls(
         agent_id=agent_id,
         contracts=contracts,

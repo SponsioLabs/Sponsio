@@ -4813,27 +4813,26 @@ def onboard(
         if flip:
             try:
                 yaml_text = report.out_path.read_text(encoding="utf-8")
-                # Match only the canonical ``defaults.mode:`` line we
-                # write — never touch ``mode:`` strings inside contract
-                # descriptions or comments.
-                new_yaml, n = re.subn(
-                    r"^(\s*mode:\s*)observe(\s*(?:#.*)?)$",
-                    r"\1enforce\2",
-                    yaml_text,
-                    count=1,
-                    flags=re.MULTILINE,
-                )
-                if n > 0:
-                    report.out_path.write_text(new_yaml, encoding="utf-8")
+                # Defer to the shared helper so both the interactive
+                # onboard flow and the explicit ``sponsio mode`` CLI
+                # agree on which mode-line to patch (runtime preferred,
+                # defaults fallback, append as last resort).
+                new_yaml, action = _patch_mode_in_yaml(yaml_text, "enforce")
+                if action == "unchanged":
                     click.secho(
-                        f"  ✓ flipped {report.out_path} → mode: enforce",
+                        f"  ✓ {report.out_path} is already `mode: enforce`",
                         fg="green",
                     )
                 else:
+                    report.out_path.write_text(new_yaml, encoding="utf-8")
+                    suffix = (
+                        " (appended runtime: block)"
+                        if action == "appended"
+                        else f" ({action}.mode)"
+                    )
                     click.secho(
-                        "  ✗ couldn't locate `mode:` line — leave observe "
-                        "and edit by hand",
-                        fg="yellow",
+                        f"  ✓ flipped {report.out_path} → mode: enforce{suffix}",
+                        fg="green",
                     )
             except OSError as e:
                 click.secho(f"  ✗ could not rewrite {report.out_path}: {e}", fg="red")
@@ -4861,6 +4860,78 @@ def onboard(
 # or ``sponsio refresh --emit-traces``.
 
 
+def _patch_mode_in_yaml(text: str, target_mode: str) -> tuple[str, str]:
+    r"""Set ``mode:`` to ``target_mode`` in a ``sponsio.yaml`` text body.
+
+    The Python loader reads ``runtime.mode`` *and* ``defaults.mode``;
+    the TS loader reads only ``runtime.mode``. To stay correct under
+    both, this prefers the ``runtime.mode`` line, then falls back to
+    ``defaults.mode``, then appends a fresh ``runtime:`` block when
+    neither exists.
+
+    A naive ``re.subn(r"^\s*mode:")`` is wrong: it patches whichever
+    ``mode:`` line happens to come first in the file. If a yaml has
+    both ``runtime.mode`` and ``defaults.mode`` and ``defaults`` is
+    listed first, the runtime line silently stays stale and the TS
+    loader keeps reading the old value. Walking parent keys avoids
+    that whole class of bug.
+
+    Returns:
+        ``(new_text, action)`` where ``action`` is one of
+        ``"runtime"`` / ``"defaults"`` / ``"appended"`` / ``"unchanged"``.
+        ``"unchanged"`` means the file already had the desired value.
+    """
+    lines = text.splitlines(keepends=True)
+    current_parent: str | None = None
+    runtime_idx = -1
+    defaults_idx = -1
+    mode_line_re = re.compile(r"^(\s+)mode:\s*(observe|enforce)(\s*(?:#.*)?)$")
+
+    for i, raw in enumerate(lines):
+        line = raw.rstrip("\n").rstrip("\r")
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent == 0:
+            # Top-level key like ``runtime:`` / ``defaults:`` / ``agents:``.
+            # Track only the most recent top-level key; only valid yaml
+            # mappings reach here so ``key:`` parsing is safe.
+            if ":" in stripped:
+                current_parent = stripped.split(":", 1)[0].strip()
+            continue
+        if mode_line_re.match(line):
+            if current_parent == "runtime" and runtime_idx < 0:
+                runtime_idx = i
+            elif current_parent == "defaults" and defaults_idx < 0:
+                defaults_idx = i
+
+    target_idx = runtime_idx if runtime_idx >= 0 else defaults_idx
+    if target_idx >= 0:
+        action = "runtime" if target_idx == runtime_idx else "defaults"
+        raw = lines[target_idx]
+        new_raw = re.sub(
+            r"^(\s+mode:\s*)(observe|enforce)(\s*(?:#.*)?)$",
+            lambda m: f"{m.group(1)}{target_mode}{m.group(3)}",
+            raw.rstrip("\n"),
+        )
+        # Preserve original line-ending.
+        ending = raw[len(raw.rstrip("\n")) :]
+        lines[target_idx] = new_raw + ending
+        new_text = "".join(lines)
+        if new_text == text:
+            return text, "unchanged"
+        return new_text, action
+
+    # Neither block had a mode line — append a fresh ``runtime:`` block.
+    # Using ``runtime:`` (not ``defaults:``) so the TS loader picks it
+    # up too. Trailing newline normalised so the appended block doesn't
+    # glue to the previous line.
+    suffix = "" if text.endswith("\n") or text == "" else "\n"
+    appended = f"{suffix}\nruntime:\n  mode: {target_mode}\n"
+    return text + appended, "appended"
+
+
 @cli.command(name="mode")
 @click.argument(
     "target_mode",
@@ -4886,29 +4957,14 @@ def cmd_mode(target_mode: str, config_path: Path):
         # ...soak in observe for a day or two, watch `sponsio report`...
         sponsio mode enforce         # one-line flip when you're ready
 
-    Edits the ``defaults.mode:`` line in place; comments around it
-    survive untouched.  If the line isn't found, exits non-zero so
-    CI scripts catch a malformed config rather than silently no-op.
+    Prefers to update the ``runtime.mode:`` line (which both the Python
+    and TS loaders read), falling back to ``defaults.mode:`` (Python
+    only) or inserting a fresh ``runtime:`` block when neither exists.
+    Comments and surrounding lines survive untouched.
     """
     text = config_path.read_text(encoding="utf-8")
-    new_text, n = re.subn(
-        r"^(\s*mode:\s*)(observe|enforce)(\s*(?:#.*)?)$",
-        lambda m: f"{m.group(1)}{target_mode}{m.group(3)}",
-        text,
-        count=1,
-        flags=re.MULTILINE,
-    )
-    if n == 0:
-        click.echo(
-            click.style(
-                f"✗ no `mode:` line found in {config_path} — edit by hand or "
-                "re-run `sponsio onboard --force`",
-                fg="red",
-            ),
-            err=True,
-        )
-        raise SystemExit(1)
-    if new_text == text:
+    new_text, action = _patch_mode_in_yaml(text, target_mode)
+    if action == "unchanged":
         click.echo(
             click.style(
                 f"✓ {config_path} is already `mode: {target_mode}` (no change)",
@@ -4918,7 +4974,16 @@ def cmd_mode(target_mode: str, config_path: Path):
         )
         return
     config_path.write_text(new_text, encoding="utf-8")
-    click.echo(click.style("✓ ", fg="green") + f"{config_path} → mode: {target_mode}")
+    if action == "appended":
+        click.echo(
+            click.style("✓ ", fg="green")
+            + f"{config_path} → mode: {target_mode} (appended runtime: block)"
+        )
+    else:
+        click.echo(
+            click.style("✓ ", fg="green")
+            + f"{config_path} → {action}.mode: {target_mode}"
+        )
 
 
 @cli.command(name="prompt")
