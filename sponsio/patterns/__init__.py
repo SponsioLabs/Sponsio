@@ -19,6 +19,7 @@ from sponsio.patterns.library import (
     redirect_to_safe,
     requires_permission,
     sanitized_before_sink,
+    tool_allowlist,
     segregation_of_duty,
     # Argument / path constraints (4)
     arg_allowlist,
@@ -53,6 +54,7 @@ __all__ = [
     "rate_limit",
     "redirect_to_safe",
     "requires_permission",
+    "tool_allowlist",
     "sanitized_before_sink",
     "scope_limit",
     "segregation_of_duty",

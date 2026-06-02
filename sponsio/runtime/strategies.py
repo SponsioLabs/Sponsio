@@ -9,7 +9,7 @@ extension point; no implementation is included.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Callable, Literal, Protocol, runtime_checkable
 
 from sponsio.models.result import Violation
 
@@ -35,7 +35,7 @@ class ActionContext:
 class EnforcementResult:
     """Result of applying an enforcement strategy.
 
-    Action discriminator semantics — what each value contracts about
+    Action discriminator semantics. What each value contracts about
     the next step. Integration adapters MUST honour these when
     rendering the result back into framework primitives:
 
@@ -43,14 +43,32 @@ class EnforcementResult:
     action         tool runs?    agent informed?    expected agent reaction
     =============  ============  =================  ===============================
     ``blocked``    no            yes (refusal)      abandon this action
-    ``retrying``   no            yes (lesson)       regenerate with ``retry_hint``
-    ``escalated``  paused        depends            wait (may unblock via approval)
+    ``escalated``  no            yes (refusal)      abandon; humans get notified
     ``redirected`` substituted   no (transparent)   continue, sees ``fallback_action``
-    ``warned``     yes           no (log only)      no change
-    ``allowed``    yes           —                  no enforcement, normal pass
-    ``observed``   yes           —                  shadow-mode downgrade of any of
-                                                    the above
+    ``warned``     yes           no (log only)      no change (user wants this)
+    ``observed``   yes           no                 shadow-mode wrapper around any
+                                                    above outcome (mode is observe)
+    ``allowed``    yes           n/a                no violation, normal pass
+    ``retrying``   reserved      reserved           reserved: sto pipeline only,
+                                                    not reachable in OSS (no sto
+                                                    evaluator ships in this build)
     =============  ============  =================  ===============================
+
+    On the close calls between adjacent actions:
+
+    * ``blocked`` vs ``escalated``: both refuse and tell the agent to
+      abandon. The difference is side effects. ``EscalateToHuman``
+      fires user-supplied notifiers (Slack, email, paging); ``DetBlock``
+      does not. With no notifier wired up, the outcomes look identical
+      to the agent; dashboards still distinguish them by the action
+      literal.
+    * ``warned`` vs ``observed``: both let the tool run without telling
+      the agent. ``warned`` is an explicit user choice ("this rule
+      should log but never block"); ``observed`` is a runtime
+      downgrade ("the guard is in observe mode so this would-be block
+      becomes a log entry"). Operators reading a report can tell from
+      the literal whether to expect the rule to keep firing (warned)
+      or whether flipping to enforce will start blocking (observed).
 
     Attributes:
         action: What enforcement action was taken. See the table above
@@ -286,17 +304,95 @@ class DetBlock:
 
 
 class EscalateToHuman:
-    """Pauses execution and escalates to a human for approval.
+    """Refuse the call AND fire user-supplied notifiers (Slack, email, …).
 
-    Use for enterprise workflows requiring human-in-the-loop oversight.
+    Semantically distinct from :class:`DetBlock`. ``DetBlock`` is a
+    silent refuse — the agent gets a refusal message and that's the
+    end of the story. ``EscalateToHuman`` is a refuse that also
+    *reaches out*: webhook fires, Slack message posts, oncall pages.
+    Without at least one notifier, this collapses to "DetBlock with a
+    different message" — accept that explicitly by not passing
+    ``notify`` if a notification side effect isn't wired up yet.
+
+    The strategy never *waits* for human approval to come back
+    (Sponsio doesn't carry an approval store in OSS). The outcome
+    surfaces as ``action="escalated"`` so dashboards / reporters can
+    distinguish "this just got refused" from "this just got refused
+    AND a human was paged."
+
+    Args:
+        reason: Free text rendered into the agent message and passed
+            verbatim to each notifier. Should describe *why* this
+            specific contract is human-only ("amount > $50k requires
+            CFO approval", "production database write outside change
+            window").
+        notify: Optional notifier or list of notifiers. Each is called
+            with ``(violation, context, reason)`` whenever ``enforce``
+            fires. Exceptions raised by a notifier are caught and
+            logged (via ``warnings.warn``) so a Slack outage doesn't
+            crash the agent loop — but the escalation outcome still
+            returns, the AI still sees the refusal. Notifier
+            signature: ``(violation: Violation, context: ActionContext,
+            reason: str) -> None``.
+
+    Example::
+
+        def slack_oncall(violation, context, reason):
+            slack.post(
+                channel="#oncall",
+                text=f"Sponsio escalation: {context.agent_id}."
+                     f"{context.action} blocked. Reason: {reason}",
+            )
+
+        guard = Sponsio(
+            policy={"large-refund-rule": EscalateToHuman(
+                reason="refund > $10k requires CFO approval",
+                notify=[slack_oncall, email_finance_lead],
+            )},
+            ...
+        )
     """
 
-    def __init__(self, reason: str = "") -> None:
+    def __init__(
+        self,
+        reason: str = "",
+        notify: Callable | list[Callable] | None = None,
+    ) -> None:
         self._reason = reason
+        if notify is None:
+            self._notifiers: list[Callable] = []
+        elif callable(notify):
+            self._notifiers = [notify]
+        elif isinstance(notify, list) and all(callable(n) for n in notify):
+            self._notifiers = list(notify)
+        else:
+            raise TypeError(
+                "EscalateToHuman.notify must be a callable, list of "
+                "callables, or None."
+            )
 
     def enforce(
         self, violation: Violation, context: ActionContext
     ) -> EnforcementResult:
+        # Fire notifiers *before* returning the outcome so a synchronous
+        # webhook (Slack, PagerDuty) lands while the trace is fresh.
+        # Failures are isolated per-notifier: one broken hook doesn't
+        # silence the others, and none of them takes the agent loop
+        # down. The outcome itself is unchanged — escalation is still
+        # an escalation even if every notifier was offline.
+        import warnings as _warnings
+
+        for fn in self._notifiers:
+            try:
+                fn(violation, context, self._reason)
+            except Exception as exc:  # noqa: BLE001 — notifier sandbox
+                _warnings.warn(
+                    f"EscalateToHuman notifier {getattr(fn, '__name__', repr(fn))} "
+                    f"raised {type(exc).__name__}: {exc}. Escalation outcome "
+                    f"is still surfacing; fix the notifier to silence this.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
         return OutcomeBuilder.for_det_escalate(violation, context, reason=self._reason)
 
 
