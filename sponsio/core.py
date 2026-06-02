@@ -376,29 +376,19 @@ def Sponsio(  # noqa: N802 — branded factory function
 
         parsed = load_config(config)
 
-    # --- Resolve inline tool_policy → synthesized contract.
-    # Accept a dict (yaml-shape) or a pre-parsed ToolPolicySection.
-    # The synthesized contract is prepended to ``contracts`` in the
-    # inline branch below; this resolution happens here so a misconfig
-    # (e.g. unknown ``default:`` value) raises before the guard exists.
-    inline_policy_contract = None
-    if tool_policy is not None:
-        from sponsio.config import (
-            ToolPolicySection,
-            _parse_tool_policy_section,
-            _synthesize_tool_policy_contract,
-        )
+    # tool_policy validation now lives in ``BaseGuard.__init__`` so
+    # all entry paths (this factory, framework-specific guard classes,
+    # yaml builds) parse and synthesize uniformly. No early synthesis
+    # here; we only need to validate the type so a misconfig errors
+    # before guard construction.
+    if tool_policy is not None and not isinstance(tool_policy, dict):
+        from sponsio.config import ToolPolicySection
 
-        if isinstance(tool_policy, ToolPolicySection):
-            policy = tool_policy
-        elif isinstance(tool_policy, dict):
-            policy = _parse_tool_policy_section(tool_policy)
-        else:
+        if not isinstance(tool_policy, ToolPolicySection):
             raise TypeError(
                 f"tool_policy must be a dict or ToolPolicySection, "
                 f"got {type(tool_policy).__name__}"
             )
-        inline_policy_contract = _synthesize_tool_policy_contract(policy)
 
     # --- Resolve mode (ctor arg > SPONSIO_MODE env > yaml > default).
     # ``_resolve_mode`` inside BaseGuard still re-checks the env var so
@@ -492,10 +482,10 @@ def Sponsio(  # noqa: N802 — branded factory function
         return guard_cls(**cfg_kwargs)
 
     # Inline mode
-    if inline_policy_contract is not None:
-        contracts = [inline_policy_contract, *(contracts or [])]
-    # Forward the parsed/typed policy so adapters' wrap() see the
-    # ``enforcement`` knob, not just the synthesized det contract.
+    # Forward the parsed/typed policy so BaseGuard can synthesize the
+    # deny contract AND adapters' wrap() can see the ``enforcement``
+    # knob. The synthesis itself happens inside BaseGuard so all entry
+    # paths (factory, direct guard class, yaml) behave identically.
     if tool_policy is not None and "tool_policy" not in kwargs:
         kwargs["tool_policy"] = tool_policy
     return guard_cls(

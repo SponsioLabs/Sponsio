@@ -304,21 +304,44 @@ class DetBlock:
 
 
 class EscalateToHuman:
-    """Refuse the call AND fire user-supplied notifiers (Slack, email, …).
+    """Fire user-supplied notifiers (Slack, email, oncall pager)
+    when a contract violates.
 
-    Semantically distinct from :class:`DetBlock`. ``DetBlock`` is a
-    silent refuse — the agent gets a refusal message and that's the
-    end of the story. ``EscalateToHuman`` is a refuse that also
-    *reaches out*: webhook fires, Slack message posts, oncall pages.
-    Without at least one notifier, this collapses to "DetBlock with a
-    different message" — accept that explicitly by not passing
-    ``notify`` if a notification side effect isn't wired up yet.
+    Semantically distinct from :class:`DetBlock`. ``DetBlock`` returns
+    ``action="blocked"`` which the integration adapters gate
+    ``CheckResult.allowed`` on. ``EscalateToHuman`` returns
+    ``action="escalated"`` which is **not** gated by adapters and
+    fires user-supplied notifier callables as a side effect.
 
-    The strategy never *waits* for human approval to come back
-    (Sponsio doesn't carry an approval store in OSS). The outcome
-    surfaces as ``action="escalated"`` so dashboards / reporters can
-    distinguish "this just got refused" from "this just got refused
-    AND a human was paged."
+    Why the runtime layer doesn't gate ``allowed`` on escalated: the
+    monitor uses ``EscalateToHuman()`` as the default strategy for
+    *unfired-assumption* verdicts — a conditional contract whose
+    assumption hasn't activated yet produces an escalated result
+    that is vacuous (the contract doesn't apply). If
+    ``allowed=not escalated`` held at the BaseGuard layer, every
+    conditional contract would refuse every unrelated tool call
+    until its assumption fires. The fix is to keep escalated as a
+    notification surface and let applications decide whether to also
+    gate the call.
+
+    Two common patterns:
+
+    * **Notify only, agent continues.** Use ``EscalateToHuman`` with
+      notifiers. The notifiers fire, the agent sees an escalation
+      message in the reporter, the call still runs. Useful for
+      monitoring high-stakes actions without paying the latency of a
+      human-in-the-loop hold.
+    * **Notify + refuse, agent stops.** Pair ``DetBlock`` with the
+      same notifier callables registered via
+      ``monitor.register_callback``. The block gates ``allowed`` and
+      the callback fires the notification. The case study
+      ``examples/integrations/python/v0_2_finance_escalate_vanilla.py``
+      shows how to wire this at the application layer.
+
+    Without at least one notifier, this collapses to "an outcome
+    with a different action literal but no observable effect."
+    Accept that explicitly by not passing ``notify`` if a
+    notification side effect isn't wired up yet.
 
     Args:
         reason: Free text rendered into the agent message and passed

@@ -297,6 +297,18 @@ class CheckResult:
         return any(r.action == "blocked" for r in self.det_violations)
 
     @property
+    def escalated(self) -> bool:
+        """True if any det violation resulted in an escalation.
+
+        Adapters can use this to distinguish "refused, agent picks
+        again" (blocked) from "refused AND a human was paged"
+        (escalated). The two share a refusal posture; the difference
+        is in the side effect and in what operators want to see
+        downstream.
+        """
+        return any(r.action == "escalated" for r in self.det_violations)
+
+    @property
     def redirected(self) -> bool:
         """True if any det violation returned a redirect outcome."""
         return any(r.action == "redirected" for r in self.det_violations)
@@ -553,6 +565,28 @@ class BaseGuard:
                 f"tool_policy must be a dict, ToolPolicySection, or None; "
                 f"got {type(tool_policy).__name__}"
             )
+
+        # When ``default: deny`` is in effect, synthesize the
+        # ``tool_allowlist`` contract here so it lands in every entry
+        # path: the ``Sponsio(framework=...)`` factory, direct
+        # framework-specific guard classes (``LangGraphGuard(...)``),
+        # and yaml-driven builds. The contract is prepended to the
+        # user's ``contracts`` list so the deny check fires first.
+        # Idempotency: ``config_to_guard_kwargs`` already prepends the
+        # same contract for yaml builds, so we skip when an
+        # equivalent contract is already present (matched by desc).
+        from sponsio.config import _synthesize_tool_policy_contract
+
+        policy_contract = _synthesize_tool_policy_contract(self._tool_policy)
+        if policy_contract is not None:
+            existing_descs = set()
+            for entry in contracts or []:
+                if isinstance(entry, dict):
+                    d = entry.get("desc")
+                    if d:
+                        existing_descs.add(d)
+            if policy_contract["desc"] not in existing_descs:
+                contracts = [policy_contract, *(contracts or [])]
 
         # --- Build system from contracts ---
         self._system = system if system is not None else System(name="guarded")
@@ -1185,6 +1219,19 @@ class BaseGuard:
             redirected = [r for r in results if r.action == "redirected"]
             sto_list = [r for r in results if r.action == "retrying"]
 
+            # ``allowed`` gates only on ``blocked``. ``escalated`` is
+            # intentionally NOT gated here: the monitor uses
+            # ``EscalateToHuman()`` as the *default* strategy for
+            # unfired-assumption verdicts (an unfired assumption
+            # produces an ``escalated`` result that is vacuous, not a
+            # refusal). Treating every escalated outcome as a refusal
+            # would break every conditional contract whose assumption
+            # hasn't fired yet. Users who explicitly wire
+            # ``EscalateToHuman`` as their strategy get the
+            # notification side effects via the strategy's notifier
+            # hook, AND can pair it with a callback or with
+            # ``register_callback`` for a hard-stop posture. The
+            # tradeoff is documented in EscalateToHuman's docstring.
             result = CheckResult(
                 allowed=not any(r.action == "blocked" for r in hard),
                 det_violations=hard + warned + observed + redirected,
@@ -1194,13 +1241,13 @@ class BaseGuard:
                 ),
             )
 
-            # Rollback blocked OR redirected events. For redirect, the
-            # adapter will explicitly invoke ``guard_before(safe, args)``
-            # next, which records the substitute call against the trace.
-            # Keeping the unsafe event around would double-count toward
-            # downstream rules (count_at_most(unsafe), rate_limit, …).
-            # Observe mode never rolls back — the whole point is to show
-            # users the trace their agent would have produced.
+            # Rollback blocked / redirected events. Same gating as
+            # ``allowed`` above: ``escalated`` is NOT rolled back
+            # because the default unfired-assumption verdict produces
+            # an escalated result that does NOT actually prevent the
+            # call from running.
+            # Observe mode never rolls back — the whole point is to
+            # show users the trace their agent would have produced.
             should_rollback = result.blocked or (
                 self._mode != "observe" and result.redirected
             )
