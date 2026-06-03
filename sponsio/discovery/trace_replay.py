@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 from sponsio.formulas.evaluator import evaluate
 from sponsio.models.trace import Trace
-from sponsio.tracer.grounding import ground
+from sponsio.tracer.grounding import collect_content_atoms, ground
 
 
 @dataclass
@@ -72,11 +72,12 @@ def replay_formula(formula, traces: list[Trace]) -> TraceReplayResult:
         the replay — the return value's ``error_count`` reports them.
     """
     raw = getattr(formula, "formula", formula)
+    content_atoms = collect_content_atoms([raw])
     out = TraceReplayResult()
 
     for trace in traces:
         try:
-            grounded = ground(trace)
+            grounded = ground(trace, content_atoms=content_atoms)
             verdict = evaluate(raw, grounded)
         except Exception as e:
             out.error_count += 1
