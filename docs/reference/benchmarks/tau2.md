@@ -18,8 +18,8 @@ Three domains × four reference models (Claude 3.7 Sonnet, GPT-4.1, GPT-4.1-mini
 
 Sponsio adds the procedural axis as a **deterministic contract library** that operates in two modes from a single set of `DetFormula` definitions:
 
-- `mode="observe"`. replay an existing trace, emit per-rule fire counts (offline evaluation, what this page reports)
-- `mode="enforce"`. wrap a live agent loop, block tool calls that violate the contract at `guard_before` (runtime enforcement, what no LLM-judge approach structurally supports)
+- `mode="observe"`: replay an existing trace, emit per-rule fire counts (offline evaluation, what this page reports)
+- `mode="enforce"`: wrap a live agent loop, block tool calls that violate the contract at `guard_before` (runtime enforcement, what no LLM-judge approach structurally supports)
 
 The same 112 contracts cover 6 of AgentPex's 7 procedural-evaluator categories (Output Spec, Transition Spec, Forbidden Edges, Argument Spec, Argument Groundedness, Predicted Plan); the 7th (Predicted Final State) is already captured by τ²-bench's native `db_check` and is not duplicated.
 
@@ -168,7 +168,7 @@ For 20 τ²-failed telecom o4-mini sims sampled at random, Sponsio's first-viola
 
 ## AgentPex parity check (for comparability with their Fig 8 baseline)
 
-AgentPex paper reports their Output Spec → tau2-fail AUC = **0.680** on Claude traces (Fig 8). This is their internal evaluator-quality metric: how well does their LLM judge's score predict tau2 outcome failure? It is not what Sponsio is trying to optimise. Sponsio's job is to **catch procedure violations specified in policy.md**, not to predict outcome. but it is the only quantity AgentPex published that can be computed identically on the same trace data, so we report it for direct comparability.
+AgentPex paper reports their Output Spec → tau2-fail AUC = **0.680** on Claude traces (Fig 8). This is their internal evaluator-quality metric: how well does their LLM judge's score predict tau2 outcome failure? It is not what Sponsio is trying to optimise. Sponsio's job is to **catch procedure violations specified in policy.md**, not to predict outcome, but it is the only quantity AgentPex published that can be computed identically on the same trace data, so we report it for direct comparability.
 
 Treating per-sim Sponsio fire count as a classifier score for `tau2_reward = 0`, computed via the Wilcoxon–Mann–Whitney rank-sum formulation:
 

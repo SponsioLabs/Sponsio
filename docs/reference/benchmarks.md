@@ -21,7 +21,7 @@ This page is the cross-benchmark scoreboard and methodology hub. Per-benchmark d
 | **Hot-path latency (single contract, pre-warmed DFA)** | **0.0052 ms** (p50) · 0.012 ms (p99) · 178K ops/sec |
 | **LLM calls on the blocking path** | **0** (pure DFA + LTL `finish_session()` at trajectory end) |
 
-**Bottom line:** Sponsio's blocking path runs at **0.0052 ms p50** on the synthetic micro-bench (single contract, pre-warmed DFA, the public-facing **<0.01 ms** anchor) and stays at **0.139 ms p50** on the heaviest ODCV scenario (19 contracts) and **0.434 ms p50** on RedCode bash with 7 layered regex contracts. **5,000× to 60,000× faster** than any LLM-as-judge guardrail, with zero LLM calls. On the safety side, deterministic contracts catch **95.6%** of high-risk KPI-pressure scenarios across 12 mainstream LLMs on ODCV-Bench (24 / 36 scenarios at **100%**), reduce prompt-injection ASR from 19.05% to **2.49%** across 22 LLMs on AgentDojo (**86% relative**), and detect **92%** of dangerous code snippets in RedCode. Residual gaps in each case concentrate in failure modes the tool-call/bash-event guard cannot observe by construction. categories where det compositionally hands off to Sponsio's `sto` LLM-judge layer on a Pareto frontier.
+**Bottom line:** Sponsio's blocking path runs at **0.0052 ms p50** on the synthetic micro-bench (single contract, pre-warmed DFA, the public-facing **<0.01 ms** anchor) and stays at **0.139 ms p50** on the heaviest ODCV scenario (19 contracts) and **0.434 ms p50** on RedCode bash with 7 layered regex contracts. **5,000× to 60,000× faster** than any LLM-as-judge guardrail, with zero LLM calls. On the safety side, deterministic contracts catch **95.6%** of high-risk KPI-pressure scenarios across 12 mainstream LLMs on ODCV-Bench (24 / 36 scenarios at **100%**), reduce prompt-injection ASR from 19.05% to **2.49%** across 22 LLMs on AgentDojo (**86% relative**), and detect **92%** of dangerous code snippets in RedCode. Residual gaps in each case concentrate in failure modes the tool-call/bash-event guard cannot observe by construction: categories where det compositionally hands off to Sponsio's `sto` LLM-judge layer on a Pareto frontier.
 
 ---
 
@@ -31,11 +31,11 @@ Five third-party benchmarks, identical doc structure under [`benchmarks/`](bench
 
 | Benchmark | Threat axis | Sponsio headline | Atoms used |
 |---|---|---:|---:|
-| **[ODCV-Bench](benchmarks/odcv.md)** (McGill DMaS) | KPI-pressure constraint violations (data tampering, script edits, monitor disabling) | **95.6% protected × 12 LLMs** | 9 LTL + regex layers |
+| **[ODCV-Bench](benchmarks/odcv.md)** (McGill DMaS) | KPI-pressure constraint violations (data tampering, script edits, monitor disabling) | **95.6% protected × 12 LLMs** | L0–L11 layered library (regex + LTL liveness) |
 | **[AgentDojo](benchmarks/agentdojo.md)** (ETH Zurich + Invariant Labs) | Indirect prompt-injection in tool-using agents (foreign IBAN / phishing URL / attacker email targets) | **2.49% ASR × 22 LLMs** (86% reduction) | 12 / 40+ atoms |
 | **[RedCode-Exec](benchmarks/redcode.md)** (AI-secure org) | Dangerous bash / python snippet detection (file deletion, credential exfil, dynamic exec, …) | **92% combined / 95% bash / 90% python** | 7 bash + 9 python contracts |
 | **[SWE-bench Verified](benchmarks/swebench.md)** (Princeton NLP) | Procedural correctness on an outcome-only code-fixing benchmark (blind edits, test-tampering, verification skip, edit thrashing, multi-submit) | **0% FP × 500 instances** (synthetic self-validation; real-model traces pending) | 8 of 26 atoms |
-| **[τ²-bench](benchmarks/tau2.md)** (Sierra AI) | Procedural correctness on tool-using customer-support agents (retail / airline / telecom) | **8.3 pp joint^4 gap surfaced on retail GPT-4.1-mini**; 112 contracts cover 6/7 AgentPex procedural categories | 14 atoms |
+| **[τ²-bench](benchmarks/tau2.md)** (Sierra AI) | Procedural correctness on tool-using customer-support agents (retail / airline / telecom) | **29 pp joint^4 gap surfaced on retail GPT-4.1-mini** (pass^4 38.6% vs joint^4 9.6%); 112 contracts cover 6/7 AgentPex procedural categories | 8 of 50+ atoms |
 
 ---
 
@@ -43,7 +43,7 @@ Five third-party benchmarks, identical doc structure under [`benchmarks/`](bench
 
 Agent **tool calls, CLI commands, and function calls are a finite enumerable surface**. Once the unsafe call patterns for a domain are identified (by hand, by `sponsio scan`, or by trace observation), they compile to a DFA that runs in microseconds. There is no semantic guesswork on the blocking path; the gate is the call surface itself.
 
-The four benchmarks split cleanly along this axis:
+The five benchmarks split cleanly along this axis:
 
 | Bench | Failure axis | Layer |
 |---|---|---|
