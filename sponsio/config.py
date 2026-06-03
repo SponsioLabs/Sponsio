@@ -1979,6 +1979,13 @@ def config_to_system(
         ]
 
     contracts: list[Contract] = []
+    # NOTE: ``config_to_system`` is a standalone System-builder used by
+    # discovery, validators, and tests that build a System directly
+    # WITHOUT going through ``BaseGuard``. ``BaseGuard.__init__`` is
+    # the single synthesis point for the kwargs / direct-class
+    # construction paths. This loop is the synthesis point for the
+    # direct ``config_to_system`` path. The two coexist intentionally;
+    # callers go through exactly one of them.
     policy_contract = _synthesize_tool_policy_contract(config.tool_policy)
     for agent_id, ac in config.agents.items():
         agent_obj = Agent(id=agent_id)

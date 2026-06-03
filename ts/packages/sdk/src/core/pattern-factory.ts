@@ -46,6 +46,7 @@ import {
   destructiveActionGate,
   untrustedSourceGate,
   requiredStepsCompletion,
+  redirectToSafe,
   toolAllowlist,
   dangerousBashCommands,
   dangerousSqlVerbs,
@@ -281,6 +282,16 @@ export function buildPatternByName(
       );
     case "tool_allowlist":
       return toolAllowlist(asStrList(needArg(args, 0, "allowed_tools"), "allowed_tools"));
+    case "redirect_to_safe":
+      // TS parity: formula side only. The Python runtime bundles a
+      // ``RedirectToSafe`` strategy on the resulting DetFormula that
+      // adapter ``wrap()`` paths read to substitute the tool call.
+      // TS has no strategy / dispatch system today, so a TS violation
+      // surfaces as a plain block. Tracked as a separate work item.
+      return redirectToSafe(
+        asStr(needArg(args, 0, "unsafe"), "unsafe"),
+        asStr(needArg(args, 1, "safe"), "safe"),
+      );
 
     // Argument / Path
     case "arg_blacklist":

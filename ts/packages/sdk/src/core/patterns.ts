@@ -592,6 +592,36 @@ export function toolAllowlist(allowedTools: string[]): DetFormula {
   };
 }
 
+/**
+ * Substitute a forbidden tool call with a pre-approved safe one.
+ *
+ * Parity with Python ``sponsio.patterns.library.redirect_to_safe``:
+ * compiles to ``G(Not(called(unsafe)))``, so any call to ``unsafe`` is
+ * a violation.
+ *
+ * **Important runtime caveat.** The TS SDK is currently det-only and
+ * has no strategy / dispatch system. The formula side of
+ * ``redirectToSafe`` works here (a violation IS surfaced), but the TS
+ * SDK does NOT yet do the Python-side trick of bundling a
+ * ``RedirectToSafe`` strategy on the formula and having adapter
+ * ``wrap()`` paths substitute the call. The runtime outcome on TS is
+ * functionally a block: the unsafe tool is rejected, and the user's
+ * application loop has to decide whether to dispatch the safe
+ * substitute manually. Full strategy / dispatch parity is tracked as
+ * a separate work item. Users wiring redirect-style contracts who
+ * need transparent substitution should stay on the Python SDK
+ * (LangGraph adapter) until the TS strategy port lands.
+ */
+export function redirectToSafe(unsafe: string, safe: string): DetFormula {
+  ensureDistinct(unsafe, safe, "redirectToSafe", "unsafe", "safe");
+  return {
+    formula: new G(new Not(called(unsafe))),
+    desc: `redirect \`${unsafe}\` -> \`${safe}\``,
+    patternName: "redirect_to_safe",
+    liveness: false,
+  };
+}
+
 export function dangerousBashCommands(forbidden?: string[]): DetFormula {
   const defaults = [
     "sed -i", "rm -rf", "cp /app/data", "mv /app/data",
