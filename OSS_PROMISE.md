@@ -124,8 +124,9 @@ For Sponsio, the answer is yes:
   byte.
 - **The pattern library is fully open.** Every Tier 0 + Tier 1
   pattern, every contract bundle (`core/*`, `capability/*`,
-  `incident/*`, `benchmark/*`). The 84.5% / 92% benchmark numbers
-  are achieved with just the OSS library.
+  `incident/*`, `benchmark/*`). The 95.6% (ODCV) / 92% (RedCode) /
+  86% relative ASR reduction (AgentDojo) benchmark numbers are
+  achieved with just the OSS library.
 - **The contract format is fully open.** The YAML you write today
   runs unchanged tomorrow. There is no proprietary DSL.
 

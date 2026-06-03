@@ -1351,10 +1351,11 @@ def redirect_to_safe(
     unsafe: str,
     safe: str,
     message: str = "",
+    desc: str = "",
 ) -> DetFormula:
     """Substitute a forbidden tool call with a pre-approved safe one.
 
-    Compiles to ``G(Not(called(unsafe)))``. any call to ``unsafe`` is
+    Compiles to ``G(Not(called(unsafe)))``: any call to ``unsafe`` is
     a violation. The bundled ``RedirectToSafe`` strategy turns that
     violation into a ``redirected`` outcome carrying ``safe`` as the
     fallback tool name; adapters then invoke ``safe`` in place of the
@@ -1367,8 +1368,8 @@ def redirect_to_safe(
             .guarantees(redirect_to_safe("issue_refund", "log_refund_request"))
 
     Without an assumption, every call to ``unsafe`` is redirected. The
-    user must register both tools with the integration framework
-   . Sponsio does NOT synthesize tools. For a clean model experience,
+    user must register both tools with the integration framework:
+    Sponsio does NOT synthesize tools. For a clean model experience,
     ``safe`` should accept the same arguments as ``unsafe`` (or the
     adapter must coerce them).
 
@@ -1379,6 +1380,12 @@ def redirect_to_safe(
             tools, etc.).
         message: Optional human-readable note appended to the
             enforcement message (visible in logs / dashboard).
+        desc: Optional override for the contract description. When
+            empty, defaults to ``"redirect `unsafe` -> `safe`"`` plus
+            the ``message`` in parentheses. Accepting this kwarg
+            keeps the factory uniform with the rest of the pattern
+            library so LLM extraction / yaml ``desc:`` overrides
+            work the same way they do for ``rate_limit`` etc.
 
     Returns:
         A ``DetFormula`` whose ``enforcement_strategy`` is bound to a
@@ -1403,13 +1410,16 @@ def redirect_to_safe(
     from sponsio.runtime.strategies import RedirectToSafe
 
     formula = G(Not(_called(unsafe)))
-    desc = f"redirect `{unsafe}` → `{safe}`"
-    if message:
-        desc = f"{desc} ({message})"
+    if desc:
+        final_desc = desc
+    else:
+        final_desc = f"redirect `{unsafe}` -> `{safe}`"
+        if message:
+            final_desc = f"{final_desc} ({message})"
 
     return DetFormula(
         formula=formula,
-        desc=desc,
+        desc=final_desc,
         pattern_name="redirect_to_safe",
         args=(unsafe, safe, message),
         enforcement_strategy=RedirectToSafe(safe=safe, message=message),

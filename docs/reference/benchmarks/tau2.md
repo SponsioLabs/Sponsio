@@ -18,12 +18,12 @@ Three domains × four reference models (Claude 3.7 Sonnet, GPT-4.1, GPT-4.1-mini
 
 Sponsio adds the procedural axis as a **deterministic contract library** that operates in two modes from a single set of `DetFormula` definitions:
 
-- `mode="observe"` — replay an existing trace, emit per-rule fire counts (offline evaluation, what this page reports)
-- `mode="enforce"` — wrap a live agent loop, block tool calls that violate the contract at `guard_before` (runtime enforcement, what no LLM-judge approach structurally supports)
+- `mode="observe"`. replay an existing trace, emit per-rule fire counts (offline evaluation, what this page reports)
+- `mode="enforce"`. wrap a live agent loop, block tool calls that violate the contract at `guard_before` (runtime enforcement, what no LLM-judge approach structurally supports)
 
 The same 112 contracts cover 6 of AgentPex's 7 procedural-evaluator categories (Output Spec, Transition Spec, Forbidden Edges, Argument Spec, Argument Groundedness, Predicted Plan); the 7th (Predicted Final State) is already captured by τ²-bench's native `db_check` and is not duplicated.
 
-**The runtime enforcement mode is the key structural differentiator** vs LLM-judge approaches like AgentPex: an LLM-judge runs only after the trace completes; a contract guard runs before each tool call executes. Same contract definitions, different polarity. This page reports the offline evaluation numbers; the enforcement counterfactual (§ *Counterfactual enforcement* below) shows what the same contracts would have prevented on live agent loops.
+**The runtime enforcement mode is the key structural differentiator** vs LLM-judge approaches like AgentPex: an LLM-judge runs only after the trace completes; a contract guard runs before each tool call executes. The same contracts run in either mode. This page reports the offline evaluation numbers; the enforcement counterfactual (§ *Counterfactual enforcement* below) shows what the same contracts would have prevented on live agent loops.
 
 ## Reliability matrix (k = 4, τ²-bench task-level convention)
 
@@ -115,12 +115,12 @@ Each model has a distinct procedural fingerprint visible in the matrix. Claude i
 
 ```
 sponsio.patterns.library factories used (8 of 50+):
-  must_precede                            — A must happen before B
-  arg_allowlist / arg_blacklist           — value-set / regex on tool args
-  arg_value_range                         — numeric bounds
-  rate_limit / idempotent                 — invocation count caps
-  workflow_step                           — G(observed-state → X(next-action))
-  ctx_required                            — fact-substrate gates
+  must_precede                           . A must happen before B
+  arg_allowlist / arg_blacklist          . value-set / regex on tool args
+  arg_value_range                        . numeric bounds
+  rate_limit / idempotent                . invocation count caps
+  workflow_step                          . G(observed-state → X(next-action))
+  ctx_required                           . fact-substrate gates
 ```
 
 Plus the **Term layer** introduced for this benchmark (`ArgValue`, `CtxValue`, `ArgLength`, `UnaryFn`) for cross-call value comparison; e.g. `Eq(ArgLength("modify_pending_order_items", "item_ids"), ArgLength("modify_pending_order_items", "new_item_ids"))` for item-count match.
@@ -134,7 +134,7 @@ Plus the **Term layer** introduced for this benchmark (`ArgValue`, `CtxValue`, `
 Three contract families warrant mention:
 
 - **Term-based cross-call value contracts.** `ArgValue` / `CtxValue` / `ArgLength` let `Eq` / `Le` / `Lt` / `Ge` / `Gt` compose with arg-derived values and ctx-derived facts. Unlocks Cat-C constraints (item-count match, distinct payment method, max-5-passengers) that were structurally impossible to express as deterministic LTL before.
-- **Prescriptive `workflow_step (G(A → X(B)) shape).`** Triggers an **obligation hint** at runtime when the antecedent fires (e.g. observe airplane mode → "next step: call toggle_airplane_mode") in addition to the standard violation message when the next event fails to satisfy B. Symmetric to the block path: same enforcement hook, inverted polarity.
+- **Prescriptive `workflow_step (G(A → X(B)) shape).`** Triggers an **obligation hint** at runtime when the antecedent fires (e.g. observe airplane mode → "next step: call toggle_airplane_mode") in addition to the standard violation message when the next event fails to satisfy B. Same enforcement hook as the block path, opposite verdict.
 - **Telecom diagnostic decision tree (10 workflow_step contracts).** Maps observed phone-state diagnostic results (extracted from free-form TOOL message text via regex sweep) to the remediation tool the user simulator must call next. Catches "agent observed the diagnostic but never instructed the user to act on it" failures, the most common τ²-bench telecom failure mode.
 
 ## Enforcement cost (12-cell matrix, 4,464 traces total)
@@ -150,7 +150,7 @@ Three contract families warrant mention:
 | Static auditability | every rule is an LTL formula | LLM prompt |
 | Runtime enforcement | **yes** (`mode="enforce"`) | structurally not possible |
 
-The cost / latency / determinism comparison is categorical: zero LLM calls vs nine per trace; bit-perfect reproduction vs LLM nondeterminism; static formula vs unauditable prompt. **Runtime enforcement is the categorical structural advantage** — an LLM-judge fundamentally runs after the fact; a guard runs before the fact.
+The cost / latency / determinism comparison is stark: zero LLM calls vs nine per trace; bit-perfect reproduction vs LLM nondeterminism; static formula vs unauditable prompt. **Runtime enforcement is the load-bearing difference**: an LLM-judge fundamentally runs after the fact; a guard runs before the fact.
 
 ## Counterfactual enforcement (telecom o4-mini)
 
@@ -168,7 +168,7 @@ For 20 τ²-failed telecom o4-mini sims sampled at random, Sponsio's first-viola
 
 ## AgentPex parity check (for comparability with their Fig 8 baseline)
 
-AgentPex paper reports their Output Spec → tau2-fail AUC = **0.680** on Claude traces (Fig 8). This is their internal evaluator-quality metric: how well does their LLM judge's score predict tau2 outcome failure? It is not what Sponsio is trying to optimise — Sponsio's job is to **catch procedure violations specified in policy.md**, not to predict outcome — but it is the only quantity AgentPex published that can be computed identically on the same trace data, so we report it for direct comparability.
+AgentPex paper reports their Output Spec → tau2-fail AUC = **0.680** on Claude traces (Fig 8). This is their internal evaluator-quality metric: how well does their LLM judge's score predict tau2 outcome failure? It is not what Sponsio is trying to optimise. Sponsio's job is to **catch procedure violations specified in policy.md**, not to predict outcome. but it is the only quantity AgentPex published that can be computed identically on the same trace data, so we report it for direct comparability.
 
 Treating per-sim Sponsio fire count as a classifier score for `tau2_reward = 0`, computed via the Wilcoxon–Mann–Whitney rank-sum formulation:
 
@@ -184,9 +184,9 @@ Sponsio matches or exceeds the AgentPex 0.680 baseline on **5 of 12 cells**, inc
 
 The 4,464-trace matrix has Sponsio firing on **76.4% combined sim-level block rate** of τ²-failed sims. The residual 23.6% miss falls in three classes the deterministic contract layer cannot resolve by construction:
 
-- **Class A — Cross-call semantic value matching** (e.g. retail "agent modified the order to a product variant whose `product_id` doesn't match what the user asked about"). The Term layer (`ArgValue`, `CtxValue`) covers structural equality (item-count match, distinct payment method) but not the semantic match between a user description and a `product_id`. The latter requires content understanding.
-- **Class B — Wrong-args-but-correct-tool** (e.g. retail "agent called `modify_pending_order_items` with the correct order but the wrong new `item_ids`"). The deterministic layer sees the call is `modify_pending_order_items` with valid arg shape; tau2's `action_check` knows the expected args came from the task's `evaluation_criteria.actions`, which is semantic ground-truth not exposed to the agent at runtime.
-- **Class C — Final response content quality** (e.g. retail "the agent's last message reported $54.04 refund but should have reported $54.40"). τ²'s `communicate_info` checks the final assistant message; deterministic contracts cannot evaluate free-form content claims.
+- **Class A. Cross-call semantic value matching** (e.g. retail "agent modified the order to a product variant whose `product_id` doesn't match what the user asked about"). The Term layer (`ArgValue`, `CtxValue`) covers structural equality (item-count match, distinct payment method) but not the semantic match between a user description and a `product_id`. The latter requires content understanding.
+- **Class B. Wrong-args-but-correct-tool** (e.g. retail "agent called `modify_pending_order_items` with the correct order but the wrong new `item_ids`"). The deterministic layer sees the call is `modify_pending_order_items` with valid arg shape; tau2's `action_check` knows the expected args came from the task's `evaluation_criteria.actions`, which is semantic ground-truth not exposed to the agent at runtime.
+- **Class C. Final response content quality** (e.g. retail "the agent's last message reported $54.04 refund but should have reported $54.40"). τ²'s `communicate_info` checks the final assistant message; deterministic contracts cannot evaluate free-form content claims.
 
 All three closure paths route through Sponsio's optional `sto` (stochastic atomic proposition) layer, which adds an LLM-judge per atom at tunable β threshold. The 76.4% deterministic floor + sto layered on top is the natural extension; this benchmark page reports the deterministic floor alone.
 
