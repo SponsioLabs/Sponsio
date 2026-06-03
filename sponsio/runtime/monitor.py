@@ -1,4 +1,4 @@
-"""RuntimeMonitor — intercepts agent actions and enforces det contracts.
+"""RuntimeMonitor. intercepts agent actions and enforces det contracts.
 
 This is the central enforcement point.  Every agent action flows through
 ``check_action()``, which runs the deterministic evaluation pipeline:
@@ -100,7 +100,7 @@ class RuntimeMonitor:
         system: The System whose contracts are being enforced.
         policy: Mapping of constraint descriptions to enforcement strategies.
         mode: Enforcement mode. ``"enforce"`` (default) runs strategies
-            normally — det violations block. ``"observe"`` (shadow mode)
+            normally. det violations block. ``"observe"`` (shadow mode)
             evaluates every contract but downgrades all violations to
             ``"observed"`` so nothing is blocked; callbacks still fire,
             so a ``SessionLogger`` hooked into the monitor captures the
@@ -110,7 +110,7 @@ class RuntimeMonitor:
             for custom hard predicates; the value was stored but never
             consulted by any code path, so users who passed it got no
             enforcement on their custom predicates. Kept as a kwarg for
-            source compatibility — emits ``DeprecationWarning`` when
+            source compatibility. emits ``DeprecationWarning`` when
             non-None and is otherwise ignored. Custom predicates today
             should be expressed as pattern factories in
             ``sponsio.patterns.library``.
@@ -127,7 +127,7 @@ class RuntimeMonitor:
             raise ValueError(f"mode must be 'enforce' or 'observe', got {mode!r}")
         if hard_evaluator is not None:
             # The previous implementation stored this on ``self`` and
-            # never read it — operators believed they had wired custom
+            # never read it. operators believed they had wired custom
             # det predicates through the monitor when in fact nothing
             # checked them, silently disabling their intended contracts.
             # Fail loudly instead of silently accepting.
@@ -151,7 +151,7 @@ class RuntimeMonitor:
         # deterministic (T=0) judge call for the same atom at the same
         # position always gives the same answer. Caching this drops the
         # cost of re-evaluating G/F/U formulas on every new event from
-        # O(n) to O(1) LLM calls per new event — total linear instead of
+        # O(n) to O(1) LLM calls per new event. total linear instead of
         # quadratic over a session.
         #
         # WeakKeyDictionary keyed by the Contract object itself: we used
@@ -181,18 +181,20 @@ class RuntimeMonitor:
         self._last_turn_span: AgentTurnSpan | None = None
         self._turn_spans: list[AgentTurnSpan] = []
         self._verifier = TraceVerifier()
-        # Per-check timing.  Always-on — cost is a ``perf_counter_ns``
+        # Per-check timing.  Always-on. cost is a ``perf_counter_ns``
         # call (≈20ns on modern CPUs) plus a deque.append, both of
         # which are dominated by the actual contract evaluation.
         # Users who want it disabled can still access a summary with
-        # n=0 — no code path branches on "tracker is None".
+        # n=0. no code path branches on "tracker is None".
         self._perf_tracker = PerformanceTracker()
         # Dry-run depth: > 0 means we're inside a probe (e.g.
-        # ``filter_tools``) and must suppress every side-effect surface
-        # — MonitorEvent log writes, turn-span appends, perf samples,
-        # observe-mode downgrades. We use a counter (not a bool) so a
-        # probe inside a probe still composes; in practice the depth
-        # never exceeds 1, but the counter keeps the contract simple.
+        # ``filter_tools``) and must suppress every side-effect
+        # surface: MonitorEvent log writes, turn-span appends, perf
+        # samples, observe-mode downgrades. A counter (not a bool)
+        # tolerates nested probes: if a registered callback re-enters
+        # ``check_action(dry_run=True)``, the inner probe increments
+        # to 2, decrements back to 1 on exit, and side effects only
+        # resume when the outermost frame drops to 0.
         self._dry_run_depth = 0
 
     @property
@@ -255,10 +257,12 @@ class RuntimeMonitor:
         # side effect: no log entry, no callbacks, no OTEL push, no
         # session-log write. The probe still mutates the verifier's
         # atom cache, but ``rollback_last_event`` clears that on the
-        # way out.
-        if self._dry_run_depth > 0:
-            return
+        # way out. The depth check runs *inside* the lock so a future
+        # caller invoking ``_emit`` from a callback / OTEL hook that
+        # doesn't already hold the lock still sees a coherent value.
         with self._lock:
+            if self._dry_run_depth > 0:
+                return
             self._log.append(event)
             callbacks = list(self._callbacks)
         for fn in callbacks:
@@ -273,7 +277,7 @@ class RuntimeMonitor:
 
         Thread-safe: a concurrent ``check_action`` must not see a trace
         that's been replaced while the verifier's ``_grounded_upto`` is
-        still pointing at the old trace's length — ``sync`` would try
+        still pointing at the old trace's length. ``sync`` would try
         to ``ground_event`` for a nonexistent index.
         """
         with self._lock:
@@ -287,15 +291,15 @@ class RuntimeMonitor:
         """Pop the last trace event and invalidate all derived caches.
 
         Used by ``BaseGuard.guard_before`` when a det violation blocks
-        the action that was just appended — the trace must look as if
+        the action that was just appended. the trace must look as if
         it never happened so subsequent checks aren't poisoned.
 
         Clears three things together (this is the load-bearing part):
 
-        * ``trace.events.pop()`` — undo the append.
-        * ``verifier.reset()`` — drop grounded valuations + per-formula
+        * ``trace.events.pop()``. undo the append.
+        * ``verifier.reset()``. drop grounded valuations + per-formula
           DFA progress + G-cache; next ``sync`` re-grounds from scratch.
-        * ``_atom_caches.clear()`` — sto atom scores are keyed by
+        * ``_atom_caches.clear()``. sto atom scores are keyed by
           ``(id(atom), position)``; the popped position is about to be
           reused by the next event, so a stale cache at that position
           would surface yesterday's score on tomorrow's content.
@@ -317,7 +321,7 @@ class RuntimeMonitor:
 
         Always present (never ``None``) so consumers can always call
         ``monitor.performance_tracker.summarize()`` without a
-        guard-clause — an un-used monitor just returns an empty
+        guard-clause. an un-used monitor just returns an empty
         summary.
         """
         return self._perf_tracker
@@ -333,7 +337,7 @@ class RuntimeMonitor:
 
     @property
     def turn_spans(self) -> list[AgentTurnSpan]:
-        # Snapshot under the lock — the list is being appended to by
+        # Snapshot under the lock. the list is being appended to by
         # any concurrent ``check_action`` and reading mid-append can
         # intermittently return an inconsistent Python list state.
         with self._lock:
@@ -361,7 +365,7 @@ class RuntimeMonitor:
             self._last_turn_span = None
             self._turn_spans.clear()
             self._verifier.reset()
-            # Clear the per-contract atom memo — entries are keyed by
+            # Clear the per-contract atom memo. entries are keyed by
             # (id(atom), position) and positions are about to be reused.
             self._atom_caches.clear()
         # Intentionally DO NOT reset the perf tracker.  Perf is a
@@ -376,7 +380,7 @@ class RuntimeMonitor:
         This is the **supported** way to bound memory in long-running
         agents (24/7 service agents, always-on schedulers) without
         losing contract enforcement. It behaves exactly like
-        :meth:`reset` — trace, log, spans, verifier cache, and atom
+        :meth:`reset`. trace, log, spans, verifier cache, and atom
         caches are all cleared; contracts on the underlying
         :class:`~sponsio.models.system.System` are **not** touched.
         The only difference is intent signalling and the return value:
@@ -387,20 +391,20 @@ class RuntimeMonitor:
         Why not just keep using :meth:`reset`?
         ``reset`` reads as "something went wrong, start over".
         ``rotate_session`` is the name you want to see at a quarterly
-        review — "we rotate every 1000 turns to cap memory; here's the
+        review. "we rotate every 1000 turns to cap memory; here's the
         hand-off record."
 
         Liveness caveat
         ---------------
-        Formulas that span the **entire trace** — ``F(tool)`` /
+        Formulas that span the **entire trace**. ``F(tool)`` /
         ``always_followed_by(a, b)`` / whole-trace ``rate_limit(tool, N)``
-        — lose visibility across the rotation boundary. Concretely: if
+       . lose visibility across the rotation boundary. Concretely: if
         ``response`` was promised before ``rotate_session`` and still
         hasn't happened, the post-rotation verifier won't see the
         original ``trigger`` and can never fire the liveness violation.
         To avoid silently eating obligations, this method refuses to
         rotate while ``finish_session`` hasn't been called on a guard
-        with pending liveness obligations — but since ``RuntimeMonitor``
+        with pending liveness obligations. but since ``RuntimeMonitor``
         doesn't know about guard-level ``finish_session``, the check
         has to happen one layer up. See
         :meth:`sponsio.integrations.base.BaseGuard.rotate_session` for
@@ -412,7 +416,7 @@ class RuntimeMonitor:
         dict
             ``{"events": int, "turns": int, "log_entries": int,
             "violations_cleared": 0}`` (``violations_cleared`` is always
-            0 at the monitor layer — violations are tracked by
+            0 at the monitor layer. violations are tracked by
             :class:`~sponsio.integrations.base.BaseGuard`, not here).
         """
         with self._lock:
@@ -424,7 +428,7 @@ class RuntimeMonitor:
             }
             # Emit an INFO-level log record so ops can correlate
             # rotations with dashboard / memory metrics. No-op if the
-            # user hasn't wired logging — stdlib default is WARNING.
+            # user hasn't wired logging. stdlib default is WARNING.
             logger.info(
                 "RuntimeMonitor.rotate_session: events=%d turns=%d log=%d",
                 summary["events"],
@@ -448,8 +452,8 @@ class RuntimeMonitor:
     ) -> list[EnforcementResult]:
         """Checks a proposed agent action against all applicable contracts.
 
-        Thread-safe: the full pipeline — event construction + trace
-        append + det evaluation + sto evaluation + span collection —
+        Thread-safe: the full pipeline. event construction + trace
+        append + det evaluation + sto evaluation + span collection.
         runs under ``self._lock`` (an RLock). This is the only way to
         get a consistent ``ts`` ordering when multiple threads call
         ``check_action`` on the same monitor (FastAPI sync routes in
@@ -461,7 +465,7 @@ class RuntimeMonitor:
 
         Args:
             dry_run: When True, the call runs as a side-effect-free
-                probe — MonitorEvent log writes, callback fanout,
+                probe. MonitorEvent log writes, callback fanout,
                 turn-span recording, perf samples, and observe-mode
                 downgrades are all suppressed. Returns the raw
                 enforcement results so callers like ``filter_tools``
@@ -532,7 +536,7 @@ class RuntimeMonitor:
     ) -> list[EnforcementResult]:
         """Runs the hard evaluation pipeline.
 
-        Delegates all formal evaluation to ``self._verifier`` — this
+        Delegates all formal evaluation to ``self._verifier``. this
         method only walks the returned verdicts, emits spans, and
         applies enforcement strategies. Contracts are independent:
         a failed assumption on one does not gate another.
@@ -553,7 +557,7 @@ class RuntimeMonitor:
             label = contract.desc or f"{contract.agent.id}: {a_count}A/{e_count}E"
 
             # OSS is det-only. Non-det contracts (sto atoms, legacy
-            # StoFormula) are filtered out earlier in ``BaseGuard`` —
+            # StoFormula) are filtered out earlier in ``BaseGuard``.
             # if one slips through here we silently skip rather than
             # crash the agent loop.
             if not contract.is_pure_det:
@@ -617,7 +621,7 @@ class RuntimeMonitor:
                     continue
 
                 # Stale violation guard: the enforcement is False on the
-                # full trace, but the latest event isn't the cause — the
+                # full trace, but the latest event isn't the cause. the
                 # rule was already broken on the prefix. Don't blame
                 # (and block) the current event for a historical
                 # violation. This matters most under observe-mode where

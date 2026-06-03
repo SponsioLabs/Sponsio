@@ -39,7 +39,7 @@ from sponsio.patterns import redirect_to_safe  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# Tools — plain LangChain tools the agent could in principle call.
+# Tools. plain LangChain tools the agent could in principle call.
 # ---------------------------------------------------------------------------
 
 
@@ -118,7 +118,7 @@ def build_guard() -> LangGraphGuard:
 
 
 # ---------------------------------------------------------------------------
-# A scripted "agent" — for each step it announces what tool it wants
+# A scripted "agent". for each step it announces what tool it wants
 # to call and Sponsio decides what actually happens.
 # ---------------------------------------------------------------------------
 
@@ -162,7 +162,7 @@ def run() -> int:
     print(">> step 2: agent jumps to `issue_refund` without `check_policy`")
     attempt("issue_refund", customer_id="C-42", amount=199.0)
 
-    # Step 3: do it the right way — check policy first.
+    # Step 3: do it the right way. check policy first.
     print()
     print(">> step 3: agent calls `check_policy` first")
     attempt("check_policy", customer_id="C-42")
@@ -173,7 +173,7 @@ def run() -> int:
     print(">> step 4: agent issues a $199 refund (will be redirected)")
     attempt("issue_refund", customer_id="C-42", amount=199.0)
 
-    # Step 5: another redirect — Sponsio reroutes the unsafe call to
+    # Step 5: another redirect. Sponsio reroutes the unsafe call to
     # the safe ticket-opening tool every time the model picks
     # issue_refund.
     print()
@@ -187,7 +187,7 @@ def run() -> int:
         if ev.tool:
             print(f"   ts={ev.ts}  tool={ev.tool}  args={ev.args}")
     print("=" * 70)
-    # Trace must show no `issue_refund` event — every attempt was
+    # Trace must show no `issue_refund` event. every attempt was
     # rolled back during redirect. Real executions: check_policy +
     # the substituted log_refund_request entries.
     issued = [

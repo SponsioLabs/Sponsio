@@ -36,7 +36,7 @@ class TestPatchModeInYaml:
 
     def test_prefers_runtime_over_defaults(self) -> None:
         """Both blocks present, defaults listed first. The CLI must
-        still pick the runtime line — that's the only place the TS
+        still pick the runtime line. that's the only place the TS
         loader looks, so picking defaults silently leaves TS stale.
         This is the regression the memory note flagged."""
         text = "defaults:\n  mode: observe\nruntime:\n  mode: observe\n"
@@ -46,12 +46,25 @@ class TestPatchModeInYaml:
         assert "runtime:\n  mode: enforce\n" in new
         assert "defaults:\n  mode: observe\n" in new
 
-    def test_appends_runtime_block_when_neither_present(self) -> None:
+    def test_refuses_to_append_enforce_when_no_mode_line(self) -> None:
+        """Safety policy: a missing mode line in the yaml is suspicious
+        (could be a typo, a stripped config, a hand-edited file).
+        Silently flipping it into the blocking enforce posture would
+        mask that. The helper returns ``"missing"`` instead, the CLI
+        exits 1, and the operator has to fix the file by hand or run
+        ``sponsio mode observe`` first."""
         text = "agents:\n  bot:\n    contracts: []\n"
         new, action = _patch_mode_in_yaml(text, "enforce")
+        assert action == "missing"
+        assert new == text  # untouched
+
+    def test_appends_observe_when_no_mode_line(self) -> None:
+        """Observe is the safe default, so the helper is willing to
+        materialise a fresh ``runtime:`` block for it."""
+        text = "agents:\n  bot:\n    contracts: []\n"
+        new, action = _patch_mode_in_yaml(text, "observe")
         assert action == "appended"
-        assert new.endswith("\nruntime:\n  mode: enforce\n")
-        # Original content preserved verbatim.
+        assert new.endswith("\nruntime:\n  mode: observe\n")
         assert new.startswith(text)
 
     def test_unchanged_when_already_target(self) -> None:
@@ -69,16 +82,21 @@ class TestPatchModeInYaml:
     def test_ignores_mode_in_unrelated_block(self) -> None:
         """A ``mode:`` line nested under some other key (e.g.
         ``judge.fallback_mode``) must not be confused for the runtime
-        mode. The walker only looks under ``runtime:`` / ``defaults:``."""
+        mode. The walker only looks under ``runtime:`` / ``defaults:``.
+
+        Use ``observe`` as the target here because ``enforce`` against
+        a no-mode-line yaml returns ``"missing"`` under the safety
+        policy; the question being tested is parent-key isolation,
+        not the safety policy itself."""
         text = "judge:\n  fallback_mode: allow\nagents:\n  bot:\n    contracts: []\n"
-        new, action = _patch_mode_in_yaml(text, "enforce")
+        new, action = _patch_mode_in_yaml(text, "observe")
         assert action == "appended"
         # fallback_mode left alone.
         assert "fallback_mode: allow" in new
 
     def test_skips_comment_only_lines(self) -> None:
         """Comments at the top level must not be treated as a new
-        ``current_parent`` key — otherwise a stray ``# runtime:`` in a
+        ``current_parent`` key. otherwise a stray ``# runtime:`` in a
         comment would mislead the walker."""
         text = "# runtime: this is a comment\ndefaults:\n  mode: observe\n"
         new, action = _patch_mode_in_yaml(text, "enforce")

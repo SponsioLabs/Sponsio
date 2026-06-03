@@ -1,8 +1,8 @@
-"""LangGraph integration — enforce contracts on tool calls.
+"""LangGraph integration. enforce contracts on tool calls.
 
 Two integration patterns:
 
-1. **guard.wrap(tools)** — get a guarded ToolNode (recommended):
+1. **guard.wrap(tools)**. get a guarded ToolNode (recommended):
 
         from sponsio import contract
 
@@ -14,7 +14,7 @@ Two integration patterns:
         agent = create_react_agent(model, guard.wrap(tools))
         result = agent.invoke({"messages": [("user", input)]})
 
-2. **Direct API** — for manual control or non-LangGraph use:
+2. **Direct API**. for manual control or non-LangGraph use:
 
         result = guard.guard_before("issue_refund", {"order_id": "123"})
         if result.blocked: ...
@@ -49,7 +49,7 @@ class ToolCallBlocked(Exception):
 
 
 class LangGraphGuard(BaseGuard):
-    """LangGraph contract guard — enforces hard + sto constraints on tool calls.
+    """LangGraph contract guard. enforces hard + sto constraints on tool calls.
 
     Usage::
 
@@ -148,7 +148,7 @@ class LangGraphGuard(BaseGuard):
                 "langgraph is required. Install with: pip install langgraph"
             )
 
-        # v0.2 enforcement: proactive — drop denied tools at wrap time
+        # v0.2 enforcement: proactive. drop denied tools at wrap time
         # so the LangGraph agent never sees them in its bound toolset.
         # No-op under the default ``reactive`` enforcement; falls through
         # to the existing per-call ``guard_before`` block in that case.
@@ -192,7 +192,7 @@ class LangGraphGuard(BaseGuard):
         ``ToolCallBlocked`` when the sto pipeline flagged the tool
         output. Every other framework adapter (OpenAI Agents, CrewAI,
         Vercel AI, Claude Agent) instead returns the feedback as the
-        tool result so the model self-corrects on the next turn — which
+        tool result so the model self-corrects on the next turn. which
         is what the sto ``RetryWithConstraint`` strategy was designed
         for. Raising aborted the whole LangGraph run, making sto
         violations functionally identical to det blocks and defeating
@@ -203,7 +203,7 @@ class LangGraphGuard(BaseGuard):
         :func:`format_sto_retry_message` template.
 
         Auto-tagging happens inside ``BaseGuard.guard_after`` when
-        ``tag_outputs`` / ``tag_pii`` are set on the guard — no
+        ``tag_outputs`` / ``tag_pii`` are set on the guard. no
         integration-specific logic needed here.
         """
         post = self.guard_after(tool_name, str(result))
@@ -315,7 +315,7 @@ class LangGraphGuard(BaseGuard):
                 used for error messages.
             safe_name: The ``redirected_to`` target.
             kwargs: Arguments the model supplied for ``unsafe_name``.
-                Passed verbatim — the user is responsible for ensuring
+                Passed verbatim. the user is responsible for ensuring
                 schema compatibility.
             registry: Name → tool map from ``wrap()``.
             sync: True for the sync wrapper, False for the async one.
@@ -344,6 +344,23 @@ class LangGraphGuard(BaseGuard):
                 message=(
                     f"BLOCKED: redirected `{unsafe_name}` → `{safe_name}` "
                     f"but the substitute is also blocked: {msg}"
+                ),
+            )
+        if check.redirected and check.redirected_to:
+            # Chained redirect (``safe_name`` was itself redirected to
+            # a third tool). We refuse rather than silently executing
+            # the substitute or recursing. Recursion would risk loops
+            # (A → B → A) and silent execution would surprise the user.
+            chained = check.redirected_to
+            raise ToolCallBlocked(
+                tool_name=safe_name,
+                constraint=f"chained redirect {safe_name!r} → {chained!r}",
+                message=(
+                    f"BLOCKED: redirected `{unsafe_name}` to `{safe_name}`, "
+                    f"but `{safe_name}` is itself redirected to "
+                    f"`{chained}`. Chained redirects are not supported. "
+                    f"Resolve the chain by pointing `{unsafe_name}` directly "
+                    f"at `{chained}`."
                 ),
             )
         if sync:
@@ -407,7 +424,7 @@ class LangGraphGuard(BaseGuard):
         return self.guard_after("", output)
 
     # -----------------------------------------------------------------
-    # LLM observation — feed llm_response events into the trace so sto
+    # LLM observation. feed llm_response events into the trace so sto
     # atoms (injection_free, scope_respect, etc.) can evaluate actual
     # model output. Without this hook the trace only sees tool_call
     # events and llm-response-scoped atoms silently pass.
@@ -498,13 +515,13 @@ class LangGraphGuard(BaseGuard):
                 prompt = getattr(self, "_prompts", {}).get(run_id) if run_id else None
                 # observe_llm_call runs both det and sto atoms that key
                 # on llm_request / llm_response events. Return value
-                # (CheckResult) is not raised — callbacks shouldn't
+                # (CheckResult) is not raised. callbacks shouldn't
                 # raise; violations surface through guard.print_summary()
                 # or the monitor's event log.
                 try:
                     guard.observe_llm_call(prompt=prompt, response=text)
                 except Exception:
-                    # A failed sto judge shouldn't break the agent — the
+                    # A failed sto judge shouldn't break the agent. the
                     # monitor already recorded the failure. Swallow and
                     # continue the agent loop.
                     pass
@@ -525,7 +542,7 @@ class LangGraphGuard(BaseGuard):
 
 
 # ---------------------------------------------------------------------------
-# monitor_graph — zero-config monitoring for any LangGraph StateGraph
+# monitor_graph. zero-config monitoring for any LangGraph StateGraph
 # ---------------------------------------------------------------------------
 
 
@@ -538,11 +555,11 @@ def monitor_graph(
 ) -> Any:
     """Wrap a compiled LangGraph to enforce contracts and stream to the dashboard.
 
-    Works with any ``StateGraph`` — react agents, sequential pipelines,
+    Works with any ``StateGraph``. react agents, sequential pipelines,
     branching graphs.
 
-    Without ``contracts``: monitoring only — pushes events for visibility.
-    With ``contracts``: full enforcement — each node goes through
+    Without ``contracts``: monitoring only. pushes events for visibility.
+    With ``contracts``: full enforcement. each node goes through
     ``BaseGuard.guard_before()``, producing span trees, blocking violations,
     and streaming everything to the dashboard.
 

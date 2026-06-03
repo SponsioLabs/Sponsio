@@ -43,7 +43,7 @@ from sponsio.runtime.strategies import EscalateToHuman  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# Fake notifier infrastructure — substitute these for real Slack /
+# Fake notifier infrastructure. substitute these for real Slack /
 # PagerDuty / email integrations in production.
 # ---------------------------------------------------------------------------
 
@@ -68,7 +68,7 @@ def pagerduty_broken(_violation, _ctx, _reason):
     """A notifier that always fails (simulates an outage).
     The escalation must still complete and the OTHER notifiers
     must still fire."""
-    raise RuntimeError("pagerduty 500 — service down")
+    raise RuntimeError("pagerduty 500. service down")
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +89,7 @@ def build_guard() -> Sponsio:
         ],
         policy={
             # Bind EscalateToHuman to the toolset rule. The policy
-            # dict is keyed by the formula's desc — same lookup the
+            # dict is keyed by the formula's desc. same lookup the
             # monitor uses internally.
             APPROVED.desc: EscalateToHuman(
                 reason="non-allow-listed tool requires CFO approval",
@@ -112,12 +112,12 @@ def run() -> int:
     print("                (pagerduty_broken simulates a service outage)")
     print()
 
-    # 1. A normal allowed call — no escalation, no notify.
+    # 1. A normal allowed call. no escalation, no notify.
     print(">> step 1: agent reads an invoice (allowed)")
     r1 = guard.guard_before("read_invoice", {"invoice_id": "INV-001"})
     print(f"   allowed={r1.allowed}  escalated={any(v.action == 'escalated' for v in r1.det_violations)}")
 
-    # 2. A wire to an unapproved external service — rule fires.
+    # 2. A wire to an unapproved external service. rule fires.
     # EscalateToHuman fires the notifiers. To ALSO refuse the call
     # today, the example uses a thin wrapper around guard_before that
     # treats action="escalated" as a hard stop on the application side.

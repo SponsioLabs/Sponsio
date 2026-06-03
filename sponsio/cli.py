@@ -27,14 +27,14 @@ from sponsio.constants import DASHBOARD_DEFAULT_PORT
 @click.group()
 @click.version_option(version=__version__, prog_name="sponsio")
 def cli():
-    """Sponsio — the contract layer for LLM agent systems."""
+    """Sponsio. the contract layer for LLM agent systems."""
 
 
 def _contract_guarantee(entry):
     """Read the guarantee block out of a YAML/dict contract entry.
 
     Reads the canonical ``G`` (short) / ``guarantee`` (long) keys. No
-    legacy alias support — the rename is hard.
+    legacy alias support. the rename is hard.
     """
     if not isinstance(entry, dict):
         return None
@@ -70,10 +70,10 @@ def demo(scenario: str, mode: str, no_guard: bool, fast: bool):
     PyPI install with no API key and no optional framework SDKs.
 
     \b
-      cleanup  — Claude Code cleanup agent deletes `.env` & `.git/`
-      backup   — SRE cost-optimizer deletes prod DR backups (OWASP ASI-10)
-      wire     — AP copilot wires $847k to an unverified vendor (OWASP ASI-09)
-      freeze   — Replit-style agent violates code freeze + hides it (OWASP ASI-10)
+      cleanup . Claude Code cleanup agent deletes `.env` & `.git/`
+      backup  . SRE cost-optimizer deletes prod DR backups (OWASP ASI-10)
+      wire    . AP copilot wires $847k to an unverified vendor (OWASP ASI-09)
+      freeze  . Replit-style agent violates code freeze + hides it (OWASP ASI-10)
 
     Examples:\n
         sponsio demo\n
@@ -351,7 +351,7 @@ def patterns():
 
 
 # ---------------------------------------------------------------------------
-# packs — list the contract packs that ship inside the distribution
+# packs. list the contract packs that ship inside the distribution
 # ---------------------------------------------------------------------------
 
 
@@ -407,7 +407,7 @@ def packs():
                 contracts = (template or {}).get("contracts") or []
                 n = len(contracts)
 
-                # Rough kind count — det patterns vs raw LTL.  OSS ships
+                # Rough kind count. det patterns vs raw LTL.  OSS ships
                 # no sto pipeline; the third bucket is gone.
                 kinds = Counter()
                 for c in contracts:
@@ -450,7 +450,7 @@ def packs():
 
 
 # ---------------------------------------------------------------------------
-# skill — install the bundled Agent Skill into Cursor / Claude Code / Codex
+# skill. install the bundled Agent Skill into Cursor / Claude Code / Codex
 # ---------------------------------------------------------------------------
 
 
@@ -485,7 +485,7 @@ _SKILL_TOOL_DIRS: dict[str, Path] = {
 def _packaged_skill_source() -> Path:
     """Return the absolute path to the packaged ``sponsio/skills/sponsio/``
     directory.  Raises ``FileNotFoundError`` if the install is missing
-    the skill — which means a broken wheel or a dev checkout without
+    the skill. which means a broken wheel or a dev checkout without
     ``pip install -e`` (common footgun)."""
     from importlib.resources import files
 
@@ -500,7 +500,7 @@ def _packaged_skill_source() -> Path:
     if not src.is_dir() or not (src / "SKILL.md").is_file():
         raise FileNotFoundError(
             f"Expected {src / 'SKILL.md'} to exist but it doesn't. "
-            "The sponsio wheel may be incomplete — re-install sponsio."
+            "The sponsio wheel may be incomplete. re-install sponsio."
         )
     return src
 
@@ -510,7 +510,7 @@ def _detect_installed_tools() -> list[str]:
 
     Used by ``--tool auto``.  We prefer "dir already exists" over
     "tool is installed" because the dir is a stronger signal of "the
-    user actually uses this tool's skill system" — Cursor / Claude
+    user actually uses this tool's skill system". Cursor / Claude
     Code both create it on first skill install.
     """
     return [name for name, path in _SKILL_TOOL_DIRS.items() if path.is_dir()]
@@ -529,10 +529,10 @@ def _detect_installed_tools() -> list[str]:
 #   1. The subdir ``<parent>/sponsio/`` exists.
 #   2. It contains ``SKILL.md``, non-empty.
 #   3. That file starts with ``---`` (YAML frontmatter delimiter).
-#   4. Frontmatter contains ``name: sponsio`` — the discovery key the
+#   4. Frontmatter contains ``name: sponsio``. the discovery key the
 #      agent dispatchers look up.
 #   5. For non-symlink installs, content matches the currently-
-#      packaged skill — otherwise ``pip install -U sponsio`` has
+#      packaged skill. otherwise ``pip install -U sponsio`` has
 #      moved ahead of the copy and the user should re-install.
 #
 # We encode this once in ``_verify_skill_install_target`` and use it
@@ -559,7 +559,7 @@ class _SkillInstallHealth:
 def _hash_file(p: Path) -> str | None:
     """md5 of ``p``'s bytes, or ``None`` if unreadable.
 
-    md5 is fine here — we're checking equality of two local files we
+    md5 is fine here. we're checking equality of two local files we
     control, not resisting adversarial collisions."""
     try:
         return hashlib.md5(p.read_bytes()).hexdigest()
@@ -573,7 +573,7 @@ def _verify_skill_install_target(
     """Probe one install location and classify it.
 
     ``packaged_src`` is the directory returned by
-    :func:`_packaged_skill_source` — typically the ``sponsio/skills/sponsio/``
+    :func:`_packaged_skill_source`. typically the ``sponsio/skills/sponsio/``
     inside the wheel.  We compare the installed ``SKILL.md`` bytes
     against ``packaged_src / 'SKILL.md'`` to detect copy-drift.
     """
@@ -601,7 +601,7 @@ def _verify_skill_install_target(
             skill_md=skill_md,
             mode="broken",
             status="broken",
-            detail=f"{target} exists but SKILL.md is missing — re-run with --force",
+            detail=f"{target} exists but SKILL.md is missing. re-run with --force",
         )
 
     try:
@@ -616,7 +616,7 @@ def _verify_skill_install_target(
             detail=f"{skill_md}: {exc}",
         )
 
-    # Fast content-shape checks — catch empty / truncated / wrong-file
+    # Fast content-shape checks. catch empty / truncated / wrong-file
     # cases before we get into drift comparison.  ``name: sponsio`` is
     # what the coding-agent dispatchers grep for.
     if not body.strip():
@@ -644,10 +644,10 @@ def _verify_skill_install_target(
             skill_md=skill_md,
             mode=mode,
             status="broken",
-            detail=f"{skill_md} frontmatter missing `name: sponsio` — agent won't dispatch",
+            detail=f"{skill_md} frontmatter missing `name: sponsio`. agent won't dispatch",
         )
 
-    # Symlinks are always fresh by definition — no drift check needed.
+    # Symlinks are always fresh by definition. no drift check needed.
     if is_link:
         return _SkillInstallHealth(
             tool=tool,
@@ -660,7 +660,7 @@ def _verify_skill_install_target(
 
     # Copy: compare bytes with packaged source.  Hash mismatch means
     # the user upgraded sponsio (pip install -U) but didn't re-run
-    # ``sponsio skill install`` — their agent still sees the old skill.
+    # ``sponsio skill install``. their agent still sees the old skill.
     installed_hash = _hash_file(skill_md)
     packaged_hash = _hash_file(packaged_src / "SKILL.md")
     if (
@@ -675,7 +675,7 @@ def _verify_skill_install_target(
             mode="copy",
             status="drift",
             detail=(
-                "installed copy doesn't match packaged SKILL.md — "
+                "installed copy doesn't match packaged SKILL.md. "
                 "re-run `sponsio skill install --force` after upgrading sponsio"
             ),
         )
@@ -696,7 +696,7 @@ def _print_skill_discovery_footer(
 ) -> bool:
     """Render the "Discovery:" block after ``sponsio skill install``.
 
-    Returns ``True`` iff every result is ``ok`` — the caller uses this
+    Returns ``True`` iff every result is ``ok``. the caller uses this
     to decide the command exit status (healthy installs → 0, any
     broken or drift → 1 so CI / scripts notice).
     """
@@ -720,7 +720,7 @@ def _print_skill_discovery_footer(
         else:  # broken
             icon = click.style("✗", fg="red", bold=True)
             all_ok = False
-        click.echo(f"  {icon} {r.tool}  {r.skill_md}  — {r.detail}")
+        click.echo(f"  {icon} {r.tool}  {r.skill_md} . {r.detail}")
 
     return all_ok
 
@@ -792,14 +792,14 @@ def skill_install(tool: str, use_link: bool, dest: Path | None, force: bool):
             if detected:
                 names = detected
             else:
-                # Nothing detected — pick a sensible default pair rather
+                # Nothing detected. pick a sensible default pair rather
                 # than erroring.  Most Cursor/Claude users will have
                 # one of these even if the dir hasn't been created yet
                 # (first-time install case).
                 names = ["cursor", "claude"]
                 click.echo(
                     click.style(
-                        "· no existing skills dir detected — installing "
+                        "· no existing skills dir detected. installing "
                         "into cursor + claude defaults",
                         fg="bright_black",
                         dim=True,
@@ -833,7 +833,7 @@ def skill_install(tool: str, use_link: bool, dest: Path | None, force: bool):
             if not force:
                 click.echo(
                     click.style("✗ ", fg="yellow")
-                    + f"{label}: {target} already exists — pass --force to replace",
+                    + f"{label}: {target} already exists. pass --force to replace",
                     err=True,
                 )
                 continue
@@ -863,7 +863,7 @@ def skill_install(tool: str, use_link: bool, dest: Path | None, force: bool):
     if not any_written:
         raise SystemExit(1)
 
-    # Verify every target we wrote to — catches cases where the copy
+    # Verify every target we wrote to. catches cases where the copy
     # landed at the wrong depth (``<parent>/SKILL.md`` instead of
     # ``<parent>/sponsio/SKILL.md``), the source wheel is broken, or a
     # filesystem quirk silently ate the write.  Also gives the user a
@@ -874,7 +874,7 @@ def skill_install(tool: str, use_link: bool, dest: Path | None, force: bool):
     ]
     # ``--force`` can leave ``mode == "missing"`` for slots the caller
     # explicitly skipped (e.g. the pre-existing target they didn't
-    # overwrite) — don't report those as install failures here since
+    # overwrite). don't report those as install failures here since
     # the per-target ``already exists`` line already told the story.
     probes_to_show = [
         p
@@ -951,7 +951,7 @@ def validate(contracts, config_path, agent_id, as_json, trace_paths):
     With ``--traces``, each successfully-parsed deterministic contract is
     replayed against the supplied trace files / directories and a
     pass / fail / error count is reported alongside the parse result.
-    Counts only — for per-failure attribution and repair suggestions
+    Counts only. for per-failure attribution and repair suggestions
     see the proprietary ``sponsio-pro`` validation pipeline.
 
     Examples:\n
@@ -1029,7 +1029,7 @@ def validate(contracts, config_path, agent_id, as_json, trace_paths):
         if not as_json and not traces_loaded:
             click.echo(
                 click.style("  warn: ", fg="yellow")
-                + "no traces loaded — replay counts will all be 0",
+                + "no traces loaded. replay counts will all be 0",
                 err=True,
             )
 
@@ -1328,7 +1328,7 @@ def _resolve_entry(entry):
     try:
         return nl, parse_nl_unified(nl)
     except ContractSyntaxError:
-        # Unparseable — `sponsio check` signals this by returning
+        # Unparseable. `sponsio check` signals this by returning
         # a None result, same shape as a structured-compile error.
         return nl, None
 
@@ -1342,7 +1342,7 @@ def _resolve_entry(entry):
     type=click.Path(exists=True),
     help=(
         "Trace file to check against. Accepts OTLP/JSON, OTLP JSONL, "
-        "native Sponsio JSON/JSONL, and session JSONL — format is "
+        "native Sponsio JSON/JSONL, and session JSONL. format is "
         "sniffed from content."
     ),
 )
@@ -1403,7 +1403,7 @@ def check(trace_path, contracts, config_path, agent_id, as_json):
     if len(loaded) == 1:
         trace = loaded[0]
     else:
-        # Flatten — renumber ts so ordering is preserved across files.
+        # Flatten. renumber ts so ordering is preserved across files.
         merged_events: list = []
         for t in loaded:
             for ev in t.events:
@@ -1575,7 +1575,7 @@ def check(trace_path, contracts, config_path, agent_id, as_json):
 
 
 # ---------------------------------------------------------------------------
-# explain — show one contract's source + compiled form + last violation
+# explain. show one contract's source + compiled form + last violation
 # ---------------------------------------------------------------------------
 
 
@@ -1615,7 +1615,7 @@ def explain(
     fmt: str,
     no_color: bool,
 ):
-    """Explain a contract — source, compiled formula, last violation.
+    """Explain a contract. source, compiled formula, last violation.
 
     \b
     Examples:
@@ -1678,7 +1678,7 @@ def explain(
         if len(config.agents) != 1:
             click.echo(
                 click.style("Error: ", fg="red")
-                + f"config has {len(config.agents)} agents — pass --agent to disambiguate "
+                + f"config has {len(config.agents)} agents. pass --agent to disambiguate "
                 + f"(available: {', '.join(config.agents)})",
                 err=True,
             )
@@ -1748,7 +1748,7 @@ def explain(
 
 
 # ---------------------------------------------------------------------------
-# replay — re-render a recorded session's view from its jsonl log
+# replay. re-render a recorded session's view from its jsonl log
 # ---------------------------------------------------------------------------
 
 
@@ -1794,7 +1794,7 @@ def replay(
     feeds it through the same renderer the session view uses.
 
     Pass ``--config`` to also render the "contracts armed" table from
-    the YAML — without it, only contracts mentioned in the trace are
+    the YAML. without it, only contracts mentioned in the trace are
     surfaced.
     """
     import os
@@ -2001,7 +2001,7 @@ def report(
     bd = Path(base_dir) if base_dir else None
     resolved_fmt = pick_format(fmt)
 
-    # SVG export requires the Rich path — promote auto/markdown to rich if asked.
+    # SVG export requires the Rich path. promote auto/markdown to rich if asked.
     if save_svg and resolved_fmt != "rich":
         resolved_fmt = "rich"
 
@@ -2015,7 +2015,7 @@ def report(
         return render(report_obj, fmt=target)
 
     def _emit_rich(report_obj) -> None:
-        """Rich path — prints directly + optionally writes SVG."""
+        """Rich path. prints directly + optionally writes SVG."""
         from sponsio.render.rich_report import render_report, save_svg as _save_svg
 
         console = render_report(report_obj)
@@ -2189,7 +2189,7 @@ def serve(host: str, port: int, dev: bool):
     show_default=True,
     help=(
         "Minimum number of traces a pattern must appear in before "
-        "trace-mining proposes it. Default `1` is loose — bump up "
+        "trace-mining proposes it. Default `1` is loose. bump up "
         "(e.g. `5`) when feeding a large production audit log."
     ),
 )
@@ -2241,7 +2241,7 @@ def serve(host: str, port: int, dev: bool):
         "docs / trace summaries) as JSON to stdout.  Used by the host "
         "agent driving the ``sponsio`` skill: pair with "
         "``sponsio prompt scan`` and apply in the agent's own LLM "
-        "context — no UnifiedExtractor call, no extra API key."
+        "context. no UnifiedExtractor call, no extra API key."
     ),
 )
 def scan(
@@ -2264,7 +2264,7 @@ def scan(
 ):
     """Scan source code, policy docs, and traces to propose contracts.
 
-    For first-time setup, prefer ``sponsio onboard`` — it composes
+    For first-time setup, prefer ``sponsio onboard``. it composes
     framework detection + scan + ``init``-style provider config +
     ``doctor`` health checks into a single command.  ``scan`` is the
     library-maintenance tool you reach for *after* you have a
@@ -2337,7 +2337,7 @@ def scan(
                 trace_summary["total_events"] = sum(
                     len(t.events) for t in loaded if hasattr(t, "events")
                 )
-            except Exception as e:  # pragma: no cover — best-effort
+            except Exception as e:  # pragma: no cover. best-effort
                 trace_summary["error"] = str(e)
 
         existing_yaml_text = ""
@@ -2374,7 +2374,7 @@ def scan(
 
     # Pull provider/model/key/base_url from the YAML's ``extractor:``
     # section if --config was given.  CLI flags retain the highest
-    # precedence — they're how you override on a one-off basis.
+    # precedence. they're how you override on a one-off basis.
     api_key: str | None = None
     if config_path:
         from sponsio.config import load_config
@@ -2384,7 +2384,7 @@ def scan(
         if not (ext.provider or ext.model or ext.api_key or ext.base_url):
             click.echo(
                 click.style("  warn: ", fg="yellow")
-                + f"{config_path} has no `extractor:` section — "
+                + f"{config_path} has no `extractor:` section. "
                 "nothing to inherit.",
                 err=True,
             )
@@ -2473,7 +2473,7 @@ def scan(
     if policy and not llm:
         click.echo(
             click.style("  warn: ", fg="yellow")
-            + "--policy was given but --llm was not — "
+            + "--policy was given but --llm was not. "
             + f"{len(policy)} policy file(s) were ignored.",
             err=True,
         )
@@ -2819,7 +2819,7 @@ def _push_scan_to_dashboard(
     except Exception:
         click.echo(
             click.style("  tip: ", fg="cyan")
-            + f"dashboard not running at {base} — start it with "
+            + f"dashboard not running at {base}. start it with "
             + click.style("sponsio serve", bold=True)
             + " to see scan results in the UI."
         )
@@ -2847,7 +2847,7 @@ def _push_scan_to_dashboard(
             f"{result.get('score', 0)}/100 "
             f"({result.get('grade', '?')})"
         )
-        click.echo(click.style("✓ ", fg="green") + f"Pushed to dashboard — {summary}")
+        click.echo(click.style("✓ ", fg="green") + f"Pushed to dashboard. {summary}")
         click.echo(
             f"  View at {click.style(base.replace(':8000', ':3000') + '/scan', bold=True)}"
         )
@@ -2899,12 +2899,12 @@ def _merge_yaml(existing: str, new: str) -> str:
             # Blank line or end of section
             pass
         elif current_entry and stripped.startswith("#"):
-            # Comment inside an entry — keep it
+            # Comment inside an entry. keep it
             current_entry.append(line)
         elif not stripped:
             continue
         else:
-            # Non-entry, non-continuation line — we've left the contracts block
+            # Non-entry, non-continuation line. we've left the contracts block
             break
     if current_entry:
         new_entries.append(current_entry)
@@ -3014,7 +3014,7 @@ def export_cmd(
     The canonical flow from prod to eval corpus:
 
     \b
-        # 1. In your agent (observe mode — never blocks):
+        # 1. In your agent (observe mode. never blocks):
         guard = BaseGuard(agent_id="bot", contracts=[...], mode="observe")
         # ...runs happen, violations logged but not enforced...
 
@@ -3029,7 +3029,7 @@ def export_cmd(
         sponsio eval traces/ --config sponsio.yaml
 
     SOURCE may be a single ``.json`` file or a directory of them.
-    Output filenames are ``{label}_{source-basename}.json`` — the
+    Output filenames are ``{label}_{source-basename}.json``. the
     prefix is what ``sponsio eval`` reads to know which traces are
     expected to pass vs be blocked, so picking the right ``--label``
     at export time saves a rename pass later.
@@ -3065,13 +3065,13 @@ def export_cmd(
 
         # Accept either the bare Trace dict shape ({"events": [...], "metadata": {...}})
         # OR the richer ``export_trace()`` envelope (same shape, extra metadata).
-        # Reject OTLP input — that's already in the target shape and would
+        # Reject OTLP input. that's already in the target shape and would
         # silently duplicate rather than convert.
         if "resourceSpans" in raw:
-            skipped.append((src, "already OTLP JSON — refusing to re-wrap"))
+            skipped.append((src, "already OTLP JSON. refusing to re-wrap"))
             continue
         if "events" not in raw:
-            skipped.append((src, "no 'events' key — not a Sponsio trace dump"))
+            skipped.append((src, "no 'events' key. not a Sponsio trace dump"))
             continue
 
         try:
@@ -3108,11 +3108,11 @@ def export_cmd(
     if skipped:
         click.echo(click.style("  skipped:", fg="yellow"))
         for p, why in skipped:
-            click.echo(f"    · {p.name} — {why}")
+            click.echo(f"    · {p.name}. {why}")
 
 
 # ---------------------------------------------------------------------------
-# `sponsio export-sessions` — push session audit log to OTLP
+# `sponsio export-sessions`. push session audit log to OTLP
 # ---------------------------------------------------------------------------
 
 
@@ -3203,7 +3203,7 @@ def _session_event_to_otlp_span(event: dict) -> dict:
 
 
 def _attr_for_session(key: str, value):
-    """Local copy of otel_writer._attr — used by the session importer
+    """Local copy of otel_writer._attr. used by the session importer
     so we don't leak the writer's private API into this CLI command."""
     if isinstance(value, bool):
         v: dict = {"boolValue": value}
@@ -3447,7 +3447,7 @@ def export_sessions_cmd(
             sys.exit(1)
         click.secho(f"✓ pushed {len(spans)} spans", fg="green")
     else:
-        # File destination — write the OTLP envelope as a single JSON.
+        # File destination. write the OTLP envelope as a single JSON.
         out = Path(destination).expanduser()
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(envelope, indent=2))
@@ -3456,7 +3456,7 @@ def export_sessions_cmd(
             fg="green",
         )
 
-    # Summary by agent — useful when --agent isn't set.
+    # Summary by agent. useful when --agent isn't set.
     if by_agent:
         click.echo()
         click.echo(click.style("By agent:", bold=True))
@@ -3538,7 +3538,7 @@ def eval_cmd(
 ):
     """Replay a labelled trace corpus and report FPR/FNR per contract.
 
-    Use this BEFORE flipping ``SPONSIO_MODE=enforce`` — it answers
+    Use this BEFORE flipping ``SPONSIO_MODE=enforce``. it answers
     "if I turn enforcement on tomorrow, how often will my contracts
     over-block legitimate traffic, and how often will they miss real
     incidents?".
@@ -3642,7 +3642,7 @@ def eval_cmd(
 
     if as_json:
         # Preserve the long-standing flat shape (report fields at the
-        # top) when there's no baseline — every existing script
+        # top) when there's no baseline. every existing script
         # depends on ``data["n_safe"]`` etc.  Only when a baseline
         # IS present do we add a sibling key for the diff, which
         # callers can look up only when they passed ``--baseline``.
@@ -3676,7 +3676,7 @@ def eval_cmd(
     elif write_baseline_path and gate_failures:
         click.secho(
             f"\n  · skipped writing {write_baseline_path} "
-            "(gate failed — fix the regression first)",
+            "(gate failed. fix the regression first)",
             fg="yellow",
         )
 
@@ -3771,7 +3771,7 @@ def init(
     # Detect a pre-existing ``@sponsio/sdk`` install (via ``npm
     # install`` OR ``npm link``) so we can skip the redundant
     # install step in plan.  Skipping is critical for ``npm link``
-    # workflows — running ``npm install --save-dev`` against a
+    # workflows. running ``npm install --save-dev`` against a
     # linked package overwrites the symlink with the published
     # release, silently undoing the user's local-source testing.
     # The legacy ``@sponsio/scan-ts`` package is now a deprecation
@@ -3780,7 +3780,7 @@ def init(
     # init`` without an extra install round-trip.
     # The package dir alone isn't enough: a half-broken install can
     # leave ``node_modules/@sponsio/sdk/`` populated but the bin
-    # symlink ``node_modules/.bin/sponsio`` missing — which would
+    # symlink ``node_modules/.bin/sponsio`` missing. which would
     # then make ``npx sponsio onboard`` fall through to the npm
     # public registry (404, since pip-side ``sponsio`` shadows the
     # name).  Require BOTH for the skip-install path.
@@ -3800,7 +3800,7 @@ def init(
         )
         if not cmds:
             click.echo(
-                "Nothing to do — picks select no framework wrap and no "
+                "Nothing to do. picks select no framework wrap and no "
                 "IDE protection.  Re-run with at least one ``framework=`` "
                 "or ``ides=<ide>:full|skill``."
             )
@@ -3822,14 +3822,14 @@ def init(
     if not cmds:
         click.echo()
         click.secho(
-            "Nothing to install — every axis was set to 'none'.  "
+            "Nothing to install. every axis was set to 'none'.  "
             "Re-run `sponsio init` and pick at least one framework "
             "wrap or IDE level (skill / full).",
             fg="yellow",
         )
         return
 
-    # Dry-run preview before running, even on the interactive path —
+    # Dry-run preview before running, even on the interactive path.
     # gives the user a final chance to spot a wrong pick.  Indented
     # col-2 to match the wizard's body content margin (banner col-0,
     # everything below at col-2).
@@ -3839,7 +3839,7 @@ def init(
         click.echo("    → " + " ".join(cmd))
     click.echo()
 
-    # Skip the confirm gate when called via ``--apply`` — the IDE
+    # Skip the confirm gate when called via ``--apply``. the IDE
     # agent already showed me the dry-run preview before invoking,
     # and a second confirmation here would corrupt structured output.
     if apply_spec is None:
@@ -3860,7 +3860,7 @@ def init(
         sys.exit(rc)
 
     # Picks-aware "what now" block.  Each combination of axes leaves
-    # the user in a different spot — IDE-only installs especially
+    # the user in a different spot. IDE-only installs especially
     # were ending without any concrete next action.  Route through
     # the helper so each path gets a tailored handoff.
     from sponsio.init_wizard import print_next_steps as _print_next_steps
@@ -3872,7 +3872,7 @@ def init(
 
 
 # ---------------------------------------------------------------------------
-# refresh — re-mine contracts from recent traces and merge into sponsio.yaml
+# refresh. re-mine contracts from recent traces and merge into sponsio.yaml
 # ---------------------------------------------------------------------------
 
 
@@ -3906,10 +3906,10 @@ def init(
 def doctor(path: Path, llm: bool, as_json: bool):
     """Diagnose your Sponsio install and project wiring.
 
-    Runs a short battery of mostly-offline checks — Python version,
+    Runs a short battery of mostly-offline checks. Python version,
     sponsio import sanity, optional SDK availability, LLM credentials,
     ``sponsio.yaml`` validation, a project-level AST scan, and an
-    end-to-end guard smoke-test — and prints a single report telling
+    end-to-end guard smoke-test. and prints a single report telling
     you exactly what to run next.
 
     Pass ``--llm`` to also make a real LLM round-trip (uses the
@@ -3930,7 +3930,7 @@ def doctor(path: Path, llm: bool, as_json: bool):
 
     results, exit_code = run_doctor(path, with_llm=llm)
     if as_json:
-        # Suppress the human-readable banner — JSON consumers want
+        # Suppress the human-readable banner. JSON consumers want
         # exactly one parseable document on stdout, nothing else.
         click.echo(json.dumps(report_to_dict(results, exit_code), indent=2))
     else:
@@ -3954,7 +3954,7 @@ def _parse_existing_contracts(yaml_path: Path, agent_id: str) -> list[dict]:
 
     Pulls only the fields a deduper actually needs (pattern, args,
     source) and only from the named agent's block.  Conservative:
-    on any parse error, returns an empty list — a malformed yaml
+    on any parse error, returns an empty list. a malformed yaml
     will still surface elsewhere (doctor, validate), no need to
     block the diagnostic JSON over it.
 
@@ -3965,7 +3965,7 @@ def _parse_existing_contracts(yaml_path: Path, agent_id: str) -> list[dict]:
          "source": "scan" | "library:tier1.shell" | "agent-extracted" | ...}
 
     Pack-included rules (resolved via ``include:``) are NOT walked
-    here — the host agent only needs to dedupe against rules
+    here. the host agent only needs to dedupe against rules
     actually written into THIS yaml (the inline ``contracts:``
     block).  Pack rules round-trip through ``include:`` and the
     template's "don't inline what the pack already covers" rule
@@ -4043,7 +4043,7 @@ def _parse_existing_contracts(yaml_path: Path, agent_id: str) -> list[dict]:
         "Runtime mode written into sponsio.yaml.  Skip the flag to be "
         "prompted interactively (same Y/N question ``sponsio init`` "
         "and ``sponsio host install`` ask).  ``observe`` is the safe "
-        "default — never blocks, logs every would-have-blocked decision "
+        "default. never blocks, logs every would-have-blocked decision "
         "to ~/.sponsio/sessions/<agent_id>/*.jsonl."
     ),
 )
@@ -4087,7 +4087,7 @@ def _parse_existing_contracts(yaml_path: Path, agent_id: str) -> list[dict]:
         "yaml / discovered policy docs) as JSON to stdout. Used by the "
         "host agent driving the ``sponsio`` skill: pair with "
         "``sponsio prompt onboard`` and apply in the agent's own LLM "
-        "context — no UnifiedExtractor call, no extra API key."
+        "context. no UnifiedExtractor call, no extra API key."
     ),
 )
 @click.option(
@@ -4112,7 +4112,7 @@ def _parse_existing_contracts(yaml_path: Path, agent_id: str) -> list[dict]:
     help=(
         "Prompt for framework / LLM provider / model up front and "
         "write `.sponsiorc` + `.env.example` next to sponsio.yaml. "
-        "Default: auto — interactive when stdin is a TTY, "
+        "Default: auto. interactive when stdin is a TTY, "
         "non-interactive otherwise (CI, scripts, docker entrypoints, "
         "``--json``, ``--emit-context``).  Pass ``--no-interactive`` "
         "to force the silent path even from a terminal."
@@ -4131,7 +4131,7 @@ def onboard(
     push_url: str,
     interactive: bool | None,
 ):
-    """One-shot project wire-up — detect framework, write sponsio.yaml, print patch.
+    """One-shot project wire-up. detect framework, write sponsio.yaml, print patch.
 
     Composes `init` + `scan` + `doctor` into a single command so
     first-time users don't have to learn three subcommands just to
@@ -4142,7 +4142,7 @@ def onboard(
       2. Detects the best available LLM provider (env vars →
          OPENAI_BASE_URL → local Ollama → none).
       3. Writes sponsio.yaml in observe mode with an inferred contract
-         set — LLM-inferred when a provider was found, or pure name-
+         set. LLM-inferred when a provider was found, or pure name-
          heuristic starter pack when it wasn't.
       4. Prints the framework-specific 2-line patch the user needs to
          apply to their agent entry point.
@@ -4160,7 +4160,7 @@ def onboard(
     from sponsio.onboard import OnboardReport, run_onboard
     from sponsio.runtime.spinner import Spinner
 
-    # Branded header — same ``header_banner`` Rich primitive that
+    # Branded header. same ``header_banner`` Rich primitive that
     # ``sponsio init`` / ``sponsio doctor`` / runtime print_banner /
     # explain renderers use, so onboarding's first line of output
     # looks like the rest of the CLI instead of a hand-glued
@@ -4184,7 +4184,7 @@ def onboard(
         _hdr_console.print()
         _hdr_console.print(_header_banner(tagline="onboard"))
 
-    # One spinner per command — long-wait emits (``…``-suffixed) start
+    # One spinner per command. long-wait emits (``…``-suffixed) start
     # it, the next emit (or the final ``stop()`` after run_onboard)
     # cleans up.  Skipped silently when stderr isn't a TTY, so CI / pipe
     # / docker output stays line-oriented.
@@ -4194,7 +4194,7 @@ def onboard(
         # ``▸`` prefix = stage section header.  Render as a
         # :func:`section_rule` (label + ``─────...`` rule) so the
         # divider matches the runtime trace renderer + ``sponsio init``
-        # axis headers.  Anything else is a per-step progress line —
+        # axis headers.  Anything else is a per-step progress line.
         # dim cyan ``· `` bullet.  Emits ending with ``…`` are "this
         # will take a while" announcements; we hand them to the
         # spinner so the user sees motion during the wait.
@@ -4244,12 +4244,12 @@ def onboard(
         from sponsio.discovery.extractors.code_analysis import CodeAnalyzer
         from sponsio.onboard import detect_framework, select_packs
 
-        # AST-only — explicit ``use_llm=False`` so this path never
+        # AST-only. explicit ``use_llm=False`` so this path never
         # reads any provider env var.
         analyzer = CodeAnalyzer(use_llm=False)
         tool_inventory = analyzer.get_tool_inventory([str(root)]) or []
         # Run framework detection AFTER tool inventory, prioritizing
-        # the files the extractor already pinned as agent code — fixes
+        # the files the extractor already pinned as agent code. fixes
         # the monorepo case where 200+ pad files at the root could
         # exhaust the framework scan cap before the agent file (in a
         # deep subdir) was reached, leaving framework="none" even
@@ -4275,8 +4275,8 @@ def onboard(
                 pass
 
         # Surface common policy docs the agent should weight in the
-        # extraction.  Conservative search — root-level only, by
-        # convention — to avoid pulling in unrelated repo prose.  Dedup
+        # extraction.  Conservative search. root-level only, by
+        # convention. to avoid pulling in unrelated repo prose.  Dedup
         # by inode so case-insensitive filesystems (macOS HFS+) don't
         # report ``security.md`` and ``SECURITY.md`` twice.
         policy_docs = []
@@ -4310,7 +4310,7 @@ def onboard(
             from sponsio.onboard import _wrap_snippet  # type: ignore[attr-defined]
 
             wrap_snippet_text = _wrap_snippet(framework.framework, agent_id) or ""
-        except Exception:  # pragma: no cover — best-effort
+        except Exception:  # pragma: no cover. best-effort
             pass
 
         # Locate likely agent entry files so the IDE agent doesn't have
@@ -4379,13 +4379,13 @@ def onboard(
                         )
                 scored.sort(key=lambda x: -len(x["reason"]))
                 entry_file_candidates = scored[:5]
-        except Exception:  # pragma: no cover — best-effort
+        except Exception:  # pragma: no cover. best-effort
             entry_file_candidates = []
 
         # Parse the on-disk sponsio.yaml's contracts (if any) so the
         # host agent driving this can dedupe its semantic-pass
         # proposals without having to re-grep YAML.  Conservative
-        # parse — failures degrade to an empty list rather than
+        # parse. failures degrade to an empty list rather than
         # blocking the emit (a malformed yaml is worth surfacing,
         # but not at the cost of also blocking the rest of the
         # diagnostic JSON).
@@ -4395,7 +4395,7 @@ def onboard(
                 existing_yaml_path, agent_id
             )
 
-        # Health flag — the host agent uses this as the single
+        # Health flag. the host agent uses this as the single
         # gate for "should I keep going or stop and ask?".
         # Reflects three orthogonal failure modes the previous
         # case-A/B/C check in the wizard prompt was hand-rolling.
@@ -4405,25 +4405,25 @@ def onboard(
         elif tool_inventory:
             # Rare after the prioritize-files fix, but still possible
             # for unusual import shapes (star imports, dynamic
-            # `__import__`, etc.) — surface explicitly so the agent
+            # `__import__`, etc.). surface explicitly so the agent
             # asks the user to pick from axis 1 manually.
             health = "tools_only"
             health_detail = (
                 "tool_inventory found tools but no framework import "
-                "matched any known signature — pick framework manually"
+                "matched any known signature. pick framework manually"
             )
         elif framework.framework != "none":
             health = "tools_only"
             health_detail = (
                 f"framework {framework.framework!r} detected but "
-                "tool_inventory is empty — agent likely uses external "
+                "tool_inventory is empty. agent likely uses external "
                 "SDK tools (MCP, prebuilt LangChain tools, OpenAI "
                 "JSON schemas); grep the repo for tool registration"
             )
         else:
             health = "empty"
             health_detail = (
-                "no framework, no tools — wrong scan path "
+                "no framework, no tools. wrong scan path "
                 "(monorepo + agent in subdir), or this is a bare "
                 "function-calling loop, or the project is TS and "
                 "you ran the Python probe"
@@ -4519,7 +4519,7 @@ def onboard(
     )
 
     if rc_in_target:
-        # Reuse the rcfile values verbatim — that's the whole point of
+        # Reuse the rcfile values verbatim. that's the whole point of
         # the dotfile.  Prompts only fire when there's nothing to reuse.
         # We still run framework detection so the wrap snippet on the
         # yaml-preserve path reflects current code (not a stale
@@ -4580,19 +4580,19 @@ def onboard(
             click.echo(click.style("Error: ", fg="red") + str(e), err=True)
             sys.exit(1)
         finally:
-            # Belt + braces: if the last emit was a ``…`` line (rare —
+            # Belt + braces: if the last emit was a ``…`` line (rare.
             # run_onboard normally pairs each "Running …" with a "done"
             # emit), make sure we don't leave the spinner thread spinning
             # forever and the cursor stuck on a stale frame.
             _spinner.stop()
 
     # Write the rcfile (idempotent, plain write_text).  Skipped when
-    # target was a single file rather than a directory — the rcfile
+    # target was a single file rather than a directory. the rcfile
     # location is ambiguous in that case.  We deliberately do NOT
     # write a ``.env.example`` here: sponsio reads ``os.environ``
     # directly (no python-dotenv in the runtime), so a ``.env``-based
     # recipe would silently fail.  Users keep secrets in their shell
-    # rc / direnv / system keychain — the rcfile records only the
+    # rc / direnv / system keychain. the rcfile records only the
     # variable name (``api_key_env``), not the value.
     sponsiorc_path: Path | None = None
     if target_dir.exists() and target_dir.is_dir():
@@ -4620,7 +4620,7 @@ def onboard(
         return
 
     # Human-readable summary.  Kept compact so the wrap snippet is the
-    # last thing the user sees — it's what they need to act on.  When
+    # last thing the user sees. it's what they need to act on.  When
     # report is None we're on the second-run preserve path; the "✓
     # sponsio.yaml preserved" line was already printed above.
     if report is not None:
@@ -4645,7 +4645,7 @@ def onboard(
         click.echo()
         click.secho(f"  ✓ {sponsiorc_path}", fg="green")
         click.echo(
-            "      framework + LLM config — edit this file to change "
+            "      framework + LLM config. edit this file to change "
             "framework / model / api_key_env"
         )
         # Best-effort .gitignore hint: only fire when sponsiorc is in
@@ -4655,7 +4655,7 @@ def onboard(
         try:
             rc_dir = sponsiorc_path.parent
             git_root = rc_dir
-            for _ in range(8):  # walk up to 8 levels — plenty for a repo
+            for _ in range(8):  # walk up to 8 levels. plenty for a repo
                 if (git_root / ".git").exists():
                     break
                 if git_root.parent == git_root:
@@ -4684,7 +4684,7 @@ def onboard(
                     )
         except OSError:
             pass
-    # No-key warning — fires when the user picked a provider that
+    # No-key warning. fires when the user picked a provider that
     # needs a key but the env var isn't actually set, or when
     # provider==none (so onboard fell back to the name-heuristic
     # starter pack instead of LLM-inferred contracts).
@@ -4738,7 +4738,7 @@ def onboard(
 
     # Surface the contract file the user should now review. ``onboard``
     # wrote LLM-inferred (or starter-pack) contracts based on detected
-    # tools — they're a sane first cut, not a finished policy. Pointing
+    # tools. they're a sane first cut, not a finished policy. Pointing
     # the user at the path with a clear "review before flipping to
     # enforce" callout turns "did onboard actually do what I wanted?"
     # into one ``cat`` command.
@@ -4779,7 +4779,7 @@ def onboard(
             )
 
     # Optional immediate flip-to-enforce prompt.  Onboard always
-    # writes ``mode: observe`` by default — that's the safe path for
+    # writes ``mode: observe`` by default. that's the safe path for
     # teams who want a soak period.  But some users (CI hardening
     # workflows, demo recordings, "I already ran the agent and know
     # the contracts are right") want enforce on day 1.  Asking here
@@ -4787,7 +4787,7 @@ def onboard(
     #
     # Skipped when:
     #   - non-interactive (no TTY / --no-interactive / --json /
-    #     --emit-context — prompts would corrupt structured output)
+    #     --emit-context. prompts would corrupt structured output)
     #   - the user already chose ``--mode enforce`` (no point asking
     #     a question they answered on the command line)
     #   - run_onboard didn't actually produce a report (early-exit
@@ -4816,12 +4816,22 @@ def onboard(
                 # Defer to the shared helper so both the interactive
                 # onboard flow and the explicit ``sponsio mode`` CLI
                 # agree on which mode-line to patch (runtime preferred,
-                # defaults fallback, append as last resort).
+                # defaults fallback, append-observe-only as last resort).
                 new_yaml, action = _patch_mode_in_yaml(yaml_text, "enforce")
                 if action == "unchanged":
                     click.secho(
                         f"  ✓ {report.out_path} is already `mode: enforce`",
                         fg="green",
+                    )
+                elif action == "missing":
+                    # ``onboard`` always writes a defaults.mode line so
+                    # this branch is defensive; surface it as a
+                    # yellow warning rather than overwriting.
+                    click.secho(
+                        f"  ✗ no `mode:` line in {report.out_path}, leaving "
+                        f"as observe. Add a `runtime: mode: enforce` block "
+                        f"by hand to flip.",
+                        fg="yellow",
                     )
                 else:
                     report.out_path.write_text(new_yaml, encoding="utf-8")
@@ -4847,9 +4857,9 @@ def onboard(
 
 
 # ---------------------------------------------------------------------------
-# `sponsio plugin ...` — host-plugin runtime adapter
+# `sponsio plugin ...`. host-plugin runtime adapter
 # ---------------------------------------------------------------------------
-# `sponsio prompt <flow>` — workflow prompts for host-agent driving
+# `sponsio prompt <flow>`. workflow prompts for host-agent driving
 # ---------------------------------------------------------------------------
 #
 # Counterpart to ``sponsio plugin prompt <host>``: prints the agent-facing
@@ -4863,7 +4873,7 @@ def onboard(
 def _patch_mode_in_yaml(text: str, target_mode: str) -> tuple[str, str]:
     r"""Set ``mode:`` to ``target_mode`` in a ``sponsio.yaml`` text body.
 
-    The Python loader reads ``runtime.mode`` *and* ``defaults.mode``;
+    The Python loader reads ``runtime.mode`` AND ``defaults.mode``;
     the TS loader reads only ``runtime.mode``. To stay correct under
     both, this prefers the ``runtime.mode`` line, then falls back to
     ``defaults.mode``, then appends a fresh ``runtime:`` block when
@@ -4876,10 +4886,22 @@ def _patch_mode_in_yaml(text: str, target_mode: str) -> tuple[str, str]:
     loader keeps reading the old value. Walking parent keys avoids
     that whole class of bug.
 
+    Safety policy on appending: when neither block exists, this helper
+    will append a fresh ``runtime:`` block ONLY for ``target_mode ==
+    "observe"`` (the safe default). For ``target_mode == "enforce"``
+    against a malformed / missing-mode yaml, it returns ``"missing"``
+    instead of writing, so callers can refuse to silently flip a yaml
+    they cannot verify into the blocking posture. This matches the
+    OWASP-style principle of explicit-opt-in for enforcement, and
+    preserves CI scripts that relied on the old exit-1 behaviour for
+    malformed configs.
+
     Returns:
         ``(new_text, action)`` where ``action`` is one of
-        ``"runtime"`` / ``"defaults"`` / ``"appended"`` / ``"unchanged"``.
-        ``"unchanged"`` means the file already had the desired value.
+        ``"runtime"`` / ``"defaults"`` / ``"appended"`` / ``"unchanged"``
+        / ``"missing"``. ``"unchanged"`` means the file already had
+        the desired value. ``"missing"`` means no mode line exists and
+        target is ``enforce`` so the helper refused to append.
     """
     lines = text.splitlines(keepends=True)
     current_parent: str | None = None
@@ -4923,7 +4945,13 @@ def _patch_mode_in_yaml(text: str, target_mode: str) -> tuple[str, str]:
             return text, "unchanged"
         return new_text, action
 
-    # Neither block had a mode line — append a fresh ``runtime:`` block.
+    # Neither block had a mode line. Append only for the safe default
+    # (observe). Refuse to materialise an enforce block out of thin
+    # air: a missing mode line is suspicious, and silently flipping
+    # such a yaml into the blocking posture would mask CI / config
+    # errors that the operator should fix by hand.
+    if target_mode != "observe":
+        return text, "missing"
     # Using ``runtime:`` (not ``defaults:``) so the TS loader picks it
     # up too. Trailing newline normalised so the appended block doesn't
     # glue to the previous line.
@@ -4973,6 +5001,22 @@ def cmd_mode(target_mode: str, config_path: Path):
             )
         )
         return
+    if action == "missing":
+        # No mode line in the yaml AND target is enforce. Refuse to
+        # create one out of thin air. Tell the operator how to fix it
+        # safely (run observe first, edit yaml, or re-run onboard).
+        click.echo(
+            click.style(
+                f"✗ no `mode:` line found in {config_path} and refusing to "
+                f"append a fresh ``runtime: mode: enforce`` block. Run "
+                f"`sponsio mode observe` first to materialise the block, "
+                f"then `sponsio mode enforce` to flip it. Or edit the yaml "
+                f"by hand, or re-run `sponsio onboard --force`.",
+                fg="red",
+            ),
+            err=True,
+        )
+        raise SystemExit(1)
     config_path.write_text(new_text, encoding="utf-8")
     if action == "appended":
         click.echo(
@@ -4994,8 +5038,8 @@ def cmd_mode(target_mode: str, config_path: Path):
 def cmd_prompt(flow: str):
     """Print the agent-facing prompt template for a sponsio workflow.
 
-    Used by the ``sponsio`` skill (``W1`` — initial setup, ``W2`` —
-    audit & refine, ``W3b`` — refresh from traces) to drive the host
+    Used by the ``sponsio`` skill (``W1``. initial setup, ``W2``.
+    audit & refine, ``W3b``. refresh from traces) to drive the host
     agent through contract authoring without burning a separate LLM
     API call.
 
@@ -5024,7 +5068,7 @@ def cmd_prompt(flow: str):
 
 
 # ---------------------------------------------------------------------------
-# `sponsio plugin ...` — host-plugin runtime adapter
+# `sponsio plugin ...`. host-plugin runtime adapter
 # ---------------------------------------------------------------------------
 #
 # The ``plugin`` subgroup hosts everything related to running Sponsio as a
@@ -5047,7 +5091,7 @@ def _bootstrap_default_buckets(
 
     Shared by ``plugin init`` (explicit) and ``host install`` (implicit, so
     a single command wires the hook *and* lays down the contract library
-    the hook reads). Silent — returns ``[(path, status), ...]`` where
+    the hook reads). Silent. returns ``[(path, status), ...]`` where
     status is ``"wrote"`` (fresh write), ``"exists"`` (kept existing),
     or ``"error:<reason>"`` (bundled source missing). Callers decide how
     to render.
@@ -5118,7 +5162,7 @@ def plugin_init(root: Path | None, force: bool, no_smoke_test: bool):
     ``sponsio plugin scan``.
     """
     click.secho(
-        "⚠  `sponsio plugin init` is deprecated — it writes the legacy "
+        "⚠  `sponsio plugin init` is deprecated. it writes the legacy "
         "`_host/` bucket that per-host routing now supersedes.\n"
         "   For new installs, use `sponsio host install <name>` "
         "instead (claude-code / cursor / openclaw).\n"
@@ -5146,7 +5190,7 @@ def plugin_init(root: Path | None, force: bool, no_smoke_test: bool):
             )
             sys.exit(1)
 
-    # Smoke test runs against ``_host`` (the Claude-Code-shape fallback) —
+    # Smoke test runs against ``_host`` (the Claude-Code-shape fallback).
     # the test prompt is a Bash ``rm -rf /`` which needs that library.
     # When no fresh ``_host`` write happened (existing file kept), skip
     # rather than validating someone's customised library.
@@ -5156,7 +5200,7 @@ def plugin_init(root: Path | None, force: bool, no_smoke_test: bool):
 
     # Smoke test: feed a JSON event through the actual hook entry point
     # and verify it (a) allows a benign command and (b) blocks rm -rf.
-    # Skip when we kept an existing user file — their library may diverge
+    # Skip when we kept an existing user file. their library may diverge
     # from the default in legitimate ways and we shouldn't fail-closed
     # on its content.
     if no_smoke_test or not wrote_file:
@@ -5226,7 +5270,7 @@ def _print_plugin_next_steps() -> None:
     click.echo("  1. Clone or download the sponsio-claude-code plugin.")
     click.echo("  2. Load it in Claude Code:")
     click.echo("       claude --plugin-dir /path/to/sponsio-claude-code")
-    click.echo("  3. Issue any Bash tool call — the plugin wraps it.")
+    click.echo("  3. Issue any Bash tool call. the plugin wraps it.")
     click.echo("")
     click.echo("Add starter libraries for popular MCP servers:")
     click.echo("  sponsio plugin install --list   # see what's bundled")
@@ -5247,7 +5291,7 @@ def _print_plugin_next_steps() -> None:
     "install_all",
     is_flag=True,
     default=False,
-    help="Install every bundled library (skips ``_host`` — use ``init`` for that).",
+    help="Install every bundled library (skips ``_host``. use ``init`` for that).",
 )
 @click.option(
     "--root",
@@ -5265,7 +5309,7 @@ def _print_plugin_next_steps() -> None:
     default=False,
     help=(
         "Accepted for back-compat; no-op. ``install`` is always "
-        "idempotent — fresh install or smart-merge upgrade, never "
+        "idempotent. fresh install or smart-merge upgrade, never "
         "destructive."
     ),
 )
@@ -5352,7 +5396,7 @@ def plugin_install(
             click.secho(f"  ✓ wrote {target}", fg="green")
         else:
             click.secho(
-                f"  ✓ upgraded {target} — replaced default contracts, "
+                f"  ✓ upgraded {target}. replaced default contracts, "
                 f"kept {kept['user_contracts']} customized contract(s) "
                 f"and {kept['customized']} customized entry/entries",
                 fg="green",
@@ -5406,7 +5450,7 @@ def _install_one(name: str, target: Path) -> dict | None:
     (existing file present), describing what was preserved from the
     user's customisations on top of the new bundle.
 
-    Upgrade semantics — single-file with smart merge:
+    Upgrade semantics. single-file with smart merge:
 
     * Every default contract is tagged ``source: bundle:<name>`` at
       install time. Anything else in the file (contracts without that
@@ -5417,7 +5461,7 @@ def _install_one(name: str, target: Path) -> dict | None:
       ``customized:`` block are spliced back in unchanged.
     * Manual edits to a *default* contract (i.e. changing its body in
       place rather than adding a ``customized:`` entry) are wiped on
-      upgrade — same model as ``brew upgrade`` over a hand-edited
+      upgrade. same model as ``brew upgrade`` over a hand-edited
       formula. The skill flow steers users to ``customized:`` for
       exactly this reason.
     """
@@ -5444,7 +5488,7 @@ def _install_one(name: str, target: Path) -> dict | None:
         if not isinstance(existing_agent, dict):
             existing_agent = {}
 
-        # Pull user-authored contracts from ``contracts:`` — anything
+        # Pull user-authored contracts from ``contracts:``. anything
         # without our bundle marker. Entries tagged with the bundle
         # marker are shipped content for THIS bundle and get dropped;
         # the new bundle's freshly stamped contracts take their place.
@@ -5461,7 +5505,7 @@ def _install_one(name: str, target: Path) -> dict | None:
             new_agent.setdefault("contracts", []).extend(kept)
             user_contracts_kept += len(kept)
 
-        # ``customized:`` block — always user-authored, preserve
+        # ``customized:`` block. always user-authored, preserve
         # verbatim on upgrade.
         existing_block = existing_agent.get("customized")
         if existing_block:
@@ -5514,7 +5558,7 @@ def _render_plugin_digest(
     lines: list[str] = []
 
     total = sum(len(a.get("contracts", []) or []) for a in agents.values())
-    header = f"  {name} — {total} contract{'s' if total != 1 else ''}"
+    header = f"  {name}. {total} contract{'s' if total != 1 else ''}"
     lines.append(click.style(header, bold=True))
     if yaml_path is not None:
         lines.append(f"  {yaml_path}")
@@ -5536,7 +5580,7 @@ def _render_plugin_digest(
             g_block = _contract_guarantee(c) or {}
             pattern = g_block.get("pattern", "?")
             args = g_block.get("args") or []
-            # rate_limit with cap=0 is a hard deny — surface separately.
+            # rate_limit with cap=0 is a hard deny. surface separately.
             if pattern == "rate_limit" and len(args) >= 2 and args[1] == 0:
                 category = "Hard denies"
             else:
@@ -5558,7 +5602,7 @@ def _render_plugin_digest(
     lines.append(
         f"  Customize by adding entries to a ``customized:`` block, or appending\n"
         f"  new ``contracts:`` entries in {yaml_path or 'the file'}.\n"
-        "  Don't hand-edit a default rule's body — re-running ``sponsio plugin install``\n"
+        "  Don't hand-edit a default rule's body. re-running ``sponsio plugin install``\n"
         "  (or ``sponsio host install``) replaces default contracts; only ``customized:``\n"
         "  and your own ``contracts:`` entries (without a ``source: bundle:*`` tag) survive."
     )
@@ -5581,7 +5625,7 @@ def plugin_show(name: str, root: Path | None):
     """Print a digest of contracts loaded for ``<name>``.
 
     After ``sponsio plugin install github``, this is the
-    "what did I just get?" command — lists each rule by category
+    "what did I just get?" command. lists each rule by category
     (hard denies, rate limits, arg blocks, …) so the operator
     knows what's enforced.
 
@@ -5625,14 +5669,14 @@ def plugin_show(name: str, root: Path | None):
 
 
 # ---------------------------------------------------------------------------
-# ``sponsio plugin append`` — additive merge from a staging YAML
+# ``sponsio plugin append``. additive merge from a staging YAML
 #
 # The "host bucket without an API key" path: the host agent does the
 # extraction in its own context, writes the proposed contracts to a
 # transient staging file outside Zone B, then runs this command to
 # merge them into ``~/.sponsio/plugins/<name>/sponsio.yaml``.
 #
-# Structurally additive — by construction this command can only ADD
+# Structurally additive. by construction this command can only ADD
 # new contracts.  All validation + merge logic lives in
 # :mod:`sponsio.plugin.append_ops` so the daemon RPC handler shares
 # the exact same checks (no drift between the two callers).
@@ -5640,7 +5684,7 @@ def plugin_show(name: str, root: Path | None):
 # Two execution paths:
 #
 # * **Direct file mode** (no daemon running): the CLI does the merge
-#   itself — fine in dev / single-user setups where the user owns
+#   itself. fine in dev / single-user setups where the user owns
 #   the host bucket file.
 # * **Daemon mode** (daemon running at the resolved socket): the CLI
 #   sends the staging YAML over IPC and the daemon performs the
@@ -5768,7 +5812,7 @@ def plugin_append(
 
     if result.dry_run:
         click.secho(
-            f"DRY RUN — would append {result.appended_count} contract(s) "
+            f"DRY RUN. would append {result.appended_count} contract(s) "
             f"to agent {result.agent_id!r} in {result.target_path}",
             fg="yellow",
         )
@@ -5885,7 +5929,7 @@ def plugin_scan(
     Reads ``<plugin-dir>/.claude-plugin/plugin.json`` (Claude Code) or
     ``<plugin-dir>/openclaw.plugin.json`` (OpenClaw), optionally
     ``.mcp.json`` and ``skills/`` for context, then runs name-heuristic
-    rule generation on every tool — either listed via ``--tools`` or
+    rule generation on every tool. either listed via ``--tools`` or
     auto-discovered via ``--introspect`` against a running MCP server.
 
     Defaults to dry-run (prints the YAML); use ``--apply`` to write it.
@@ -5954,7 +5998,7 @@ def plugin_scan(
         declared_tools = [t.strip() for t in tools_csv.split(",") if t.strip()]
 
     # Synthesize a manifest when we're scanning a bare MCP server (no
-    # Claude Code wrapping plugin) — operator passes --introspect and
+    # Claude Code wrapping plugin). operator passes --introspect and
     # --plugin-id; no .claude-plugin/plugin.json needed.
     synthetic_manifest = None
     plugin_dir_has_manifest = (
@@ -6009,7 +6053,7 @@ def plugin_scan(
         # When ``--introspect`` was used, dump the full tool inventory
         # (name + description + inputSchema) as JSON.  This is what a
         # host agent driving the setup skill needs to apply the
-        # contract-extraction prompt — heuristic rules cover the
+        # contract-extraction prompt. heuristic rules cover the
         # obvious cases; the agent fills semantic gaps using the
         # description + schema fields its own LLM context can read.
         if introspected_tools:
@@ -6048,7 +6092,7 @@ def plugin_scan(
                 )
             )
         click.echo(
-            "\n(dry-run — re-run with --apply to write each group to "
+            "\n(dry-run. re-run with --apply to write each group to "
             "<root>/<group>/sponsio.yaml)"
         )
         return
@@ -6093,14 +6137,14 @@ def plugin_prompt(target_host: str):
       2. ``sponsio plugin prompt <host>`` (this command) to get the
          prompt template for the target host.
       3. The agent applies the prompt to the inventory using its own
-         LLM context — no separate API call.
+         LLM context. no separate API call.
       4. The agent writes the resulting YAML to
          ``~/.sponsio/plugins/<plugin-id>/sponsio.yaml``.
 
     Three templates ship: claude-code (mcp__-prefixed tool names),
     openclaw (flat names), mcp-bare (no host-specific assumptions).
 
-    Output goes to stdout — pipe to a file or capture via the agent.
+    Output goes to stdout. pipe to a file or capture via the agent.
     """
     from importlib.resources import files
 
@@ -6110,7 +6154,7 @@ def plugin_prompt(target_host: str):
     # Substitute the vocabulary section in place of the marker the
     # template files reference.  Single source of truth for the
     # pattern names + arg shapes; updates ripple to every host.
-    marker = "(Loaded from `_pattern_vocabulary.md` — use ONLY those patterns.)"
+    marker = "(Loaded from `_pattern_vocabulary.md`. use ONLY those patterns.)"
     if marker in main:
         click.echo(main.replace(marker, vocab))
     else:
@@ -6121,7 +6165,7 @@ def plugin_prompt(target_host: str):
 
 
 # ---------------------------------------------------------------------------
-# Unified host integration — `sponsio host install/guard/list/uninstall`
+# Unified host integration. `sponsio host install/guard/list/uninstall`
 #
 # Wraps the per-host ``HookHost`` registry in :mod:`sponsio.integrations.hosts`
 # behind one CLI surface.  Coexists with the legacy per-host commands
@@ -6137,16 +6181,16 @@ def host():
     A *host* is an IDE or agent runtime Sponsio plugs into via shell
     hooks (Cursor, Claude Code, OpenClaw, …).  The framework-side
     onboarding (``sponsio onboard``) is for in-process wrap of agent
-    code you own — separate axis, separate command.
+    code you own. separate axis, separate command.
 
     Subcommands:
 
-    * ``sponsio host list`` — show registered hosts and their install state.
-    * ``sponsio host install <name>`` — wire Sponsio into the host's hook
+    * ``sponsio host list``. show registered hosts and their install state.
+    * ``sponsio host install <name>``. wire Sponsio into the host's hook
       config; ``auto`` / ``all`` install for every detected / known host.
-    * ``sponsio host uninstall <name>`` — remove Sponsio's entries, leave
+    * ``sponsio host uninstall <name>``. remove Sponsio's entries, leave
       any user-authored hooks untouched.
-    * ``sponsio host guard <name>`` — runtime hook handler.  Called by
+    * ``sponsio host guard <name>``. runtime hook handler.  Called by
       the host's hook subprocess; users rarely invoke directly.
     """
 
@@ -6190,7 +6234,7 @@ def host_status(name: str):
     config file there?" check.
 
     Use this when you want a single, scriptable answer to "is my
-    Sponsio install for X actually in place" — and to surface
+    Sponsio install for X actually in place". and to surface
     rule-library summaries for a recording or screenshot.
     """
     from sponsio.integrations import hosts as _hosts_mod
@@ -6370,7 +6414,7 @@ def _resolve_host_targets(name_or_set: str) -> list[str]:
 # standard.  OpenClaw doesn't ship a documented skill discovery path today;
 # we install to ``~/.openclaw/skills/`` by convention so the skill is
 # materialised somewhere predictable, even if OpenClaw itself doesn't yet
-# auto-discover it — the user (or a future OpenClaw release) can wire it in.
+# auto-discover it. the user (or a future OpenClaw release) can wire it in.
 _HOST_SKILL_DIRS: dict[str, tuple[Path, Path | None]] = {
     "cursor": (
         Path.home() / ".cursor" / "skills",
@@ -6396,9 +6440,9 @@ def _resolve_runtime_mode(explicit: str | None, *, allow_prompt: bool = True) ->
     order:
 
     1. ``--mode`` flag on the command (skip the prompt).
-    2. Interactive Y/N-style prompt — only if ``allow_prompt`` is true
+    2. Interactive Y/N-style prompt. only if ``allow_prompt`` is true
        AND stdin is a tty (so CI / piped invocations don't hang).
-    3. Default ``"observe"`` — the safe shadow-mode first run.
+    3. Default ``"observe"``. the safe shadow-mode first run.
 
     ``allow_prompt=False`` lets callers opt out of interactive mode
     even on a tty (for ``--json`` / ``--emit-context`` / ``--no-interactive``
@@ -6411,8 +6455,8 @@ def _resolve_runtime_mode(explicit: str | None, *, allow_prompt: bool = True) ->
         return "observe"
     click.echo(
         "\nRuntime mode:\n"
-        "  observe   shadow — checks run + log; tool behavior unchanged  (safe first run)\n"
-        "  enforce   active — block / retry-with-feedback / escalate per violation type"
+        "  observe   shadow. checks run + log; tool behavior unchanged  (safe first run)\n"
+        "  enforce   active. block / retry-with-feedback / escalate per violation type"
     )
     return click.prompt(
         "Mode",
@@ -6422,7 +6466,7 @@ def _resolve_runtime_mode(explicit: str | None, *, allow_prompt: bool = True) ->
     )
 
 
-# Backward-compat alias — earlier code imported the more specific name.
+# Backward-compat alias. earlier code imported the more specific name.
 _resolve_install_mode = _resolve_runtime_mode
 
 
@@ -6435,13 +6479,13 @@ def _apply_install_mode_to_host_buckets(
     for each one whose ``sponsio.yaml`` exists on disk:
 
     * If the file already has a ``defaults:`` block with ``mode:``,
-      leave it alone — the user's choice (or a previous install)
+      leave it alone. the user's choice (or a previous install)
       wins. This is the load-bearing "never overwrite" promise.
     * Otherwise, add a top-level ``defaults: { mode: <mode> }``
       block right after the ``version:`` line.
 
     Returns a list of ``(path, note)`` tuples suitable for the CLI
-    to surface to the user (one per bucket touched). Never raises —
+    to surface to the user (one per bucket touched). Never raises.
     a malformed yaml just gets reported and skipped.
     """
     import os as _os
@@ -6491,7 +6535,7 @@ def _apply_install_mode_to_host_buckets(
             continue
         # Insert ``defaults:\n  mode: <mode>\n`` after the version line.
         # If there's no ``version:`` line, prepend at top of file.
-        defaults_block = f"defaults:\n  mode: {mode}  # observe|enforce — observe = shadow (safe default)\n\n"
+        defaults_block = f"defaults:\n  mode: {mode}  # observe|enforce. observe = shadow (safe default)\n\n"
         if re.search(r"^version:\s*", text, re.MULTILINE):
             new_text = re.sub(
                 r"(^version:[^\n]*\n)",
@@ -6518,10 +6562,10 @@ def _refresh_per_host_bundles(
     Called from ``sponsio host install`` so a single command lays
     down the per-host contract libraries (in addition to the hook
     config and the ``_host`` legacy fallback). Returns a list of
-    ``(message, colour)`` tuples for the caller to render — keeps
+    ``(message, colour)`` tuples for the caller to render. keeps
     this helper free of click side effects so it's testable.
 
-    Idempotent and non-destructive — always safe to re-run:
+    Idempotent and non-destructive. always safe to re-run:
 
     * Bundle missing → fresh install (writes the bundled starter,
       source-stamped so a later install can partition).
@@ -6547,7 +6591,7 @@ def _refresh_per_host_bundles(
         else:
             out.append(
                 (
-                    f"✔  {host_name} bundle: upgraded {target} — kept "
+                    f"✔  {host_name} bundle: upgraded {target}. kept "
                     f"{kept['user_contracts']} customized contract(s) "
                     f"and {kept['customized']} customized entry/entries",
                     "green",
@@ -6564,7 +6608,7 @@ def _bucket_for_host_name(host_name: str) -> tuple[str, str]:
     rewritten at copy time so the agent under guard always writes
     contracts to the correct per-host bucket. We bake them in (rather
     than have the agent infer the host at runtime) because runtime
-    detection is fragile — same Claude Code binary can show up under
+    detection is fragile. same Claude Code binary can show up under
     different host ids depending on how it was launched, and a wrong
     inference would write contracts to a bucket that no hook reads.
 
@@ -6583,7 +6627,7 @@ def _materialize_skill(src: Path, dst: Path, host_name: str) -> None:
 
     Recursive (the skill ships as a directory). Files are read as text
     and written with placeholders resolved; binary files (if any are
-    ever added) would need a separate bypass — none today.
+    ever added) would need a separate bypass. none today.
     """
     main_bucket, sub_bucket = _bucket_for_host_name(host_name)
     if dst.exists():
@@ -6615,11 +6659,11 @@ def _install_skill_for_host(
     without runtime detection.
 
     Returns ``(written, note)``.  ``written=False`` is informational
-    (already present, host has no skill standard, etc.) — not a hard
+    (already present, host has no skill standard, etc.). not a hard
     error.
     """
     if host_name not in _HOST_SKILL_DIRS:
-        return False, f"{host_name}: no skill discovery path standard — skipped"
+        return False, f"{host_name}: no skill discovery path standard. skipped"
 
     user_parent, project_parent = _HOST_SKILL_DIRS[host_name]
     parent = project_parent if scope == "project" and project_parent else user_parent
@@ -6631,7 +6675,7 @@ def _install_skill_for_host(
 
     if target.exists() or target.is_symlink():
         if not force:
-            return False, f"skill already at {target} — pass --force to replace"
+            return False, f"skill already at {target}. pass --force to replace"
         if target.is_symlink() or target.is_file():
             target.unlink()
         else:
@@ -6652,11 +6696,11 @@ def _uninstall_skill_for_host(host_name: str, *, scope: str) -> tuple[bool, str]
     who expected the inverse of install.
 
     Returns ``(removed, note)``.  ``removed=False`` is informational
-    (already gone, host has no skill standard, permission denied) —
+    (already gone, host has no skill standard, permission denied).
     not a hard error.
     """
     if host_name not in _HOST_SKILL_DIRS:
-        return False, f"{host_name}: no skill discovery path standard — skipped"
+        return False, f"{host_name}: no skill discovery path standard. skipped"
 
     user_parent, project_parent = _HOST_SKILL_DIRS[host_name]
     parent = project_parent if scope == "project" and project_parent else user_parent
@@ -6714,7 +6758,7 @@ def _uninstall_skill_for_host(host_name: str, *, scope: str) -> tuple[bool, str]
     default=None,
     help=(
         "Absolute path to the ``sponsio`` binary the hook should invoke.  "
-        "Default is the binary backing the current process — always an "
+        "Default is the binary backing the current process. always an "
         "absolute path, since hosts launch hook subprocesses from a "
         "minimal PATH that often misses venvs and ``~/.local/bin``."
     ),
@@ -6728,7 +6772,7 @@ def _uninstall_skill_for_host(host_name: str, *, scope: str) -> tuple[bool, str]
         "directory (Cursor 2.4+, Claude Code, Codex, OpenClaw via the "
         "linked chatbot). Skill teaches the agent to drive Sponsio's "
         "CLI for setup / scan / report; hook enforces contracts at the "
-        "action boundary. Default ON — they're complementary, the "
+        "action boundary. Default ON. they're complementary, the "
         "without-skill flow is rare. Pass ``--no-skill`` to suppress."
     ),
 )
@@ -6758,7 +6802,7 @@ def host_install(
 
     Bootstraps the default contract library (``~/.sponsio/plugins/_host``
     and friends) on the way in, so a single invocation gives you a
-    fully-wired hook + the rules it reads — no separate
+    fully-wired hook + the rules it reads. no separate
     ``sponsio plugin init`` step required.
 
     \b
@@ -6782,12 +6826,12 @@ def host_install(
     # prompt mirrors ``sponsio init``'s mode prompt so first-time users
     # see the same observe-vs-enforce question regardless of entry
     # point. ``observe`` is the default if non-interactive (CI, piped
-    # stdin) — same precedent as init_wizard.
+    # stdin). same precedent as init_wizard.
     chosen_mode = _resolve_install_mode(mode)
     click.echo(f"Runtime mode for new host libraries: {chosen_mode}")
 
     # Bootstrap the default contract library buckets (``_host`` etc.)
-    # the hook will read at runtime — folded in here so users don't
+    # the hook will read at runtime. folded in here so users don't
     # have to remember a separate ``sponsio plugin init`` step. Silent
     # if everything already exists; reports any fresh writes.
     plugin_root_env = os.environ.get("SPONSIO_PLUGIN_ROOT")
@@ -6802,7 +6846,7 @@ def host_install(
         elif status.startswith("error:"):
             click.secho(
                 f"✘  could not bootstrap {path.parent.name!r}: "
-                f"{status[len('error:') :].strip()} — reinstall sponsio.",
+                f"{status[len('error:') :].strip()}. reinstall sponsio.",
                 fg="red",
                 err=True,
             )
@@ -6810,14 +6854,14 @@ def host_install(
     # Detect the legacy ``_host/sponsio.yaml`` and suggest migration.
     # Without this, the user installs ``_host_<name>`` thinking they
     # have a single source of truth but the runtime still falls back
-    # to ``_host`` when the per-host yaml is missing — the dual-yaml
+    # to ``_host`` when the per-host yaml is missing. the dual-yaml
     # confusion this whole migration story exists to retire.
     legacy_host_yaml = plugin_root / "_host" / "sponsio.yaml"
     if legacy_host_yaml.exists():
         migratable = [t for t in targets if t in _LEGACY_HOST_NAME_TO_BUCKET]
         if migratable:
             click.secho(
-                "⚠  legacy `_host/sponsio.yaml` detected — runtime will "
+                "⚠  legacy `_host/sponsio.yaml` detected. runtime will "
                 "still fall back to it when per-host buckets are missing.\n"
                 f"   Consolidate with:  sponsio host migrate "
                 f"{' '.join(migratable)}",
@@ -6879,7 +6923,7 @@ def host_install(
             colour = "green" if written else "yellow"
             click.secho(f"{glyph}  {name} skill: {note}", fg=colour)
 
-    # Final review pointer — surface the bootstrapped per-host
+    # Final review pointer. surface the bootstrapped per-host
     # library paths so the user immediately knows where to look /
     # what to read before flipping to enforce. The bundled starter
     # ships sane defaults, but the privileged-action surface
@@ -6913,7 +6957,7 @@ _LEGACY_HOST_NAME_TO_BUCKET: dict[str, str] = {
     is_flag=True,
     help=(
         "Don't delete the legacy `_host/sponsio.yaml` after migrating.  "
-        "Default is to delete — having both files around is the source "
+        "Default is to delete. having both files around is the source "
         "of the dual-yaml confusion this command fixes."
     ),
 )
@@ -6935,7 +6979,7 @@ def host_migrate(names: tuple[str, ...], keep_legacy: bool, force: bool):
     (``_host_claude_code/`` / ``_host_cursor/``) supersedes that.
     Existing installs keep working through a runtime fallback, but
     that fallback is the source of "I deleted _host_claude_code,
-    why is it still blocking?" — the legacy bucket silently kicks
+    why is it still blocking?". the legacy bucket silently kicks
     in.
 
     This command consolidates: it copies
@@ -6962,7 +7006,7 @@ def host_migrate(names: tuple[str, ...], keep_legacy: bool, force: bool):
 
     if not legacy_path.exists():
         click.secho(
-            f"✘ legacy bucket not found at {legacy_path} — nothing to migrate.",
+            f"✘ legacy bucket not found at {legacy_path}. nothing to migrate.",
             fg="yellow",
             err=True,
         )
@@ -7008,7 +7052,7 @@ def host_migrate(names: tuple[str, ...], keep_legacy: bool, force: bool):
         target_path = plugin_root / bucket / "sponsio.yaml"
         if target_path.exists() and not force:
             click.secho(
-                f"✘ {target_path} already exists — pass --force to overwrite.",
+                f"✘ {target_path} already exists. pass --force to overwrite.",
                 fg="red",
                 err=True,
             )
@@ -7016,7 +7060,7 @@ def host_migrate(names: tuple[str, ...], keep_legacy: bool, force: bool):
         # Rewrite the agents key on the way: the legacy file has
         # ``agents: _host:`` (or ``_host_subagent:``); the per-host
         # bucket needs ``agents: <bucket>:``.  Plain string replace
-        # is safe here — those exact lines have no other meaning in
+        # is safe here. those exact lines have no other meaning in
         # a contract yaml.
         new_text = legacy_text.replace(
             "agents:\n  _host:", f"agents:\n  {bucket}:"
@@ -7031,7 +7075,7 @@ def host_migrate(names: tuple[str, ...], keep_legacy: bool, force: bool):
         click.secho(f"✔  removed {legacy_path}", fg="green")
     else:
         click.secho(
-            f"⚠  kept {legacy_path} (--keep-legacy) — runtime will still "
+            f"⚠  kept {legacy_path} (--keep-legacy). runtime will still "
             "fall back to it for hosts without a per-host bucket",
             fg="yellow",
         )
@@ -7058,7 +7102,7 @@ def host_migrate(names: tuple[str, ...], keep_legacy: bool, force: bool):
         "Also remove the bundled Sponsio Agent Skill from the host's "
         "skill directory.  Symmetric to ``host install --with-skill`` "
         "(also default-on).  Pass ``--keep-skill`` to leave the skill "
-        "in place — useful when you're re-installing immediately and "
+        "in place. useful when you're re-installing immediately and "
         "want to avoid an OpenClaw skill-cache bounce, or when the "
         "skill predates Sponsio at this host."
     ),
@@ -7112,7 +7156,7 @@ def host_uninstall(names: tuple[str, ...], scope: str, with_skill: bool):
         "For hosts with a multi-event protocol (Cursor: ``preToolUse``, "
         "``beforeShellExecution``, …), the event being handled.  Hosts "
         "with a single-event protocol (Claude Code, OpenClaw) ignore "
-        "this — the event name lives in the JSON body."
+        "this. the event name lives in the JSON body."
     ),
 )
 @click.option(
@@ -7123,7 +7167,7 @@ def host_uninstall(names: tuple[str, ...], scope: str, with_skill: bool):
     help="(default) Read one hook event as JSON from stdin.",
 )
 def host_guard(name: str, hook_event: str | None, use_stdin: bool):
-    """Runtime hook handler — called by the host's hook subprocess.
+    """Runtime hook handler. called by the host's hook subprocess.
 
     Reads a JSON payload from stdin, evaluates it against the matching
     Sponsio contract library, and writes the host-shaped reply.  Exits
@@ -7149,7 +7193,7 @@ def host_guard(name: str, hook_event: str | None, use_stdin: bool):
 
 @cli.group()
 def daemon():
-    """Sponsio control daemon — privileged-process side of the IPC split.
+    """Sponsio control daemon. privileged-process side of the IPC split.
 
     The daemon owns the host bucket / per-plugin yaml files and is the
     only entity the host agent can reach to write them.  Running as a
@@ -7160,10 +7204,10 @@ def daemon():
     Subcommands:
 
     \b
-    * ``sponsio daemon run``  — start the daemon in the foreground
+    * ``sponsio daemon run`` . start the daemon in the foreground
       (used by launchd / systemd plists, or by hand for dev work).
-    * ``sponsio daemon ping`` — round-trip health check.
-    * ``sponsio daemon status`` — show socket path + reachability.
+    * ``sponsio daemon ping``. round-trip health check.
+    * ``sponsio daemon status``. show socket path + reachability.
     """
 
 
@@ -7268,7 +7312,7 @@ def daemon_status(socket_path_arg: Path | None):
 
 @cli.group()
 def cursor():
-    """Cursor IDE integration — install hooks, run as a hook handler.
+    """Cursor IDE integration. install hooks, run as a hook handler.
 
     Cursor 1.7+ ships a deny-capable hook system (``hooks.json``).
     Sponsio plugs in as the command for the relevant pre-* events, so
@@ -7277,11 +7321,11 @@ def cursor():
 
     Two subcommands:
 
-    * ``sponsio cursor install-hooks`` — one-time setup that writes
+    * ``sponsio cursor install-hooks``. one-time setup that writes
       ``~/.cursor/hooks.json`` (or project-scoped ``.cursor/hooks.json``)
       so Cursor calls back into ``sponsio cursor guard`` per tool call.
 
-    * ``sponsio cursor guard --event <name>`` — runtime hook handler.
+    * ``sponsio cursor guard --event <name>``. runtime hook handler.
       Reads a Cursor hook payload from stdin, evaluates it, writes the
       Cursor-shaped JSON decision and signals deny via exit code 2.
     """
@@ -7313,7 +7357,7 @@ _CURSOR_HOOK_EVENTS = (
     help="Which Cursor hook event this invocation is handling.",
 )
 def cursor_guard(hook_event: str):
-    """Cursor hook handler — evaluates one Cursor hook payload.
+    """Cursor hook handler. evaluates one Cursor hook payload.
 
     Wired into ``hooks.json`` per Cursor's command-based hook protocol::
 
@@ -7368,7 +7412,7 @@ def cursor_guard(hook_event: str):
     is_flag=True,
     help=(
         "Overwrite the entire ``hooks.json``.  Default behaviour merges "
-        "Sponsio's hook entries into the existing file — leaves any "
+        "Sponsio's hook entries into the existing file. leaves any "
         "user-authored hooks untouched."
     ),
 )
@@ -7379,7 +7423,7 @@ def cursor_guard(hook_event: str):
     default=None,
     help=(
         "Absolute path to the ``sponsio`` binary to invoke from the "
-        "hook.  Defaults to the binary backing the current process — "
+        "hook.  Defaults to the binary backing the current process. "
         "always an absolute path, since Cursor launches hook "
         "subprocesses from launchd's bare PATH which excludes venvs "
         "and ``~/.local/bin``.  Pass ``--binary sponsio`` to fall "
@@ -7406,7 +7450,7 @@ def cursor_install_hooks(
         else Path.home() / ".cursor" / "hooks.json"
     )
 
-    # Cursor launches hook subprocesses from launchd's bare PATH —
+    # Cursor launches hook subprocesses from launchd's bare PATH.
     # ``.zshrc`` / venv activate scripts are NOT sourced.  A bare
     # ``sponsio`` will resolve via that minimal PATH, which on macOS
     # commonly hits a stale user-pip install at
@@ -7476,7 +7520,7 @@ def cursor_install_hooks(
                 existing = {}
         except json.JSONDecodeError:
             click.echo(
-                f"⚠  {target} exists but is not valid JSON — refusing to "
+                f"⚠  {target} exists but is not valid JSON. refusing to "
                 "merge.  Re-run with --force to overwrite, or fix the "
                 "file by hand.",
                 err=True,
@@ -7526,7 +7570,7 @@ def cursor_install_hooks(
     ),
 )
 def plugin_guard(use_stdin: bool):
-    """Plugin-system hook entry point — evaluates one tool call.
+    """Plugin-system hook entry point. evaluates one tool call.
 
     Wired into a Claude Code plugin via ``hooks/hooks.json``::
 

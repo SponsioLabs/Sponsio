@@ -3,7 +3,7 @@
 The architectural premise pinned down here: ``EscalateToHuman`` is
 semantically distinct from ``DetBlock`` because it carries real side
 effects (Slack / email / paging). Without those notifiers wired, it
-*does* collapse to "block with different wording" — that's
+*does* collapse to "block with different wording". that's
 acceptable, but the notifier capability must work when supplied.
 
 Contract:
@@ -14,7 +14,7 @@ Contract:
 * Single callable notifier: invoked once with ``(violation, context,
   reason)``.
 * List of notifiers: each invoked in order with the same triple.
-* Notifier raising an exception does NOT crash ``enforce`` — the
+* Notifier raising an exception does NOT crash ``enforce``. the
   exception is converted to a ``RuntimeWarning`` and the remaining
   notifiers still fire, the escalation outcome still returns. Agent
   loops don't go down because Slack is flaky.
@@ -114,7 +114,7 @@ class TestEscalateNotifierIsolation:
             warnings.simplefilter("always")
             result = s.enforce(_make_violation(), _make_context())
 
-        # Outcome still surfaces — the agent gets the escalation it
+        # Outcome still surfaces. the agent gets the escalation it
         # would have got even if Slack were healthy.
         assert result.action == "escalated"
         # The second notifier ran even though the first raised.
@@ -155,10 +155,10 @@ class TestEscalateEndToEndThroughGuard:
 
         # Use ``policy={...}`` to bind the strategy to the contract's
         # desc. Without this, the default-policy builder would assign
-        # DetBlock — same path users take in production when they
+        # DetBlock. same path users take in production when they
         # want a specific strategy for a specific rule.
         formula = tool_allowlist(["search"])
-        # The ``policy`` dict is keyed by the formula desc — same
+        # The ``policy`` dict is keyed by the formula desc. same
         # lookup the monitor uses. tool_allowlist's auto-generated
         # desc is what the policy must match.
         guard = Sponsio(

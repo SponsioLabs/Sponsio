@@ -73,20 +73,20 @@ class EnforcementResult:
     Attributes:
         action: What enforcement action was taken. See the table above
             for the agent-side semantics each value commits to.
-        message: Human-facing explanation — for logs, dashboards,
+        message: Human-facing explanation: for logs, dashboards,
             session-log entries. NOT the right thing to inject into the
             agent's next turn (use ``agent_msg`` for that).
-        retry_prompt: Legacy field — the discriminative feedback for
+        retry_prompt: Legacy field; the discriminative feedback for
             sto retry. New code should populate ``retry_hint`` instead;
             we keep ``retry_prompt`` populated for backwards-compat
             with integrations that already read it.
-        fallback_action: Substitute action for ``redirected`` — opaque
+        fallback_action: Substitute action for ``redirected``: opaque
             payload the integration injects in place of the original
-            tool result (string, dict, structured object — depends on
+            tool result (string, dict, structured object: depends on
             framework).
-        score: Sto-pipeline extra — confidence score that triggered
+        score: Sto-pipeline extra: confidence score that triggered
             this result. ``None`` for det.
-        threshold: Sto-pipeline extra — the threshold the score missed.
+        threshold: Sto-pipeline extra: the threshold the score missed.
             ``None`` for det.
         rule_id: Stable identifier for the contract / pattern that
             fired (``DetFormula.pattern_name``, contract id, sto atom
@@ -104,7 +104,7 @@ class EnforcementResult:
             agent_msg as a tool-error body, retry_hint as a follow-up
             instruction).
         alternatives: Suggested replacement actions for ``blocked`` /
-            ``redirected``. Optional — integrations can render as a
+            ``redirected``. Optional; integrations can render as a
             list to the agent ("try one of: <a>, <b>, <c>").
     """
 
@@ -120,7 +120,7 @@ class EnforcementResult:
     message: str
     retry_prompt: str | None = None
     fallback_action: Any | None = None
-    # Sto-pipeline extras — populated when a stochastic enforcement
+    # Sto-pipeline extras: populated when a stochastic enforcement
     # triggered this result. Reporters / dashboards surface these to
     # explain "violation flagged, confidence 0.42 vs β=0.9".
     score: float | None = None
@@ -140,7 +140,7 @@ def _rule_id_from_violation(violation: Violation) -> str:
 
     Pulls ``pattern_name`` off ``DetFormula`` when present, otherwise
     falls back to ``violation.kind``. Sto evaluators set ``desc`` to
-    the atom name (``injection_free``, ``tone_match``) — that becomes
+    the atom name (``injection_free``, ``tone_match``); that becomes
     the rule_id when no formula is attached.
     """
     formula = getattr(violation, "formula", None)
@@ -180,7 +180,7 @@ class OutcomeBuilder:
         rule = _rule_id_from_violation(violation)
         desc = violation.desc or violation.kind
         message = (
-            f"BLOCKED: {context.agent_id}.{context.action} — "
+            f"BLOCKED: {context.agent_id}.{context.action}. "
             f"det constraint violated: {desc}"
         )
         agent_msg = (
@@ -204,7 +204,7 @@ class OutcomeBuilder:
         rule = _rule_id_from_violation(violation)
         why = reason or violation.desc or "det constraint violation"
         message = (
-            f"ESCALATED: {context.agent_id}.{context.action} — "
+            f"ESCALATED: {context.agent_id}.{context.action}. "
             f"awaiting human approval: {why}"
         )
         agent_msg = (
@@ -226,7 +226,7 @@ class OutcomeBuilder:
         rule = _rule_id_from_violation(violation)
         desc = violation.desc or violation.kind
         message = (
-            f"WARNING (non-blocking): {context.agent_id}.{context.action} — {desc}"
+            f"WARNING (non-blocking): {context.agent_id}.{context.action}. {desc}"
         )
         return EnforcementResult(
             action="warned",
@@ -247,7 +247,7 @@ class OutcomeBuilder:
         trace, same as a block) and the integration adapter substitutes
         the ``safe`` tool. ``fallback_action`` carries the safe tool
         name so the adapter knows what to invoke; ``agent_msg`` stays
-        empty by default — the substitution is meant to be transparent
+        empty by default. the substitution is meant to be transparent
         to the model, which simply sees the safe tool's result.
         """
         rule = _rule_id_from_violation(violation)
@@ -315,7 +315,7 @@ class EscalateToHuman:
 
     Why the runtime layer doesn't gate ``allowed`` on escalated: the
     monitor uses ``EscalateToHuman()`` as the default strategy for
-    *unfired-assumption* verdicts — a conditional contract whose
+    *unfired-assumption* verdicts. a conditional contract whose
     assumption hasn't activated yet produces an escalated result
     that is vacuous (the contract doesn't apply). If
     ``allowed=not escalated`` held at the BaseGuard layer, every
@@ -353,10 +353,14 @@ class EscalateToHuman:
             with ``(violation, context, reason)`` whenever ``enforce``
             fires. Exceptions raised by a notifier are caught and
             logged (via ``warnings.warn``) so a Slack outage doesn't
-            crash the agent loop — but the escalation outcome still
-            returns, the AI still sees the refusal. Notifier
-            signature: ``(violation: Violation, context: ActionContext,
-            reason: str) -> None``.
+            crash the agent loop, and the escalation outcome still
+            returns so dashboards / reporters see it. But note that
+            the runtime layer does NOT gate ``CheckResult.allowed`` on
+            ``action="escalated"`` (see the class docstring for why),
+            so the underlying tool call still runs unless the
+            application layer explicitly checks ``result.escalated``.
+            Notifier signature: ``(violation: Violation, context:
+            ActionContext, reason: str) -> None``.
 
     Example::
 
@@ -401,14 +405,14 @@ class EscalateToHuman:
         # webhook (Slack, PagerDuty) lands while the trace is fresh.
         # Failures are isolated per-notifier: one broken hook doesn't
         # silence the others, and none of them takes the agent loop
-        # down. The outcome itself is unchanged — escalation is still
+        # down. The outcome itself is unchanged. escalation is still
         # an escalation even if every notifier was offline.
         import warnings as _warnings
 
         for fn in self._notifiers:
             try:
                 fn(violation, context, self._reason)
-            except Exception as exc:  # noqa: BLE001 — notifier sandbox
+            except Exception as exc:  # noqa: BLE001 (notifier sandbox)
                 _warnings.warn(
                     f"EscalateToHuman notifier {getattr(fn, '__name__', repr(fn))} "
                     f"raised {type(exc).__name__}: {exc}. Escalation outcome "
@@ -442,7 +446,7 @@ class RedirectToSafe:
     the unsafe thing.
 
     Both ``unsafe`` and ``safe`` must be tools the integration adapter
-    already knows about — Sponsio doesn't synthesize tools. The safe
+    already knows about. Sponsio doesn't synthesize tools. The safe
     tool should accept the same arguments as the unsafe one (or the
     adapter must coerce them); a schema mismatch will confuse the
     model when it sees an unexpected result shape.

@@ -51,7 +51,7 @@ def run_linter(path: str) -> str:
 
 
 def write_file(path: str, contents: str) -> str:
-    """Write contents to a file (DANGEROUS — overwrites)."""
+    """Write contents to a file (DANGEROUS. overwrites)."""
     return f"wrote {len(contents)} bytes to {path}"
 
 
@@ -61,7 +61,7 @@ def shell_exec(cmd: str) -> str:
 
 
 def network_post(url: str, body: str) -> str:
-    """POST data to a URL (DANGEROUS — exfil risk)."""
+    """POST data to a URL (DANGEROUS. exfil risk)."""
     return f"POST {url} body={body!r}"
 
 
@@ -126,7 +126,7 @@ def run() -> int:
     print()
     print("Implication for prompt injection: even if the model is")
     print("convinced to call `shell_exec` or `network_post`, those")
-    print("tools aren't in its tool prompt at all — there is nothing")
+    print("tools aren't in its tool prompt at all. there is nothing")
     print("for the model to invoke.")
 
     # Also confirm filter_tools agrees with the wrap-time decision.

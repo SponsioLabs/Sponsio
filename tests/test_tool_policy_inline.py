@@ -11,11 +11,11 @@ Locked-in behaviour:
   synthesized ``tool_allowlist`` contract to ``contracts``.
 * The synthesized contract goes *before* user contracts so the deny
   rule fires first ("first-line defence").
-* ``default: allow`` (or omitting the kwarg) is a no-op — no contract
+* ``default: allow`` (or omitting the kwarg) is a no-op. no contract
   injected.
 * A ``ToolPolicySection`` instance is accepted in place of a dict for
   callers who already parsed one.
-* ``config=`` + ``tool_policy=`` is rejected — yaml owns policy when
+* ``config=`` + ``tool_policy=`` is rejected. yaml owns policy when
   both are present; users should set it in the yaml instead.
 * Invalid shapes (typos in ``default``, wrong types) raise at
   construction so a misconfig never ships silently.
@@ -63,7 +63,7 @@ class TestInlineToolPolicy:
             verbose=False,
         )
         contracts = guard._monitor._system.contracts
-        # Only the user's own contract — no tool_allowlist prefix.
+        # Only the user's own contract. no tool_allowlist prefix.
         assert len(contracts) == 1
         assert contracts[0].guarantee.pattern_name != "tool_allowlist"
 

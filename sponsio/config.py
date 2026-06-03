@@ -2,7 +2,7 @@
 
 Loads a ``sponsio.yaml`` file and returns structured data for BaseGuard.
 
-The canonical shape is a list of **contracts** under each agent — each
+The canonical shape is a list of **contracts** under each agent. each
 contract is an ``(assumption, enforcement)`` pair and is evaluated
 independently. Assumptions never cross contracts.
 
@@ -11,7 +11,7 @@ Each contract entry accepts either the **short keys** ``A`` /
 ``assumption`` / ``enforcement`` (self-describing, matches the Python
 API). Mixing is fine *across* entries, but using both a short and
 long form for the same field in the *same* entry raises
-``ConfigError`` — pick one.
+``ConfigError``. pick one.
 
 Either field may be a scalar or a list; a list is interpreted as the
 logical AND of its elements.
@@ -25,11 +25,11 @@ Example::
     agents:
       customer_bot:
         contracts:
-          # short keys — recommended for terse hand-edited YAML
+          # short keys. recommended for terse hand-edited YAML
           - A: "called `cancel_order`"
             G: "must call `get_order_details` before `cancel_order`"
           - G: "tool `sed` arg contains `-i` is banned"
-          # long keys — accepted when users prefer them (e.g. copied
+          # long keys. accepted when users prefer them (e.g. copied
           # from Python code)
           - assumption: ["called `modify_order`", "verified_identity"]
             guarantee:
@@ -75,18 +75,18 @@ class ToolEntry:
 
 @dataclass
 class ConstraintEntry:
-    """A single constraint — one of three shapes:
+    """A single constraint. one of three shapes:
 
-    1. **NL** (``nl="every send_email needs confirmation"``) — passed to
+    1. **NL** (``nl="every send_email needs confirmation"``). passed to
        the structured-IR / LLM extractor at compile time.
-    2. **Pattern** (``pattern="rate_limit"``, ``args=[exec, 50]``) —
+    2. **Pattern** (``pattern="rate_limit"``, ``args=[exec, 50]``).
        resolved against the registered pattern library.  ``pattern`` may
        name either a deterministic pattern (functions in
        :mod:`sponsio.patterns.library`) or a stochastic atom registered
-       via :func:`sponsio.patterns.sto_registry.register_sto_atom` —
+       via :func:`sponsio.patterns.sto_registry.register_sto_atom`.
        compilation auto-routes via the appropriate registry.
     3. **LTL** (``ltl="G(called(exec) -> count(confirm) >= count(exec))"``)
-       — raw infix LTL parsed by :func:`sponsio.formulas.parser.parse_repr`.
+      . raw infix LTL parsed by :func:`sponsio.formulas.parser.parse_repr`.
        This is the escape hatch for properties that mix predicate-on-arg
        conditionals with count dominance, which the structured patterns
        can't express directly (e.g. "sudo exec needs confirmation but
@@ -111,7 +111,7 @@ class ConstraintEntry:
     """Per-clause human-readable label.
 
     Without this, the loader is stuck using ``entry.ltl`` (the raw
-    formula text) as the DetFormula's desc — the inline trace then
+    formula text) as the DetFormula's desc. the inline trace then
     prints ``⚙ assume "F(arg_field_has(...))"`` instead of a sentence.
     Optional: structured patterns already get a decent desc from
     their factory, but this lets a YAML override it for consistency
@@ -152,7 +152,7 @@ class ContractEntry:
     reactive semantics (E checked from the first position where A
     activates, not from position 0)."""
     pack_source: str | None = None
-    """Origin of this entry — ``None`` for hand-written contracts,
+    """Origin of this entry. ``None`` for hand-written contracts,
     or the include spec (e.g. ``"sponsio:core/universal"``) for
     contracts pulled in via ``include:``.  Used by ``customized:`` to
     target entries by their pack and by ``sponsio validate`` to surface
@@ -216,7 +216,7 @@ class PerformanceSection:
 
     Mirrors competitor-style caching config blocks in YAML position
     and naming (``performance:``) but reports a structurally
-    different story: we don't need a judge cache — most checks are
+    different story: we don't need a judge cache. most checks are
     DFA and never touch an LLM in the first place.  This section
     controls *how that story gets surfaced*, not whether the speedup
     happens.
@@ -224,7 +224,7 @@ class PerformanceSection:
     Fields:
       * ``report``: when to print the human-readable performance
         table.  ``auto`` (default) prints at process exit only when
-        the guard is ``verbose=True`` and stderr is a TTY — same
+        the guard is ``verbose=True`` and stderr is a TTY. same
         rules as the existing session summary, so we don't clutter
         CI logs.  ``always`` forces a print even in non-TTY contexts
         (useful when redirecting to a file).  ``never`` suppresses.
@@ -259,7 +259,7 @@ class RuntimeSection:
     losing the env-var overrides needed for per-deploy flipping.
 
     Precedence when :func:`sponsio.core.Sponsio` resolves each field
-    (note the asymmetry — ``mode`` lets env override an explicit ctor
+    (note the asymmetry. ``mode`` lets env override an explicit ctor
     arg, since ops need to flip enforcement in production without a
     code change; ``dashboard`` does not, since it's typically a
     deploy-time concern set in code)::
@@ -349,7 +349,7 @@ _ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 def _interpolate_env(value: Any) -> Any:
     """Recursively expand ``${VAR}`` / ``${VAR:-default}`` in strings.
 
-    Walks through dicts and lists in place — anything non-string /
+    Walks through dicts and lists in place. anything non-string /
     non-container is returned unchanged.  Missing env vars without a
     default expand to the empty string (matching shell semantics) so
     a missing key simply becomes ``api_key: ""`` rather than blowing
@@ -422,7 +422,7 @@ def _parse_runtime_section(raw: Any) -> RuntimeSection:
     first guarded turn. ``dashboard`` coerces common string forms
     (``"true"``/``"false"``/``"none"``) into the corresponding Python
     values so ``${SPONSIO_DASHBOARD}`` interpolations from env vars
-    degrade gracefully — a URL, a bool, or nothing.
+    degrade gracefully. a URL, a bool, or nothing.
     """
     if raw is None:
         return RuntimeSection()
@@ -551,9 +551,9 @@ def _parse_constraint_entry(item: Any) -> ConstraintEntry:
 
     Recognised dict shapes:
 
-    * ``{pattern: ..., args: [...]}``        — structured pattern
-    * ``{ltl: "G(...)"}``                    — raw LTL escape hatch
-    * ``{nl: "..."}``                        — natural-language description
+    * ``{pattern: ..., args: [...]}``       . structured pattern
+    * ``{ltl: "G(...)"}``                   . raw LTL escape hatch
+    * ``{nl: "..."}``                       . natural-language description
       (also accepted as a bare string item)
 
     Either ``pattern`` or ``ltl`` is required; specifying both is a config
@@ -568,7 +568,7 @@ def _parse_constraint_entry(item: Any) -> ConstraintEntry:
         has_nl = "nl" in item
         if has_pattern and has_ltl:
             raise ConfigError(
-                "Constraint dict has both 'pattern' and 'ltl' keys — pick "
+                "Constraint dict has both 'pattern' and 'ltl' keys. pick "
                 "one.  ``pattern`` resolves against the registered pattern "
                 "library; ``ltl`` parses a raw infix formula via "
                 "sponsio.formulas.parser.parse_repr."
@@ -663,12 +663,12 @@ def _parse_contract_entry(item: Any, agent_id: str) -> ContractEntry:
     if has_short_a and has_long_a:
         raise ConfigError(
             f"Agent '{agent_id}': contract entry has both 'A' and "
-            f"'assumption' — pick one. Got: {item!r}"
+            f"'assumption'. pick one. Got: {item!r}"
         )
     if has_short_g and has_long_g:
         raise ConfigError(
             f"Agent '{agent_id}': contract entry has both 'G' and "
-            f"'guarantee' — pick one. Got: {item!r}"
+            f"'guarantee'. pick one. Got: {item!r}"
         )
 
     e_raw = item.get("G") if has_short_g else item.get("guarantee")
@@ -727,7 +727,7 @@ def _parse_thresholds(item: dict, agent_id: str) -> tuple[float, float]:
 
 
 # ---------------------------------------------------------------------------
-# include: resolution — pull contracts from packs into the host config
+# include: resolution. pull contracts from packs into the host config
 # ---------------------------------------------------------------------------
 
 
@@ -736,13 +736,13 @@ def _resolve_include_spec(spec: str, base_dir: Path) -> Path:
 
     Recognised forms:
 
-    * ``sponsio:<category>/<name>`` — bundled pack shipped with the
+    * ``sponsio:<category>/<name>``. bundled pack shipped with the
       package, resolved against ``sponsio/contracts/``.  The trailing
       ``.yaml`` is optional.  Examples:
         - ``sponsio:core/universal``
         - ``sponsio:capability/shell``
         - ``sponsio:incident/openclaw``
-    * Bare path — relative paths resolve against ``base_dir`` (the
+    * Bare path. relative paths resolve against ``base_dir`` (the
       directory holding the *including* yaml).  Absolute paths are
       used as-is.  Useful when teams keep their own pack repo and
       want to share rules across projects without publishing to PyPI.
@@ -761,13 +761,13 @@ def _resolve_include_spec(spec: str, base_dir: Path) -> Path:
         if not rel:
             raise ConfigError(
                 f"include: bundled spec is empty: {spec!r} "
-                "— expected e.g. 'sponsio:core/universal'"
+                "- expected e.g. 'sponsio:core/universal'"
             )
         if not rel.endswith(".yaml"):
             rel = rel + ".yaml"
         pkg_root = Path(sponsio.__file__).parent
         candidate = (pkg_root / "contracts" / rel).resolve()
-        # Defence in depth — confine resolution to the bundled tree so
+        # Defence in depth. confine resolution to the bundled tree so
         # a stray ``sponsio:../../etc/passwd`` can't escape.
         contracts_root = (pkg_root / "contracts").resolve()
         try:
@@ -790,7 +790,7 @@ def _resolve_include_spec(spec: str, base_dir: Path) -> Path:
     # Bare filesystem include. Two cases:
     #   - relative path: resolved under ``base_dir`` and **must stay
     #     under it** so a malicious upstream pack can't pull in
-    #     ``../../etc/passwd`` (path traversal — sym to the
+    #     ``../../etc/passwd`` (path traversal. sym to the
     #     ``sponsio:`` confinement above).
     #   - absolute path: allowed unconditionally because the operator
     #     who wrote the host yaml already chose it explicitly. (The
@@ -830,7 +830,7 @@ def _load_pack_contracts(
     Args:
         spec: The include spec, used both for resolution and as the
             stamped ``pack_source`` value.
-        base_dir: Directory of the *including* yaml — relative paths
+        base_dir: Directory of the *including* yaml. relative paths
             in ``spec`` resolve against this.
         agent_id: The host agent id we're injecting into.  Used only
             for error messages today; kept in the signature so future
@@ -876,7 +876,7 @@ def _load_pack_contracts(
         raise ConfigError(
             f"include {spec!r}: pack must define exactly one agent named '*' "
             f"(the template), got {list(pack_agents.keys())}.  Multi-agent "
-            f"packs aren't supported — split the file."
+            f"packs aren't supported. split the file."
         )
 
     template = pack_agents["*"]
@@ -918,7 +918,7 @@ def _load_pack_contracts(
 
 
 # ---------------------------------------------------------------------------
-# tool_rename: + workspace: — rewrite pulled-in pack contents into
+# tool_rename: + workspace:. rewrite pulled-in pack contents into
 # the host's vocabulary
 # ---------------------------------------------------------------------------
 
@@ -935,15 +935,15 @@ def _rewrite_string(
 ) -> str:
     """Apply workspace + agent + tool-rename rewrites to a single string.
 
-    * ``<workspace>/`` — literal substring replacement.  Skipped when
+    * ``<workspace>/``. literal substring replacement.  Skipped when
       ``workspace`` is None; the caller decides whether unresolved
       placeholders should error.
-    * ``<agent>`` — replaced with the host ``agent_id`` so packs can
+    * ``<agent>``. replaced with the host ``agent_id`` so packs can
       reference the running agent in LTL atoms like
       ``flow(<agent>, external)`` portably.  Skipped when ``agent_id``
       is None.  Word-boundary substitution to avoid clobbering
       ``<agentless>`` and similar.
-    * Tool renames — whole-word identifier substitution (``\\b{name}\\b``)
+    * Tool renames. whole-word identifier substitution (``\\b{name}\\b``)
       so a rename of ``exec → bash`` doesn't accidentally hit
       ``executor`` or ``rexec``.
     """
@@ -969,7 +969,7 @@ def _rewrite_arg(
 
     Strings get string-level rewrites.  Lists recurse so
     ``args: [scope_limit, [<workspace>/, /tmp/]]`` works.  Tool-rename
-    on a *whole* string arg additionally honours exact-match aliasing —
+    on a *whole* string arg additionally honours exact-match aliasing.
     ``args: [exec, 50]`` with ``tool_rename = {exec: bash}`` becomes
     ``[bash, 50]`` even when ``exec`` is the entire arg (no word
     boundary on a single token).  Non-string scalars pass through.
@@ -994,14 +994,14 @@ def _rewrite_constraint_entry(
     """Mutate ``ce`` in place: apply rewrites to ``args`` and ``ltl``.
 
     ``nl`` / ``pattern`` / ``desc`` / ``source`` are intentionally
-    left alone — NL is fluid prose (rewrites would corrupt grammar),
+    left alone. NL is fluid prose (rewrites would corrupt grammar),
     pattern names are stable identifiers, and ``source`` is metadata
     only.
 
     Args:
         enforce_placeholder_check: When True, raise if any
             ``<workspace>/`` placeholder remains after substitution.
-            Only the include-resolution path turns this on — direct
+            Only the include-resolution path turns this on. direct
             loads of a pack file (``load_config("sponsio/contracts/
             capability/filesystem.yaml")``) need to succeed for
             ``sponsio validate`` and CI to inspect packs without a
@@ -1049,7 +1049,7 @@ def _rewrite_contract_entry(
     The ``<workspace>/`` leftover check fires only on contracts that
     came in via ``include:`` (``contract.pack_source is not None``).
     Locally-authored or direct-loaded pack contracts are considered
-    the user's responsibility — they may be inspecting a pack file
+    the user's responsibility. they may be inspecting a pack file
     via ``sponsio validate`` and need it to load even without a host
     workspace set.
     """
@@ -1073,13 +1073,13 @@ def _rewrite_contract_entry(
 
 
 # ---------------------------------------------------------------------------
-# overrides: — disable / tune individual contracts after include
+# overrides:. disable / tune individual contracts after include
 # ---------------------------------------------------------------------------
 
 
 @dataclass
 class OverrideRule:
-    """One ``customized:`` entry — a match clause + an effect.
+    """One ``customized:`` entry. a match clause + an effect.
 
     Match fields are AND'd; a contract qualifies only when every key
     in ``match`` equals the corresponding contract field.  An empty
@@ -1087,32 +1087,32 @@ class OverrideRule:
     everything, which is almost certainly a mistake).
 
     Supported match keys:
-      * ``desc`` — the contract's human description.  This is the
+      * ``desc``. the contract's human description.  This is the
         most common path because pack YAMLs put the rule's intent
         right in ``desc:``.
-      * ``pack_source`` — origin pack spec (e.g.
+      * ``pack_source``. origin pack spec (e.g.
         ``"sponsio:capability/shell"``).  Useful for "disable
         everything from this pack" without listing rules one by one.
-      * ``source`` — the ``ConstraintEntry.source`` library tag (e.g.
+      * ``source``. the ``ConstraintEntry.source`` library tag (e.g.
         ``"library:tier1.shell"``).  Finer-grained than pack_source
         when one pack ships rules from several library tiers.
-      * ``pattern`` — the structured pattern name on the enforcement
+      * ``pattern``. the structured pattern name on the enforcement
         constraint (``rate_limit``, ``injection_free``, …).
 
     Effects:
-      * ``disabled: true`` — drop the matched contract entirely.
-      * ``threshold`` / ``prompt_override`` / ``context_scope`` —
+      * ``disabled: true``. drop the matched contract entirely.
+      * ``threshold`` / ``prompt_override`` / ``context_scope``.
         forwarded onto the enforcement ConstraintEntry(s).  Only
         meaningful for stochastic patterns; det patterns ignore them
         at compile time so a no-op override is harmless but suspect
-        — we don't currently warn.
+       . we don't currently warn.
 
     The match/effect split is borrowed from ``kustomize`` / GitOps
     overlays: it keeps the override readable (intent at top, effect
     at bottom) and makes "match nothing" detectable as an error.
 
     ``matched_count`` is bookkeeping for the unmatched-rule diagnostic
-    — see ``_apply_overrides``.
+   . see ``_apply_overrides``.
     """
 
     match: dict[str, str]
@@ -1131,7 +1131,7 @@ def _parse_override_rule(raw: Any, agent_id: str, idx: int) -> OverrideRule:
     """Validate a single ``customized:`` entry.
 
     Errors name the entry index so users can locate the offender in a
-    long list quickly.  We also reject unknown keys outright — silently
+    long list quickly.  We also reject unknown keys outright. silently
     ignoring an `enabled: true` typo would defeat the purpose of having
     overrides.
     """
@@ -1176,7 +1176,7 @@ def _parse_override_rule(raw: Any, agent_id: str, idx: int) -> OverrideRule:
         )
     if not effect_keys:
         raise ConfigError(
-            f"Agent '{agent_id}': overrides[{idx}] has no effect — add at "
+            f"Agent '{agent_id}': overrides[{idx}] has no effect. add at "
             f"least one of {sorted(_OVERRIDE_EFFECT_KEYS)} (e.g. "
             f"`disabled: true`)"
         )
@@ -1213,7 +1213,7 @@ def _parse_override_rule(raw: Any, agent_id: str, idx: int) -> OverrideRule:
             )
         rule.context_scope = c
 
-    # Combining ``disabled: true`` with field-edits is suspicious — the
+    # Combining ``disabled: true`` with field-edits is suspicious. the
     # contract is gone, so the edits are dead code.  Catch the typo.
     if rule.disabled and (
         rule.threshold is not None
@@ -1229,10 +1229,10 @@ def _parse_override_rule(raw: Any, agent_id: str, idx: int) -> OverrideRule:
 
 
 def _contract_constraints(contract: ContractEntry) -> list[ConstraintEntry]:
-    """Flatten the enforcement field — used by both override matching
+    """Flatten the enforcement field. used by both override matching
     (against ``source`` / ``pattern``) and override application
     (writing back ``threshold`` etc.).  The list shape (``E`` may be
-    a list) is opaque to overrides — they apply to every constraint
+    a list) is opaque to overrides. they apply to every constraint
     in the AND group.  In practice pack rules are single-constraint
     so this distinction rarely matters."""
     e = contract.guarantee
@@ -1269,7 +1269,7 @@ def _apply_override_effects(rule: OverrideRule, contract: ContractEntry) -> None
     """Apply non-``disabled`` effects.  Caller has already filtered
     out the disabled case (those contracts get dropped entirely).
 
-    Field edits write to *every* enforcement constraint — typically
+    Field edits write to *every* enforcement constraint. typically
     one, occasionally a list-AND.  Det constraints carry the fields
     too (the dataclass shape is uniform); they just ignore them at
     compile time.  This mirrors ``ConstraintEntry`` semantics where
@@ -1316,7 +1316,7 @@ def _apply_overrides(
         details = "; ".join(f"match={r.match!r}" for r in unmatched)
         raise ConfigError(
             f"Agent '{agent_id}': {len(unmatched)} override rule(s) matched "
-            f"no contract — pack contents may have changed.  Update or "
+            f"no contract. pack contents may have changed.  Update or "
             f"remove these match clauses: {details}"
         )
     return kept
@@ -1325,7 +1325,7 @@ def _apply_overrides(
 def _parse_tool_rename(raw: Any, agent_id: str) -> dict[str, str]:
     """Validate and normalize the ``tool_rename:`` mapping.
 
-    Schema: ``{old_name: new_name, ...}`` — both string, both
+    Schema: ``{old_name: new_name, ...}``. both string, both
     non-empty.  The mapping must not be cyclic; cycles would make
     rewrite order observable, which is a bad surface to expose.
 
@@ -1352,7 +1352,7 @@ def _parse_tool_rename(raw: Any, agent_id: str) -> dict[str, str]:
                 f"strings; got {v!r} for key {k!r}"
             )
         out[k] = v
-    # Reject self-mappings before the cycle check — ``exec: exec``
+    # Reject self-mappings before the cycle check. ``exec: exec``
     # technically satisfies ``out[v] == k`` but the dedicated message
     # is more actionable than "cycle between exec and exec".
     for k, v in out.items():
@@ -1361,7 +1361,7 @@ def _parse_tool_rename(raw: Any, agent_id: str) -> dict[str, str]:
                 f"Agent '{agent_id}': 'tool_rename' has a no-op self-mapping "
                 f"{k!r} -> {v!r}; remove the entry"
             )
-    # Cycle check — rewrite order would be observable otherwise (a→b
+    # Cycle check. rewrite order would be observable otherwise (a→b
     # then b→a flips back).
     for k, v in out.items():
         if v in out and out[v] == k:
@@ -1408,7 +1408,7 @@ def load_config(path: str | Path) -> SponsoConfig:
 
     # ``${ENV_VAR}`` interpolation runs *after* YAML parse so users
     # can put secrets in env vars instead of committing them.  We
-    # walk the whole tree once — keeps the rest of the loader naive.
+    # walk the whole tree once. keeps the rest of the loader naive.
     raw = _interpolate_env(raw)
 
     config = SponsoConfig(
@@ -1445,7 +1445,7 @@ def load_config(path: str | Path) -> SponsoConfig:
 
     for agent_id, agent_data in agents_raw.items():
         if isinstance(agent_data, list):
-            # Bare list — treat each entry as an unconditional contract
+            # Bare list. treat each entry as an unconditional contract
             ac = AgentConfig(agent_id=agent_id)
             for item in agent_data:
                 ac.contracts.append(
@@ -1489,7 +1489,7 @@ def load_config(path: str | Path) -> SponsoConfig:
             contracts_raw = agent_data.get("contracts", [])
             if not isinstance(contracts_raw, list):
                 raise ConfigError(f"Agent '{agent_id}': 'contracts' must be a list")
-            # Every entry under ``contracts:`` is a real contract —
+            # Every entry under ``contracts:`` is a real contract.
             # an ``E:`` (enforcement formula) plus an optional ``A:``
             # (assumption). No other entry shapes live in this list.
             for item in contracts_raw:
@@ -1498,14 +1498,14 @@ def load_config(path: str | Path) -> SponsoConfig:
             for contract in ac.contracts:
                 _rewrite_contract_entry(contract, workspace_raw, tool_rename, agent_id)
 
-            # ``customized:`` — agent-level block of ``match:`` + effect
+            # ``customized:``. agent-level block of ``match:`` + effect
             # entries that adjust contracts loaded above (disable,
             # retune args, narrow assumption, change threshold).
             # Customized entries are NOT contracts and don't share the
             # contract shape, so they stay in their own block.
             #
             # The legacy aliases ``tweaks:`` and ``overrides:`` are no
-            # longer accepted — files using them must be migrated to
+            # longer accepted. files using them must be migrated to
             # ``customized:``.  Mention them in the error so older
             # config files get an actionable diagnostic instead of a
             # silent no-op.
@@ -1513,7 +1513,7 @@ def load_config(path: str | Path) -> SponsoConfig:
                 if agent_data.get(legacy) is not None:
                     raise ConfigError(
                         f"Agent '{agent_id}': '{legacy}:' is no longer "
-                        f"accepted — rename it to 'customized:'."
+                        f"accepted. rename it to 'customized:'."
                     )
             block_raw = agent_data.get("customized")
             if block_raw is not None:
@@ -1569,7 +1569,7 @@ def _compile_structured(entry: ConstraintEntry) -> Any:
             coerced_args.append(a)
     compiled = fn(*coerced_args)
     # ``desc:`` from the YAML overrides the pattern factory's default
-    # desc — useful when one contract has multiple structured clauses
+    # desc. useful when one contract has multiple structured clauses
     # that should share a clearer per-clause label, or when the
     # factory's auto-generated desc is too terse for the trace view.
     # ``DetFormula`` is a ``frozen=True`` dataclass, so attribute
@@ -1591,7 +1591,7 @@ def _compile_structured(entry: ConstraintEntry) -> Any:
             try:
                 compiled.desc = entry.desc
             except (AttributeError, TypeError):
-                # Slots without ``desc`` or otherwise non-mutable —
+                # Slots without ``desc`` or otherwise non-mutable.
                 # accept the factory default rather than crash at load.
                 pass
 
@@ -1699,7 +1699,7 @@ def _compile_single(
             tool_inventory=tool_inventory,
         )
     except ContractSyntaxError:
-        # Config-driven path — a malformed DSL entry in a yaml file is
+        # Config-driven path. a malformed DSL entry in a yaml file is
         # an op-level problem. Surface as a compile failure (None)
         # rather than crashing the loader; validators decide whether
         # to treat None as fatal.
@@ -1724,7 +1724,7 @@ def _resolve_strict_compile(mode: str | None) -> bool:
     The intent: enforce mode defaults to strict because a silently-skipped
     contract becomes a security gap in production; observe mode defaults
     to non-strict because the whole point of observe is to keep running
-    and surface what would fire — one bad contract shouldn't take down
+    and surface what would fire. one bad contract shouldn't take down
     the other 20 along with it.
     """
     import os
@@ -1738,7 +1738,7 @@ def _resolve_strict_compile(mode: str | None) -> bool:
 def _short_constraint_label(value: Any) -> str:
     """Best-effort label for a skipped constraint shown in the warning.
 
-    ``value`` is the raw ``ce.guarantee`` field — a ``ConstraintEntry``,
+    ``value`` is the raw ``ce.guarantee`` field. a ``ConstraintEntry``,
     a list of them, or ``None``.  Returns the first non-empty handle we
     can find (pattern name + args / ltl text / nl text), truncated for
     readability.  Pure cosmetic; never raises.
@@ -1847,7 +1847,7 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
             contract_dicts.append(entry)
         except ConfigError as exc:
             # In strict mode (enforce default, or SPONSIO_STRICT_COMPILE=1)
-            # any compile failure aborts loading — silently shipping a
+            # any compile failure aborts loading. silently shipping a
             # broken enforcement rule in production is worse than the
             # crash.  In non-strict mode (observe default) skip the bad
             # contract and surface a single batched warning so the rest of
@@ -1870,9 +1870,13 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
             stacklevel=2,
         )
 
-    policy_contract = _synthesize_tool_policy_contract(config.tool_policy)
-    if policy_contract is not None:
-        contract_dicts.insert(0, policy_contract)
+    # NOTE: synthesis of the ``tool_policy`` deny contract used to
+    # happen here. It now lives in a single place inside
+    # ``BaseGuard.__init__`` so factory / direct-class / yaml entry
+    # paths all behave identically and the desc string is no longer a
+    # shared contract between two files. The ``tool_policy`` itself is
+    # still forwarded through ``Sponsio()`` so BaseGuard can synthesize
+    # from it.
 
     kwargs: dict[str, Any] = {
         "agent_id": agent_id,
@@ -1884,7 +1888,7 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
     if config.defaults.get("verbosity") is not None:
         kwargs["verbosity"] = config.defaults["verbosity"]
     # ``defaults.auto_summary: false`` stops the atexit ``Sponsio
-    # Session Summary`` block from printing — useful in scripted
+    # Session Summary`` block from printing. useful in scripted
     # replays / demo gifs / tests where the framework's own narration
     # is meant to be the last visible output, and in production
     # services where the summary on shutdown is just noise in stderr.
@@ -1897,7 +1901,7 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
 def build_extractor(section: ExtractorSection) -> Any:
     """Construct a :class:`UnifiedExtractor` from an ``extractor:`` section.
 
-    Returns ``None`` if no provider is configured — callers fall
+    Returns ``None`` if no provider is configured. callers fall
     back to rule-based parsing in that case.  Imported lazily so
     ``import sponsio.config`` doesn't pull in optional LLM SDKs.
     """

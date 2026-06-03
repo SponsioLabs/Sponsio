@@ -1,4 +1,4 @@
-"""CrewAI integration — enforce contracts via tool call hooks.
+"""CrewAI integration. enforce contracts via tool call hooks.
 
 Uses CrewAI's native ``before_tool_call`` / ``after_tool_call`` hooks.
 No monkey-patching, no tool wrapping.
@@ -161,7 +161,7 @@ class CrewAIGuard(BaseGuard):
                 "crewai is required. Install with: pip install crewai"
             ) from e
 
-        # v0.2 enforcement: proactive — strip denied tools at wrap
+        # v0.2 enforcement: proactive. strip denied tools at wrap
         # time. Accepts both plain callables (name from ``__name__``)
         # and pre-built CrewAI Tool objects (``.name``).
         tools = self._proactive_filter_tools(

@@ -9,7 +9,7 @@ The contract this pins down:
   so a violation surfaces as a ``redirected`` outcome with
   ``fallback_action=safe_name``, not as a plain ``blocked``.
 * The default-policy auto-population in ``BaseGuard.__init__`` honours
-  the attached strategy (regression check — earlier the loop
+  the attached strategy (regression check. earlier the loop
   unconditionally assigned ``DetBlock`` and silently overrode the
   pattern's intent).
 * The trace is rolled back on redirect, same as on a block, so
@@ -169,7 +169,7 @@ class TestConditionalRedirect:
             verbose=False,
         )
         # Before issue_refund is called, the assumption hasn't fired
-        # — read_file passes through cleanly.
+        #. read_file passes through cleanly.
         r1 = guard.guard_before("read_file", {})
         assert r1.allowed is True
         assert r1.redirected is False
@@ -183,7 +183,7 @@ class TestConditionalRedirect:
 
 class TestRedirectInteractsWithOtherRules:
     def test_count_at_most_does_not_tick_on_redirect(self) -> None:
-        """Redirect rolls back the unsafe event — so a separate
+        """Redirect rolls back the unsafe event. so a separate
         ``count_at_most(unsafe, N)`` rule on the same tool should NOT
         see the attempt as a real call."""
         guard = Sponsio(
@@ -197,7 +197,7 @@ class TestRedirectInteractsWithOtherRules:
             mode="enforce",
             verbose=False,
         )
-        # Trigger the redirect three times — count_at_most(rm_rf, 2)
+        # Trigger the redirect three times. count_at_most(rm_rf, 2)
         # should not block because each rm_rf event is rolled back.
         for _ in range(3):
             r = guard.guard_before("rm_rf", {})
@@ -275,3 +275,49 @@ class TestLangGraphRedirectWiring:
         bound = node.tools_by_name
         with pytest.raises(ToolCallBlocked, match="trash_does_not_exist"):
             bound["rm_rf"].func(path="/tmp/x")
+
+    def test_chained_redirect_refuses_loudly(self) -> None:
+        """If the safe target is itself redirected by another contract,
+        we don't silently execute it and we don't recurse (which could
+        loop). Instead we raise ToolCallBlocked with a message that
+        names the chain so the contract author can flatten it."""
+        pytest.importorskip("langgraph")
+        pytest.importorskip("langchain_core")
+        from langchain_core.tools import tool as lc_tool
+
+        from sponsio.integrations.langgraph import LangGraphGuard, ToolCallBlocked
+
+        @lc_tool
+        def rm_rf(path: str) -> str:
+            """Hard delete."""
+            return f"DELETED {path}"
+
+        @lc_tool
+        def trash(path: str) -> str:
+            """Move to trash."""
+            return f"TRASHED {path}"
+
+        @lc_tool
+        def review_queue(path: str) -> str:
+            """Open a review ticket."""
+            return f"REVIEW {path}"
+
+        # rm_rf -> trash, AND trash -> review_queue. A call to rm_rf
+        # would resolve to trash, which is itself redirected to
+        # review_queue. We refuse rather than silently executing trash
+        # OR recursing into review_queue.
+        guard = LangGraphGuard(
+            agent_id="bot",
+            contracts=[
+                contract("trash instead of rm").guarantees(
+                    redirect_to_safe("rm_rf", "trash")
+                ),
+                contract("review queue instead of trash").guarantees(
+                    redirect_to_safe("trash", "review_queue")
+                ),
+            ],
+            verbose=False,
+        )
+        node = guard.wrap([rm_rf, trash, review_queue])
+        with pytest.raises(ToolCallBlocked, match="[Cc]hained redirect"):
+            node.tools_by_name["rm_rf"].func(path="/tmp/x")

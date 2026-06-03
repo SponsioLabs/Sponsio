@@ -36,7 +36,7 @@ from sponsio.runtime.strategies import EscalateToHuman
 
 
 # ---------------------------------------------------------------------------
-# Tiny test harness — avoids pulling pytest into the public verify script.
+# Tiny test harness. avoids pulling pytest into the public verify script.
 # ---------------------------------------------------------------------------
 
 PASS = "\033[32m PASS \033[0m"

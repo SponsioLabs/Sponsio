@@ -9,7 +9,7 @@ denied tools before the agent's tool surface is ever built.
 The contract pinned down here:
 
 * When ``tool_policy.enforcement`` is the default ``reactive``, the
-  helper is a no-op — every tool passes through, denied calls get
+  helper is a no-op. every tool passes through, denied calls get
   caught reactively by ``guard_before`` at call time.
 * When ``enforcement: proactive`` with ``default: deny``, the helper
   drops every tool whose name is not in ``approved``. Order is
@@ -19,10 +19,10 @@ The contract pinned down here:
   ``tool_policy.approved`` list. Otherwise a ``must_precede(A, B)``
   rule would permanently filter B out (assumption A hasn't fired on
   the empty wrap-time trace), which is the opposite of what the rule
-  encodes — the user wants B available *after* A fires, not banned
+  encodes. the user wants B available *after* A fires, not banned
   forever.
 * ``allow`` (the legacy default) is a no-op regardless of
-  ``enforcement`` — there's no approved list to filter against.
+  ``enforcement``. there's no approved list to filter against.
 * Per-adapter ``wrap()`` actually invokes the helper. Adapter tests
   are gated on the framework being installed.
 """
@@ -49,7 +49,7 @@ class _NamedTool:
 class TestProactiveFilterToolsHelper:
     def test_reactive_is_noop(self) -> None:
         """Default enforcement (reactive) leaves the list untouched
-        even when default-deny is set — wrap-time filtering is the
+        even when default-deny is set. wrap-time filtering is the
         opt-in behaviour gated on ``proactive``."""
         guard = Sponsio(
             agent_id="bot",
@@ -84,7 +84,7 @@ class TestProactiveFilterToolsHelper:
         assert _names(kept) == ["search", "read_file"]
 
     def test_proactive_with_allow_is_noop(self) -> None:
-        """``proactive`` is meaningless without a deny posture — there's
+        """``proactive`` is meaningless without a deny posture. there's
         no approved list to gate against. Helper passes everything
         through."""
         guard = Sponsio(
@@ -137,7 +137,7 @@ class TestProactiveFilterToolsHelper:
         )
         tools = [_NamedTool("check_policy"), _NamedTool("issue_refund")]
         kept = guard._proactive_filter_tools(tools, name_fn=lambda t: t.name)
-        # Both pass — the temporal rule will reactively block
+        # Both pass. the temporal rule will reactively block
         # ``issue_refund`` at *call* time until ``check_policy`` fires,
         # but neither tool disappears from the menu.
         assert _names(kept) == ["check_policy", "issue_refund"]
@@ -146,7 +146,7 @@ class TestProactiveFilterToolsHelper:
 class TestToolPolicyFromYaml:
     def test_yaml_enforcement_reaches_wrap_helper(self, tmp_path) -> None:
         """The ``enforcement:`` knob in a YAML config has to flow all
-        the way to the adapter's wrap() — losing it on the way would
+        the way to the adapter's wrap(). losing it on the way would
         silently degrade to reactive even when the user asked for
         proactive."""
         cfg = tmp_path / "sponsio.yaml"
@@ -183,7 +183,7 @@ class TestToolPolicyKwargAcceptedShapes:
 
     def test_rejects_wrong_type_at_guard_level(self) -> None:
         with pytest.raises(TypeError, match="tool_policy"):
-            # BaseGuard surface, not the Sponsio() factory — the
+            # BaseGuard surface, not the Sponsio() factory. the
             # factory path was already covered by
             # ``test_tool_policy_inline.py``; this hits the underlying
             # guard.
@@ -193,7 +193,7 @@ class TestToolPolicyKwargAcceptedShapes:
 
 
 # ---------------------------------------------------------------------------
-# Per-adapter wrap() tests — gated on each framework being installed.
+# Per-adapter wrap() tests. gated on each framework being installed.
 # Each test confirms that ``wrap(tools)`` actually drops denied tools at
 # bind time, not just at call time.
 # ---------------------------------------------------------------------------

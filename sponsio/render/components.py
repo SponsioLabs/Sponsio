@@ -33,7 +33,7 @@ def header_banner(
 
     When ``tagline`` is empty, the trailing ``━━━ tagline`` segment
     is omitted entirely so the banner closes with the brand mark
-    plus a clean rule run — useful at the top of session views
+    plus a clean rule run. useful at the top of session views
     where the contextual tagline doesn't add information beyond
     the brand wordmark itself.
     """
@@ -191,13 +191,13 @@ def contract_stats_table(
             str(blocked),
             str(observed),
             str(retrying),
-            sample or "—",
+            sample or "-",
         )
     return t
 
 
 # ---------------------------------------------------------------------------
-# Trace event lines (consumed by phase 2 — terminal.py live output).
+# Trace event lines (consumed by phase 2. terminal.py live output).
 # ---------------------------------------------------------------------------
 
 
@@ -218,7 +218,7 @@ def event_line(
     Tool+args is padded to ``_TOOL_COL`` visible chars and latency to
     ``_LAT_COL`` so the latency and service columns line up across rows
     with varying tool-name lengths. Rows whose tool+args naturally
-    exceeds the column just push the rest right (no truncation) —
+    exceeds the column just push the rest right (no truncation).
     uncommon enough not to matter for readability.
     """
     visible_tool = tool + (f" {args}" if args else "")
@@ -335,7 +335,7 @@ def latency_line(
 
 
 def cta_line(commands: Sequence[str]) -> Text:
-    """``  → cmd1     cmd2     cmd3`` — each cmd separated by 5 spaces."""
+    """``  → cmd1     cmd2     cmd3``. each cmd separated by 5 spaces."""
     arrow = Text(f"  {SYMBOLS['cta']} ", style=f"bold {PALETTE['brand']}")
     body = Text("     ".join(commands), style=PALETTE["fg"])
     return arrow + body
@@ -345,7 +345,7 @@ def indent(renderable: Any, spaces: int = 2) -> Padding:
     """Two-space left-pad helper for any Rich renderable.
 
     Uses ``Padding`` rather than ``Text`` concatenation so Tables, Rules,
-    and Groups render correctly — concatenation falls back to ``str()``
+    and Groups render correctly. concatenation falls back to ``str()``
     on non-Text types and emits the repr.
     """
     return Padding(renderable, (0, 0, 0, spaces))

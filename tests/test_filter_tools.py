@@ -1,4 +1,4 @@
-"""Tests for ``BaseGuard.filter_tools`` — the v0.2 proactive primitive.
+"""Tests for ``BaseGuard.filter_tools``. the v0.2 proactive primitive.
 
 ``filter_tools`` is the API that lets adapters pre-strip a tool menu
 before the model sees it. The contract these tests pin down:
@@ -9,11 +9,11 @@ before the model sees it. The contract these tests pin down:
   ``must_precede`` (state-dependent), ``count_at_most``.
 * Preserves candidate order (so adapters can rely on stable layout).
 * Mode-independent: in observe mode a candidate that *would* be
-  blocked is still filtered out — the user's intent is "what's legal
+  blocked is still filtered out. the user's intent is "what's legal
   right now", which doesn't depend on whether enforcement is on.
 * Args-level rules don't filter (probe has no args to test against);
   those still apply via ``guard_before``. The test for this just
-  documents the carve-out — it doesn't claim the probe catches them.
+  documents the carve-out. it doesn't claim the probe catches them.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ class TestFilterToolsBasics:
         assert guard.filter_tools([]) == []
 
     def test_no_contracts_returns_all_candidates(self) -> None:
-        """Guard with no det contracts should pass everything through —
+        """Guard with no det contracts should pass everything through.
         the probe finds no rule that fires, so every candidate is
         legal."""
         guard = Sponsio(agent_id="bot", verbose=False)
@@ -102,7 +102,7 @@ class TestFilterToolsWithCustomContracts:
         # Burn the budget.
         guard.guard_before("execute", {})
         guard.guard_before("execute", {})
-        # Third call would breach — filter strips it.
+        # Third call would breach. filter strips it.
         assert guard.filter_tools(["execute"]) == []
 
 
@@ -173,7 +173,7 @@ class TestFilterToolsIsPure:
 class TestFilterToolsObserveMode:
     def test_observe_mode_still_filters(self) -> None:
         """Observe mode disables enforcement but ``filter_tools`` answers
-        a different question: "is this tool legal right now?" — that
+        a different question: "is this tool legal right now?". that
         is a pure-logic question whose answer should not change with
         the enforcement posture. The probe must bypass observe-mode
         downgrade so adapters get the same menu regardless of mode."""

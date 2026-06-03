@@ -1,11 +1,11 @@
-"""Pattern library — the constraint primitive layer.
+"""Pattern library. the constraint primitive layer.
 
 Patterns are the building blocks the rest of Sponsio compiles to: each
 function takes plain string args and returns a ``DetFormula`` (an LTL
 AST plus the original description + pattern name, for diagnostics).
 Users never need to write raw LTL.
 
-The pattern library is *not* itself the contract DSL — the DSL is the
+The pattern library is *not* itself the contract DSL. the DSL is the
 text layer above it (``generation/dsl_to_contract.py``), which parses
 phrasings like ``tool `check_policy` must precede `issue_refund``` into
 the corresponding pattern call. Patterns can also be invoked directly
@@ -94,7 +94,7 @@ def _is_namespaced_tool_name(tool: str) -> bool:
     (Claude Code plugin skill / MCP server convention) rather than the
     ``tool:argpattern`` shortcut used by ``bans`` / ``called_with``.
 
-    Heuristic: both sides of ``:`` must be bare identifiers — no
+    Heuristic: both sides of ``:`` must be bare identifiers. no
     whitespace, no regex metacharacters, no shell-like punctuation.
     This lets us recognise ``acme:fetch_data`` / ``my-plugin:hello`` /
     ``mcp__server:tool`` as literal tool names while preserving the
@@ -102,7 +102,7 @@ def _is_namespaced_tool_name(tool: str) -> bool:
     ``bash:python -c``) which all contain whitespace.
 
     The corner case ``bash:rm`` (a hypothetical bare-identifier
-    argpattern) tips toward "literal tool name" — no shipped pack
+    argpattern) tips toward "literal tool name". no shipped pack
     uses that form, so the change is safe.
     """
     return bool(_NAMESPACED_TOOL_RE.match(str(tool)))
@@ -157,7 +157,7 @@ class DetFormula:
         desc: Human-readable description of the property.
         pattern_name: Name of the pattern function that created this.
         liveness: True for liveness patterns (``F``, ``always_followed_by``,
-            ``required_steps_completion``, …) — used by the runtime to
+            ``required_steps_completion``, …). used by the runtime to
             suppress spurious mid-trace violations.
         args: Original arguments the factory was invoked with. Needed for
             lossless discovery-store round-trip: ``_extract_args_from_formula``
@@ -178,7 +178,7 @@ class DetFormula:
     """Optional per-pattern strategy override. When set, the monitor
     routes a violation of this formula to ``enforcement_strategy``
     instead of the default ``DetBlock``. Used by patterns whose
-    intent is something other than "block on violation" — currently
+    intent is something other than "block on violation". currently
     ``redirect_to_safe`` (which attaches a ``RedirectToSafe`` so a
     violation surfaces as a substitute tool call). The user's
     explicit ``policy={...}`` mapping still wins over this when both
@@ -211,14 +211,14 @@ def _ensure_non_empty(value: str, *, pattern: str, arg: str) -> str:
     ``_called("")`` produces the atom ``called()`` which the grounding layer
     never emits, so the formula is vacuously satisfied *and* vacuously
     unreachable. Silent vacuity is the exact failure mode we're hardening
-    against here — the operator thinks they added a guard; the runtime sees
+    against here. the operator thinks they added a guard; the runtime sees
     nothing.
     """
     if not isinstance(value, str) or not value.strip():
         raise ValueError(
             f"{pattern}: argument {arg!r} must be a non-empty string "
             f"(got {value!r}). An empty tool name silently disables the "
-            "contract — this is almost never what you want."
+            "contract. this is almost never what you want."
         )
     return value
 
@@ -232,7 +232,7 @@ def _ensure_distinct(a: str, b: str, *, pattern: str, arg_a: str, arg_b: str) ->
     ``mutual_exclusion``, ``no_reversal``, ``deadline``, …) become trivially
     satisfied or trivially violated when the two tool names collide:
 
-    * ``must_precede("A", "A")`` compiles to ``!called(A) U called(A)`` —
+    * ``must_precede("A", "A")`` compiles to ``!called(A) U called(A)``.
       every call to ``A`` satisfies the Until at the same step, so the
       constraint is *always* True. Operators typing the same tool twice by
       mistake get a silent no-op.
@@ -253,7 +253,7 @@ def _ensure_distinct(a: str, b: str, *, pattern: str, arg_a: str, arg_b: str) ->
             f"{pattern}: {arg_a!r} and {arg_b!r} must refer to different "
             f"tools (got {a!r} for both). A same-tool pattern is either "
             "vacuously satisfied or silently degenerates into a different "
-            "contract — use ``idempotent`` / ``rate_limit`` if you meant "
+            "contract. use ``idempotent`` / ``rate_limit`` if you meant "
             "'at most once' / 'at most N times'."
         )
 
@@ -261,7 +261,7 @@ def _ensure_distinct(a: str, b: str, *, pattern: str, arg_a: str, arg_b: str) ->
 def must_precede(before: str, after: str, desc: str = "") -> DetFormula:
     """Enforces that one action must happen before another.
 
-    Compiles to: ``!called(after) U called(before)`` — the ``after`` action
+    Compiles to: ``!called(after) U called(before)``. the ``after`` action
     is forbidden until ``before`` has occurred at least once.
 
     Args:
@@ -338,7 +338,7 @@ def never_together(a: str, b: str, desc: str = "") -> DetFormula:
     import warnings
 
     warnings.warn(
-        "never_together is deprecated — use mutual_exclusion instead. "
+        "never_together is deprecated. use mutual_exclusion instead. "
         "In sequential traces, never_together can never trigger.",
         DeprecationWarning,
         stacklevel=2,
@@ -589,7 +589,7 @@ def must_confirm(action: str, desc: str = "") -> DetFormula:
     Uses a naming convention: ``confirm_{action}`` must precede ``action``.
     The confirmation tool must exist in the agent's tool set.
 
-    Compiles to: ``!called(action) U called(confirm_action)`` — the action
+    Compiles to: ``!called(action) U called(confirm_action)``. the action
     is forbidden until the confirmation tool has been called.
 
     Args:
@@ -898,7 +898,7 @@ def data_intact(
 
 
 # ---------------------------------------------------------------------------
-# Layer 1 — OWASP Agentic Top 10 patterns (pure LTL over existing atoms)
+# Layer 1. OWASP Agentic Top 10 patterns (pure LTL over existing atoms)
 # ---------------------------------------------------------------------------
 
 
@@ -907,7 +907,7 @@ def destructive_action_gate(
 ) -> DetFormula:
     """Gate a destructive tool behind human confirmation + role permission.
 
-    Stronger than ``must_confirm`` — forces a human (or a different agent
+    Stronger than ``must_confirm``. forces a human (or a different agent
     with the approver permission) into the loop before the destructive
     action can proceed.
 
@@ -949,7 +949,7 @@ def untrusted_source_gate(
     """After reading from an untrusted source, sensitive sinks require
     re-confirmation before proceeding.
 
-    The **single most differentiating P0** pattern — compositional over
+    The **single most differentiating P0** pattern. compositional over
     source/sink sets, which AgentSpec, Guardrails AI, and NeMo cannot
     express.
 
@@ -979,7 +979,7 @@ def untrusted_source_gate(
         desc: Optional human-readable description.
 
     Returns:
-        A tuple of ``(assumption_formula, enforcement_formula)`` — both
+        A tuple of ``(assumption_formula, enforcement_formula)``. both
         ``DetFormula``. Use with ``Contract(assumption=..., guarantee=...)``.
     """
     if not sources:
@@ -1001,7 +1001,7 @@ def untrusted_source_gate(
         raise ValueError(
             f"untrusted_source_gate: sources and sinks overlap on {sorted(overlap)!r}. "
             "A tool listed as both 'tainted input' and 'sensitive output' makes "
-            "the gate self-triggering — every call becomes its own unconfirmed sink."
+            "the gate self-triggering. every call becomes its own unconfirmed sink."
         )
     # Assumption: any source has been called
     if len(sources) == 1:
@@ -1050,7 +1050,7 @@ def required_steps_completion(
 ) -> DetFormula:
     """Every trigger must eventually be followed by ALL required steps.
 
-    A liveness checklist — the trigger-side agent's guarantee becomes
+    A liveness checklist. the trigger-side agent's guarantee becomes
     the next agent's assumption in assume-guarantee composition.
 
     Covers: **MAST premature-termination** (6.2% of observed failures).
@@ -1081,7 +1081,7 @@ def required_steps_completion(
         if r == trigger:
             raise ValueError(
                 f"required_steps_completion: trigger {trigger!r} cannot also "
-                "appear in required_set — the trigger would be its own "
+                "appear in required_set. the trigger would be its own "
                 "follow-up, making the constraint trivially satisfied."
             )
         if r in seen:
@@ -1116,7 +1116,7 @@ def loop_detection(action: str, max_consecutive: int, desc: str = "") -> DetForm
 
     Covers: Runaway agent failure class.
 
-    Uses the ``consecutive_count(tool)`` atom — a grounding-level
+    Uses the ``consecutive_count(tool)`` atom. a grounding-level
     accumulator that increments on each consecutive call to the same
     tool and resets to 0 when a different tool is called.
 
@@ -1144,7 +1144,7 @@ def loop_detection(action: str, max_consecutive: int, desc: str = "") -> DetForm
 
 
 # ---------------------------------------------------------------------------
-# Workflow hygiene patterns — no new atoms required
+# Workflow hygiene patterns. no new atoms required
 # ---------------------------------------------------------------------------
 
 
@@ -1291,7 +1291,7 @@ def tool_allowlist(allowed_tools: list[str], desc: str = "") -> DetFormula:
     """Only tools in the allowlist may be called.
 
     First-line defense against prompt-injection-introduced tool
-    invocations — if a malicious prompt tricks the agent into calling
+    invocations. if a malicious prompt tricks the agent into calling
     an unexpected tool, the guard blocks it.
 
     Covers: **ASI04** (supply chain vulnerabilities).
@@ -1319,7 +1319,7 @@ def tool_allowlist(allowed_tools: list[str], desc: str = "") -> DetFormula:
     # Build the rule shape: at every timestep where SOME tool fires
     # (``called_any``), the call must be one of the allowed tools.
     # Using a guarded implication rather than a bare disjunction is
-    # essential — the bare ``G(∨ called(tᵢ))`` form is FALSE at the
+    # essential. the bare ``G(∨ called(tᵢ))`` form is FALSE at the
     # initial / non-tool timestep where no called(tᵢ) is true,
     # which made the rule self-violate before any call ever fired.
     # See cross_language ``tool_allowlist__empty_trace_satisfied``.
@@ -1354,7 +1354,7 @@ def redirect_to_safe(
 ) -> DetFormula:
     """Substitute a forbidden tool call with a pre-approved safe one.
 
-    Compiles to ``G(Not(called(unsafe)))`` — any call to ``unsafe`` is
+    Compiles to ``G(Not(called(unsafe)))``. any call to ``unsafe`` is
     a violation. The bundled ``RedirectToSafe`` strategy turns that
     violation into a ``redirected`` outcome carrying ``safe`` as the
     fallback tool name; adapters then invoke ``safe`` in place of the
@@ -1368,7 +1368,7 @@ def redirect_to_safe(
 
     Without an assumption, every call to ``unsafe`` is redirected. The
     user must register both tools with the integration framework
-    — Sponsio does NOT synthesize tools. For a clean model experience,
+   . Sponsio does NOT synthesize tools. For a clean model experience,
     ``safe`` should accept the same arguments as ``unsafe`` (or the
     adapter must coerce them).
 
@@ -1563,7 +1563,7 @@ def confirm_after_source(
         desc: Optional human-readable description.
 
     Returns:
-        Tuple of ``(assumption, enforcement)`` — both ``DetFormula``.
+        Tuple of ``(assumption, enforcement)``. both ``DetFormula``.
     """
     _ensure_distinct(
         source, action, pattern="confirm_after_source", arg_a="source", arg_b="action"
@@ -1588,7 +1588,7 @@ def confirm_after_source(
 
 
 # ---------------------------------------------------------------------------
-# Layer 2 — Atom extensions (new accumulators in grounding)
+# Layer 2. Atom extensions (new accumulators in grounding)
 # ---------------------------------------------------------------------------
 
 
@@ -1598,7 +1598,7 @@ def token_budget(max_tokens: int, scope: str = "total", desc: str = "") -> DetFo
     Covers: **ASI08** (cascading failures via token exhaustion),
     runaway agent class.
 
-    New atom: ``token_count(type)`` — int accumulator extracted from
+    New atom: ``token_count(type)``. int accumulator extracted from
     ``event.args["tokens"]`` (OTEL ``gen_ai.usage.*`` span attributes).
 
     Compiles to::
@@ -1632,7 +1632,7 @@ def arg_value_range(
 ) -> DetFormula:
     """Constrain a numeric argument to a value range.
 
-    Uses the ``arg_numeric(tool, field)`` atom — a grounding-level
+    Uses the ``arg_numeric(tool, field)`` atom. a grounding-level
     extractor that pulls numeric values from tool arguments via three
     strategies: dict key lookup, CLI ``--field VALUE`` flag, or
     positional token index.
@@ -1688,9 +1688,9 @@ def arg_value_range(
 
 
 # ---------------------------------------------------------------------------
-# Layer 3 — Response content constraints (migrated from sto_catalog in P2).
+# Layer 3. Response content constraints (migrated from sto_catalog in P2).
 #
-# These were previously sto evaluators but don't need LLM judging — they
+# These were previously sto evaluators but don't need LLM judging. they
 # are precisely computable against llm_response events. Ship-as-det gives
 # them clean A/G composition and the fast LTL path.
 # ---------------------------------------------------------------------------
@@ -1752,7 +1752,7 @@ def max_length(
     )
 
 
-# Default PII regex patterns — reuse sto_catalog's regex set for parity.
+# Default PII regex patterns. reuse sto_catalog's regex set for parity.
 _DEFAULT_PII_PATTERNS: dict[str, str] = {
     "ssn": r"\b\d{3}-\d{2}-\d{4}\b",
     "credit_card": r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b",
@@ -1764,11 +1764,11 @@ _DEFAULT_PII_PATTERNS: dict[str, str] = {
 def no_pii(fields: list[str] | None = None, desc: str = "") -> DetFormula:
     """Response must not contain regex-detectable PII (SSN, CC, email, phone).
 
-    Uses the ``llm_said`` grounding atom — patterns are compiled into a
+    Uses the ``llm_said`` grounding atom. patterns are compiled into a
     single alternation regex checked against each ``llm_response`` event.
 
     For semantic PII detection (names, contextual identifiers), use a
-    sto atom with an LLM judge — this pattern only covers syntactic PII.
+    sto atom with an LLM judge. this pattern only covers syntactic PII.
 
     Args:
         fields: Subset of ``{"ssn", "credit_card", "email", "phone"}``.
@@ -1831,7 +1831,7 @@ def delegation_depth_limit(max_depth: int, desc: str = "") -> DetFormula:
     Covers: **ASI07** (inter-agent communication safety, recursive
     delegation).
 
-    New atom: ``delegation_depth()`` — int accumulator maintained by
+    New atom: ``delegation_depth()``. int accumulator maintained by
     the ``flow`` grounding layer, incremented on each ``message``
     event.
 
@@ -1856,7 +1856,7 @@ def delegation_depth_limit(max_depth: int, desc: str = "") -> DetFormula:
 
 
 # ---------------------------------------------------------------------------
-# Layer 3 — External-fact (ctx) patterns
+# Layer 3. External-fact (ctx) patterns
 #
 # Bridge Sponsio to the host stack's identity, provenance, and trust
 # systems. The raw plumbing is ``guard.observe_context({k: v, ...})``
@@ -1868,7 +1868,7 @@ def delegation_depth_limit(max_depth: int, desc: str = "") -> DetFormula:
 # Covers the runtime half of **ASI-03** (identity), **ASI-06** (memory
 # poisoning via content-source gating), and **ASI-07** (inter-agent
 # comm via msg_verified gating). Users supply their own key convention
-# — Sponsio doesn't hard-code "caller_id" vs "source" vs "msg_sender"
+#. Sponsio doesn't hard-code "caller_id" vs "source" vs "msg_sender"
 # because each team has their own tagging scheme.
 # ---------------------------------------------------------------------------
 
@@ -1919,14 +1919,14 @@ def ctx_required(
     Raises:
         ValueError: If ``allowed_values`` is empty (an empty allowlist
             would reject every call to ``tool``, almost certainly a
-            user error — surface it at construction time instead of
+            user error. surface it at construction time instead of
             letting every call fail silently at runtime).
     """
     _ensure_non_empty(tool, pattern="ctx_required", arg="tool")
     _ensure_non_empty(key, pattern="ctx_required", arg="key")
     if not allowed_values:
         raise ValueError(
-            "ctx_required: 'allowed_values' must not be empty — an empty "
+            "ctx_required: 'allowed_values' must not be empty. an empty "
             "allowlist rejects every call to the tool. Use "
             "`tool_allowlist([])` if you really want to block everything, "
             "or pass at least one permitted value here."
@@ -1961,7 +1961,7 @@ def ctx_matches_required(
     set is better expressed as a pattern (e.g. ``spiffe://prod/.*``,
     ``^canonical:/v[0-9]+$``) than an exhaustive list.
 
-    Covers: same ASI slice as ``ctx_required`` — identity / content-
+    Covers: same ASI slice as ``ctx_required``. identity / content-
     source / signed-message gating where the valid value set is open-
     ended.
 
@@ -2002,7 +2002,7 @@ def ctx_matches_required(
 
 
 # ---------------------------------------------------------------------------
-# Time-window patterns (event-clock — replay-deterministic)
+# Time-window patterns (event-clock. replay-deterministic)
 # ---------------------------------------------------------------------------
 #
 # These compose around the ``time_since(predicate_key)`` numeric atom
@@ -2014,7 +2014,7 @@ def ctx_matches_required(
 # ``collect_content_atoms`` over ``"time_since"`` Var nodes).
 #
 # Sentinel: when ``P`` was never emitted, grounding returns ``1e18``
-# rather than ``0`` so ``Le(time_since(P), N)`` evaluates False —
+# rather than ``0`` so ``Le(time_since(P), N)`` evaluates False.
 # "never happened" is "very long ago", not "just now". This is the
 # semantic trap the dedicated derived atom exists to avoid; do not
 # expose ``last_ts`` directly.
@@ -2030,7 +2030,7 @@ def time_since(
         G(time_since(predicate_key) ≤ max_seconds)
 
     Pair this with another temporal pattern via ``&`` to gate an
-    action on a recent occurrence — e.g. an approval that's still
+    action on a recent occurrence. e.g. an approval that's still
     fresh::
 
         # "refund only allowed within 1h of an active senior_eng approval"
@@ -2041,7 +2041,7 @@ def time_since(
 
     The ``predicate_key`` argument is the *grounded* key string
     (``"called(refund)"``, ``"ctx(approval.role, alice)"``, ``"flow(rag,
-    answer)"``) — i.e. what ``Atom.key()`` would produce for the
+    answer)"``). i.e. what ``Atom.key()`` would produce for the
     predicate you want to time. We require the explicit string rather
     than an Atom because ``time_since`` covers the union of every atom
     family (called / ctx / flow / contains / segment / …) and we don't
@@ -2052,7 +2052,7 @@ def time_since(
             or ``pred_key(...)`` to build it if unsure.
         max_seconds: Maximum allowed delta (event-clock seconds). Use
             integer ts if the integration is ticking events with a
-            logical clock — the comparison is unitless.
+            logical clock. the comparison is unitless.
         desc: Optional human-readable description.
 
     Returns:
@@ -2095,7 +2095,7 @@ def approval_active(
     via ``observe_context`` and the contract checks both the static
     facts and the recency. ``max_seconds`` measures event-clock time
     since the approval was last refreshed (the predicate key timed is
-    ``"ctx(approval.role, <role>)"`` — that key gets re-emitted each
+    ``"ctx(approval.role, <role>)"``. that key gets re-emitted each
     event the role is current, so its ``last_ts`` advances naturally
     while the approval stays in context).
 

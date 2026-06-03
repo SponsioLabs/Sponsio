@@ -1,9 +1,9 @@
-"""Sponsio — the contract layer for LLM agent systems.
+"""Sponsio. the contract layer for LLM agent systems.
 
 The main entry point is the framework-specific factory function
 ``Sponsio()``. Pick the import that matches your stack:
 
-**Quick start (LangGraph) — fluent contract builder:**
+**Quick start (LangGraph). fluent contract builder:**
 
     from langgraph.prebuilt import create_react_agent
 
@@ -13,11 +13,11 @@ The main entry point is the framework-specific factory function
     guard = Sponsio(
         agent_id="bot",
         contracts=[
-            # Conditional (A, G) pair — assumption triggers the enforcement
+            # Conditional (A, G) pair. assumption triggers the enforcement
             contract("policy gate before refund")
                 .assume("called `issue_refund`")
                 .guarantees("must call `check_policy` before `issue_refund`"),
-            # Unconditional rule — no .assume(), only .guarantees()
+            # Unconditional rule. no .assume(), only .guarantees()
             contract("refund rate limit")
                 .guarantees("tool `issue_refund` at most 1 times"),
         ],
@@ -64,7 +64,10 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from sponsio.config import ToolPolicySection
 
 from sponsio.constants import (
     DASHBOARD_DEFAULT_HOST,
@@ -92,7 +95,7 @@ def _coerce_dashboard_env(value: str) -> str | bool | None:
 
 
 # ---------------------------------------------------------------------------
-# Framework registry — maps framework name to (module_path, class_name)
+# Framework registry. maps framework name to (module_path, class_name)
 # ---------------------------------------------------------------------------
 
 _FRAMEWORK_REGISTRY: dict[str, tuple[str, str]] = {
@@ -191,7 +194,7 @@ def _start_dashboard() -> str:
             _dashboard_started = True
             _dashboard_url = base
             print(
-                f"[sponsio] dashboard API already up at {base} — reusing (no second server).",
+                f"[sponsio] dashboard API already up at {base}. reusing (no second server).",
                 file=sys.stderr,
             )
             return base
@@ -226,7 +229,7 @@ def _start_dashboard() -> str:
         # neither uvicorn nor any later guard import needs the path on the
         # search list. Leaving it permanently inserted lets a process that
         # later instantiates a guard from a different repo accumulate
-        # path entries — and worst-case shadow stdlib modules if the repo
+        # path entries. and worst-case shadow stdlib modules if the repo
         # happens to contain a same-named directory.
         root_str = str(repo_root)
         path_added = root_str not in sys.path
@@ -269,7 +272,7 @@ def _start_dashboard() -> str:
 # ---------------------------------------------------------------------------
 
 
-def Sponsio(  # noqa: N802 — branded factory function
+def Sponsio(  # noqa: N802 (branded factory function)
     framework: str | None = None,
     agent_id: str = "agent",
     config: str | None = None,
@@ -280,7 +283,7 @@ def Sponsio(  # noqa: N802 — branded factory function
     otel_exporter: Any | None = None,
     mode: str | None = None,
     sto_judge: Any | None = None,
-    tool_policy: dict[str, Any] | Any | None = None,
+    tool_policy: dict[str, Any] | ToolPolicySection | None = None,
     **kwargs: Any,
 ) -> BaseGuard:
     """Create a Sponsio guard for a given framework.
@@ -304,7 +307,7 @@ def Sponsio(  # noqa: N802 — branded factory function
             - a bare NL string (unconditional shortcut), e.g.
               ``"tool `issue_refund` at most 1 times"``
             - a :class:`~sponsio.contract.ContractBuilder` from
-              :func:`sponsio.contract` — recommended for any (A, G) pair
+              :func:`sponsio.contract`. recommended for any (A, G) pair
             - a dict with ``assumption`` (optional) + ``enforcement``
               (legacy form, still supported)
 
@@ -358,7 +361,7 @@ def Sponsio(  # noqa: N802 — branded factory function
 
     # --- Load YAML early so its ``runtime:`` section can feed
     # mode/dashboard resolution below.  We do NOT build the guard from
-    # the parsed config yet — that still happens in the ``config
+    # the parsed config yet. that still happens in the ``config
     # is not None`` branch further down.
     parsed = None
     if config is not None:
@@ -396,7 +399,7 @@ def Sponsio(  # noqa: N802 — branded factory function
     # what changes is the *fallback* when neither arg nor env is set.
     #
     # Yaml lookup order: ``runtime.mode`` first (typed section, parsed
-    # by :func:`_parse_runtime_section`), then ``defaults.mode`` —
+    # by :func:`_parse_runtime_section`), then ``defaults.mode``.
     # which is what ``sponsio onboard`` / ``sponsio init`` actually
     # write today.  Without the second branch, flipping ``defaults.mode:
     # observe → enforce`` was a silent no-op (the canonical onboard
@@ -428,7 +431,7 @@ def Sponsio(  # noqa: N802 — branded factory function
     if parsed is not None:
         # When the requested agent_id isn't in the config, but the
         # config only has one agent block, fall back to that single
-        # agent — it's unambiguous and saves the user from having to
+        # agent. it's unambiguous and saves the user from having to
         # keep `--agent <name>` on every onboard / Sponsio() call line
         # in sync with the demo's hardcoded id.  Multi-agent configs
         # still require an explicit pick (no good default).
@@ -439,7 +442,7 @@ def Sponsio(  # noqa: N802 — branded factory function
                 # for a non-default name (likely a typo or a stale
                 # agent_id) so they notice if the wrong agent's rules
                 # got applied.  The default "agent" sentinel doesn't
-                # warn — that's the auto-infer path that's been
+                # warn. that's the auto-infer path that's been
                 # silent forever.
                 if agent_id != "agent":
                     import warnings
@@ -475,7 +478,7 @@ def Sponsio(  # noqa: N802 — branded factory function
         # Forward the yaml's ``tool_policy:`` block so adapters'
         # ``wrap()`` see the ``enforcement:`` knob. An explicit
         # ``tool_policy=`` kwarg still wins via the ``kwargs.update``
-        # below — same precedence as ``mode`` (kwarg > yaml > default).
+        # below. same precedence as ``mode`` (kwarg > yaml > default).
         cfg_kwargs["tool_policy"] = parsed.tool_policy
         cfg_kwargs.update(kwargs)
 

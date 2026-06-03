@@ -1,4 +1,4 @@
-"""OpenAI Agents SDK integration — enforce contracts on function tools.
+"""OpenAI Agents SDK integration. enforce contracts on function tools.
 
 Wraps ``@function_tool`` decorated tools with contract enforcement,
 using the SDK's native tool execution flow.
@@ -16,7 +16,7 @@ Usage::
             .guarantees("tool `issue_refund` at most 1 times"),
     ])
 
-    # Wrap tools — contract enforcement is transparent
+    # Wrap tools. contract enforcement is transparent
     agent = Agent(
         name="support_bot",
         tools=guard.wrap([check_policy, issue_refund]),
@@ -183,14 +183,17 @@ class AgentsSDKGuard(BaseGuard):
         Returns:
             List of wrapped tools with contract enforcement.
         """
-        # v0.2 enforcement: proactive — strip denied tools at wrap
+        # v0.2 enforcement: proactive: strip denied tools at wrap
         # time before the Agents SDK ever binds them. Mirrors the
         # name-extraction in ``wrap_tool`` so the same tool object
-        # reports the same name in both paths.
+        # reports the same name in both paths. Empty fallback so a
+        # nameless tool never accidentally matches an approved entry
+        # (``str(t)`` would render to ``<function foo at 0x...>``,
+        # never useful for matching but also never empty, which felt
+        # inconsistent across adapters).
         tools = self._proactive_filter_tools(
             list(tools),
-            name_fn=lambda t: getattr(t, "name", None)
-            or getattr(t, "__name__", str(t)),
+            name_fn=lambda t: getattr(t, "name", None) or getattr(t, "__name__", ""),
         )
         return [self.wrap_tool(t) for t in tools]
 

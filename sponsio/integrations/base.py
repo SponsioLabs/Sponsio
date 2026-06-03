@@ -1,4 +1,4 @@
-"""BaseGuard — unified parent class for all framework integrations.
+"""BaseGuard. unified parent class for all framework integrations.
 
 Every framework adapter (LangGraph, MCP, CrewAI, etc.) inherits from
 BaseGuard. The base class owns all contract logic:
@@ -52,7 +52,7 @@ _VALID_MODES = ("enforce", "observe")
 
 # Strip the noisy prefix that runtime/strategies.py prepends to each
 # violation message. The ``→ BLOCKED`` suffix we add in print_summary
-# already carries the action, so repeating "BLOCKED: agent.tool —" at
+# already carries the action, so repeating "BLOCKED: agent.tool." at
 # the front just doubles the signal. Observe mode wraps the same
 # string in "OBSERVED (would blocked): ..." which made the suffix
 # three-deep. One regex handles all three shapes.
@@ -77,11 +77,11 @@ def _shorten_violation_msg(msg: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# PII auto-tagging — lightweight regex detectors used by ``tag_pii=True``.
+# PII auto-tagging. lightweight regex detectors used by ``tag_pii=True``.
 # These are intentionally conservative; false positives would pollute the
 # trace with spurious ``contains(pii)`` predicates.  Each entry maps a
 # ``contains`` tag name to the regex that must match anywhere in the
-# stringified tool output.  The tag ``pii`` is a generic superset — it
+# stringified tool output.  The tag ``pii`` is a generic superset. it
 # fires whenever any of the specific classes matches, so users can
 # write ``no_data_leak(pii, external)`` without enumerating every class.
 # ---------------------------------------------------------------------------
@@ -96,22 +96,22 @@ def _shorten_violation_msg(msg: str) -> str:
 _MAX_PII_SCAN_CHARS = 100 * 1024
 
 _PII_DETECTORS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    # US Social Security Number — strict 3-2-4 digit shape with
+    # US Social Security Number. strict 3-2-4 digit shape with
     # separators so ordinary 9-digit numbers (order IDs, timestamps)
     # don't false-positive.
     ("ssn", re.compile(r"\b\d{3}-\d{2}-\d{4}\b")),
-    # Credit card — 13-19 digits with optional spaces/dashes every
+    # Credit card. 13-19 digits with optional spaces/dashes every
     # 4 digits.  No Luhn check (runtime cost), regex is narrow enough.
     (
         "credit_card",
         re.compile(r"\b(?:\d[ -]?){12,18}\d\b"),
     ),
-    # Email — the common RFC-lite pattern, case-insensitive.
+    # Email. the common RFC-lite pattern, case-insensitive.
     (
         "email",
         re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b", re.IGNORECASE),
     ),
-    # E.164 / North American phone numbers — deliberately strict: must
+    # E.164 / North American phone numbers. deliberately strict: must
     # start with ``+`` or ``(`` or a country code.  Avoids matching
     # every 10-digit integer.
     (
@@ -120,7 +120,7 @@ _PII_DETECTORS: tuple[tuple[str, re.Pattern[str]], ...] = (
             r"(?:\+\d{1,3}[\s-]?)?(?:\(\d{3}\)\s?|\d{3}[\s-])\d{3}[\s-]?\d{4}\b"
         ),
     ),
-    # API keys / secrets — ``sk-``, ``ghp_``, ``AKIA`` prefixes are
+    # API keys / secrets. ``sk-``, ``ghp_``, ``AKIA`` prefixes are
     # distinctive enough to be reliable.
     (
         "secret",
@@ -137,7 +137,7 @@ def _detect_pii_classes(output: Any) -> list[str]:
     Always includes the generic ``pii`` tag when anything matched, so
     users can write ``no_data_leak(pii, external)`` without enumerating
     every specific class.  Returns an empty list on type errors or
-    empty input — never raises.
+    empty input. never raises.
     """
     try:
         text = output if isinstance(output, str) else str(output)
@@ -182,14 +182,14 @@ def _resolve_mode(mode: str | None) -> str:
 # Vercel AI / Claude Agent / Google ADK) wrote its own phrasing for the sto
 # retry-feedback message, and LangGraph additionally *raised* while the
 # others returned feedback inline. The behavioural split is the serious
-# part — raising aborts the agent loop; returning inline lets the model
+# part. raising aborts the agent loop; returning inline lets the model
 # self-correct on the next turn, which is the documented sto retry
 # strategy. The wording split is just annoying (QA grepping for
 # "quality check failed" used to miss half the frameworks).
 #
 # Both concerns are fixed here, in one place, by:
 #
-# * ``format_sto_retry_message`` — the canonical message every adapter
+# * ``format_sto_retry_message``. the canonical message every adapter
 #   should hand back to the model when ``needs_retry and feedback``.
 # * A documented contract (see ``BaseGuard.guard_after``) that sto
 #   violations MUST be surfaced to the model via the adapter's normal
@@ -209,13 +209,13 @@ def select_agent_message(
     because ``agent_msg`` is tuned per ``action`` to nudge the LLM
     toward the right reaction (block → abandon, retry → regenerate,
     escalate → wait). Falls back to ``message`` when ``agent_msg`` is
-    empty — covers strategies that haven't migrated to the builder
+    empty. covers strategies that haven't migrated to the builder
     yet, plus ad-hoc EnforcementResult constructions in test code.
 
     The legacy ``message`` field intentionally retains the
-    ``"BLOCKED: agent.tool — det constraint violated: …"`` prefix
+    ``"BLOCKED: agent.tool. det constraint violated: …"`` prefix
     for log-parsing back-compat. We don't want that prefix injected
-    into the LLM's next prompt — that's exactly the reason
+    into the LLM's next prompt. that's exactly the reason
     ``agent_msg`` exists. Integrations call this helper to surface
     the agent-facing line, and reach for ``message`` only when
     writing to logs / dashboards.
@@ -247,7 +247,7 @@ def format_sto_retry_message(feedback: str, original: Any) -> str:
     / CrewAI / Claude Agent / Vercel AI / Google ADK logs, and a future
     change to the template fans out to every integration in one commit.
 
-    The format is deliberately plain text — no JSON, no XML tags — so
+    The format is deliberately plain text. no JSON, no XML tags. so
     that agents in every framework treat it as a regular tool result
     and the self-correct loop triggers without any special schema
     handling on the model side.
@@ -279,7 +279,7 @@ class CheckResult:
             blocks; populated with the safe tool name when redirect
             fired. Adapters consume this to substitute the original
             ``unsafe`` call with ``safe`` transparently. Only the
-            first redirect outcome surfaces here when multiple fire —
+            first redirect outcome surfaces here when multiple fire.
             adapters should treat it as the canonical substitution
             target; chained redirects aren't supported.
     """
@@ -345,7 +345,7 @@ def _format_sto_feedback(
                 suggestion=result.suggestion,
             )
         except (KeyError, IndexError):
-            # Bad template — fall through to the generic phrasing
+            # Bad template. fall through to the generic phrasing
             # rather than crashing the retry path on a formatting error.
             pass
     return (
@@ -381,7 +381,7 @@ def _discover_sto_evaluator() -> StoEvaluator | None:
     log = _logging.getLogger(__name__)
     try:
         eps = _md.entry_points(group="sponsio.evaluators")
-    except Exception as e:  # pragma: no cover — defensive
+    except Exception as e:  # pragma: no cover. defensive
         log.debug("sto evaluator discovery: entry_points lookup failed: %s", e)
         return None
 
@@ -397,7 +397,7 @@ def _discover_sto_evaluator() -> StoEvaluator | None:
         try:
             cls = ep.load()
             return cls()  # type: ignore[no-any-return]
-        except Exception as e:  # pragma: no cover — third-party defensive
+        except Exception as e:  # pragma: no cover. third-party defensive
             log.debug("sto evaluator discovery: failed to load %r: %s", ep.name, e)
             continue
     return None
@@ -414,9 +414,9 @@ class BaseGuard:
     Owns the full contract lifecycle:
         1. Parse NL contracts → LTL formulas
         2. Build System + RuntimeMonitor
-        3. guard_before()  — det constraints, before tool execution
-        4. guard_after()   — sto constraints, after tool execution
-        5. refine()     — generate feedback for sto retry
+        3. guard_before() . det constraints, before tool execution
+        4. guard_after()  . sto constraints, after tool execution
+        5. refine()    . generate feedback for sto retry
         6. Trace management (rollback on block, reset between sessions)
 
     Subclasses override the framework-specific interception point
@@ -426,17 +426,17 @@ class BaseGuard:
         agent_id: Logical agent identifier for trace/monitor.
         contracts: List of contract entries. Each entry is one of:
 
-            - **Dict** — ``{"assumption": <scalar|list|None>, "guarantee": <scalar|list>}``.
+            - **Dict**. ``{"assumption": <scalar|list|None>, "guarantee": <scalar|list>}``.
               ``assumption`` is optional (``None`` = unconditional). Lists
               are AND-combined. Becomes one :class:`Contract`.
-            - **ContractBuilder** — fluent ``contract(...).assume(...).guarantees(...)``
+            - **ContractBuilder**. fluent ``contract(...).assume(...).guarantees(...)``
               values are normalized through ``to_dict()``.
-            - **NL string** — shortcut for an unconditional contract
+            - **NL string**. shortcut for an unconditional contract
               (``assumption=None``, ``guarantee=<string>``).
-            - **Pre-built** :class:`Contract` — passed through as-is.
+            - **Pre-built** :class:`Contract`. passed through as-is.
 
             Each entry becomes one independent ``Contract`` whose
-            enforcement is gated only on its own assumption — assumptions
+            enforcement is gated only on its own assumption. assumptions
             never cross contracts.
         system: Pre-built System (alternative to the above).
         policy: Per-constraint enforcement strategy overrides.
@@ -572,20 +572,30 @@ class BaseGuard:
         # framework-specific guard classes (``LangGraphGuard(...)``),
         # and yaml-driven builds. The contract is prepended to the
         # user's ``contracts`` list so the deny check fires first.
-        # Idempotency: ``config_to_guard_kwargs`` already prepends the
-        # same contract for yaml builds, so we skip when an
-        # equivalent contract is already present (matched by desc).
+        #
+        # Idempotency: yaml builds used to prepend the same contract
+        # inside ``config_to_guard_kwargs``. That path was removed so
+        # synthesis now happens here exactly once. We still defend
+        # against an already-prepended entry by looking for a
+        # ``tool_allowlist`` formula with a matching approved set,
+        # so a manual ``BaseGuard(contracts=[{'guarantee': tool_allowlist
+        # (...), ...}], tool_policy={...})`` call does not double up.
         from sponsio.config import _synthesize_tool_policy_contract
 
         policy_contract = _synthesize_tool_policy_contract(self._tool_policy)
         if policy_contract is not None:
-            existing_descs = set()
+            already_present = False
+            target_args = (tuple(self._tool_policy.approved),)
             for entry in contracts or []:
-                if isinstance(entry, dict):
-                    d = entry.get("desc")
-                    if d:
-                        existing_descs.add(d)
-            if policy_contract["desc"] not in existing_descs:
+                if not isinstance(entry, dict):
+                    continue
+                guarantee = entry.get("guarantee")
+                if getattr(guarantee, "pattern_name", None) != "tool_allowlist":
+                    continue
+                if getattr(guarantee, "args", None) == target_args:
+                    already_present = True
+                    break
+            if not already_present:
                 contracts = [policy_contract, *(contracts or [])]
 
         # --- Build system from contracts ---
@@ -685,7 +695,7 @@ class BaseGuard:
                         # ``redirect_to_safe`` ships a
                         # ``RedirectToSafe``). Falling through to
                         # ``DetBlock`` here would silently override the
-                        # pattern's intent — the user wrote
+                        # pattern's intent. the user wrote
                         # ``redirect_to_safe(unsafe, safe)`` for a
                         # reason. Explicit ``policy={...}`` from the
                         # constructor still wins because that branch
@@ -724,7 +734,7 @@ class BaseGuard:
 
         # --- Contract banner + terminal reporter ---
         # Print the contract banner at init so users can visually
-        # confirm Sponsio is loaded and which rules are active — even
+        # confirm Sponsio is loaded and which rules are active. even
         # with verbose=False, which otherwise looks identical to "no
         # Sponsio at all". Only the per-event reporter is gated by
         # verbose. Callers that render a richer end-of-session view
@@ -761,7 +771,7 @@ class BaseGuard:
                 )
                 self._monitor.register_callback(self._session_logger)
             except Exception as exc:
-                # Logging must never break the agent — surface a hint
+                # Logging must never break the agent. surface a hint
                 # to stderr and continue.
                 print(
                     f"[sponsio] session logger disabled: {exc}",
@@ -780,7 +790,7 @@ class BaseGuard:
         self._summary_printed: bool = False
         # Set when print_summary() dispatched to the Rich session-view
         # renderer (which already includes a perf line). Used by
-        # _auto_perf_report to skip the legacy perf table — the export
+        # _auto_perf_report to skip the legacy perf table. the export
         # + slow-DFA warning still run independently.
         self._rich_view_printed: bool = False
         self._auto_summary: bool = auto_summary
@@ -844,7 +854,7 @@ class BaseGuard:
                 raise ValueError(f"Contract entry missing 'guarantee': {entry!r}")
             a_raw = entry.get("assumption")
             desc = entry.get("desc")
-            # R1 alpha/beta threading — read from dict entry (defaults
+            # R1 alpha/beta threading. read from dict entry (defaults
             # preserve existing det semantics).
             alpha = float(entry.get("alpha", 1.0))
             beta = float(entry.get("beta", 1.0))
@@ -940,14 +950,14 @@ class BaseGuard:
 
         * non-``http(s)://`` schemes
         * missing or empty hostnames
-        * cloud-metadata endpoints (AWS/GCE/Azure IMDS) — these can
+        * cloud-metadata endpoints (AWS/GCE/Azure IMDS). these can
           leak short-lived cloud creds and have no legitimate dashboard
           use case.
 
         Soft warns (does not raise) for loopback / private / link-local
         IP literals. Local addresses are common in dev workflows
         (``http://localhost:9999`` is the default dev dashboard) so we
-        don't reject them — but we surface a one-shot ``UserWarning``
+        don't reject them. but we surface a one-shot ``UserWarning``
         so an operator who mistakenly leaves ``http://10.0.0.5/...`` in
         a prod config gets a visible signal. Set
         ``SPONSIO_STRICT_DASHBOARD_URL=1`` to escalate the warning to
@@ -1100,7 +1110,7 @@ class BaseGuard:
         Args:
             target_dir: Directory to write into.  Created if missing.
             label: One of ``"safe"`` / ``"unsafe"`` (mandatory file
-                prefix — the eval runner reads labels from filenames,
+                prefix. the eval runner reads labels from filenames,
                 not content).  Use ``"safe"`` for nominal runs,
                 ``"unsafe"`` when you caught an incident you want
                 contracts to block going forward.
@@ -1115,7 +1125,7 @@ class BaseGuard:
 
         if label not in ("safe", "unsafe"):
             raise ValueError(
-                f"label must be 'safe' or 'unsafe' (got {label!r}) — "
+                f"label must be 'safe' or 'unsafe' (got {label!r}). "
                 "other values would silently fall out of eval's "
                 "confusion-matrix calculation"
             )
@@ -1148,18 +1158,18 @@ class BaseGuard:
 
         Returns a JSON-serialisable dict with three bucketed views:
 
-        * ``pure_det``   — contracts that provably never touch an LLM
+        * ``pure_det``  . contracts that provably never touch an LLM
           (the pure-DFA fast path).  This is the bucket that makes
           the "sub-microsecond checks" story quantifiable.
-        * ``sto_cached`` — sto contracts whose answer came from the
+        * ``sto_cached``. sto contracts whose answer came from the
           per-atom memo this check.  Still no LLM call, just a lookup.
-        * ``sto_live``   — sto contracts that actually invoked the
+        * ``sto_live``  . sto contracts that actually invoked the
           judge.  One of these per new claim; expect ms-range.
 
         Plus ``zero_llm_ratio`` = fraction of all checks that were
         either ``pure_det`` or ``sto_cached``.  On a typical session
         where a contract is hit many times after its first sto eval
-        caches, this number trends toward 1.0 — which is the single
+        caches, this number trends toward 1.0. which is the single
         most useful number to show alongside "p99 = Xμs".
 
         Returns:
@@ -1173,7 +1183,7 @@ class BaseGuard:
     def print_performance(self, *, color: bool | None = None) -> None:
         """Pretty-print the performance summary to stdout.
 
-        Convenience over ``print(guard.performance_stats())`` — uses
+        Convenience over ``print(guard.performance_stats())``. uses
         the human-readable table renderer from
         :mod:`sponsio.runtime.perf`, auto-detects TTY for colour
         unless ``color`` is explicitly set.
@@ -1246,7 +1256,7 @@ class BaseGuard:
             # because the default unfired-assumption verdict produces
             # an escalated result that does NOT actually prevent the
             # call from running.
-            # Observe mode never rolls back — the whole point is to
+            # Observe mode never rolls back. the whole point is to
             # show users the trace their agent would have produced.
             should_rollback = result.blocked or (
                 self._mode != "observe" and result.redirected
@@ -1291,7 +1301,7 @@ class BaseGuard:
         Applies only the ``tool_policy.approved`` static allowlist when
         ``tool_policy.enforcement == "proactive"`` and
         ``tool_policy.default == "deny"``. Other contracts (temporal,
-        count, arg-level) are NOT consulted here — they keep firing
+        count, arg-level) are NOT consulted here. they keep firing
         reactively via ``guard_before`` at call time. Doing otherwise
         would mean a ``must_precede(A, B)`` rule permanently filters B
         out of the menu (assumption A hasn't fired on the empty
@@ -1307,7 +1317,7 @@ class BaseGuard:
             tools: The framework-native tool objects the adapter is
                 about to bind to the agent.
             name_fn: Callable returning the tool name string for a
-                tool object — extraction is framework-specific
+                tool object. extraction is framework-specific
                 (``t.name`` for LangChain/CrewAI Tool objects,
                 ``t.__name__`` for plain callables, etc.).
 
@@ -1331,7 +1341,7 @@ class BaseGuard:
         fanout, no OTEL push, no perf samples, no observe-mode message
         wrapping. The trace ends in the same shape it started in.
 
-        This is the v0.2 ``enforcement: proactive`` primitive — call it
+        This is the v0.2 ``enforcement: proactive`` primitive. call it
         before each model turn to pre-filter the tool list the agent
         sees, so the agent never even *attempts* an unsafe call.
         Adapters (Claude Agent SDK ``allowed_tools``, OpenAI ``tools=``,
@@ -1394,12 +1404,12 @@ class BaseGuard:
             if self._sto_evaluator is None:
                 return CheckResult(allowed=True)
 
-            # Assumption gating — mirrors ``RuntimeMonitor._check_sto``
+            # Assumption gating. mirrors ``RuntimeMonitor._check_sto``
             # so that a sto constraint whose owning contract's det
             # *assumption* is currently unmet is skipped here too. Without
             # this, a `contract("on refund").guarantees(Atom("tone", ...))`
             # kept flagging retries on turns where no refund was ever
-            # mentioned — same behavioural bug `_check_sto` already guards
+            # mentioned. same behavioural bug `_check_sto` already guards
             # against but that `guard_after` didn't share. See #12
             # follow-up; the two paths must agree on what "active" means.
             self._monitor._verifier.set_agents(
@@ -1508,7 +1518,7 @@ class BaseGuard:
         Framework-specific subclasses override this to return the
         appropriate wrapped type (e.g. LangGraph ``ToolNode``, CrewAI
         ``Tool`` list). The base implementation returns tools unchanged
-        — use ``guard_before()`` / ``guard_after()`` manually.
+       . use ``guard_before()`` / ``guard_after()`` manually.
 
         Args:
             tools: List of tool objects or callables.
@@ -1524,7 +1534,7 @@ class BaseGuard:
         return self.wrap(*args, **kwargs)
 
     # -----------------------------------------------------------------
-    # Observation hooks — inject non-tool-call events into the trace
+    # Observation hooks. inject non-tool-call events into the trace
     # -----------------------------------------------------------------
     # These methods extend the observable surface beyond tool calls,
     # enabling atoms like llm_said, prompt_contains, output_has,
@@ -1532,7 +1542,7 @@ class BaseGuard:
     #
     # Integration adapters (LangGraph, MCP, etc.) should call these
     # from their framework-specific hooks. They do NOT run enforcement
-    # (no blocking / no strategies) — they just enrich the trace so
+    # (no blocking / no strategies). they just enrich the trace so
     # subsequent guard_before checks have richer grounding data.
 
     def observe_llm_call(
@@ -1547,7 +1557,7 @@ class BaseGuard:
 
         Enables atoms: ``prompt_contains``, ``llm_said``,
         ``token_count``, ``system_prompt_present``, ``context_length``,
-        and — as of R2 integration — any ``atom_type="sto"`` atom
+        and. as of R2 integration. any ``atom_type="sto"`` atom
         whose ``context_scope`` is ``"event"`` or ``"full_trace"``
         (e.g. ``injection_free``, ``scope_respect``, ``no_pii``).
 
@@ -1640,7 +1650,7 @@ class BaseGuard:
 
         This is separate from ``guard_after`` which runs the sto
         pipeline. ``observe_tool_output`` only enriches the trace
-        with content data — no enforcement, no strategies.
+        with content data. no enforcement, no strategies.
 
         Implementation note (pre-fix this method called
         ``check_action(event_type="tool_call")`` which (a) ran the full
@@ -1650,7 +1660,7 @@ class BaseGuard:
         ``tool X at most 1 times`` started double-counting the moment
         the operator enriched its output.  The correct shape is to
         attach the content to the *most recent* matching ``tool_call``
-        event and re-ground — that way ``output_has`` fires on the next
+        event and re-ground. that way ``output_has`` fires on the next
         check without corrupting call counts.
 
         Args:
@@ -1669,7 +1679,7 @@ class BaseGuard:
                 and ev.agent == self.agent_id
             ):
                 text = str(output)
-                # Concatenate if this tool was already enriched — users
+                # Concatenate if this tool was already enriched. users
                 # streaming chunked output (SSE, partial responses) call
                 # us repeatedly for the same tool_call.
                 ev.content = text if ev.content is None else (ev.content + text)
@@ -1678,14 +1688,14 @@ class BaseGuard:
                 # new text. ``TraceVerifier.sync`` is incremental and
                 # won't otherwise re-evaluate a past event; the cheapest
                 # way to punch through that cache is ``reset()``. This
-                # is not a hot path — enrichment is typically one call
+                # is not a hot path. enrichment is typically one call
                 # per tool per turn, and the next ``check_action`` will
                 # re-ground in O(|trace|) which is what we already pay
                 # on initial trace build.
                 self._monitor._verifier.reset()
                 return
 
-        # No prior tool_call — the user called this before the tool
+        # No prior tool_call. the user called this before the tool
         # actually ran (or for the wrong agent). Warn instead of
         # silently inventing an event with bogus call counts.
         import warnings
@@ -1725,7 +1735,7 @@ class BaseGuard:
         ``check_action``).  When ``tag_outputs`` is disabled, this is a
         no-op.  When ``tag_pii`` is set, the output is regex-scanned
         and every detected class is added to ``contains`` alongside
-        the tool name.  Swallows every exception — auto-tagging must
+        the tool name.  Swallows every exception. auto-tagging must
         never break the agent loop.
         """
         if not (self._tag_outputs and tool_name):
@@ -1788,13 +1798,13 @@ class BaseGuard:
             G(called(refund) → ctx_matches("approval.role", "senior_eng"))
             G(called(refund) → ctx_matches("approval.decision", "allow"))
 
-            # Time-bounded variant — pair with ``time_since`` pattern:
+            # Time-bounded variant. pair with ``time_since`` pattern:
             #   approval valid for 1h after the approver responded
             G(called(refund) →
                 Le(Var("time_since", "ctx(approval.role, senior_eng)"), 3600))
 
         We intentionally don't add a new ``approval_response`` event
-        type — every queryable property reduces to ``ctx_matches`` +
+        type. every queryable property reduces to ``ctx_matches`` +
         ``time_since`` over the existing ``context_update`` channel.
         Keeping the surface minimal avoids a parallel atom catalogue
         that would have to be mirrored in the TS SDK and the NL parser.
@@ -1802,7 +1812,7 @@ class BaseGuard:
         Args:
             role: The approver's role / identity (e.g. ``"senior_eng"``,
                 ``"compliance"``). Pushed as ``ctx(approval.role, role)``.
-            decision: ``"allow"`` or ``"deny"`` (free-form — checks use
+            decision: ``"allow"`` or ``"deny"`` (free-form. checks use
                 regex). Pushed as ``ctx(approval.decision, decision)``.
             scope: Optional action / resource scope this approval covers
                 (e.g. ``"refund:>5000"``). Pushed as
@@ -1819,7 +1829,7 @@ class BaseGuard:
     def observe_context(self, facts: dict[str, str]) -> None:
         """Push external facts from the host stack into the contract layer.
 
-        Sponsio stays thin on purpose — it doesn't know who the caller
+        Sponsio stays thin on purpose. it doesn't know who the caller
         cryptographically is, where a retrieved RAG chunk came from, or
         whether an inter-agent message was signed. Those are the host
         stack's job (SPIFFE / Okta / C2PA / signed A2A envelopes). This
@@ -1831,7 +1841,7 @@ class BaseGuard:
             G(called(answer_policy)  → ctx("content_source", "canonical:/v3"))
             G(called(publish)        → ctx("msg_verified", "true"))
 
-        Calls are **merge-on-write** — later ``observe_context`` calls
+        Calls are **merge-on-write**. later ``observe_context`` calls
         override keys seen before but don't clear unrelated ones. To
         clear a key, set it to ``""`` or start a new session. Facts
         persist until overridden, so you typically call this once per
@@ -1853,7 +1863,7 @@ class BaseGuard:
         if not facts:
             return
         # Filter None-valued keys at hook time so the trace doesn't
-        # store them — keeps the event JSON tight and avoids surprising
+        # store them. keeps the event JSON tight and avoids surprising
         # ``ctx(k, "None")`` strings downstream.
         clean = {k: v for k, v in facts.items() if k is not None and v is not None}
         if not clean:
@@ -1917,7 +1927,7 @@ class BaseGuard:
         """Rotate to a fresh session window; return a hand-off summary.
 
         This is the memory-management primitive for **long-running
-        agents** — services that process thousands of tool calls across
+        agents**. services that process thousands of tool calls across
         hours or days without an obvious session boundary. Sponsio's
         per-monitor state (``trace.events``, ``_atom_caches``,
         ``_turn_spans``, ``_log``, ``_violations``) grows monotonically
@@ -1944,7 +1954,7 @@ class BaseGuard:
         -----------------
         Formulas like ``F(response)`` or
         ``always_followed_by(trigger, response)`` that depend on the
-        entire trace **cannot** survive a rotation — the post-rotation
+        entire trace **cannot** survive a rotation. the post-rotation
         verifier doesn't see the original ``trigger`` and will never
         report the missed ``response``. To avoid silently swallowing
         these obligations, ``rotate_session`` runs
@@ -1966,7 +1976,7 @@ class BaseGuard:
             When ``True``, refuse to rotate if ``finish_session``
             hasn't run yet. Useful as a safety net in code paths where
             forgetting to finalise would be a silent bug. Default
-            ``False`` — most callers prefer the "just do the right
+            ``False``. most callers prefer the "just do the right
             thing" behaviour of ``run_finish_session=True``.
 
         Returns
@@ -1974,7 +1984,7 @@ class BaseGuard:
         dict
             ``{"events": int, "turns": int, "log_entries": int,
             "violations_cleared": int,
-            "pending_liveness_violations": int}`` — the size of the
+            "pending_liveness_violations": int}``. the size of the
             window that just closed. ``pending_liveness_violations``
             counts obligations that ``finish_session`` surfaced at
             rotation time (zero if ``run_finish_session=False`` or no
@@ -1992,7 +2002,7 @@ class BaseGuard:
                 "call it for you."
             )
 
-        # Step 1 — finalise liveness *outside* ``self._lock`` because
+        # Step 1. finalise liveness *outside* ``self._lock`` because
         # ``finish_session`` takes the same (non-reentrant) lock.
         pending_count = 0
         if run_finish_session and not self._finish_session_called:
@@ -2000,13 +2010,13 @@ class BaseGuard:
                 pending = self.finish_session()
                 pending_count = len(pending) if pending else 0
             except Exception as exc:  # noqa: BLE001
-                # finish_session failures shouldn't stop rotation —
+                # finish_session failures shouldn't stop rotation.
                 # the alternative is memory leak. Surface as warning
                 # so ops can investigate.
                 import warnings
 
                 warnings.warn(
-                    f"rotate_session: finish_session raised {exc!r} — "
+                    f"rotate_session: finish_session raised {exc!r}. "
                     "rotating anyway to bound memory. Pending liveness "
                     "obligations may be lost.",
                     stacklevel=2,
@@ -2014,11 +2024,11 @@ class BaseGuard:
         else:
             pending_count = len(self._pending_liveness_violations)
 
-        # Step 2 — snapshot guard-side counts under the lock, rotate
+        # Step 2. snapshot guard-side counts under the lock, rotate
         # the monitor, clear guard-side state. A concurrent
         # ``guard_before`` either fully observes the old window (if it
         # beat us into ``self._lock``) or fully observes the new
-        # window (if it came after) — never a mix.
+        # window (if it came after). never a mix.
         with self._lock:
             violation_count = len(self._violations)
             monitor_summary = self._monitor.rotate_session()
@@ -2029,7 +2039,7 @@ class BaseGuard:
                 "violations_cleared": violation_count,
                 "pending_liveness_violations": pending_count,
             }
-            # Clear guard-side state. Don't call ``self.reset()`` —
+            # Clear guard-side state. Don't call ``self.reset()``.
             # that would re-invoke ``monitor.reset()`` on an already
             # cleared monitor and is a waste of a lock acquisition.
             self._violations.clear()
@@ -2047,11 +2057,11 @@ class BaseGuard:
 
         Thin wrapper around ``self.monitor.verifier.check_nl(nl)`` that
         handles syncing the verifier to the latest trace state. Returns
-        a :class:`~sponsio.runtime.verifier.Verdict` — no strategy is
+        a :class:`~sponsio.runtime.verifier.Verdict`. no strategy is
         applied, no trace mutation, no rollback.
 
         By default the query is **invisible** to spans / OTEL /
-        dashboard — it's an ad-hoc debug query, not part of the enforced
+        dashboard. it's an ad-hoc debug query, not part of the enforced
         audit trail. Pass ``emit_spans=True`` to route the query through
         the normal observability pipeline so REPL / notebook debugging
         sessions show up in OTEL backends.
@@ -2126,7 +2136,7 @@ class BaseGuard:
 
         Liveness formulas (e.g. ``always_followed_by(trigger, response)``
         = ``G(called(trigger) -> F(called(response)))``) cannot be
-        decided mid-session — at any runtime point, a missing response
+        decided mid-session. at any runtime point, a missing response
         might still arrive later. So :class:`RuntimeMonitor` skips them
         during ``guard_before``.
 
@@ -2136,19 +2146,19 @@ class BaseGuard:
         :class:`~sponsio.runtime.verifier.TraceVerifier` with
         ``include_liveness=True``. The weak finite-trace semantics
         correctly treats any unreached ``F(...)`` as **False** now that
-        the trace is finalized — which is exactly when a pending
+        the trace is finalized. which is exactly when a pending
         obligation becomes a real violation.
 
         Behavior:
 
         * **Pure read.** Does not mutate the trace or call any
           strategies. Pending obligations can't be "blocked" after the
-          fact — they're reported for audit / metrics / alerting.
+          fact. they're reported for audit / metrics / alerting.
         * **Emits a synthetic ``AgentTurnSpan``** (action
           ``"<session_end>"``) containing one ``ContractCheckSpan`` per
           contract with liveness enforcements. Each failing liveness
           enforcement shows up as a ``GuaranteeSpan(result=False)`` with
-          a ``ViolationSpan`` + ``EnforcementSpan`` child — exactly the
+          a ``ViolationSpan`` + ``EnforcementSpan`` child. exactly the
           same shape as a runtime block, so existing span consumers
           (``guard.last_check_span``, ``guard.check_spans``,
           ``OTelExporter``, dashboard ``/monitor/push``) all pick it up
@@ -2160,7 +2170,7 @@ class BaseGuard:
           human attention, not an automatic retry.
         * **Routes through OTEL / dashboard pipelines** by calling
           ``_otel_export()`` and ``_push_to_dashboard("session_end")``
-          at the end (only if at least one contract was checked) — same
+          at the end (only if at least one contract was checked). same
           integration points as ``guard_before`` / ``guard_after``.
         * **Respects assumption gating**: if a contract's assumption
           never held, its liveness enforcement is skipped (the
@@ -2215,7 +2225,7 @@ class BaseGuard:
                     verdict = self._monitor.verifier.check_contract(
                         contract, include_liveness=True
                     )
-                    # Assumption gating — skip liveness if its precondition
+                    # Assumption gating. skip liveness if its precondition
                     # never held during the session.
                     if not verdict.assumption_holds:
                         continue
@@ -2233,7 +2243,7 @@ class BaseGuard:
                         formula = e_verdict.formula
                         if not getattr(formula, "liveness", False):
                             # Safety enforcements were already judged at
-                            # runtime — skip to avoid double-reporting.
+                            # runtime. skip to avoid double-reporting.
                             continue
 
                         guar_span = collector.start_guarantee(e_verdict.desc)
@@ -2262,7 +2272,7 @@ class BaseGuard:
 
                         msg = (
                             f"LIVENESS: {e_verdict.desc} "
-                            f"— obligation unmet at session end"
+                            f"- obligation unmet at session end"
                         )
                         event = MonitorEvent(
                             agent_id=self.agent_id,
@@ -2279,7 +2289,7 @@ class BaseGuard:
                         # extra ``_log.append`` that used to precede this
                         # line double-recorded every session-end liveness
                         # event in the audit log and pushed it to OTel /
-                        # dashboard exporters twice — caught in the
+                        # dashboard exporters twice. caught in the
                         # perf/arch sweep.
                         self._monitor._emit(event)
                         self._violations.append(
@@ -2371,10 +2381,10 @@ class BaseGuard:
         self._auto_summary = False
 
     def _auto_print_summary(self) -> None:
-        """atexit hook — print the session summary exactly once if enabled."""
+        """atexit hook. print the session summary exactly once if enabled."""
         if not self._auto_summary or self._summary_printed:
             return
-        # ``verbose=False`` means "stay silent" — the contract banner
+        # ``verbose=False`` means "stay silent". the contract banner
         # at init is the one exception (a deliberate "Sponsio is loaded"
         # signal), but any later auto-emit including the session summary
         # MUST honour it.  Without this, doctor's internal smoke-test
@@ -2416,7 +2426,7 @@ class BaseGuard:
         3. ``warn_slow_dfa_us`` → one-line stderr warning if the
            pure-DFA p99 exceeded the budget (disabled when the value
            is ≤0).  Catches the common "this contract accidentally
-           went through the sto pipeline" footgun — DFA checks should
+           went through the sto pipeline" footgun. DFA checks should
            stay far below sto/LLM latency.
         """
         cfg = self._perf_config
@@ -2427,7 +2437,7 @@ class BaseGuard:
             # Don't spam "0 checks recorded" in every hello-world
             # script; only meaningful when the guard actually saw
             # traffic.  Also short-circuits export/warn when there's
-            # literally nothing to report on — same reason.
+            # literally nothing to report on. same reason.
             return
 
         # Print is gated by ``report=``, export and warn are
@@ -2467,7 +2477,7 @@ class BaseGuard:
                     f"[sponsio] warning: pure-DFA p99 = {p99_us:.1f}μs "
                     f"exceeds configured threshold of {cfg.warn_slow_dfa_us:.1f}μs. "
                     f"Something in your contract set may be accidentally "
-                    f"hitting the sto pipeline — inspect guard.performance_stats() "
+                    f"hitting the sto pipeline. inspect guard.performance_stats() "
                     f"by contract.",
                     file=sys.stderr,
                 )
@@ -2477,7 +2487,7 @@ class BaseGuard:
 
         Shows total checks, violations, and overall status. Auto-called
         at process exit (see ``__init__``); can also be invoked manually.
-        Idempotent — subsequent calls are no-ops.
+        Idempotent. subsequent calls are no-ops.
 
         On a TTY this dispatches to the Rich session-view renderer
         (the v1 CLI mockup form: header banner + contracts armed +
@@ -2493,11 +2503,11 @@ class BaseGuard:
         self._summary_printed = True
         total = len(self._monitor.turn_spans)
         # BLOCKED (enforce mode) and OBSERVED (observe / shadow mode)
-        # are both user-facing signals — the latter is the whole point
+        # are both user-facing signals. the latter is the whole point
         # of observe mode, so it must not be filtered out. RETRY covers
         # sto violations. ``ESCALATED`` is almost always the
-        # "assumption not yet fired" monitor event — framework noise,
-        # not a contract breach — and stays hidden here.
+        # "assumption not yet fired" monitor event. framework noise,
+        # not a contract breach. and stays hidden here.
         shown = [
             v
             for v in self._violations
@@ -2513,7 +2523,7 @@ class BaseGuard:
 
         # Include a dedicated "Would-block" counter in observe mode so
         # shadow rollouts can see the would-have-blocked count at a
-        # glance — previously this was silently rolled into 0.
+        # glance. previously this was silently rolled into 0.
         det_label = "Would-block" if self._mode == "observe" else "Det violations"
         header = (
             f"  Total checks: {total}  |  "

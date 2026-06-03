@@ -126,10 +126,15 @@ class GoogleADKGuard(BaseGuard):
         applied first so the ADK Agent never binds tools the policy
         forbids. ``reactive`` (default) passes everything through;
         denied calls still get caught by ``guard_before`` at call time.
+
+        Tool-name extraction matches the rest of the v0.2 adapter
+        family: ``.name`` first (for tools that carry an explicit
+        framework-side name), ``__name__`` as fallback (for plain
+        callables, which is the common ADK case).
         """
         tools = self._proactive_filter_tools(
             list(tools),
-            name_fn=lambda t: getattr(t, "__name__", "") or getattr(t, "name", ""),
+            name_fn=lambda t: getattr(t, "name", None) or getattr(t, "__name__", ""),
         )
         return [self.wrap_tool(t) for t in tools]
 

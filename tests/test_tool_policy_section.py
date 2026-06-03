@@ -38,7 +38,7 @@ from sponsio.config import (
 
 
 # ---------------------------------------------------------------------------
-# _parse_tool_policy_section — unit tests
+# _parse_tool_policy_section. unit tests
 # ---------------------------------------------------------------------------
 
 
@@ -111,7 +111,7 @@ class TestParseToolPolicySection:
 
 
 # ---------------------------------------------------------------------------
-# _synthesize_tool_policy_contract — unit tests
+# _synthesize_tool_policy_contract. unit tests
 # ---------------------------------------------------------------------------
 
 
@@ -175,6 +175,13 @@ class TestYamlIntegration:
         assert kwargs["contracts"] is None
 
     def test_yaml_default_deny_injects_contract(self, tmp_path: Path) -> None:
+        """``config_to_guard_kwargs`` no longer prepends the deny
+        contract directly. Synthesis lives in ``BaseGuard.__init__``
+        so factory / direct-class / yaml entry paths behave
+        identically. The guard built end-to-end via the Sponsio
+        factory should still have the contract."""
+        from sponsio.core import Sponsio
+
         p = _write_yaml(
             tmp_path,
             """
@@ -187,18 +194,19 @@ agents:
 """.strip()
             + "\n",
         )
-        cfg = load_config(p)
-        kwargs = config_to_guard_kwargs(cfg, "bot")
-        assert kwargs["contracts"] is not None
-        assert len(kwargs["contracts"]) == 1
-        injected = kwargs["contracts"][0]
-        assert "default-deny" in injected["desc"]
-        assert injected["guarantee"].pattern_name == "tool_allowlist"
+        guard = Sponsio(config=str(p), agent_id="bot", verbose=False)
+        contracts = guard._monitor._system.contracts
+        assert len(contracts) == 1
+        guarantee = contracts[0].guarantee
+        assert getattr(guarantee, "pattern_name", None) == "tool_allowlist"
+        assert "default-deny" in (contracts[0].desc or "")
 
     def test_injected_contract_is_first(self, tmp_path: Path) -> None:
         """Injection is prepended so the deny rule evaluates ahead of
-        agent-authored contracts — keeps the "first-line defense"
+        agent-authored contracts. Keeps the "first-line defense"
         framing tool_allowlist's docstring promises."""
+        from sponsio.core import Sponsio
+
         p = _write_yaml(
             tmp_path,
             """
@@ -212,11 +220,10 @@ agents:
 """.strip()
             + "\n",
         )
-        cfg = load_config(p)
-        kwargs = config_to_guard_kwargs(cfg, "bot")
-        assert kwargs["contracts"] is not None
-        assert len(kwargs["contracts"]) == 2
-        assert kwargs["contracts"][0]["guarantee"].pattern_name == "tool_allowlist"
+        guard = Sponsio(config=str(p), agent_id="bot", verbose=False)
+        contracts = guard._monitor._system.contracts
+        assert len(contracts) == 2
+        assert contracts[0].guarantee.pattern_name == "tool_allowlist"
 
     def test_default_allow_injects_nothing(self, tmp_path: Path) -> None:
         p = _write_yaml(

@@ -1,7 +1,7 @@
 """Minimal trace replay for OSS `sponsio validate --traces`.
 
 Given a compiled formula and a list of traces, returns pass / fail
-counts and pass_rate.  Counts only — no per-fail attribution, no
+counts and pass_rate.  Counts only. no per-fail attribution, no
 stratification by decision, no repair suggestions.  Those richer
 features live in the proprietary ``sponsio-pro`` package.
 
@@ -30,7 +30,7 @@ class TraceReplayResult:
             referenced an atom not present in the trace).  Excluded
             from pass_rate so a partial coverage gap doesn't skew the
             number, but surfaced separately so users notice.
-        errors: Up to 5 sample error messages — for debugging without
+        errors: Up to 5 sample error messages. for debugging without
             flooding the report.
     """
 
@@ -58,7 +58,7 @@ def replay_formula(formula, traces: list[Trace]) -> TraceReplayResult:
 
     Args:
         formula: The formula AST (or any object whose ``.formula`` is
-            an AST — this matches both raw AST nodes and ``DetFormula``
+            an AST. this matches both raw AST nodes and ``DetFormula``
             wrappers from the pattern library).
         traces: Pre-loaded ``Trace`` objects.  Use
             :func:`sponsio.discovery.loaders.load_traces` to read from
@@ -69,7 +69,7 @@ def replay_formula(formula, traces: list[Trace]) -> TraceReplayResult:
 
     Notes:
         Errors are caught individually so one bad trace doesn't abort
-        the replay — the return value's ``error_count`` reports them.
+        the replay. the return value's ``error_count`` reports them.
     """
     raw = getattr(formula, "formula", formula)
     content_atoms = collect_content_atoms([raw])
