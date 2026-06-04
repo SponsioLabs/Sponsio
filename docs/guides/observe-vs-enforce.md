@@ -92,7 +92,7 @@ You can also promote per-contract with the `mode: enforce` override. Useful for 
 | Mode | Det violation | Sto violation |
 |---|---|---|
 | Observe | Logged; call passes through | Logged; response passes through |
-| Enforce | Strategy runs (`block`, `escalate`, or custom) | Strategy runs (`retry_with_constraint`, `redirect_to_safe`, or custom) |
+| Enforce | Strategy runs (`DetBlock`, `EscalateToHuman`+notifiers, `RedirectToSafe`, `WarnOnly`, or custom callable) | Strategy runs (`retry_with_constraint` when an external sto evaluator is wired up; otherwise log-only) |
 
 In enforce mode, a hard-blocked event is **rolled back** from the trace so later checks are not poisoned by it.
 

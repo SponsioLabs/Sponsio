@@ -16,6 +16,137 @@ _Nothing yet._
 
 ---
 
+## [0.2.0a0] — 2026-06-03
+
+Three new enforcement primitives plus a sharper failure-strategy
+surface. The story: agents shouldn't have to fail catastrophically
+when a contract fires. Block is one option, but it's the harshest one.
+This release ships three softer-landing options that keep the agent
+making progress while still gating the unsafe behavior.
+
+### Added
+
+- **`tool_policy` block (YAML + inline kwarg)** — declarative
+  default-deny posture. `default: deny` + `approved: [search, …]`
+  synthesizes a `tool_allowlist` contract automatically. Adding a new
+  tool to your framework does not auto-trust it: the policy is the
+  single source of truth for which tools the agent can reach.
+  Available in `sponsio.yaml` and on `Sponsio(tool_policy={…})`. Both
+  paths share one synthesis point so the resulting contract is
+  identical.
+- **`enforcement: proactive` mode** — wrap-time tool filtering on
+  LangGraph, CrewAI, OpenAI Agents SDK, and Google ADK adapters.
+  Denied tools never reach the agent's bound toolset. Prompt
+  injection that tries to call them silently no-ops because the
+  model literally cannot name them. `enforcement: reactive` (the
+  default) keeps the legacy "block at call time" behavior.
+- **`filter_tools(candidates)`** — pure-probe API on `BaseGuard` that
+  returns the subset of tool names legal to call given the live
+  trace. Custom agent loops (no framework) call this before each
+  model turn to pre-filter the tool menu and avoid wasted attempts
+  on temporal-precondition tools (`must_precede(A, B)` only allows B
+  after A has fired). Side-effect free: no log entry, no callback
+  fanout, no perf sample, no observe-mode wrapping. Implemented via
+  a `dry_run` flag on `RuntimeMonitor.check_action` that suppresses
+  every observable side effect under a depth counter.
+- **`redirect_to_safe(unsafe, safe)` pattern + `RedirectToSafe`
+  strategy** — substitute a forbidden tool call with a pre-declared
+  safe one (`issue_refund` → `log_refund_request`,
+  `run_sql_destructive` → `select_only_dryrun`). The model keeps
+  making progress; it just can't do the unsafe thing. Trace honestly
+  records the substitute call, not the original. LangGraph adapter
+  dispatches the substitute transparently; other adapters surface
+  `result.redirected_to` for the application loop to invoke.
+- **`EscalateToHuman(notify=[…])`** — strategy now accepts a callable
+  or a list of notifier callables that fire synchronously on each
+  violation. Each notifier gets `(violation, context, reason)`.
+  Notifier failures are isolated per-callback: a broken Slack
+  webhook does not crash the agent loop and does not silence the
+  remaining notifiers; the exception becomes a `RuntimeWarning`
+  naming the offending callable.
+- **Cross-integration verification script** —
+  `scripts/verify_v0_2.py` runs 15 checks across the core runtime
+  and four adapters. Skip-on-missing-SDK rather than fail. Run
+  before any release to catch the kind of cross-mode bug that
+  `pytest` misses (conftest pins `SPONSIO_MODE=enforce`, production
+  default is `observe`).
+- **Three workflow case studies** —
+  `examples/integrations/python/v0_2_*.py`. Refund agent
+  (LangGraph + `redirect_to_safe` + `filter_tools`), coding agent
+  (CrewAI + `tool_policy` default-deny + proactive), AP automation
+  (vanilla `Sponsio` + `EscalateToHuman` with Slack / email /
+  PagerDuty notifiers). Each exits 0 on success and surfaces FAIL
+  with detail on regression.
+
+### Changed
+
+- **`sponsio mode <observe|enforce>` CLI is now parent-aware.**
+  Prefers updating `runtime.mode` (the only line the TS loader
+  reads), falls back to `defaults.mode`, refuses to append a fresh
+  `enforce` block out of thin air on a yaml without an existing
+  mode line, allows appending `observe` only. CI scripts that
+  relied on the old exit-1 behavior for malformed configs keep
+  working. Walk-and-track replaces the naïve `re.subn`.
+- **`EscalateToHuman` action semantics documented.** The class
+  docstring now spells out the two patterns: notify-only (agent
+  continues, useful for high-stakes-action telemetry) and the
+  `DetBlock` + `register_callback` pairing for notify-and-refuse.
+  The runtime layer does NOT gate `CheckResult.allowed` on
+  `action="escalated"` because the monitor uses
+  `EscalateToHuman()` as the default strategy for
+  unfired-assumption verdicts; gating on it would break every
+  conditional contract whose assumption hasn't fired yet.
+- **All pattern factories accept a `desc=` keyword.**
+  `redirect_to_safe` was the lonely exception; LLM extraction
+  (`llm_extraction.py:535`) always passes `desc=nl` to the pattern
+  factory, so the previous signature silently failed any
+  LLM-extracted `redirect_to_safe` rule. Now uniform.
+- **TS SDK gets a `redirectToSafe` factory.** Formula side only:
+  same LTL semantics (`G(Not(called(unsafe)))`) so a TS evaluator
+  produces the same verdict as the Python verifier. The strategy
+  bundle and adapter dispatch are Python-only for now; documented
+  caveat in the TS docstring.
+- **`Sponsio` factory + every framework-specific guard class
+  synthesize the `tool_policy` deny contract uniformly.** The
+  earlier code path only synthesized in the `Sponsio(framework=…)`
+  factory; direct framework-specific construction
+  (`LangGraphGuard(tool_policy=…)`, the idiomatic Python pattern)
+  silently dropped the policy. Centralized into
+  `BaseGuard.__init__`.
+
+### Fixed
+
+- **`LangGraphGuard` rejects chained redirects (A → B → C) and
+  self-redirects (A → A) loudly.** Previously a chained redirect
+  silently executed the intermediate tool, and a self-redirect
+  would have infinite-looped. Both now raise `ToolCallBlocked` with
+  a clear message naming the chain.
+- **`render/components.py:contracts_table` wraps the name column in
+  `Text(name)`.** Rich interprets `[…]` as markup; contract descs
+  containing brackets (e.g. `only [search, read_file] approved`)
+  were having the bracketed segment silently swallowed.
+- **`discovery/trace_replay.py` threads `content_atoms` into
+  `ground()`.** The previous call site dropped the argument, so
+  parameterised content predicates (`contains(pii)`, `arg_has(...)`)
+  were silently false-negative during historical-trace replay.
+
+### Documentation
+
+- Per-benchmark deep dives under `docs/reference/benchmarks/`
+  (agentdojo, odcv, redcode, swebench, tau2). Cross-reference fixed
+  (the index claimed "Four third-party benchmarks" but had five).
+- HIGH-priority strategy / pattern enumeration fixes across
+  `docs/concepts/contracts.md`, `docs/concepts/overview.md`,
+  `docs/concepts/architecture.md`, `docs/reference/oss-scope.md`,
+  `docs/reference/config-yaml.md`, `docs/reference/patterns.md`,
+  `docs/reference/observability.md`, `docs/guides/observe-vs-enforce.md`,
+  `docs/guides/faq.md`. The strategy taxonomy is consistent across
+  all of them now: `DetBlock` / `EscalateToHuman` / `WarnOnly` /
+  `RedirectToSafe`. `RetryWithConstraint` is an extension point.
+- `sponsio/tracer/semconv.py` stale comments updated to match.
+
+---
+
 ## [0.1.1] — 2026-05-22
 
 ### Fixed

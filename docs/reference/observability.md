@@ -103,10 +103,10 @@ sponsio.agent_turn                 (root, one per check_action)
 
 | Attribute | Description |
 |---|---|
-| `sponsio.enforcement.strategy` | `DetBlock`, `EscalateToHuman`, `RetryWithConstraint`, `RedirectToSafe`. |
-| `sponsio.enforcement.action` | `blocked`, `escalated`, `retrying`, `redirected`, `observed`. |
-| `sponsio.enforcement.retry_prompt` | Retry-with-lesson prompt, truncated to 2 KB. |
-| `sponsio.enforcement.fallback_action` | Fallback action name for RedirectToSafe. |
+| `sponsio.enforcement.strategy` | `DetBlock`, `EscalateToHuman`, `WarnOnly`, `RedirectToSafe`. `RetryWithConstraint` emits through the same attribute when the optional sto pipeline is plugged in. |
+| `sponsio.enforcement.action` | `blocked`, `escalated`, `redirected`, `warned`, `observed`. `retrying` is reserved for the sto pipeline and not reachable in this OSS build. |
+| `sponsio.enforcement.retry_prompt` | Retry-with-lesson prompt, truncated to 2 KB. Only emitted when an external sto evaluator is wired up. |
+| `sponsio.enforcement.fallback_action` | Fallback tool name for `RedirectToSafe` (e.g. `log_refund_request` when the model attempted `issue_refund`). |
 
 ## Privacy and cost defaults
 

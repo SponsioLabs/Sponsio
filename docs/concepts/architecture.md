@@ -109,6 +109,10 @@ It takes user-friendly arguments, constructs a formula from atoms, and wraps it 
 **Exclusion**:
 - `mutual_exclusion(A, B)`: at most one ever called across entire trace
 - `segregation_of_duty(A, B)`: same agent cannot do both
+- `tool_allowlist(tools)`: only listed tools may be called
+
+**Recovery**:
+- `redirect_to_safe(unsafe, safe)`: substitute the offending call with a pre-approved safe tool. Bundles a `RedirectToSafe` strategy on the resulting `DetFormula`, so a violation surfaces as `action="redirected"` instead of `"blocked"`. The LangGraph adapter dispatches the substitute call; other adapters surface `result.redirected_to` for the application.
 
 **Access control**:
 - `requires_permission(tool, perm)`: tool needs static permission

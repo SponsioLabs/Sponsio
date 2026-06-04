@@ -276,6 +276,40 @@ class TestLangGraphRedirectWiring:
         with pytest.raises(ToolCallBlocked, match="trash_does_not_exist"):
             bound["rm_rf"].func(path="/tmp/x")
 
+    def test_self_redirect_refuses_loudly(self) -> None:
+        """``RedirectToSafe(safe='X')`` bound to a contract that fires
+        on tool X would loop forever (call X, redirect to X, repeat).
+        The pattern factory rejects this at construction, but a user
+        wiring the strategy directly via ``policy={}`` can still
+        produce it. Adapter must refuse rather than blow the stack."""
+        pytest.importorskip("langgraph")
+        pytest.importorskip("langchain_core")
+        from langchain_core.tools import tool as lc_tool
+
+        from sponsio import contract
+        from sponsio.integrations.langgraph import LangGraphGuard, ToolCallBlocked
+        from sponsio.patterns import tool_allowlist
+        from sponsio.runtime.strategies import RedirectToSafe
+
+        @lc_tool
+        def search(q: str) -> str:
+            """Search."""
+            return q
+
+        # Direct policy wiring: tool_allowlist excludes "search", and
+        # the policy says "when this contract fires, redirect to search"
+        # which is the same tool that triggered.
+        formula = tool_allowlist(["read_file"])
+        guard = LangGraphGuard(
+            agent_id="bot",
+            contracts=[contract("only read_file").guarantees(formula)],
+            policy={formula.desc: RedirectToSafe(safe="search")},
+            verbose=False,
+        )
+        node = guard.wrap([search])
+        with pytest.raises(ToolCallBlocked, match="with itself"):
+            node.tools_by_name["search"].func(q="hi")
+
     def test_chained_redirect_refuses_loudly(self) -> None:
         """If the safe target is itself redirected by another contract,
         we don't silently execute it and we don't recurse (which could

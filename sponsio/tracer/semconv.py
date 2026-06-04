@@ -192,20 +192,22 @@ ATTR_VIOLATION_POLICY_REF = "sponsio.violation.policy_ref"
 # ---------------------------------------------------------------------------
 
 # Strategy class name. OSS-shipped: DetBlock | EscalateToHuman |
-# WarnOnly. Cloud's sto strategies (RetryWithConstraint, RedirectToSafe)
-# emit through the same attribute.
+# WarnOnly | RedirectToSafe. The sto-pipeline ``RetryWithConstraint``
+# is an extension point not included in this build and emits through
+# the same attribute when an external sto evaluator is plugged in.
 ATTR_ENFORCEMENT_STRATEGY = "sponsio.enforcement.strategy"
 
-# Final action taken: blocked | escalated | retrying | redirected |
-# observed (the last one only fires under mode="observe", indicating a
-# would-have-blocked decision was downgraded to log-only).
+# Final action taken: blocked | escalated | redirected | warned |
+# observed (observed only fires under mode="observe", indicating a
+# would-have-X decision was downgraded to log-only). ``retrying`` is
+# reserved for the sto pipeline and not reachable in this OSS build.
 ATTR_ENFORCEMENT_ACTION = "sponsio.enforcement.action"
 
-# Sto retry-with-lesson prompt (only meaningful for Cloud's
-# RetryWithConstraint strategy).
+# Sto retry-with-lesson prompt (only meaningful when the optional sto
+# pipeline is plugged in via ``RetryWithConstraint``).
 ATTR_ENFORCEMENT_RETRY_PROMPT = "sponsio.enforcement.retry_prompt"
 
-# Fallback action for Cloud's RedirectToSafe (e.g. "log_warning" instead
+# Fallback action for ``RedirectToSafe`` (e.g. "log_warning" instead
 # of "transfer_funds"). Only meaningful for that strategy.
 ATTR_ENFORCEMENT_FALLBACK_ACTION = "sponsio.enforcement.fallback_action"
 

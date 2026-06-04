@@ -55,7 +55,29 @@ agents:
 | `framework` | string | auto-detect | `langgraph`, `claude_agent`, `openai`, `openai_agents`, `crewai`, `google_adk`, `vercel_ai`, `mcp`, or omitted. |
 | `sessions_dir` | path | `~/.sponsio/sessions/` | Set to `null` to disable local session logging. |
 | `tools` | map | `{}` | Optional tool metadata; scan populates automatically. |
+| `tool_policy` | map | `{}` | Default-deny posture + approved-tool allowlist. See [`tool_policy`](#tool_policy) below. |
 | `agents` | map | required | Per-agent contract set. |
+
+---
+
+## `tool_policy`
+
+Declarative default-deny posture. The agent can only call tools in `approved:` when `default: deny` is set. Adding a new tool to the underlying framework does not auto-trust it.
+
+```yaml
+tool_policy:
+  default: deny          # allow (default, backwards-compat) | deny
+  approved: [search, read_file, list_dir]
+  enforcement: reactive  # reactive (default) | proactive
+```
+
+| Field | Default | Behavior |
+|---|---|---|
+| `default` | `allow` | `deny` synthesizes a `tool_allowlist` contract that blocks every tool not in `approved`. `allow` is a no-op (backwards-compat). |
+| `approved` | `[]` | Explicit allowlist. Empty + deny blocks every tool (useful "lock-down completely" posture). Accepts a flat list or `{tools: [...]}` for future per-host scoping. |
+| `enforcement` | `reactive` | `reactive`: the agent still sees the full tool menu; denied calls get blocked at call time via `guard_before`. `proactive`: wrap-time adapters (LangGraph, CrewAI, OpenAI Agents SDK, Google ADK) strip denied tools from the bound toolset before the model ever sees them. |
+
+Inline equivalent on `Sponsio(tool_policy={...})`. The two paths produce the same synthesized contract.
 
 ---
 
@@ -82,7 +104,7 @@ Each entry in `contracts:` has these fields:
 | `name` | string | no | Human-readable label for logs and reports. |
 | `A` | string \| object | no | Assumption. When the rule fires. Omit for unconditional rules. |
 | `E` | string \| object | yes | Enforcement. The rule itself. |
-| `strategy` | string | no | `block`, `escalate`, `retry_with_constraint`, `redirect_to_safe`, or a dotted callable path. |
+| `strategy` | string | no | `block` (`DetBlock`), `escalate` (`EscalateToHuman`, accepts `notify:` list of dotted callable paths), `redirect_to_safe` (substitute a pre-approved tool), `warn_only` (log without blocking), or a dotted callable path. |
 | `mode` | `observe` \| `enforce` | no | Per-contract override. |
 
 ### Shorthand form

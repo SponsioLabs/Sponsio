@@ -65,6 +65,12 @@ Two signals: the violation rate has plateaued (you're not discovering new false 
 
 It will change behavior. Your agent starts seeing `SponsioBlocked` exceptions and has to react (retry, pick a different tool, escalate). Plan for a day of tuning after the flip.
 
+Three soft-landing options when a hard block is too harsh:
+
+- **`redirect_to_safe(unsafe, safe)`** — substitute the unsafe call with a pre-approved one (e.g. `issue_refund` → `log_refund_request` for review). The model keeps making progress instead of bouncing off refusals.
+- **`filter_tools(candidates)`** — call this before each model turn to pre-filter the tool menu against the live trace. The model never even sees tools that would be blocked, so it doesn't waste tokens on attempts that will fail.
+- **`tool_policy: { default: deny, enforcement: proactive }`** — the wrap-time variant of the above for adapters that own tool binding (LangGraph, CrewAI, OpenAI Agents SDK, Google ADK). Denied tools never reach the agent's bound toolset.
+
 ### Can I enforce some contracts while observing others?
 
 Yes. Set the global `mode: observe` and add `mode: enforce` per-contract for the handful of hard-block rules you are already sure of.

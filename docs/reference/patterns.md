@@ -50,6 +50,12 @@ For the conceptual model (atom → pattern → formula → contract) see [Concep
 | `mutual_exclusion(A, B)` | `"tools `approve` and `reject` are mutually exclusive"` | At most one of A or B can ever be called |
 | `tool_allowlist(tools)` | `"agent may only call `search`, `summarize`"` | Only listed tools may be called |
 
+## Recovery
+
+| Pattern | NL example | What it enforces |
+|---|---|---|
+| `redirect_to_safe(unsafe, safe)` | `"redirect `issue_refund` to `log_refund_request`"` | Substitute a forbidden tool with a pre-approved alternative. Bundled with `RedirectToSafe` strategy: a violation surfaces as `action="redirected"` with `fallback_action=safe`, the trace records the substitute call. The LangGraph adapter dispatches the substitute transparently; other adapters surface `result.redirected_to` for the application to read. |
+
 ## Argument and path checks
 
 | Pattern | NL example | What it enforces |

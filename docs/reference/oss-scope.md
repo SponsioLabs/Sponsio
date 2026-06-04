@@ -21,7 +21,12 @@ is no LLM call on the enforcement path.
   pattern (`must_precede`, `rate_limit`, `idempotent`, `arg_blacklist`,
   `arg_allowlist`, `no_data_leak`, `segregation_of_duty`, `cooldown`,
   `must_confirm`, `bounded_retry`, `loop_detection`, `scope_limit`,
-  `arg_length_limit`, `data_intact`, `destructive_action_gate`, etc.)
+  `arg_length_limit`, `data_intact`, `destructive_action_gate`,
+  `tool_allowlist`, `redirect_to_safe`, etc.)
+- `sponsio/runtime/strategies.py`: every Tier 0 + Tier 1 deterministic
+  enforcement strategy (`DetBlock`, `EscalateToHuman` with notifier
+  callbacks, `WarnOnly`, `RedirectToSafe`). The sto-pipeline
+  `RetryWithConstraint` is an extension point not included here.
 - `sponsio/contracts/capability/*.yaml`: shell, fs, http, db,
   credentials, self-modify, subagent
 - `sponsio/contracts/incident/*.yaml`: public CVE / Reddit-incident

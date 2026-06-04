@@ -321,6 +321,24 @@ class LangGraphGuard(BaseGuard):
             sync: True for the sync wrapper, False for the async one.
                 The coroutine path awaits the substitute's coroutine.
         """
+        # Self-redirect (A -> A) would re-trigger the same contract on
+        # the substitute call and loop forever. The pattern factory
+        # ``redirect_to_safe`` rejects A == A at construction
+        # (``_ensure_distinct``), so this only fires when the user
+        # wired ``RedirectToSafe(safe="A")`` directly via ``policy={}``
+        # and bound it to a contract that triggers on tool ``A``. Fail
+        # loud rather than blowing the stack.
+        if safe_name == unsafe_name:
+            raise ToolCallBlocked(
+                tool_name=unsafe_name,
+                constraint=f"self-redirect: {unsafe_name!r} -> {safe_name!r}",
+                message=(
+                    f"BLOCKED: ``RedirectToSafe`` was configured to substitute "
+                    f"`{unsafe_name}` with itself. This would loop. Use "
+                    f"``DetBlock`` to refuse the call, or pick a different "
+                    f"``safe`` tool."
+                ),
+            )
         safe_tool = registry.get(safe_name)
         if safe_tool is None:
             raise ToolCallBlocked(

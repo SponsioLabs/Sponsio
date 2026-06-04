@@ -83,8 +83,10 @@ When a det contract is violated, the call is not passed through. Built-in strate
 
 | Strategy | Behavior |
 |---|---|
-| `block` | Deny the call and raise a `SponsioBlocked` exception to the framework. Agent can react and retry with a different plan. |
-| `escalate` | Deny the call and route to a human-in-the-loop callback. Useful for high-stakes actions where silent blocking would confuse the agent. |
+| `DetBlock` (`block`) | Deny the call and raise a `SponsioBlocked` exception to the framework. Agent can react and retry with a different plan. |
+| `EscalateToHuman` (`escalate`) | Deny the call AND fire user-supplied notifiers (Slack webhook, email, oncall pager). Accepts `notify=[callable, ...]`. Notifier failures are isolated: a broken Slack hook does not crash the agent loop and does not silence the remaining notifiers. See [Failure strategies in detail](../guides/observe-vs-enforce.md#failure-strategies). |
+| `RedirectToSafe` (`redirect_to_safe`) | Substitute the offending call with a pre-declared safe tool. The model keeps making progress; it just can't do the unsafe thing. Both `unsafe` and `safe` must be registered with the framework. The LangGraph adapter dispatches the substitute call transparently; other adapters surface `result.redirected_to` for the application to consume. |
+| `WarnOnly` (`warn_only`) | Allow the call and emit a violation event to logs / dashboards. Useful when the contract is informational rather than enforcing. |
 | `(callable)` | Custom callback. Gets the violated contract and the candidate event; returns a new strategy decision. |
 
 In **observe mode**, no strategy runs. Violations are logged and surfaced in reports, but the call is not blocked. This is how most teams wire Sponsio in first. See [Observe vs. enforce](../guides/observe-vs-enforce.md).
