@@ -51,6 +51,19 @@ class TestRedirectToSafePattern:
         formula = redirect_to_safe("rm_rf", "trash", message="dev-only safety")
         assert "dev-only safety" in formula.desc
 
+    def test_pattern_accepts_explicit_desc_override(self) -> None:
+        """``desc=`` kwarg lets the caller override the auto-generated
+        description. Parity with every other pattern factory; required
+        for the LLM extraction path (``llm_extraction.py:535``) which
+        always passes ``desc=nl`` when re-materialising a pattern."""
+        formula = redirect_to_safe(
+            "rm_rf", "trash", desc="custom: rm goes to trash"
+        )
+        assert formula.desc == "custom: rm goes to trash"
+        # message is still bound on the strategy even when desc is
+        # explicitly overridden.
+        assert formula.args == ("rm_rf", "trash", "")
+
     def test_rejects_empty_unsafe(self) -> None:
         with pytest.raises(ValueError, match="unsafe"):
             redirect_to_safe("", "trash")
