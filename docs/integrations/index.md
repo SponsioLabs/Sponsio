@@ -204,6 +204,16 @@ The model sees the safe tool's result, not an error. Substitution is transparent
 - Both `unsafe` and `safe` must be registered with your framework — Sponsio does NOT synthesize tools.
 - The safe tool should accept the same arguments as the unsafe one. If schemas diverge, the adapter passes args verbatim; the user is responsible for compatibility.
 - A `redirect → blocked` chain (safe tool also violates a different contract) raises a hard block. Sponsio does not chain redirects to avoid loops.
+- Self-redirect (`unsafe == safe`) is rejected loudly via `ToolCallBlocked`. The pattern factory already rejects `redirect_to_safe("X", "X")` at construction; this guard catches the case where a user wired `RedirectToSafe(safe="X")` directly via `policy={}` and bound it to a contract that triggers on tool `X`.
+- A `redirect → redirect` chain (`safe` tool itself has a `redirect_to_safe` contract pointing elsewhere) is also rejected. Resolve the chain by pointing the original `unsafe` directly at the final safe tool.
+
+### Interaction with other contracts on the same tool
+
+If a tool has both a `redirect_to_safe` contract AND another contract (e.g. `must_precede`, `count_at_most`) that fires on the same call, the LangGraph adapter takes the **redirect path first** before checking for a block. The model never sees the block message because the call gets substituted; the substitute call is then checked against everything else.
+
+This means a `must_precede(check_policy, issue_refund)` contract paired with `redirect_to_safe("issue_refund", "log_refund_request")` will effectively skip the ordering check for `issue_refund` (the call gets redirected to `log_refund_request` immediately, and `must_precede` only applies to `issue_refund`'s actual execution which never happens). This is by design: redirecting and refusing are conflicting outcomes, and the redirect was your explicit intent for that tool.
+
+If you want both behaviors, write the `must_precede` against the safe tool (`must_precede(check_policy, log_refund_request)`), or use the framework-agnostic `guard.guard_before(unsafe_tool, args)` inspection in a custom loop where you can branch on `check.blocked` before `check.redirected`.
 
 ### What `redirect_to_safe` does per adapter
 

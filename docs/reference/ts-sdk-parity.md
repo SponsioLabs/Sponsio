@@ -34,7 +34,7 @@ The engine is deterministic on both Python and TS. So the parity gap discussed b
 
 ### Patterns
 
-The TS pattern library (`ts/packages/sdk/src/core/patterns.ts`) implements roughly 35 factories; Python (`sponsio/patterns/library.py`) has 44. The unimplemented in TS:
+The TS pattern library (`ts/packages/sdk/src/core/patterns.ts`) implements roughly 36 factories; Python (`sponsio/patterns/library.py`) has 45. The unimplemented in TS:
 
 | Pattern | Why it matters |
 |---|---|
@@ -45,6 +45,20 @@ The TS pattern library (`ts/packages/sdk/src/core/patterns.ts`) implements rough
 | Plus a few smaller helpers around content / data-flow |
 
 Workaround: express these as raw `Atom` formulas, or run them through the Python guard via the OTEL bridge.
+
+### v0.2 enforcement strategies (partial parity)
+
+The v0.2 `redirect_to_safe` pattern factory exists on TS (`redirectToSafe` in `ts/packages/sdk/src/core/patterns.ts`) and compiles to the same `G(Not(called(unsafe)))` LTL formula as the Python side, so a TS evaluator produces the same violation verdict as the Python verifier on a given trace.
+
+What's NOT on TS yet:
+
+- **Strategy system + dispatch.** The Python `DetFormula` carries an `enforcement_strategy` field; the runtime monitor honours pattern-attached strategies (`RedirectToSafe`, `EscalateToHuman`, `WarnOnly`) before falling back to `DetBlock`. TS has no equivalent layer, so every violation surfaces as a plain block on TS.
+- **LangGraph adapter redirect dispatch.** Python's `LangGraphGuard._invoke_safe_tool` invokes the substitute tool transparently and records the safe call in the trace. The `@sponsio/sdk/langchain` adapter does not implement this; a redirect-style contract on TS today blocks the call, the application loop has to invoke the substitute manually.
+- **`tool_policy` config layer.** Python's `BaseGuard` synthesizes a `tool_allowlist` contract from a `tool_policy: { default: deny, approved: [...] }` block. TS does not yet have this convenience; you build the same `toolAllowlist([...])` formula by hand.
+- **`filter_tools(candidates)` API + `dry_run` probe.** Python's per-turn proactive filter is a pure probe with no log / callback / perf pollution. TS does not yet expose this. Adapter `wrap()`-time filtering on TS is also not implemented; the same effect can be achieved by filtering the tool list before passing to `wrapTools`.
+- **`EscalateToHuman` notifier callbacks.** Python's `EscalateToHuman(notify=[...])` fires user-supplied notifiers with isolation. TS lacks the strategy class entirely (see above).
+
+Workaround: for redirect-style contracts on TS today, read the violation outcome and dispatch the substitute tool from your application loop; the formula side fires correctly.
 
 ### Grounding predicates (atoms)
 
@@ -78,9 +92,11 @@ Both Python and TS ship a CLI with the same command set (about 20 subcommands ea
 Track issues tagged `area:ts-parity` for status. Priority order:
 
 1. LLM-observation atoms (`prompt_contains`, `llm_said`, `output_has`). Biggest user-visible gap.
-2. Missing patterns (`no_pii`, `no_keywords`, `max_length`, `data_intact`).
-3. Expand TS NL parser to match Python's surface.
-4. `Subset` node + data-flow predicates.
+2. v0.2 strategy system port: `EnforcementStrategy` protocol, `RedirectToSafe` dispatch in the `@sponsio/sdk/langchain` adapter, `EscalateToHuman.notify` callback hooks.
+3. v0.2 `tool_policy` config block + `filter_tools(candidates)` API parity.
+4. Missing patterns (`no_pii`, `no_keywords`, `max_length`, `data_intact`).
+5. Expand TS NL parser to match Python's surface.
+6. `Subset` node + data-flow predicates.
 
 ## What to do today if you need a missing feature
 
