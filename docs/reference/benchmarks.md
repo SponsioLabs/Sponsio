@@ -157,4 +157,4 @@ Sponsio's evaluation harnesses for all three benchmarks (the `eval_sponsio.py` /
 
 ---
 
-**Related:** [README §Benchmarks](../../README.md#benchmarks--performance) · [Quickstart](../getting-started/quickstart.md) · [Contracts](../concepts/contracts.md) · [Architecture](../concepts/architecture.md) · [OSS scope](oss-scope.md)
+**Related:** [README §Benchmarks](../../README.md#benchmarks--performance) · [Quickstart](../getting-started/quickstart.md) · [Patterns](patterns.md) · [Architecture](../concepts/architecture.md) · [OSS scope](oss-scope.md)

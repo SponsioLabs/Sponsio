@@ -153,5 +153,5 @@ Per-call cost: about 90 ms (80 ms Python startup, 10 ms Sponsio evaluation). 50-
 
 - [Claude Code walkthrough](../plugins/sponsio-claude-code/QUICKSTART.md)
 - [OpenClaw walkthrough](../plugins/sponsio-openclaw/QUICKSTART.md)
-- [Concepts: contracts](concepts/contracts.md)
+- [Deterministic contracts and pattern catalog](reference/patterns.md)
 - [Integrations (Mode B)](integrations/index.md)

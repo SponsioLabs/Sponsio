@@ -145,4 +145,4 @@ Sponsio reduces prompt-injection ASR by **86% across 22 mainstream LLMs** on Age
 
 ---
 
-**Related:** [Benchmarks index](../benchmarks.md) · [ODCV-Bench](odcv.md) · [RedCode-Exec](redcode.md) · [Contracts](../../concepts/contracts.md) · [Architecture](../../concepts/architecture.md)
+**Related:** [Benchmarks index](../benchmarks.md) · [ODCV-Bench](odcv.md) · [RedCode-Exec](redcode.md) · [Patterns](../patterns.md) · [Architecture](../../concepts/architecture.md)

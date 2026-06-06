@@ -109,7 +109,7 @@ Paste the snippet. Run your agent. Review the observe-mode report (`sponsio repo
 
 ## Next
 
-- [Contract sources](contract-sources.md): scan, policy-doc mining, trace mining.
+- [Config yaml reference](../reference/config-yaml.md): scan, policy-doc mining, hand-written rules, plus the full schema.
 - [Observe vs. enforce](observe-vs-enforce.md): shadow mode to production.
 - [Plugins (Mode A)](../plugins.md): what axis 2's `host install` installs and how it routes tool calls.
 - [CLI reference](../reference/cli.md): `sponsio init` flags and the underlying commands it calls.

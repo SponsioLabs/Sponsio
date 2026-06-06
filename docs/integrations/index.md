@@ -274,7 +274,7 @@ from sponsio.langgraph import Sponsio
 guard = Sponsio(config="sponsio.yaml", agent_id="my_bot")
 ```
 
-See [Contract sources](../guides/contract-sources.md) for the YAML specification.
+See [Config yaml reference](../reference/config-yaml.md) for the YAML specification.
 
 ## Long-running agents
 

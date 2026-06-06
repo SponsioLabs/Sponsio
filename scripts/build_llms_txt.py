@@ -39,10 +39,8 @@ FILES = [
     # Concepts.
     "docs/concepts/overview.md",
     "docs/concepts/architecture.md",
-    "docs/concepts/contracts.md",
     "docs/concepts/stochastic.md",
     # Guides.
-    "docs/guides/contract-sources.md",
     "docs/guides/onboarding.md",
     "docs/guides/observe-vs-enforce.md",
     "docs/guides/reporting.md",

@@ -205,4 +205,4 @@ Sponsio is the **first procedure-correctness layer for τ²-bench that runs in b
 
 ---
 
-**Related:** [Benchmarks index](../benchmarks.md) · [AgentDojo](agentdojo.md) · [ODCV-Bench](odcv.md) · [RedCode-Exec](redcode.md) · [SWE-bench](swebench.md) · [Contracts](../../concepts/contracts.md) · [Architecture](../../concepts/architecture.md)
+**Related:** [Benchmarks index](../benchmarks.md) · [AgentDojo](agentdojo.md) · [ODCV-Bench](odcv.md) · [RedCode-Exec](redcode.md) · [SWE-bench](swebench.md) · [Patterns](../patterns.md) · [Architecture](../../concepts/architecture.md)

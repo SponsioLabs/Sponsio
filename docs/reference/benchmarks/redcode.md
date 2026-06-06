@@ -48,4 +48,4 @@ Each of the seven new logic-flaw layers ran as a single-contract guard against 6
 
 ---
 
-**Related:** [Benchmarks index](../benchmarks.md) · [ODCV-Bench](odcv.md) · [AgentDojo](agentdojo.md) · [Contracts](../../concepts/contracts.md)
+**Related:** [Benchmarks index](../benchmarks.md) · [ODCV-Bench](odcv.md) · [AgentDojo](agentdojo.md) · [Patterns](../patterns.md)

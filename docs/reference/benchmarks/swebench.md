@@ -124,4 +124,4 @@ Sponsio adds a deterministic procedural-correctness dimension to SWE-bench's out
 
 ---
 
-**Related:** [Benchmarks index](../benchmarks.md) · [ODCV-Bench](odcv.md) · [RedCode-Exec](redcode.md) · [AgentDojo](agentdojo.md) · [Contracts](../../concepts/contracts.md) · [Architecture](../../concepts/architecture.md)
+**Related:** [Benchmarks index](../benchmarks.md) · [ODCV-Bench](odcv.md) · [RedCode-Exec](redcode.md) · [AgentDojo](agentdojo.md) · [Patterns](../patterns.md) · [Architecture](../../concepts/architecture.md)

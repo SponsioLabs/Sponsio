@@ -127,5 +127,5 @@ See [Observe vs. enforce](../guides/observe-vs-enforce.md) for the full rollout.
 ## What next
 
 - **Add more contracts.** The [pattern catalog](../reference/patterns.md) lists all 45 deterministic patterns with NL examples. Pick the ones that match your failure modes.
-- **Generate contracts automatically.** `sponsio scan src/` reads your tool definitions and drafts a `sponsio.yaml` with candidate contracts. See [contract sources](../guides/contract-sources.md).
+- **Generate contracts automatically.** `sponsio scan src/` reads your tool definitions and drafts a `sponsio.yaml` with candidate contracts. See [config yaml reference: how to populate sponsio.yaml](../reference/config-yaml.md#how-to-populate-sponsioyaml).
 - **Wire a different framework.** Claude Agent SDK, OpenAI, CrewAI, Google ADK, Vercel AI, MCP. See [Integrations](../integrations/index.md).

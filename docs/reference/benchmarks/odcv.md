@@ -143,4 +143,4 @@ Sponsio protects **95.6% of high-risk KPI-pressure scenarios across 12 mainstrea
 
 ---
 
-**Related:** [Benchmarks index](../benchmarks.md) · [AgentDojo](agentdojo.md) · [RedCode-Exec](redcode.md) · [Contracts](../../concepts/contracts.md)
+**Related:** [Benchmarks index](../benchmarks.md) · [AgentDojo](agentdojo.md) · [RedCode-Exec](redcode.md) · [Patterns](../patterns.md)

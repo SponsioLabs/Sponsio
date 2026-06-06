@@ -154,7 +154,7 @@ touched these:
 
 | Change | Update |
 |--------|--------|
-| New pattern | `sponsio/patterns/library.py` + `sponsio/generation/dsl_to_contract.py` + `README.md` Pattern Library table + `docs/concepts/contracts.md` |
+| New pattern | `sponsio/patterns/library.py` + `sponsio/generation/dsl_to_contract.py` + `README.md` Pattern Library table + `docs/reference/patterns.md` |
 | New integration | `sponsio/integrations/` + `README.md` Integrations table + `docs/integrations/index.md` |
 | New CLI subcommand | `sponsio/cli.py` + `docs/reference/cli.md` + `README.md` |
 | Public API change | `CHANGELOG.md` under `[Unreleased]` with `### Changed` or `### Added` |
