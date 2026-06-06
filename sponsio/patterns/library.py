@@ -1878,7 +1878,7 @@ def delegation_depth_limit(max_depth: int, desc: str = "") -> DetFormula:
 # Covers the runtime half of **ASI-03** (identity), **ASI-06** (memory
 # poisoning via content-source gating), and **ASI-07** (inter-agent
 # comm via msg_verified gating). Users supply their own key convention
-#. Sponsio doesn't hard-code "caller_id" vs "source" vs "msg_sender"
+# . Sponsio doesn't hard-code "caller_id" vs "source" vs "msg_sender"
 # because each team has their own tagging scheme.
 # ---------------------------------------------------------------------------
 

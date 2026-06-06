@@ -1081,38 +1081,38 @@ def _rewrite_contract_entry(
 class OverrideRule:
     """One ``customized:`` entry. a match clause + an effect.
 
-    Match fields are AND'd; a contract qualifies only when every key
-    in ``match`` equals the corresponding contract field.  An empty
-    ``match`` is rejected at parse time (it would silently apply to
-    everything, which is almost certainly a mistake).
+     Match fields are AND'd; a contract qualifies only when every key
+     in ``match`` equals the corresponding contract field.  An empty
+     ``match`` is rejected at parse time (it would silently apply to
+     everything, which is almost certainly a mistake).
 
-    Supported match keys:
-      * ``desc``. the contract's human description.  This is the
-        most common path because pack YAMLs put the rule's intent
-        right in ``desc:``.
-      * ``pack_source``. origin pack spec (e.g.
-        ``"sponsio:capability/shell"``).  Useful for "disable
-        everything from this pack" without listing rules one by one.
-      * ``source``. the ``ConstraintEntry.source`` library tag (e.g.
-        ``"library:tier1.shell"``).  Finer-grained than pack_source
-        when one pack ships rules from several library tiers.
-      * ``pattern``. the structured pattern name on the enforcement
-        constraint (``rate_limit``, ``injection_free``, …).
+     Supported match keys:
+       * ``desc``. the contract's human description.  This is the
+         most common path because pack YAMLs put the rule's intent
+         right in ``desc:``.
+       * ``pack_source``. origin pack spec (e.g.
+         ``"sponsio:capability/shell"``).  Useful for "disable
+         everything from this pack" without listing rules one by one.
+       * ``source``. the ``ConstraintEntry.source`` library tag (e.g.
+         ``"library:tier1.shell"``).  Finer-grained than pack_source
+         when one pack ships rules from several library tiers.
+       * ``pattern``. the structured pattern name on the enforcement
+         constraint (``rate_limit``, ``injection_free``, …).
 
-    Effects:
-      * ``disabled: true``. drop the matched contract entirely.
-      * ``threshold`` / ``prompt_override`` / ``context_scope``.
-        forwarded onto the enforcement ConstraintEntry(s).  Only
-        meaningful for stochastic patterns; det patterns ignore them
-        at compile time so a no-op override is harmless but suspect
-       . we don't currently warn.
+     Effects:
+       * ``disabled: true``. drop the matched contract entirely.
+       * ``threshold`` / ``prompt_override`` / ``context_scope``.
+         forwarded onto the enforcement ConstraintEntry(s).  Only
+         meaningful for stochastic patterns; det patterns ignore them
+         at compile time so a no-op override is harmless but suspect
+        . we don't currently warn.
 
-    The match/effect split is borrowed from ``kustomize`` / GitOps
-    overlays: it keeps the override readable (intent at top, effect
-    at bottom) and makes "match nothing" detectable as an error.
+     The match/effect split is borrowed from ``kustomize`` / GitOps
+     overlays: it keeps the override readable (intent at top, effect
+     at bottom) and makes "match nothing" detectable as an error.
 
-    ``matched_count`` is bookkeeping for the unmatched-rule diagnostic
-   . see ``_apply_overrides``.
+     ``matched_count`` is bookkeeping for the unmatched-rule diagnostic
+    . see ``_apply_overrides``.
     """
 
     match: dict[str, str]

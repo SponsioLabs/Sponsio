@@ -190,9 +190,7 @@ def run() -> int:
     # Trace must show no `issue_refund` event. every attempt was
     # rolled back during redirect. Real executions: check_policy +
     # the substituted log_refund_request entries.
-    issued = [
-        ev for ev in guard._monitor._trace.events if ev.tool == "issue_refund"
-    ]
+    issued = [ev for ev in guard._monitor._trace.events if ev.tool == "issue_refund"]
     if issued:
         print(f"FAIL: {len(issued)} issue_refund events leaked into the trace.")
         return 1

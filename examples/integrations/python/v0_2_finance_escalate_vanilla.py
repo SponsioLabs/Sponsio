@@ -52,9 +52,7 @@ AUDIT_LOG: list[str] = []
 
 def slack_oncall(violation, ctx, reason):
     """A working Slack webhook stand-in."""
-    AUDIT_LOG.append(
-        f"slack: #oncall ← '{ctx.agent_id}.{ctx.action} paused: {reason}'"
-    )
+    AUDIT_LOG.append(f"slack: #oncall ← '{ctx.agent_id}.{ctx.action} paused: {reason}'")
 
 
 def email_cfo(violation, ctx, reason):
@@ -115,7 +113,9 @@ def run() -> int:
     # 1. A normal allowed call. no escalation, no notify.
     print(">> step 1: agent reads an invoice (allowed)")
     r1 = guard.guard_before("read_invoice", {"invoice_id": "INV-001"})
-    print(f"   allowed={r1.allowed}  escalated={any(v.action == 'escalated' for v in r1.det_violations)}")
+    print(
+        f"   allowed={r1.allowed}  escalated={any(v.action == 'escalated' for v in r1.det_violations)}"
+    )
 
     # 2. A wire to an unapproved external service. rule fires.
     # EscalateToHuman fires the notifiers. To ALSO refuse the call

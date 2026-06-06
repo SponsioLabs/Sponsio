@@ -1246,9 +1246,7 @@ class BaseGuard:
                 allowed=not any(r.action == "blocked" for r in hard),
                 det_violations=hard + warned + observed + redirected,
                 sto_violations=sto_list,
-                redirected_to=(
-                    redirected[0].fallback_action if redirected else None
-                ),
+                redirected_to=(redirected[0].fallback_action if redirected else None),
             )
 
             # Rollback blocked / redirected events. Same gating as
@@ -1515,16 +1513,16 @@ class BaseGuard:
     def wrap(self, tools: list) -> list:
         """Wrap tools with contract enforcement.
 
-        Framework-specific subclasses override this to return the
-        appropriate wrapped type (e.g. LangGraph ``ToolNode``, CrewAI
-        ``Tool`` list). The base implementation returns tools unchanged
-       . use ``guard_before()`` / ``guard_after()`` manually.
+         Framework-specific subclasses override this to return the
+         appropriate wrapped type (e.g. LangGraph ``ToolNode``, CrewAI
+         ``Tool`` list). The base implementation returns tools unchanged
+        . use ``guard_before()`` / ``guard_after()`` manually.
 
-        Args:
-            tools: List of tool objects or callables.
+         Args:
+             tools: List of tool objects or callables.
 
-        Returns:
-            Tools (possibly wrapped) with contract enforcement.
+         Returns:
+             Tools (possibly wrapped) with contract enforcement.
         """
         return tools
 

@@ -377,47 +377,47 @@ class RuntimeMonitor:
     def rotate_session(self) -> dict:
         """Begin a new session window; return a summary of what was flushed.
 
-        This is the **supported** way to bound memory in long-running
-        agents (24/7 service agents, always-on schedulers) without
-        losing contract enforcement. It behaves exactly like
-        :meth:`reset`. trace, log, spans, verifier cache, and atom
-        caches are all cleared; contracts on the underlying
-        :class:`~sponsio.models.system.System` are **not** touched.
-        The only difference is intent signalling and the return value:
-        callers get back the headline metrics of the window that just
-        closed so they can plumb them into audit logs / dashboards
-        before the numbers go away.
+         This is the **supported** way to bound memory in long-running
+         agents (24/7 service agents, always-on schedulers) without
+         losing contract enforcement. It behaves exactly like
+         :meth:`reset`. trace, log, spans, verifier cache, and atom
+         caches are all cleared; contracts on the underlying
+         :class:`~sponsio.models.system.System` are **not** touched.
+         The only difference is intent signalling and the return value:
+         callers get back the headline metrics of the window that just
+         closed so they can plumb them into audit logs / dashboards
+         before the numbers go away.
 
-        Why not just keep using :meth:`reset`?
-        ``reset`` reads as "something went wrong, start over".
-        ``rotate_session`` is the name you want to see at a quarterly
-        review. "we rotate every 1000 turns to cap memory; here's the
-        hand-off record."
+         Why not just keep using :meth:`reset`?
+         ``reset`` reads as "something went wrong, start over".
+         ``rotate_session`` is the name you want to see at a quarterly
+         review. "we rotate every 1000 turns to cap memory; here's the
+         hand-off record."
 
-        Liveness caveat
-        ---------------
-        Formulas that span the **entire trace**. ``F(tool)`` /
-        ``always_followed_by(a, b)`` / whole-trace ``rate_limit(tool, N)``
-       . lose visibility across the rotation boundary. Concretely: if
-        ``response`` was promised before ``rotate_session`` and still
-        hasn't happened, the post-rotation verifier won't see the
-        original ``trigger`` and can never fire the liveness violation.
-        To avoid silently eating obligations, this method refuses to
-        rotate while ``finish_session`` hasn't been called on a guard
-        with pending liveness obligations. but since ``RuntimeMonitor``
-        doesn't know about guard-level ``finish_session``, the check
-        has to happen one layer up. See
-        :meth:`sponsio.integrations.base.BaseGuard.rotate_session` for
-        the guard-side handling: run ``finish_session`` first, then
-        rotate.
+         Liveness caveat
+         ---------------
+         Formulas that span the **entire trace**. ``F(tool)`` /
+         ``always_followed_by(a, b)`` / whole-trace ``rate_limit(tool, N)``
+        . lose visibility across the rotation boundary. Concretely: if
+         ``response`` was promised before ``rotate_session`` and still
+         hasn't happened, the post-rotation verifier won't see the
+         original ``trigger`` and can never fire the liveness violation.
+         To avoid silently eating obligations, this method refuses to
+         rotate while ``finish_session`` hasn't been called on a guard
+         with pending liveness obligations. but since ``RuntimeMonitor``
+         doesn't know about guard-level ``finish_session``, the check
+         has to happen one layer up. See
+         :meth:`sponsio.integrations.base.BaseGuard.rotate_session` for
+         the guard-side handling: run ``finish_session`` first, then
+         rotate.
 
-        Returns
-        -------
-        dict
-            ``{"events": int, "turns": int, "log_entries": int,
-            "violations_cleared": 0}`` (``violations_cleared`` is always
-            0 at the monitor layer. violations are tracked by
-            :class:`~sponsio.integrations.base.BaseGuard`, not here).
+         Returns
+         -------
+         dict
+             ``{"events": int, "turns": int, "log_entries": int,
+             "violations_cleared": 0}`` (``violations_cleared`` is always
+             0 at the monitor layer. violations are tracked by
+             :class:`~sponsio.integrations.base.BaseGuard`, not here).
         """
         with self._lock:
             summary = {

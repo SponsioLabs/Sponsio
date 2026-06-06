@@ -130,9 +130,9 @@ def core_filter_tools_is_pure() -> None:
     guard.filter_tools(["search", "rm_rf", "drop_table"])
     assert len(guard._monitor.log) == log_before, "log polluted"
     assert len(guard._monitor._trace.events) == trace_before, "trace polluted"
-    assert (
-        guard._monitor.performance_tracker.summarize().total_checks == perf_before
-    ), "perf polluted"
+    assert guard._monitor.performance_tracker.summarize().total_checks == perf_before, (
+        "perf polluted"
+    )
 
 
 def core_redirect_basic() -> None:
@@ -435,7 +435,10 @@ CORE_CHECKS = [
 ADAPTER_CHECKS = [
     ("langgraph: proactive strips at wrap()", adapter_langgraph_proactive),
     ("langgraph: redirect dispatch substitutes", adapter_langgraph_redirect_dispatch),
-    ("langgraph: redirect missing target fails", adapter_langgraph_redirect_missing_safe),
+    (
+        "langgraph: redirect missing target fails",
+        adapter_langgraph_redirect_missing_safe,
+    ),
     ("langgraph: reactive blocks at call time", adapter_reactive_blocks_at_call_time),
     ("crewai: proactive strips at wrap()", adapter_crewai_proactive),
     ("agents_sdk: proactive strips at wrap()", adapter_agents_sdk_proactive),

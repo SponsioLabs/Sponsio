@@ -225,9 +225,7 @@ class OutcomeBuilder:
     ) -> EnforcementResult:
         rule = _rule_id_from_violation(violation)
         desc = violation.desc or violation.kind
-        message = (
-            f"WARNING (non-blocking): {context.agent_id}.{context.action}. {desc}"
-        )
+        message = f"WARNING (non-blocking): {context.agent_id}.{context.action}. {desc}"
         return EnforcementResult(
             action="warned",
             message=message,
@@ -251,9 +249,8 @@ class OutcomeBuilder:
         to the model, which simply sees the safe tool's result.
         """
         rule = _rule_id_from_violation(violation)
-        msg = (
-            f"REDIRECTED: {context.agent_id}.{context.action} → {safe}"
-            + (f" ({message})" if message else "")
+        msg = f"REDIRECTED: {context.agent_id}.{context.action} → {safe}" + (
+            f" ({message})" if message else ""
         )
         return EnforcementResult(
             action="redirected",
@@ -394,8 +391,7 @@ class EscalateToHuman:
             self._notifiers = list(notify)
         else:
             raise TypeError(
-                "EscalateToHuman.notify must be a callable, list of "
-                "callables, or None."
+                "EscalateToHuman.notify must be a callable, list of callables, or None."
             )
 
     def enforce(
@@ -460,9 +456,7 @@ class RedirectToSafe:
 
     def __init__(self, safe: str, message: str = "") -> None:
         if not isinstance(safe, str) or not safe.strip():
-            raise ValueError(
-                "RedirectToSafe: 'safe' must be a non-empty tool name."
-            )
+            raise ValueError("RedirectToSafe: 'safe' must be a non-empty tool name.")
         self._safe = safe
         self._message = message
 

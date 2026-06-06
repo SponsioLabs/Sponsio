@@ -166,8 +166,10 @@ class CrewAIGuard(BaseGuard):
         # and pre-built CrewAI Tool objects (``.name``).
         tools = self._proactive_filter_tools(
             list(tools),
-            name_fn=lambda t: getattr(t, "name", None)
-            or getattr(getattr(t, "func", t), "__name__", ""),
+            name_fn=lambda t: (
+                getattr(t, "name", None)
+                or getattr(getattr(t, "func", t), "__name__", "")
+            ),
         )
 
         guard = self

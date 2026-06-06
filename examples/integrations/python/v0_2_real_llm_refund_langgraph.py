@@ -165,10 +165,12 @@ def main() -> int:
     print(f"All tools defined in the script: {sorted(t.name for t in ALL_TOOLS)}")
     print(f"Tools the model will actually see: {bound_names}")
     print()
-    assert (
-        "delete_customer" not in bound_names
-    ), "proactive filter failed: delete_customer leaked into the bound tool set"
-    assert "issue_refund" in bound_names, "issue_refund must be visible (gets redirected at call time, not at wrap time)"
+    assert "delete_customer" not in bound_names, (
+        "proactive filter failed: delete_customer leaked into the bound tool set"
+    )
+    assert "issue_refund" in bound_names, (
+        "issue_refund must be visible (gets redirected at call time, not at wrap time)"
+    )
 
     llm = ChatGoogleGenerativeAI(
         model=os.environ.get("SPONSIO_DEMO_MODEL", "gemini-2.5-flash"),
@@ -199,7 +201,9 @@ def main() -> int:
                 print(f"  [{role}] tool_call: {tc['name']}({tc['args']})")
         if hasattr(msg, "name") and msg.name:
             content_preview = (
-                str(msg.content)[:120] + "..." if len(str(msg.content)) > 120 else msg.content
+                str(msg.content)[:120] + "..."
+                if len(str(msg.content)) > 120
+                else msg.content
             )
             print(f"  [tool:{msg.name}] -> {content_preview}")
         elif hasattr(msg, "content") and msg.content and role != "tool":
@@ -208,9 +212,7 @@ def main() -> int:
 
     print("\n--- trace honesty check ---")
     actual_calls = [
-        (ev.ts, ev.tool, ev.args)
-        for ev in guard._monitor._trace.events
-        if ev.tool
+        (ev.ts, ev.tool, ev.args) for ev in guard._monitor._trace.events if ev.tool
     ]
     for ts, tool, args in actual_calls:
         print(f"  ts={ts}  tool={tool}  args={args}")
@@ -220,9 +222,15 @@ def main() -> int:
     deleted = [c for c in actual_calls if c[1] == "delete_customer"]
 
     print("\n--- assertions ---")
-    print(f"  delete_customer events in trace: {len(deleted)} (must be 0; tool was filtered at wrap)")
-    print(f"  issue_refund events in trace:    {len(issued)} (must be 0; every attempt was redirected)")
-    print(f"  log_refund_request events:       {len(logged)} (must be >= 1 if agent attempted a refund)")
+    print(
+        f"  delete_customer events in trace: {len(deleted)} (must be 0; tool was filtered at wrap)"
+    )
+    print(
+        f"  issue_refund events in trace:    {len(issued)} (must be 0; every attempt was redirected)"
+    )
+    print(
+        f"  log_refund_request events:       {len(logged)} (must be >= 1 if agent attempted a refund)"
+    )
 
     if deleted:
         print("FAIL: delete_customer ran despite proactive filter")

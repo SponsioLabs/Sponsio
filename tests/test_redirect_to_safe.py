@@ -56,9 +56,7 @@ class TestRedirectToSafePattern:
         description. Parity with every other pattern factory; required
         for the LLM extraction path (``llm_extraction.py:535``) which
         always passes ``desc=nl`` when re-materialising a pattern."""
-        formula = redirect_to_safe(
-            "rm_rf", "trash", desc="custom: rm goes to trash"
-        )
+        formula = redirect_to_safe("rm_rf", "trash", desc="custom: rm goes to trash")
         assert formula.desc == "custom: rm goes to trash"
         # message is still bound on the strategy even when desc is
         # explicitly overridden.
@@ -182,7 +180,7 @@ class TestConditionalRedirect:
             verbose=False,
         )
         # Before issue_refund is called, the assumption hasn't fired
-        #. read_file passes through cleanly.
+        # . read_file passes through cleanly.
         r1 = guard.guard_before("read_file", {})
         assert r1.allowed is True
         assert r1.redirected is False
@@ -202,9 +200,7 @@ class TestRedirectInteractsWithOtherRules:
         guard = Sponsio(
             agent_id="bot",
             contracts=[
-                contract("redirect").guarantees(
-                    redirect_to_safe("rm_rf", "trash")
-                ),
+                contract("redirect").guarantees(redirect_to_safe("rm_rf", "trash")),
                 contract("count").guarantees("tool `rm_rf` at most 2 times"),
             ],
             mode="enforce",

@@ -133,7 +133,10 @@ jobs:
           cache: pip
 
       - name: Install ruff and dependencies
-        run: pip install ruff -e .
+        # Ruff `format` rules change between minor versions; pin to the
+        # same version pyproject.toml's `dev` extra declares so CI and
+        # local always agree.
+        run: pip install -e ".[dev]"
 
       - name: Check formatting
         run: ruff format --check sponsio/ tests/ scripts/

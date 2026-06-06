@@ -105,7 +105,9 @@ def run() -> int:
     print("=" * 70)
     print("v0.2 case study: coding agent (CrewAI, proactive default-deny)")
     print("=" * 70)
-    print(f"All tools the dev passed to guard.wrap(): {sorted(t.__name__ for t in ALL_TOOLS)}")
+    print(
+        f"All tools the dev passed to guard.wrap(): {sorted(t.__name__ for t in ALL_TOOLS)}"
+    )
     print(f"Tools the CrewAI Agent will actually see:  {bound_names}")
     print()
 
