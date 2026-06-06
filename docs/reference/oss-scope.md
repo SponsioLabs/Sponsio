@@ -88,12 +88,13 @@ is no LLM call on the enforcement path.
 
 ## Deterministic only
 
-The OSS engine evaluates deterministic LTL contracts: ordering, rate
-limits, retries/loops, destructive-action gates, path/argument
-blacklists, exact PII regexes, length, format, permissions, and
-allowlists. The deterministic patterns `no_pii` / `max_length` /
-`no_keywords` are regex against `llm_said` and remain available. There
-is no judge or LLM call on the enforcement path.
+The OSS engine evaluates deterministic LTL (linear temporal logic)
+contracts. Coverage includes ordering, rate limits, retries/loops,
+destructive-action gates, path/argument blacklists, exact PII regexes,
+length, format, permissions, and allowlists. The deterministic patterns
+`no_pii` / `max_length` / `no_keywords` run regex against `llm_said` and
+remain available. There is no judge or LLM call on the enforcement
+path.
 
 ### Session-log ship-out
 - `sponsio export-sessions` + `sponsio.tracer.exporters`: write your
@@ -105,9 +106,10 @@ is no judge or LLM call on the enforcement path.
 
 ## Versioning + the OSS Promise
 
-Apache 2.0 is permanent. Anything in OSS stays in OSS. We will not
-relicense or remove. New work in OSS-scope directories ships under the
-same license.
+Apache 2.0 is our long-term commitment for the OSS scope. Anything in
+OSS stays in OSS; we do not plan to relicense or remove anything
+currently in the OSS tree. New work in OSS-scope directories ships
+under the same license.
 
 The `SCHEMA_VERSION` in `sponsio/tracer/semconv.py` covers the
 observability contract and follows semver: any rename of an existing

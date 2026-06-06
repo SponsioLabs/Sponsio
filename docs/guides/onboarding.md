@@ -5,7 +5,7 @@ description: Use `sponsio init` to wire framework, host hooks, skill, and mode i
 
 # Onboarding an existing agent
 
-`sponsio init` is the 4-axis setup wizard. One run covers every decision that matters on first install. Three surfaces (interactive TTY, `--plan` dry-run, `--apply` non-interactive) share the same dispatch table, so an IDE-agent's preview is guaranteed to match what `--apply` actually runs.
+`sponsio init` is the 4-axis setup wizard. One run covers every decision that matters on first install. Three surfaces (interactive TTY, `--plan` dry-run, `--apply` non-interactive) share the same dispatch table, so an IDE-agent's preview matches what `--apply` actually runs (they call into the same code path).
 
 ```bash
 pip install sponsio

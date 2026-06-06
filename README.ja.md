@@ -25,7 +25,7 @@
   <img src="assets/sponsio-comparison-freeze.png" alt="コードフリーズ宣言下の同一コーディングエージェント。Sponsio なし：本番 users テーブルを削除し、捏造した行で埋め戻し、被害を隠す状態レポートを提出。Sponsio あり：最初の破壊的 SQL を実行前にブロック：35 チェック、100% 決定論的、LLM 呼び出し 0 回、p50 13µs。" width="900">
 </p>
 
-**AI エージェントのためのランタイム強制。** Sponsio はエージェントのすべてのアクションを、決定論的な純コードの契約に照らしてチェックします。0.01 ms 未満で強制し、ランタイムでの LLM コストはゼロ。LangChain、Claude Agent、OpenAI Agents、Google ADK、CrewAI、Vercel AI、MCP、または任意のカスタム ツール呼び出しループに対応（Python / TypeScript）。
+Sponsio は時間軸に沿って展開されるエージェントの手続きに対して決定論的な契約を提供します。強制は 0.01 ms 未満、ランタイムでの LLM コストはゼロ。LangChain、Claude Agent、OpenAI Agents、Google ADK、CrewAI、Vercel AI、MCP、または任意のカスタム ツール呼び出しループに対応（Python / TypeScript）。
 
 > **エージェント契約** とは、エージェントのすべてのアクションでチェックされるランタイムルールであり、[形式手法に裏打ちされています](docs/concepts/formal-methods.md)。
 

@@ -1,10 +1,12 @@
 # TypeScript SDK / Python parity
 
 The TS SDK (`@sponsio/sdk`) and the Python core share the deterministic
-runtime (formula AST, evaluator, grounding, pattern library, NL parser).
-The deterministic semantics on both sides are identical for the surface
-that exists in both. The same `(formula, trace)` pair always produces
-the same verdict.
+runtime: the formula AST (the LTL syntax tree the engine evaluates), the
+evaluator, the grounding layer (the step that turns trace events into
+the observable facts the engine reasons over), the pattern library, and
+the NL parser. The deterministic semantics on both sides are identical
+for the surface that exists in both. The same `(formula, trace)` pair
+always produces the same verdict.
 
 The TS surface, however, is **smaller** than Python's. Python is the
 reference implementation; TS lags. This page is the authoritative list
@@ -48,7 +50,7 @@ Workaround: express these as raw `Atom` formulas, or run them through the Python
 
 ### v0.2 enforcement strategies (partial parity)
 
-The v0.2 `redirect_to_safe` pattern factory exists on TS (`redirectToSafe` in `ts/packages/sdk/src/core/patterns.ts`) and compiles to the same `G(Not(called(unsafe)))` LTL formula as the Python side, so a TS evaluator produces the same violation verdict as the Python verifier on a given trace.
+The v0.2 `redirect_to_safe` pattern factory exists on TS (`redirectToSafe` in `ts/packages/sdk/src/core/patterns.ts`). It compiles to the same `G(Not(called(unsafe)))` LTL formula as the Python side, so a TS evaluator produces the same violation verdict as the Python verifier on a given trace.
 
 What's NOT on TS yet:
 
@@ -81,7 +83,7 @@ Any contract that uses one of these atoms must run on the Python guard. This is 
 
 TS's `parseNl()` (`ts/packages/sdk/src/core/nl-parser.ts`) recognises 8 patterns: `must_precede`, `always_followed_by`, `rate_limit`, `idempotent`, `mutual_exclusion`, `no_reversal`, `cooldown`, `deadline`.
 
-Python's `parse_nl_unified()` recognises all 44 deterministic patterns. NL strings that don't match one of the 8 TS patterns return a parse failure on TS. Callers should fall back to constructing the `DetFormula` directly via the pattern factory, or parse on the Python side.
+Python's `parse_nl_unified()` recognises all 45 deterministic patterns. NL strings that do not match one of the 8 TS patterns return a parse failure on TS. Callers should fall back to constructing the `DetFormula` directly via the pattern factory, or parse on the Python side.
 
 ### CLI surface
 

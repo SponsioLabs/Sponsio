@@ -103,9 +103,9 @@ sponsio.agent_turn                 (root, one per check_action)
 
 | Attribute | Description |
 |---|---|
-| `sponsio.enforcement.strategy` | `DetBlock`, `EscalateToHuman`, `WarnOnly`, `RedirectToSafe`. `RetryWithConstraint` emits through the same attribute when the optional sto pipeline is plugged in. |
-| `sponsio.enforcement.action` | `blocked`, `escalated`, `redirected`, `warned`, `observed`. `retrying` is reserved for the sto pipeline and not reachable in this OSS build. |
-| `sponsio.enforcement.retry_prompt` | Retry-with-lesson prompt, truncated to 2 KB. Only emitted when an external sto evaluator is wired up. |
+| `sponsio.enforcement.strategy` | `DetBlock`, `EscalateToHuman`, `WarnOnly`, `RedirectToSafe`. `RetryWithConstraint` emits through the same attribute when the optional stochastic (LLM-judge) pipeline is plugged in. |
+| `sponsio.enforcement.action` | `blocked`, `escalated`, `redirected`, `warned`, `observed`. `retrying` is reserved for the stochastic pipeline and not reachable in this OSS build. |
+| `sponsio.enforcement.retry_prompt` | Retry-with-lesson prompt, truncated to 2 KB. Only emitted when an external stochastic (LLM-judge) evaluator is wired up. |
 | `sponsio.enforcement.fallback_action` | Fallback tool name for `RedirectToSafe` (e.g. `log_refund_request` when the model attempted `issue_refund`). |
 
 ## Privacy and cost defaults
@@ -128,7 +128,7 @@ OtlpHttpExporter(redact_args=False, truncate=False)
 |---|---|
 | Per-conversation `shield-trace.jsonl` | Carries raw tool args from prior subprocesses with no verdict context. Internal cross-process trace state. |
 | `~/.sponsio/cursor-subagents.jsonl` | Internal subagent registry, not user-facing. |
-| User prompt original text | Default redacted because user prompts can carry PII or secrets. Opt in to `redact_args=False` only after legal sign-off. |
+| User prompt original text | Default redacted because user prompts can carry personally identifiable information (PII) or secrets. Opt in to `redact_args=False` only after legal sign-off. |
 
 ## Versioning
 

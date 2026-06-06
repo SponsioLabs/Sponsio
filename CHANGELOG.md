@@ -16,7 +16,7 @@ _Nothing yet._
 
 ---
 
-## [0.2.0a0] — 2026-06-03
+## [0.2.0a0]: 2026-06-03
 
 Three new enforcement primitives plus a sharper failure-strategy
 surface. The story: agents shouldn't have to fail catastrophically
@@ -26,7 +26,7 @@ making progress while still gating the unsafe behavior.
 
 ### Added
 
-- **`tool_policy` block (YAML + inline kwarg)** — declarative
+- **`tool_policy` block (YAML + inline kwarg)**: declarative
   default-deny posture. `default: deny` + `approved: [search, …]`
   synthesizes a `tool_allowlist` contract automatically. Adding a new
   tool to your framework does not auto-trust it: the policy is the
@@ -34,13 +34,13 @@ making progress while still gating the unsafe behavior.
   Available in `sponsio.yaml` and on `Sponsio(tool_policy={…})`. Both
   paths share one synthesis point so the resulting contract is
   identical.
-- **`enforcement: proactive` mode** — wrap-time tool filtering on
+- **`enforcement: proactive` mode**: wrap-time tool filtering on
   LangGraph, CrewAI, OpenAI Agents SDK, and Google ADK adapters.
   Denied tools never reach the agent's bound toolset. Prompt
   injection that tries to call them silently no-ops because the
   model literally cannot name them. `enforcement: reactive` (the
   default) keeps the legacy "block at call time" behavior.
-- **`filter_tools(candidates)`** — pure-probe API on `BaseGuard` that
+- **`filter_tools(candidates)`**: pure-probe API on `BaseGuard` that
   returns the subset of tool names legal to call given the live
   trace. Custom agent loops (no framework) call this before each
   model turn to pre-filter the tool menu and avoid wasted attempts
@@ -50,27 +50,27 @@ making progress while still gating the unsafe behavior.
   a `dry_run` flag on `RuntimeMonitor.check_action` that suppresses
   every observable side effect under a depth counter.
 - **`redirect_to_safe(unsafe, safe)` pattern + `RedirectToSafe`
-  strategy** — substitute a forbidden tool call with a pre-declared
+  strategy**: substitute a forbidden tool call with a pre-declared
   safe one (`issue_refund` → `log_refund_request`,
   `run_sql_destructive` → `select_only_dryrun`). The model keeps
   making progress; it just can't do the unsafe thing. Trace honestly
   records the substitute call, not the original. LangGraph adapter
   dispatches the substitute transparently; other adapters surface
   `result.redirected_to` for the application loop to invoke.
-- **`EscalateToHuman(notify=[…])`** — strategy now accepts a callable
+- **`EscalateToHuman(notify=[…])`**: strategy now accepts a callable
   or a list of notifier callables that fire synchronously on each
   violation. Each notifier gets `(violation, context, reason)`.
   Notifier failures are isolated per-callback: a broken Slack
   webhook does not crash the agent loop and does not silence the
   remaining notifiers; the exception becomes a `RuntimeWarning`
   naming the offending callable.
-- **Cross-integration verification script** —
+- **Cross-integration verification script.**
   `scripts/verify_v0_2.py` runs 15 checks across the core runtime
   and four adapters. Skip-on-missing-SDK rather than fail. Run
   before any release to catch the kind of cross-mode bug that
   `pytest` misses (conftest pins `SPONSIO_MODE=enforce`, production
   default is `observe`).
-- **Three workflow case studies** —
+- **Three workflow case studies.**
   `examples/integrations/python/v0_2_*.py`. Refund agent
   (LangGraph + `redirect_to_safe` + `filter_tools`), coding agent
   (CrewAI + `tool_policy` default-deny + proactive), AP automation
@@ -147,7 +147,7 @@ making progress while still gating the unsafe behavior.
 
 ---
 
-## [0.1.1] — 2026-05-22
+## [0.1.1]: 2026-05-22
 
 ### Fixed
 
@@ -170,7 +170,7 @@ making progress while still gating the unsafe behavior.
 
 ---
 
-## [0.1.0] — 2026-05-06
+## [0.1.0]: 2026-05-06
 
 Open-source launch build. Closes the missing-implementation gap in 0.1.0a3
 (CLI imported `sponsio.daemon` / `sponsio.plugin.append_ops` but the wheel
@@ -178,26 +178,26 @@ shipped without them) and tunes the bundled capability rules.
 
 ### Added
 
-- **`sponsio.daemon`** — Unix-socket IPC server + client + handlers; powers
+- **`sponsio.daemon`**: Unix-socket IPC server + client + handlers; powers
   the privileged-process side of `sponsio plugin append` so a system install
   can give kernel-level (separate-UID) self-modify protection.
-- **`sponsio plugin append`** — structurally-additive merge from a staging
+- **`sponsio plugin append`**: structurally-additive merge from a staging
   YAML into a host bucket library; the only blessed write path through the
   self-modify pack.
 
 ### Changed
 
-- **Capability/shell pack** — drop session-wide `rate_limit(exec, 50)` and
+- **Capability/shell pack**: drop session-wide `rate_limit(exec, 50)` and
   `loop_detection(exec, 20)`. The 24-hour cross-session trace store turned
   these into rolling caps that false-positived heavy interactive work; the
   targeted `arg_blacklist` and confirm-gate rules already cover the real
   attacks.
-- **Capability/self-modify pack** — extend protection to the upstream
+- **Capability/self-modify pack**: extend protection to the upstream
   `sponsio` package (contract bundles + engine `.py`) so an editable / `--user`
   / venv install can't be used as an "edit the bundle to silence the rule"
   bypass.  Maintainer workflow: override with `customized: {match: {source:
   "library:tier1.self-modify"}, disabled: true}`.
-- **Onboard wizard** — drop redundant trailing "mode flip" hint (axis 3
+- **Onboard wizard**: drop redundant trailing "mode flip" hint (axis 3
   already asks); language-aware bare-loop guard API hint
   (`guardBefore`/`guardAfter` for TS, `guard_before`/`guard_after` for Python).
 
@@ -212,7 +212,7 @@ shipped without them) and tunes the bundled capability rules.
 
 ---
 
-## [0.1.0a3] — 2026-05-02
+## [0.1.0a3]: 2026-05-02
 
 Pre-launch test build. Sponsio is a runtime contract enforcement layer
 for AI agents: deterministic LTL contracts evaluated as a compiled DFA
@@ -221,37 +221,37 @@ and a CLI for scanning, mining, and reporting.
 
 ### Added
 
-- **Runtime engine** — LTL → DFA compiler, finite-trace evaluator,
+- **Runtime engine**: LTL → DFA compiler, finite-trace evaluator,
   observe / enforce modes, session log writer, OTel exporter.
-- **Pattern library** — 44 deterministic patterns (`must_precede`,
+- **Pattern library**: 44 deterministic patterns (`must_precede`,
   `rate_limit`, `idempotent`, `arg_blacklist`, `arg_allowlist`,
   `no_data_leak`, `segregation_of_duty`, `cooldown`, `must_confirm`,
   `bounded_retry`, `loop_detection`, `scope_limit`,
   `arg_length_limit`, `data_intact`, `destructive_action_gate`, etc.)
   exposed both as Python factories and as natural-language triggers.
-- **Contract bundles** — `sponsio:core/runaway`, `sponsio:core/universal`,
+- **Contract bundles**: `sponsio:core/runaway`, `sponsio:core/universal`,
   `sponsio:capability/shell`, `sponsio:capability/filesystem`,
   `sponsio:incident/openclaw`.
-- **Framework integrations** — LangGraph / LangChain.js, Claude Agent
+- **Framework integrations**: LangGraph / LangChain.js, Claude Agent
   SDK, OpenAI SDK, OpenAI Agents SDK, Google ADK, Vercel AI SDK,
   CrewAI, MCP, plus a no-framework `guard_before` / `guard_after` API.
-- **CLI** — `sponsio init` (interactive 4-axis wizard), plus the
+- **CLI**: `sponsio init` (interactive 4-axis wizard), plus the
   underlying `sponsio onboard`, `scan`, `validate`, `check`, `report`,
   `refresh`, `eval`, `export`, `export-sessions`, `host`, `plugin`,
   `packs`, `patterns`, `prompt`, `mode`, `doctor`, `skill`, `replay`,
   `explain`, `demo`.
-- **TypeScript SDK** (`@sponsio/sdk`) — deterministic engine + the
+- **TypeScript SDK** (`@sponsio/sdk`): deterministic engine + the
   same set of framework integrations.
-- **Static scanner** (`@sponsio/sdk`) — AST-based code scanner
+- **Static scanner** (`@sponsio/sdk`): AST-based code scanner
   for proposing contracts from a TS / JS codebase.
-- **Local observability** — session log JSONL writer,
+- **Local observability**: session log JSONL writer,
   `sponsio host trace --follow` live stream, `sponsio report` rich /
   markdown / HTML / JSON output, OTel HTTP exporter for shipping to
   your own collector.
-- **Plugins** — Claude Code plugin (production), OpenClaw plugin
-  (beta — type definitions track the public OpenClaw plugin docs;
+- **Plugins**: Claude Code plugin (production), OpenClaw plugin
+  (beta: type definitions track the public OpenClaw plugin docs;
   end-to-end exercise inside a live OpenClaw runtime is in progress).
-- **Benchmarks** — ODCV-Bench (**95.6% high-risk protection across 12
+- **Benchmarks**: ODCV-Bench (**95.6% high-risk protection across 12
   LLMs**, 24 of 36 scenarios at 100% across every model) and
   RedCode-Exec (92% combined detection across 1,410 cases), with
   **0 FP increase** across 6 ODCV library iterations and 0% utility
@@ -263,5 +263,5 @@ and a CLI for scanning, mining, and reporting.
 - Status: alpha. APIs may shift before 1.0; the trace event schema
   and CLI surface follow [SemVer](https://semver.org/) for breaking
   changes from 0.2 onward.
-- Apache 2.0 — see [LICENSE](LICENSE) and the
+- Apache 2.0: see [LICENSE](LICENSE) and the
   [OSS Promise](OSS_PROMISE.md).

@@ -129,19 +129,19 @@ guard = sponsio.Sponsio(
 
 ### What `proactive` does per adapter
 
-The adapter matrix below reflects the real listing surface each framework exposes. Filtering is honest: where an adapter can drop tools before the agent sees them, it does; where it can't, the rule still fires reactively via `guard_before`.
+The adapter matrix below reflects the real listing surface each framework exposes. Where an adapter can drop tools before the agent sees them, it does. Where it cannot, the rule still fires reactively via `guard_before`.
 
 | Adapter | `proactive` behavior |
 |---|---|
 | LangGraph, CrewAI, OpenAI Agents SDK, Google ADK | One-shot static filter in `guard.wrap(tools)`. Denied tools never get bound to the agent. Temporal rules (`must_precede`, `count_at_most`) still apply reactively at call time. |
 | Claude Agent SDK | Hooks-based: the SDK owns the tool list. `enforcement: proactive` is a no-op here; reactive blocking via `guard.hooks()` is the supported path. |
 | OpenAI SDK, Vercel AI SDK | Per-call by user: filter the `tools=[...]` array before each request with `guard.filter_tools([t.name for t in ALL_TOOLS])` (see custom-loop snippet below). |
-| Custom loop (no framework) | Per-turn filter using `guard.filter_tools(...)` — see snippet. Catches everything including temporal rules. |
+| Custom loop (no framework) | Per-turn filter using `guard.filter_tools(...)` (see snippet below). Catches everything including temporal rules. |
 | MCP | `MCPContractProxy` already reactive-blocks at `call_tool`. Per-turn filtering of `list_tools` is on the roadmap. |
 
 ### Custom loop with per-turn proactive filtering
 
-`guard.filter_tools(candidates)` returns the subset of candidate tool names whose call would not be blocked right now — it's pure (no events, logs, callbacks, or perf samples) and evaluates *all* contracts including temporal ones. Call it before each LLM turn:
+`guard.filter_tools(candidates)` returns the subset of candidate tool names whose call would not be blocked right now. The call is pure (no events, logs, callbacks, or perf samples) and evaluates *all* contracts including temporal ones. Call it before each LLM turn:
 
 ```python
 import sponsio
@@ -168,11 +168,11 @@ while not done:
     guard.guard_after(tool_name, output)
 ```
 
-The difference from `wrap()`-time filtering: `filter_tools` is called each turn and consults the live trace, so `must_precede(A, B)` opens B in the menu only *after* A fires. This is the strongest proactive behavior Sponsio offers; it requires you own the agent loop.
+The difference from `wrap()`-time filtering: `filter_tools` is called each turn and consults the live trace, so `must_precede(A, B)` opens B in the menu only *after* A fires. This is the most thorough proactive option Sponsio offers; it requires you to own the agent loop.
 
 ## Redirect to safe (v0.2)
 
-`redirect_to_safe(unsafe, safe)` substitutes a forbidden tool call with a pre-approved one instead of slamming the door on the agent. The model keeps making progress; it just can't do the unsafe thing.
+`redirect_to_safe(unsafe, safe)` substitutes a forbidden tool call with a pre-approved one instead of blocking the agent outright. The model can continue, just not down the unsafe path.
 
 ```python
 from sponsio import contract
@@ -195,13 +195,13 @@ When the agent calls `rm_rf`, Sponsio:
 
 1. Rolls back the `rm_rf` event from the trace so downstream counters (`rate_limit`, `count_at_most`) don't tick on the attempted call.
 2. Surfaces `result.redirected=True` + `result.redirected_to="trash"` from `guard_before`.
-3. The adapter invokes `trash` with the model's original arguments. The trace honestly records the `trash` call (via the normal `guard_before(safe, args)` path), so audit shows what executed.
+3. The adapter invokes `trash` with the model's original arguments. The trace records the `trash` call (via the normal `guard_before(safe, args)` path), so the audit log reflects what actually executed.
 
-The model sees the safe tool's result, not an error. Substitution is transparent unless the safe tool returns something the model can't make sense of (schema mismatch).
+The model sees the safe tool's result, not an error. Substitution is transparent unless the safe tool returns something the model cannot interpret (schema mismatch).
 
 ### Constraints
 
-- Both `unsafe` and `safe` must be registered with your framework — Sponsio does NOT synthesize tools.
+- Both `unsafe` and `safe` must be registered with your framework. Sponsio does NOT synthesize tools.
 - The safe tool should accept the same arguments as the unsafe one. If schemas diverge, the adapter passes args verbatim; the user is responsible for compatibility.
 - A `redirect → blocked` chain (safe tool also violates a different contract) raises a hard block. Sponsio does not chain redirects to avoid loops.
 - Self-redirect (`unsafe == safe`) is rejected loudly via `ToolCallBlocked`. The pattern factory already rejects `redirect_to_safe("X", "X")` at construction; this guard catches the case where a user wired `RedirectToSafe(safe="X")` directly via `policy={}` and bound it to a contract that triggers on tool `X`.
@@ -220,7 +220,7 @@ If you want both behaviors, write the `must_precede` against the safe tool (`mus
 | Adapter | Redirect behavior |
 |---|---|
 | LangGraph | Built in. `wrap()` indexes tools by name; on redirect the wrapped `ToolNode` invokes the safe tool's `func` / `coroutine` with the model's original kwargs. Unknown safe tool name raises `ToolCallBlocked`. |
-| CrewAI, OpenAI Agents SDK, Google ADK, Vercel AI, Claude Agent SDK | Surface only — `result.redirected_to` is set on the `CheckResult`. Adapter-side dispatch lands in a follow-up release; for now, custom loops can read `result.redirected_to` and call the substitute tool themselves. |
+| CrewAI, OpenAI Agents SDK, Google ADK, Vercel AI, Claude Agent SDK | Surface only: `result.redirected_to` is set on the `CheckResult`. Adapter-side dispatch lands in a follow-up release. For now, custom loops can read `result.redirected_to` and call the substitute tool themselves. |
 | Custom loop (no framework) | Read `check.redirected_to`, look up the safe tool in your registry, call it with the same args. See snippet below. |
 
 ```python

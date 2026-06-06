@@ -94,15 +94,15 @@ You can also promote per-contract with the `mode: enforce` override. Useful for 
 | Observe | Logged; call passes through | Logged; response passes through |
 | Enforce | Strategy runs (`DetBlock`, `EscalateToHuman`+notifiers, `RedirectToSafe`, `WarnOnly`, or custom callable) | Strategy runs (`retry_with_constraint` when an external sto evaluator is wired up; otherwise log-only) |
 
-In enforce mode, a hard-blocked event is **rolled back** from the trace so later checks are not poisoned by it.
+In enforce mode, a hard-blocked event is **rolled back** from the trace so later checks do not see it.
 
 ---
 
 ## Gotchas
 
-- **Observe mode is not free**. Sto contracts still make judge calls in observe. They need the score to log the would-be violation. If judge cost is a concern during shadow, consider a `mode: observe_det_only` override on sto contracts. (Feature-flagged; ask if you need it.)
+- **Observe mode is not free**. Stochastic (LLM-judge) contracts still make judge calls in observe. The score is what gets logged for the would-be violation. If judge cost is a concern during shadow, consider a `mode: observe_det_only` override on stochastic contracts. (Feature-flagged; ask if you need it.)
 - **Observe reports are only as good as your session log.** Make sure OTEL or local-disk session logging is configured. See [Observability](../reference/observability.md).
-- **Enforce mode changes agent behavior.** Once you flip, the agent will see `SponsioBlocked` exceptions and retry loops it never saw in observe. Plan for a day of re-tuning after the flip.
+- **Enforce mode changes agent behavior.** Once you flip, the agent starts seeing `SponsioBlocked` exceptions and enters retry loops that did not occur in observe. Plan for a day of re-tuning after the flip.
 
 ---
 

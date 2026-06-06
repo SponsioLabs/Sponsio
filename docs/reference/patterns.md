@@ -5,7 +5,7 @@ description: The full deterministic pattern library. Each pattern's NL form, wha
 
 # Pattern catalog
 
-Patterns are named factories that emit LTL formulas over the atom vocabulary. You write a natural-language rule; the parser matches it against these patterns and hands back a compiled contract. Patterns are *sugar*. They do not expand the expressiveness of the language, only the ergonomics.
+Patterns are named factories that emit LTL (linear temporal logic) formulas over the atom vocabulary. An *atom* is one observable fact about the trace (for example, "called `tool X`", "tool X was called with `path` containing `/etc`"). You write a natural-language rule; the parser matches it against these patterns and hands back a compiled contract. Patterns are shorthand: they do not expand the expressiveness of the language, only the readability.
 
 Run `sponsio patterns` on the CLI to browse this catalog interactively with NL examples.
 
@@ -111,7 +111,7 @@ For the conceptual model (atom → pattern → formula → contract) see [Concep
 
 ## Output checks (det)
 
-These are det atoms that match against `llm_response` events. Distinct from the Cloud sto atoms (`tone`, `faithfulness`, etc.) that need an LLM judge.
+These are deterministic atoms that match against `llm_response` events via regex or exact string compare. They are distinct from stochastic atoms (judge-backed, like `tone` or `faithfulness`), which need an LLM judge at runtime and are not part of this OSS release.
 
 | Pattern | NL example | What it enforces |
 |---|---|---|

@@ -84,7 +84,7 @@ agents:
       - G: "response must not contain PII"
 ```
 
-Each entry is one `(assumption, guarantee)` pair. `A` is optional, `G` is required. Each field can be a scalar or a list (lists are ANDed). The legacy keys `E:` / `enforcement:` are still accepted for back-compat.
+Each entry is one `(assumption, guarantee)` pair. `A` is optional, `G` is required. Each field can be a scalar or a list (lists are ANDed). The legacy keys `E:` / `enforcement:` are still accepted for backward compatibility.
 
 Deterministic syntax (must use backtick-quoted tool names):
 
@@ -113,6 +113,21 @@ agents:
 ```
 
 Compiled directly. No NL parsing. Auto-emitted by `sponsio scan`.
+
+### Tool policy (v0.2 shortcut for default-deny)
+
+For the common "the agent can only call these tools" rule, you can skip writing a `tool_allowlist` contract by declaring it at the agent level:
+
+```yaml
+agents:
+  customer_bot:
+    tool_policy:
+      default: deny
+      approved: [search, read_file, list_dir]
+      enforcement: proactive   # optional. strip denied tools at wrap()
+```
+
+Sponsio synthesizes the equivalent `tool_allowlist` contract internally. See [config-yaml.md#tool-policy](../reference/config-yaml.md#tool_policy) for the full schema.
 
 ## Loading config in Python
 

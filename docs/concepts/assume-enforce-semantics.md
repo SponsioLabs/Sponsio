@@ -105,8 +105,8 @@ The X (next) and F (eventually) operators are *formulas*, not enforcement action
 |---|---|
 | X in assumption | Evaluated. Determines whether the next event matches the trigger; no hint, no block. |
 | F in assumption | Evaluated. Determines whether the trigger eventually fires; no hint, no block. |
-| X in guarantee | Evaluated **and** enforced. Triggers `_emit_prescriptive_hints` ("next step: B") when the antecedent fires, and produces a `blocked` result when the next event fails to satisfy B (`workflow_step` pattern). |
-| F in guarantee | Evaluated **and** enforced. Triggers `emit_pending_obligation_hints` ("before closing, please complete: B") from `guard.before_close()` while the obligation is pending; produces an `escalated` liveness violation from `guard.finish_session()` if B never fires (`always_followed_by` pattern). |
+| X in guarantee | Evaluated **and** enforced. When the antecedent fires, the engine emits a hint ("next step: B"). When the next event fails to satisfy B, the call is `blocked` (`workflow_step` pattern). |
+| F in guarantee | Evaluated **and** enforced. While the obligation is pending, `guard.before_close()` emits a hint ("before closing, please complete: B"). If B never fires before session close, `guard.finish_session()` raises an `escalated` liveness violation (`always_followed_by` pattern). |
 
 The dual-message symmetry between X and F (hint at obligation incurrence, violation at obligation deadline) applies only to the guarantee side. On the assumption side, both operators are pure observers.
 
@@ -126,7 +126,7 @@ contract("refund verification")
     .enforce("must call verify before issue_refund")
 ```
 
-without an assumption will fire even when no refund has been requested, because there is nothing to *not trigger*. The verifier may resolve it vacuously at the LTL level (`G(¬A) ∨ ...`), but the intent is unclear and the audit trail less informative.
+without an assumption will fire even when no refund has been requested, because there is nothing to *not trigger*. The verifier may resolve it vacuously at the LTL (linear temporal logic) level (the formula `G(¬A) ∨ ...` is trivially satisfied when A never holds), but the intent is unclear and the audit trail less informative.
 
 Prefer:
 

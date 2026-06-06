@@ -6,7 +6,7 @@ Sponsio enforces the behavioral layer of all ten OWASP Agentic Top 10 (2026) ris
 
 Three risks span two layers. ASI-03 (Identity), ASI-04 (Supply Chain), and ASI-07 (Inter-Agent Comms) have a behavioral side (what the agent does with identities, tools, channels) and an infrastructure side (how identities get issued, packages get signed, channels get encrypted). Sponsio covers behavior. Issuance, signing, and encryption belong to your IAM, build pipeline, and transport stack.
 
-To bridge those upstream systems into a contract, push facts via `guard.observe_context({k: v})` once per request. Contracts then reference them as `ctx(k, v)` atoms. Each affected risk lists its coverage condition.
+To bridge those upstream systems into a contract, push facts via `guard.observe_context({k: v})` once per request. Contracts then reference them as `ctx(k, v)` atoms (one observable fact each, like `ctx("caller_id", "alice")`). Each affected risk lists its coverage condition.
 
 ## Coverage summary
 
@@ -20,7 +20,7 @@ To bridge those upstream systems into a contract, push facts via `guard.observe_
 | [ASI-06](#asi-06-memory-and-context-poisoning) | Memory Poisoning | `G(called(A) → ctx_matches(content_source, π)) ∧ G(arg_has(T, orig) → arg_paths_within(T, P))` | `ctx_matches_required`, `data_intact` |
 | [ASI-07](#asi-07-inter-agent-comms) | Inter-Agent Comms | `G(called(A) → ctx(msg_verified, "true")) ∧ G(delegation_depth ≤ D)` | `ctx_required`, `delegation_depth_limit` |
 | [ASI-08](#asi-08-cascading-failures) | Cascading Failures | `G(count(T) ≤ N) ∧ G(token_count ≤ B) ∧ G(consecutive_count(T) ≤ L)` | `rate_limit`, `token_budget`, `loop_detection` |
-| [ASI-09](#asi-09-human-agent-trust) | Trust Exploitation | `((¬called(W) U called(Ap)) ∨ G(¬called(W))) ∧ G(arg_numeric(W, amount) ≤ N)` | `must_precede`, `must_confirm`, `arg_value_range` |
+| [ASI-09](#asi-09-human-agent-trust) | Trust Exploitation | `((¬called(W) U called(Ap)) ∨ G(¬called(W))) ∧ G(arg_numeric(W, amount) ≤ N)` | `must_precede`, `must_confirm`, `arg_value_range`, `redirect_to_safe` |
 | [ASI-10](#asi-10-rogue-agents) | Rogue Agents | `G(called(Trig) → ⋀ᵢ F(called(stepᵢ))) ∧ G(count(act) ≤ 1)` | `required_steps_completion`, `irreversible_once` |
 
 ## Vocabulary
@@ -103,7 +103,7 @@ contracts:
     args: [fetch, url, ["telemetry\\.acme-corp\\.io", "analytics\\..*\\.net"]]
 ```
 
-The runtime slice is genuinely thinner here. Sponsio stops unregistered tool calls and known-bad arg shapes. Sigstore, `pip-audit`, `osv-scanner`, Dependabot, and Socket.dev stop the compromised package from being installed in the first place. Run Sponsio on top of a build-time posture and you have defense in depth. Run it alone and "allowlisted tool whose implementation got swapped" stays uncovered.
+The runtime slice is genuinely thinner here. Sponsio stops unregistered tool calls and known-bad arg shapes. Sigstore, `pip-audit`, `osv-scanner`, Dependabot, and Socket.dev stop the compromised package from being installed in the first place. Run Sponsio on top of those build-time tools and you have defense in depth. Run it alone and "allowlisted tool whose implementation got swapped" stays uncovered.
 
 ## ASI-05 Unexpected code execution
 
@@ -146,7 +146,7 @@ for chunk in chunks:
     guard.observe_context({"content_source": chunk.source_uri})
 ```
 
-Caveat. `ctx` is merge-on-write. A `retrieve(poison) → retrieve(canonical) → approve` trace passes the source check even though the poisoned chunk sat in context between the two retrieves. The `data_intact` clause covers most of this gap. A `ctx_ever_seen(k, v)` atom that propagates forward is on the roadmap.
+Caveat. `ctx` is merge-on-write: a later `observe_context` value overwrites an earlier one for the same key, so the contract only sees the most recent value. A `retrieve(poison) → retrieve(canonical) → approve` trace passes the source check even though the poisoned chunk sat in context between the two retrieves. The `data_intact` clause covers most of this gap. A `ctx_ever_seen(k, v)` atom that propagates forward is on the roadmap.
 
 ## ASI-07 Inter-agent comms
 
@@ -224,7 +224,7 @@ contracts:
     args: [approve_invoice]
 ```
 
-On an $847k wire to an unverified vendor, three contracts fire on the same call: amount over cap, no compliance approval, no confirm on file. The `required_steps_completion` rule handles the skipped-onboarding case.
+On an $847k wire to an unverified vendor, three contracts fire on the same call: amount over cap, no compliance approval, no confirm on file. The `required_steps_completion` rule handles the skipped-onboarding case. For a softer landing, pair `wire_transfer` with `redirect_to_safe("wire_transfer", "request_supervisor_approval")` so large wires open a review ticket instead of a hard refusal.
 
 ## ASI-10 Rogue agents
 

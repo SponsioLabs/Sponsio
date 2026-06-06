@@ -7,7 +7,7 @@ description: Write, wire, and test a custom contract against an agent you contro
 
 This walkthrough goes from an empty project to a working contract that blocks an unsafe tool call. By the end you will have a `sponsio.yaml`, a wired guard, and a passing test.
 
-Prereqs: Python 3.10+, an agent framework (we use LangGraph in examples; any framework works. See [Integrations](../integrations/index.md)).
+Prereqs: Python 3.10+ and an agent framework. We use LangGraph in the examples below; any framework works. See [Integrations](../integrations/index.md).
 
 ---
 
@@ -76,10 +76,12 @@ result = agent.invoke({"messages": [("user",
 The agent tries to call `issue_refund` directly. Sponsio checks the trace, sees no `check_policy` event, and blocks:
 
 ```text
-✗ enforce must call `check_policy` before `issue_refund` — VIOLATED → blocked
+✗ enforce must call `check_policy` before `issue_refund`: VIOLATED, blocked
 ```
 
 The framework surfaces this as a `SponsioBlocked` exception; the agent can react and retry with a different plan.
+
+Block is the default outcome. Three other strategies are available on the same contract: `RedirectToSafe(safe=...)` substitutes a pre-approved tool, `EscalateToHuman(notify=[...])` blocks and fires a notifier callback, and `WarnOnly` logs the violation without blocking. See [observe vs enforce](../guides/observe-vs-enforce.md) for the picker.
 
 Run the same request with the correct tool order ("check the policy first, then refund customer 42 $50") and the contract passes silently.
 
@@ -124,6 +126,6 @@ See [Observe vs. enforce](../guides/observe-vs-enforce.md) for the full rollout.
 
 ## What next
 
-- **Add more contracts.** The [pattern catalog](../reference/patterns.md) lists all 44 deterministic patterns with NL examples. Pick the ones that match your failure modes.
+- **Add more contracts.** The [pattern catalog](../reference/patterns.md) lists all 45 deterministic patterns with NL examples. Pick the ones that match your failure modes.
 - **Generate contracts automatically.** `sponsio scan src/` reads your tool definitions and drafts a `sponsio.yaml` with candidate contracts. See [contract sources](../guides/contract-sources.md).
 - **Wire a different framework.** Claude Agent SDK, OpenAI, CrewAI, Google ADK, Vercel AI, MCP. See [Integrations](../integrations/index.md).

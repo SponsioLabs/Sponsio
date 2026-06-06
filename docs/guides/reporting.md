@@ -22,7 +22,7 @@ Contract                               Fires   Sessions   Agents   Tools
 ─────────────────────────────────────  ──────  ─────────  ───────  ──────────────
 policy gate before refund              3       3          1        issue_refund
 bash must not contain rm -rf           1       1          1        bash
-token_budget(50000)                    0       —          —        —
+token_budget(50000)                    0       -          -        -
 ```
 
 Columns:

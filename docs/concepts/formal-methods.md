@@ -35,13 +35,13 @@ That's what "formal" buys you: instead of "the judge thinks this is fine" you ge
 
 **Step 1. Parser.** Natural-language rules are tokenized, then mapped onto a vocabulary of atoms (`called(tool, args)`, `arg_matches(...)`, `permission_granted(...)`, etc.) and temporal connectives (always `G`, eventually `◇`, until `U`, next `X`).
 
-**Step 2. Formula.** The result is a closed-form LTL expression. Same expressive power as the LTL used in hardware verification (Intel's Pentium FPU correctness proofs, Amazon's TLA+ models for S3, model-checking in Coq/Isabelle work).
+**Step 2. Formula.** The result is a closed-form LTL expression. The expressive power is the same as the LTL used in hardware verification (for example, Intel's Pentium FPU correctness proofs).
 
 **Step 3. Compilation.** The formula compiles to a DFA via standard automata-theoretic construction. The DFA is small (typically a handful of states per contract) and stateless to walk.
 
-**Step 4. Runtime.** Every tool call appends one event to the trace. Each contract's DFA advances by one step. If any DFA enters its violation trap state, Sponsio raises and blocks the call.
+**Step 4. Runtime.** Every tool call appends one event to the trace. Each contract's DFA advances by one step. If any DFA enters its violation state (the "trap" state, an absorbing state with no outgoing edges), Sponsio raises and blocks the call.
 
-This all runs in pure Python (Sponsio core has zero core deps). On a current laptop, p99 per-event check is ~12μs across the whole contract set. No LLM, no network, no cache.
+This all runs in pure Python (Sponsio core has zero core deps). On a current laptop, the 99th-percentile (p99) per-event check is about 12μs across the whole contract set. No LLM, no network, no cache.
 
 ## Why this matters in practice
 
@@ -57,7 +57,7 @@ This all runs in pure Python (Sponsio core has zero core deps). On a current lap
 
 Formal methods do not magic away every failure mode:
 
-- **Spec correctness.** Sponsio guarantees your contract is enforced *as written.* If you write the wrong rule (missed an edge case, bad atom name), the engine enforces the wrong thing. Fast and reliably. Spec review is your job; we just give you a tight loop to iterate (write rule → `sponsio check --trace` → adjust).
+- **Spec correctness.** Sponsio guarantees your contract is enforced *as written.* If you write the wrong rule (missed an edge case, bad atom name), the engine enforces the wrong thing, quickly and reliably. Spec review is your job; we just give you a tight loop to iterate (write rule → `sponsio check --trace` → adjust).
 - **Atom grounding.** The DFA reasons over events, not raw English. Your tool wrappers / framework hooks have to emit the right events for the rule to fire. `sponsio init` and the integration adapters handle the common case; custom atoms need a one-time mapping.
 - **Semantic checks.** Some properties are inherently fuzzy, "is this response off-topic?", "did the agent omit a material fact?", "does this PII look exfiltrated?". Sponsio's deterministic engine does not attempt these; it enforces what is structurally observable.
 

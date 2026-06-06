@@ -280,7 +280,7 @@ Equivalent to setting `runtime.mode:` in yaml. The `SPONSIO_MODE` env var still 
 
 1. Prefers updating an existing `mode:` line nested under `runtime:`. This is the only line the TypeScript loader reads, so picking the wrong line would silently leave TS stale.
 2. Falls back to `mode:` nested under `defaults:` if no `runtime.mode` exists. Both loaders honor this.
-3. On a yaml that has neither, appends a fresh `runtime:` block ONLY when target is `observe`. Refuses to materialize a fresh `enforce` block out of thin air and exits 1 with a clear hint. CI scripts that relied on the old exit-1 behavior for malformed configs keep working; to flip a clean yaml to enforce, run `sponsio mode observe` first (which appends the block), then `sponsio mode enforce`.
+3. On a yaml that has neither, appends a fresh `runtime:` block ONLY when target is `observe`. Refuses to append a fresh `enforce` block when no mode line exists and exits 1 with a clear hint. CI scripts that relied on the old exit-1 behavior for malformed configs keep working. To flip a clean yaml to enforce, run `sponsio mode observe` first (which appends the block), then `sponsio mode enforce`.
 
 The walker ignores `mode:` lines nested under unrelated keys (e.g. `judge.fallback_mode:` is not the runtime mode), and preserves inline comments and line endings on the patched line.
 

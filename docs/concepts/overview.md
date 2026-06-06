@@ -47,7 +47,7 @@ Four layers build on each other.
 
 **Formula**: an LTL expression over atoms. This is what the evaluator actually checks. Anything expressible in LTL over the available atom vocabulary can be enforced.
 
-**Contract**: an (assumption, guarantee) pair bound to one or more agents, with a strategy for what to do on violation (`DetBlock`, `EscalateToHuman` with optional notifier callbacks, `RedirectToSafe` to substitute a pre-approved tool, or `WarnOnly` to log without blocking). The assumption tells the engine *when* the rule applies; the guarantee tells it *what must hold* when it does.
+**Contract**: an (assumption, guarantee) pair bound to one or more agents, with a strategy for what to do on violation. The four strategies are `DetBlock` (refuse the call), `EscalateToHuman` (refuse and notify on-call), `RedirectToSafe` (substitute a pre-approved tool), and `WarnOnly` (log without blocking). The assumption tells the engine *when* the rule applies; the guarantee tells it *what must hold* when it does.
 
 ```python
 contract("policy gate before refund")
@@ -130,7 +130,7 @@ The rule of thumb: keep contracts to things a counter, regex, path, or ordering 
  └─────────────────────────────────────────────────────────────┘
 ```
 
-Deterministic formulas are evaluated in microseconds. A violation routes through a **strategy**: block the call (`DetBlock`), escalate to a human with notifier callbacks (`EscalateToHuman`), substitute a pre-approved safe tool (`RedirectToSafe`), or log without blocking (`WarnOnly`).
+Deterministic formulas are evaluated in microseconds. A violation routes through a **strategy**. The four options are `DetBlock` (refuse the call), `EscalateToHuman` (refuse and notify on-call), `RedirectToSafe` (substitute a pre-approved safe tool), and `WarnOnly` (log without blocking).
 
 ---
 

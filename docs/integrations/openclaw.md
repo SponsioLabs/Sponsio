@@ -9,7 +9,7 @@ Sponsio plugs into the OpenClaw runtime as a host-level gate. Every `before_tool
 
 ## Install
 
-The standard Python onboarding path is what you want. Paste the [Python one-shot prompt](../getting-started/onboard-prompt.md#python-project) into Claude Code / Codex / Cursor, and when the wizard asks about IDE hosts, pick `openclaw=full`. The wizard installs the `sponsio:incident/openclaw` bundle and wires up the host gate.
+Use the standard Python onboarding path. Paste the [Python one-shot prompt](../getting-started/onboard-prompt.md#python-project) into Claude Code / Codex / Cursor, and when the wizard asks about IDE hosts, pick `openclaw=full`. The wizard installs the `sponsio:incident/openclaw` bundle and wires up the host gate.
 
 Or run the CLI yourself:
 
@@ -23,10 +23,10 @@ sponsio init .
 
 The bundled `sponsio:incident/openclaw` pack covers:
 
-- **[CVE-2026-25253](https://nvd.nist.gov/vuln/detail/CVE-2026-25253)** — WebSocket 1-click RCE
-- **[ClawHavoc](https://cyberpress.org/clawhavoc-poisons-openclaws-clawhub-with-1184-malicious-skills/)** — 1,184 malicious skills on ClawHub (Koi Security disclosure, Feb 2026)
-- The `--yolo` flag
-- The weather-skill `.env` exfil pattern ([Trend Micro write-up](https://www.trendmicro.com/en_us/research/26/b/openclaw-skills-used-to-distribute-atomic-macos-stealer.html))
+- **[CVE-2026-25253](https://nvd.nist.gov/vuln/detail/CVE-2026-25253)**: WebSocket 1-click remote code execution.
+- **[ClawHavoc](https://cyberpress.org/clawhavoc-poisons-openclaws-clawhub-with-1184-malicious-skills/)**: 1,184 malicious skills on ClawHub (Koi Security disclosure, Feb 2026).
+- The `--yolo` flag.
+- The weather-skill `.env` exfiltration pattern ([Trend Micro write-up](https://www.trendmicro.com/en_us/research/26/b/openclaw-skills-used-to-distribute-atomic-macos-stealer.html)).
 
 45 mixed det/sto rules in total. See [`docs/reference/contract-lib.md`](../reference/contract-lib.md#sponsioincidentopenclaw) for the full rule list.
 

@@ -43,7 +43,7 @@ runs the deterministic engine, writes the deny / allow reply
 host blocks (exit non-zero or {block: true}) or proceeds
 ```
 
-The guard exits 0 in every code path. A Sponsio bug never wedges a tool call. Diagnostics go to stderr; deny verdicts go to stdout in the documented hook reply schema.
+The guard exits 0 in every code path. If Sponsio crashes, the tool call still goes through (fail-open). Diagnostics go to stderr; deny verdicts go to stdout in the documented hook reply schema.
 
 ## Setup (both hosts)
 
@@ -147,7 +147,7 @@ Both modes share the same engine, contract library format, and `SPONSIO_MODE` en
 
 ## Performance
 
-Per-call cost: about 90 ms (80 ms Python startup, 10 ms Sponsio evaluation). 50-step session overhead: about 4.5 s cumulative, usually imperceptible interactively. The deterministic engine itself is sub-millisecond regardless of rule count. The bottleneck is process startup, not evaluation. Daemon mode (Stage 3, gated on user signal) drops per-call to about 5 ms by keeping a long-lived sponsio process and using a Unix socket for the hook event protocol.
+Per-call cost: about 90 ms (80 ms Python startup, 10 ms Sponsio evaluation). 50-step session overhead: about 4.5 s cumulative, usually imperceptible interactively. The deterministic engine itself stays under a millisecond for typical rule sets (the latency scales with the number of contracts but stays well below one millisecond at hundreds of contracts). The bottleneck is process startup, not evaluation. Daemon mode (Stage 3, available on request) drops per-call to about 5 ms by keeping a long-lived sponsio process and using a Unix socket for the hook event protocol.
 
 ## See also
 
