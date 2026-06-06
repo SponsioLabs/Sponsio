@@ -29,6 +29,8 @@
 
 > An **agent contract** is a runtime rule that is checked at every agent action, [backed by formal methods](docs/concepts/formal-methods.md).
 
+> **v0.2.0a0 alpha is out.** `pip install --pre sponsio==0.2.0a0`. Ships default-deny tool policies, proactive per-turn tool filtering, redirect-to-safe substitution, and notifier callbacks (Slack / email / pager) on human escalation. See the [v0.2 release notes](docs/release-notes/v0.2.0a0.md).
+
 ---
 
 ## How Sponsio works
@@ -42,36 +44,6 @@ On [ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench) (12 frontier LLMs × 
 The logic checker takes p50 **0.139 ms** per contract, **5,000×–60,000× faster than any LLM-as-judge guardrail** (50–800 ms per check), with zero LLM cost in the hot path. p99 stays under 1.04 ms across every measured workload.
 
 See the [full benchmark methodology and per-model breakdown](docs/reference/benchmarks.md), [how Sponsio compares against prompt filters, output validators, LLM-as-judge, and sandboxing](docs/why.md), or dive into the [architecture](docs/concepts/architecture.md) and [formal methods primer](docs/concepts/formal-methods.md).
-
----
-
-## What's new in v0.2 (alpha)
-
-`pip install --pre sponsio==0.2.0a0`
-
-v0.1 had one failure mode when a contract fired: block the call and let the agent figure it out. v0.2 ships **three softer landings** so the agent keeps making progress instead of bouncing off refusals.
-
-```python
-from sponsio import contract
-from sponsio.langgraph import Sponsio
-from sponsio.patterns import redirect_to_safe
-
-guard = Sponsio(
-    tool_policy={"default": "deny", "approved": ["search", "log_refund_request"]},
-    contracts=[
-        contract("all refunds go through human review")
-        .assume("called `issue_refund`")
-        .guarantees(redirect_to_safe("issue_refund", "log_refund_request")),
-    ],
-)
-```
-
-- **`tool_policy` default-deny.** Adding a new tool to your framework doesn't auto-trust it. The agent can only call tools in `approved:`; everything else is denied. Under `enforcement: proactive` the denied tools are stripped from the model's prompt entirely (LangGraph, CrewAI, OpenAI Agents SDK, Google ADK).
-- **`redirect_to_safe(unsafe, safe)`.** Substitute a forbidden call with a pre-declared alternative. The model calls `issue_refund`, Sponsio invokes `log_refund_request` instead, the model reads back the ticket-opened message and adapts. End-to-end verified with Gemini 2.5 Flash: the model wraps up with "Your refund has been submitted and is under review", not "Refunded $5000" - it adapts honestly to what actually ran.
-- **`filter_tools(candidates)`.** Pure-probe API that returns the subset of tools legal to call given the live trace. Use it before each model turn in a custom loop to pre-filter the tool menu and avoid wasted attempts on temporal-precondition tools.
-- **`EscalateToHuman(notify=[...])`** now accepts notifier callables (Slack webhook, oncall pager, email). One broken notifier doesn't crash the agent loop or silence the others.
-
-See the [v0.2 release notes](docs/release-notes/v0.2.0a0.md) for the customer-facing pitch, [v0.2 case studies](examples/integrations/python/) for runnable Python examples, or run `python scripts/verify_v0_2.py` to smoke-test the surface against your installed framework adapters.
 
 ---
 

@@ -29,6 +29,8 @@
 
 > **エージェント契約** とは、エージェントのすべてのアクションでチェックされるランタイムルールであり、[形式手法に裏打ちされています](docs/concepts/formal-methods.md)。
 
+> **v0.2.0a0 alpha リリース。** `pip install --pre sponsio==0.2.0a0`。デフォルト拒否のツールポリシー、ターンごとのプロアクティブなツールフィルタリング、redirect-to-safe による代替実行、人手 escalation 時の通知コールバック（Slack / メール / pager）を追加。詳細は [v0.2 リリースノート](docs/release-notes/v0.2.0a0.md)。
+
 ---
 
 ## Sponsio の仕組み
@@ -42,36 +44,6 @@
 ロジックチェッカーは契約あたり p50 **0.139 ms**、**あらゆる LLM-as-judge ガードレールよりも 5,000×–60,000× 高速**（チェックあたり 50–800 ms）、ホットパスでの LLM コストはゼロ。p99 は測定されたすべてのワークロードで 1.04 ms 以内に収まります。
 
 [完全なベンチマーク方法論とモデル別の内訳](docs/reference/benchmarks.md)、[プロンプト フィルタ / 出力バリデータ / LLM-as-judge / サンドボックスとの比較](docs/why.md)、または[アーキテクチャ詳細](docs/concepts/architecture.md)と[形式手法入門](docs/concepts/formal-methods.md)を参照。
-
----
-
-## v0.2 で新しくなったこと（alpha）
-
-`pip install --pre sponsio==0.2.0a0`
-
-v0.1 では契約が発火した時の対応が 1 つだけでした。呼び出しをブロックして、あとはエージェントに任せる。v0.2 では **3 つの「ソフトランディング」** を導入し、エージェントが拒否に弾かれて止まることなく、タスクを前に進められるようにしました。
-
-```python
-from sponsio import contract
-from sponsio.langgraph import Sponsio
-from sponsio.patterns import redirect_to_safe
-
-guard = Sponsio(
-    tool_policy={"default": "deny", "approved": ["search", "log_refund_request"]},
-    contracts=[
-        contract("全ての返金は人手レビューを経由する")
-        .assume("called `issue_refund`")
-        .guarantees(redirect_to_safe("issue_refund", "log_refund_request")),
-    ],
-)
-```
-
-- **`tool_policy` のデフォルト拒否**。フレームワークに新しいツールを追加しても、自動で信頼はされません。エージェントは `approved:` リストにあるツールしか呼べず、それ以外は全て拒否されます。`enforcement: proactive` モードでは、拒否対象のツールはモデルのプロンプトから完全に取り除かれます（LangGraph / CrewAI / OpenAI Agents SDK / Google ADK）。
-- **`redirect_to_safe(unsafe, safe)`**。禁止された呼び出しを、事前宣言した安全な代替に置き換えます。モデルが `issue_refund` を呼ぶと、Sponsio が `log_refund_request` を代わりに実行し、モデルは「チケットが起票された」という結果を読んで適応します。Gemini 2.5 Flash で end-to-end 検証済み: モデルは最終応答を「返金リクエストを提出し、レビュー中です」と返し、「$5000 を返金しました」とは言いません。実際に実行されたツールの結果に合わせて誠実に表現を調整します。
-- **`filter_tools(candidates)`**。現在のトレースを踏まえて、今この瞬間に呼び出しが合法なツールの部分集合を返す純粋な探査 API です。カスタムループでモデル呼び出しの前に挟むと、時間順依存（`must_precede`）でまだ呼べないツールを事前に削除でき、トークンの無駄を省けます。
-- **`EscalateToHuman(notify=[...])`** が通知用 callable（Slack webhook、オンコール ページャー、メール）を受け付けるようになりました。1 つの通知が壊れても、エージェントループは落ちず、他の通知も止まりません。
-
-ユーザー向けの完全なピッチは [v0.2 リリースノート](docs/release-notes/v0.2.0a0.md)、実行可能な Python サンプルは [v0.2 ケーススタディ](examples/integrations/python/)、または `python scripts/verify_v0_2.py` を走らせれば、インストール済みのフレームワーク アダプタが v0.2 と互換かを smoke test できます。
 
 ---
 

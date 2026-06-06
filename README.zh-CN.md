@@ -29,6 +29,8 @@
 
 > **Agent 合约**是一条运行时规则，在每一次 Agent 操作时检查，[由形式化方法支撑](docs/concepts/formal-methods.md)。
 
+> **v0.2.0a0 alpha 已发布。** `pip install --pre sponsio==0.2.0a0`。新增默认拒绝的 tool policy、按 turn 主动过滤工具菜单、redirect-to-safe 替换式拦截、人工 escalation 时的 notifier callback（Slack / 邮件 / pager）。详见 [v0.2 release notes](docs/release-notes/v0.2.0a0.md)。
+
 ---
 
 ## Sponsio 如何工作
@@ -42,36 +44,6 @@
 逻辑检查器每条合约 p50 **0.139 ms**，**比任何 LLM-as-judge 护栏快 5,000×–60,000×**（每次检查 50–800 ms），热路径零 LLM 成本。p99 在所有测得工作负载下保持 1.04 ms 以内。
 
 查阅[完整 benchmark 方法论与按模型拆分](docs/reference/benchmarks.md)、[与提示词过滤器 / 输出校验器 / LLM-as-judge / 沙箱的对比](docs/why.md)，或深入[架构](docs/concepts/architecture.md)与[形式化方法入门](docs/concepts/formal-methods.md)。
-
----
-
-## v0.2 新增（alpha）
-
-`pip install --pre sponsio==0.2.0a0`
-
-v0.1 触发合约时只有一种处理方式：直接 block 这次调用，让 agent 自己琢磨怎么办。v0.2 引入**三种更柔和的着陆方式**，让 agent 继续推进任务，而不是反复撞墙。
-
-```python
-from sponsio import contract
-from sponsio.langgraph import Sponsio
-from sponsio.patterns import redirect_to_safe
-
-guard = Sponsio(
-    tool_policy={"default": "deny", "approved": ["search", "log_refund_request"]},
-    contracts=[
-        contract("所有退款都走人工审核")
-        .assume("called `issue_refund`")
-        .guarantees(redirect_to_safe("issue_refund", "log_refund_request")),
-    ],
-)
-```
-
-- **`tool_policy` 默认拒绝**。在 framework 里新增一个 tool，不会被自动信任。agent 只能调用 `approved:` 列表里的 tool，其他全部拒绝。在 `enforcement: proactive` 模式下，被拒绝的 tool 会从 model 的 prompt 里彻底剔除（LangGraph / CrewAI / OpenAI Agents SDK / Google ADK 都支持）。
-- **`redirect_to_safe(unsafe, safe)`**。用一个预先声明的安全替代品顶替被禁的调用。Model 调用 `issue_refund`，Sponsio 把它换成 `log_refund_request`，model 拿到 ticket-opened 消息后会自适应。Gemini 2.5 Flash 真模型端到端验证过：model 最后回复用的是 "你的退款已提交并在审核中"，而不是撒谎说 "已退款 5000 美元"，它会按实际跑的那个 tool 的语义重新组织措辞。
-- **`filter_tools(candidates)`**。纯探测 API，根据当前 trace 返回此刻合法的 tool 子集。在自己写的 agent loop 里每个 turn 之前调一下，可以提前削去那些因为时序前提（`must_precede`）还不能用的 tool，省 token。
-- **`EscalateToHuman(notify=[...])`** 现在接受 notifier callable（Slack webhook / oncall pager / 邮件）。坏掉的 notifier 不会让 agent loop 崩，也不会让其他 notifier 哑火。
-
-[v0.2 release notes](docs/release-notes/v0.2.0a0.md) 是面向用户的完整 pitch，[v0.2 case studies](examples/integrations/python/) 提供了可运行的 Python 示例，或直接跑 `python scripts/verify_v0_2.py` 验证已安装的 framework adapter 跟 v0.2 兼容。
 
 ---
 
