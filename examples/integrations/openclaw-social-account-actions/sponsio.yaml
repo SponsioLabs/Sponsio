@@ -1,0 +1,44 @@
+version: "1"
+
+runtime:
+  mode: observe
+
+tools:
+  - name: explore
+    description: "TweetClaw read-only endpoint and workflow discovery tool."
+    params: "query: str"
+  - name: tweetclaw
+    description: "TweetClaw configured X/Twitter API execution tool."
+    params: "endpoint: str, method: str, body: object"
+  - name: confirm_reconfirmed
+    description: "Marker emitted when the operator approves the next live social-account action."
+  - name: send_message
+    description: "OpenClaw outbound message tool."
+    params: "channel: str, channel_type: str, body: str"
+
+agents:
+  openclaw_social_account_agent:
+    workspace: "/srv/openclaw-workspace"
+    include:
+      - sponsio:core/runaway
+      - sponsio:capability/shell
+      - sponsio:capability/database
+      - sponsio:capability/credentials
+      - sponsio:capability/filesystem
+    contracts:
+      - desc: "TweetClaw live X/Twitter actions require a fresh operator approval"
+        G:
+          ltl: "G(called(tweetclaw) -> count(confirm_reconfirmed) >= count(tweetclaw))"
+          source: "recipe:openclaw.social-account"
+
+      - desc: "Use TweetClaw explore before live TweetClaw execution"
+        G:
+          pattern: must_precede
+          args: [explore, tweetclaw]
+          source: "recipe:openclaw.social-account"
+
+      - desc: "Bound TweetClaw calls in one OpenClaw session"
+        G:
+          pattern: rate_limit
+          args: [tweetclaw, 10]
+          source: "recipe:openclaw.social-account"

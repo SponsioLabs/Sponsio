@@ -40,6 +40,15 @@ sponsio host trace openclaw --follow
 
 Output format and filtering options: [`docs/reference/observability.md`](../reference/observability.md).
 
+## Social-account actions
+
+If an OpenClaw plugin can act through a public social account, put an explicit
+approval boundary in front of the live execution tool. The
+[`openclaw-social-account-actions`](../../examples/integrations/openclaw-social-account-actions)
+example shows a TweetClaw recipe that leaves endpoint discovery available
+through `explore`, requires `confirm_reconfirmed` before `tweetclaw` executes,
+and caps live X/Twitter API calls per session.
+
 ## Fork the pack
 
 The OpenClaw bundle is also a worked example to fork from when authoring your own incident packs. Source: [`sponsio/contracts/incident/openclaw.yaml`](https://github.com/SponsioLabs/Sponsio/blob/main/sponsio/contracts/incident/openclaw.yaml).
