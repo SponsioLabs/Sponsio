@@ -29,7 +29,7 @@ Sponsio は時間軸に沿って展開されるエージェントの手続きに
 
 > **エージェント契約** とは、エージェントのすべてのアクションでチェックされるランタイムルールであり、[形式手法に裏打ちされています](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a0 alpha リリース。** `pip install --pre sponsio==0.2.0a0`。デフォルト拒否のツールポリシー、ターンごとのプロアクティブなツールフィルタリング、redirect-to-safe による代替実行、人手 escalation 時の通知コールバック（Slack / メール / pager）を追加。詳細は [v0.2 リリースノート](docs/release-notes/v0.2.0a0.md)。
+> **v0.2.0a1 alpha リリース。** `pip install --pre sponsio==0.2.0a1`。デフォルト拒否のツールポリシー、ターンごとのプロアクティブなツールフィルタリング、redirect-to-safe による代替実行、人手 escalation 時の通知コールバック（Slack / メール / pager）を追加。詳細は [v0.2 リリースノート](docs/release-notes/v0.2.0a1.md)。
 
 ---
 

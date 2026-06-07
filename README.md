@@ -28,7 +28,7 @@ Sponsio provides deterministic contracts for agent procedures over time, enforce
 
 > An **agent contract** is a runtime rule that is checked at every agent action, [backed by formal methods](docs/concepts/formal-methods.md).
 
-> **v0.2.0a0 alpha is out.** `pip install --pre sponsio==0.2.0a0`. Ships default-deny tool policies, proactive per-turn tool filtering, redirect-to-safe substitution, and notifier callbacks (Slack / email / pager) on human escalation. See the [v0.2 release notes](docs/release-notes/v0.2.0a0.md).
+> **v0.2.0a1 alpha is out.** `pip install --pre sponsio==0.2.0a1`. Ships default-deny tool policies, proactive per-turn tool filtering, redirect-to-safe substitution, and notifier callbacks (Slack / email / pager) on human escalation. See the [v0.2 release notes](docs/release-notes/v0.2.0a1.md).
 
 ---
 
