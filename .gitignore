@@ -128,7 +128,18 @@ examples/integrations/python/rag_assistant_openai.py
 examples/integrations/python/refund_agent_vanilla.py
 examples/integrations/python/mcp_guard.py
 
-# One-off generator for the README comparison images — the rendered
-# assets/sponsio-comparison-*.png are committed; the script stays local-only.
+# One-off generator for the README comparison images. The rendered
+# assets/sponsio-comparison-{freeze,trifecta,wire}.png are committed
+# (used in README); the generator script stays local-only.
 scripts/gen_comparison_svg.py
+
+# WIP / not-yet-used comparison renders. The four images below were
+# generated alongside the v0.2 work but are not referenced anywhere
+# in docs / README, so we leave them untracked until they have a
+# purpose (a comparison gallery, a blog post, etc.). They live on
+# disk under assets/ so they are easy to preview locally.
+assets/sponsio-comparison-claude-code.png
+assets/sponsio-comparison-cursor.png
+assets/sponsio-comparison-notion.png
+assets/sponsio-comparison-openclaw.png
 
