@@ -133,13 +133,15 @@ examples/integrations/python/mcp_guard.py
 # (used in README); the generator script stays local-only.
 scripts/gen_comparison_svg.py
 
-# WIP / not-yet-used comparison renders. The four images below were
-# generated alongside the v0.2 work but are not referenced anywhere
-# in docs / README, so we leave them untracked until they have a
-# purpose (a comparison gallery, a blog post, etc.). They live on
-# disk under assets/ so they are easy to preview locally.
+# WIP / not-yet-used comparison renders and their one-off generators.
+# These were generated alongside the v0.2 work but are not referenced
+# anywhere in docs / README, so we leave them untracked until they
+# have a purpose (a comparison gallery, a blog post, etc.). They live
+# on disk under assets/ so they are easy to preview locally.
 assets/sponsio-comparison-claude-code.png
 assets/sponsio-comparison-cursor.png
 assets/sponsio-comparison-notion.png
 assets/sponsio-comparison-openclaw.png
+assets/sponsio-comparison-temporal.png
+assets/_render_comparison_temporal.py
 
