@@ -55,6 +55,7 @@ from sponsio.formulas.formula import (
     And,
     Atom,
     Const,
+    Term,
     Eq,
     F,
     Formula,
@@ -89,8 +90,15 @@ Residual = Union[Formula, bool]
 # ---------------------------------------------------------------------------
 
 
-def _resolve_arith(expr: Any, state: dict[str, object]) -> int | float:
-    """Resolve ``Var`` / ``Const`` to a numeric value via the valuation."""
+def _resolve_arith(expr: Any, state: dict[str, object]) -> object:
+    """Resolve a ``Term`` to its value via the valuation.
+
+    Var/Const get the historical fast-path (0 default for missing/non-
+    numeric Vars). Any other Term (ArgValue / CtxValue / UnaryFn /
+    ArgLength / ...) dispatches via ``term.evaluate(state)`` and may
+    return ``None`` (canonical "missing" signal); callers must handle
+    None via ``_safe_compare``.
+    """
     if isinstance(expr, Const):
         return expr.value
     if isinstance(expr, Var):
@@ -98,7 +106,35 @@ def _resolve_arith(expr: Any, state: dict[str, object]) -> int | float:
         if isinstance(val, (int, float)):
             return val
         return 0
+    # Polymorphic dispatch for any other Term.
+    if isinstance(expr, Term):
+        return expr.evaluate(state)
     return 0
+
+
+def _safe_compare(op: str, left: object, right: object) -> bool:
+    """Compare two resolved Term values with "missing" semantics.
+
+    If either operand is ``None`` (Term resolved to missing), evaluate
+    to ``False`` rather than raise. Same for ``TypeError`` from
+    mismatched types. Mirrors ``sponsio.formulas.evaluator._safe_compare``.
+    """
+    if left is None or right is None:
+        return False
+    try:
+        if op == "le":
+            return left <= right  # type: ignore[operator]
+        if op == "lt":
+            return left < right  # type: ignore[operator]
+        if op == "ge":
+            return left >= right  # type: ignore[operator]
+        if op == "gt":
+            return left > right  # type: ignore[operator]
+        if op == "eq":
+            return left == right
+    except TypeError:
+        return False
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -140,15 +176,25 @@ def _eval_pointwise(node: Any, state: dict[str, object]) -> Residual:
         right = _eval_pointwise(node.right, state)
         return bool(right)
     if isinstance(node, Le):
-        return _resolve_arith(node.left, state) <= _resolve_arith(node.right, state)
+        return _safe_compare(
+            "le", _resolve_arith(node.left, state), _resolve_arith(node.right, state)
+        )
     if isinstance(node, Lt):
-        return _resolve_arith(node.left, state) < _resolve_arith(node.right, state)
+        return _safe_compare(
+            "lt", _resolve_arith(node.left, state), _resolve_arith(node.right, state)
+        )
     if isinstance(node, Ge):
-        return _resolve_arith(node.left, state) >= _resolve_arith(node.right, state)
+        return _safe_compare(
+            "ge", _resolve_arith(node.left, state), _resolve_arith(node.right, state)
+        )
     if isinstance(node, Gt):
-        return _resolve_arith(node.left, state) > _resolve_arith(node.right, state)
+        return _safe_compare(
+            "gt", _resolve_arith(node.left, state), _resolve_arith(node.right, state)
+        )
     if isinstance(node, Eq):
-        return _resolve_arith(node.left, state) == _resolve_arith(node.right, state)
+        return _safe_compare(
+            "eq", _resolve_arith(node.left, state), _resolve_arith(node.right, state)
+        )
     if isinstance(node, Subset):
         return bool(state.get(node.key(), False))
     raise TypeError(

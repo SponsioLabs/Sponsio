@@ -459,6 +459,18 @@ def ground_event(
                         if numeric_val is not None:
                             v[pred_key("arg_numeric", *args_tuple)] = numeric_val
 
+        # ── arg_value(tool, field) — raw value for Term-based lookups ──
+        # ``ArgValue(tool, field)`` Terms read ``state.get(pred_key(
+        # "arg_value", tool, field))`` to compare runtime arg values
+        # against constants or other Terms (e.g. ``Eq(ArgValue(
+        # "issue_refund", "amount"), CtxValue("approved_amount"))``).
+        # Emit unconditionally for every arg field on every tool_call —
+        # Terms read by direct key lookup, not by content_atoms
+        # extraction.
+        if event.args:
+            for _field, _val in event.args.items():
+                v[pred_key("arg_value", event.tool, _field)] = _val
+
         # ── arg_paths_within(tool, *prefixes) — all paths in allowed set ─
         if args_str and content_atoms and "arg_paths_within" in content_atoms:
             for args_tuple in content_atoms["arg_paths_within"]:
@@ -604,14 +616,21 @@ def ground_event(
             for p in agent_obj.permissions:
                 v[pred_key("perm", p)] = True
 
-    # ── ctx(k, v) / ctx_matches(k, pattern) ────────────────────
+    # ── ctx(k, v) / ctx_matches(k, pattern) / ctx_value(k) ─────
     # Emit one atom per current_ctx entry at every event — these are
     # the "external facts" that ``observe_context`` pushed in. A
     # contract ``G(called(wire) → ctx(caller_id, "alice"))`` then
     # fires whenever the current caller_id matches on a wire call.
+    #
+    # Also emit ``ctx_value(k)`` carrying the raw value (not just the
+    # k==v boolean) so Term-based contracts can compare values with
+    # ``Eq(CtxValue("approved_amount"), ArgValue("issue_refund",
+    # "amount"))`` etc. The CtxValue Term reads this key via
+    # ``state.get(pred_key("ctx_value", k))``.
     if state.current_ctx:
         for k, val in state.current_ctx.items():
             v[pred_key("ctx", k, val)] = True
+            v[pred_key("ctx_value", k)] = val
     # ctx_matches uses content_atoms extraction — we only evaluate
     # the (key, pattern) tuples the formula actually uses so we're
     # not pre-compiling every possible regex.

@@ -84,6 +84,7 @@ from sponsio.patterns.library import (
     loop_detection,
     must_confirm,
     must_precede,
+    workflow_step,
     mutual_exclusion,
     never_together,
     no_data_leak,
@@ -213,6 +214,11 @@ _PATTERN_REGISTRY: dict[str, Callable[..., DetFormula]] = {
     "approval_freshness": approval_freshness,
     "sanitized_before_sink": sanitized_before_sink,
     "duplicate_call_limit": duplicate_call_limit,
+    # X-style prescriptive next-step obligation: G(trigger -> X(next_action)).
+    # Dual-message symmetry counterpart of always_followed_by (F-style):
+    # workflow_step is bounded (decided at the very next event), F is
+    # unbounded (decided at trace end).
+    "workflow_step": workflow_step,
 }
 
 

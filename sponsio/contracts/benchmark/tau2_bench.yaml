@@ -425,18 +425,18 @@ agents:
       # ── retail Cat-C: item_count_match (×2) ────────────────────────
       - desc: "modify_pending_order_items: item_ids and new_item_ids must have the same length"
         G:
-          ltl: "G(called(modify_pending_order_items) -> (Var(arg_length, modify_pending_order_items, item_ids) == Var(arg_length, modify_pending_order_items, new_item_ids)))"
+          ltl: "G(Implies(called(modify_pending_order_items), Eq(ArgLength(modify_pending_order_items, item_ids), ArgLength(modify_pending_order_items, new_item_ids))))"
           source: "library:benchmark.tau2/retail/argument_spec"
 
       - desc: "exchange_delivered_order_items: item_ids and new_item_ids must have the same length"
         G:
-          ltl: "G(called(exchange_delivered_order_items) -> (Var(arg_length, exchange_delivered_order_items, item_ids) == Var(arg_length, exchange_delivered_order_items, new_item_ids)))"
+          ltl: "G(Implies(called(exchange_delivered_order_items), Eq(ArgLength(exchange_delivered_order_items, item_ids), ArgLength(exchange_delivered_order_items, new_item_ids))))"
           source: "library:benchmark.tau2/retail/argument_spec"
 
       # ── retail Cat-C: distinct-payment-from-original ───────────────
       - desc: "modify_pending_order_payment.payment_method_id must differ from the order's original method"
         G:
-          ltl: "G(called(modify_pending_order_payment) -> !(Var(arg_value, modify_pending_order_payment, payment_method_id) == Var(ctx_value, original_pm_id)))"
+          ltl: "G(Implies(called(modify_pending_order_payment), Not(Eq(ArgValue(modify_pending_order_payment, payment_method_id), CtxValue(original_pm_id)))))"
           source: "library:benchmark.tau2/retail/arg_groundedness"
 
       # ── retail post-action verification (workflow_step → X-form LTL) ──
@@ -657,7 +657,7 @@ agents:
       # ── airline Cat-C: max passengers ──────────────────────────────
       - desc: "book_reservation must have at most 5 passengers"
         G:
-          ltl: "G(called(book_reservation) -> (Var(arg_length, book_reservation, passengers) <= 5))"
+          ltl: "G(Implies(called(book_reservation), Le(ArgLength(book_reservation, passengers), Const(5))))"
           source: "library:benchmark.tau2/airline/argument_spec"
 
       # ── airline post-action verification (workflow_step → X-form LTL) ──

@@ -33,7 +33,20 @@ agents:
       - sponsio:benchmark/swebench
 ```
 
-> **τ²-bench runtime caveat.** Four of the 120 τ²-bench contracts (`modify_pending_order_items` item-count match, `exchange_delivered_order_items` item-count match, `payment_distinct_from_original`, `max_passengers`) compare against `Var('arg_length', ...)` / `Var('arg_value', ...)` / `Var('ctx_value', ...)` lookups. The yaml parses and compiles cleanly through the OSS loader, but the OSS evaluator does not currently bind these `Var` names at runtime, so those four contracts no-op rather than firing. The other 116 contracts enforce normally. The full set (with binding) runs in the executing source of truth at [`Benchmarks/tau2-bench/procedure_correctness/`](../../).
+All 120 τ²-bench contracts enforce at runtime, including the four argument-shape comparisons (`modify_pending_order_items` item-count match, `exchange_delivered_order_items` item-count match, `payment_distinct_from_original`, `max_passengers`) that compose ``ArgLength`` / ``ArgValue`` / ``CtxValue`` against `Eq` / `Le`. See the *Term abstraction* section below for the primitives.
+
+## Runtime value primitives (Term abstraction)
+
+Comparison nodes (``Eq``, ``Le``, ``Lt``, ``Ge``, ``Gt``) accept any ``Term`` — anything that knows how to ``evaluate(state)`` to a value. The OSS package ships four runtime-bound Term subclasses on top of the historical ``Var`` / ``Const``:
+
+| Term | What it reads | Example use |
+|---|---|---|
+| ``ArgValue(tool, field)`` | Raw value of ``args[field]`` when the current event is a call to ``tool`` | ``Eq(ArgValue("issue_refund", "amount"), CtxValue("approved_amount"))`` — refund must match auditor-approved amount |
+| ``CtxValue(key)`` | Raw value of an externally pushed context fact (``guard.observe_context``) | Pair with ``ArgValue`` for tenant-scoped contracts |
+| ``ArgLength(tool, field)`` | ``len(args[field])``, returns ``None`` if missing | ``Le(ArgLength("book_reservation", "passengers"), Const(5))`` — at most 5 passengers |
+| ``UnaryFn(fn, term)`` | Apply a Python callable to another Term's value | ``Eq(UnaryFn(str.lower, ArgValue("send_email", "subject")), Const("urgent"))`` |
+
+Any operand resolving to ``None`` (the canonical *missing* signal) makes the comparison evaluate to ``False`` rather than raise. Scope fragile comparisons with ``Implies(scope, comparison)`` to suppress them where the relevant arg isn't applicable.
 
 Each contract is stamped with a source tag of the form `library:benchmark.<bench>/<applicability>` so `sponsio scan` / `sponsio report` / overrides can address rules by their portability tag.
 

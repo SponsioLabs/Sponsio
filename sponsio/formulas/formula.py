@@ -239,12 +239,61 @@ class U(FormulaMixin):
 
 
 # ---------------------------------------------------------------------------
-# Arithmetic / Set nodes (SMT family)
+# Arithmetic / Set nodes (SMT family) + Term abstraction
 # ---------------------------------------------------------------------------
+#
+# Comparison nodes (Eq, Le, Lt, Ge, Gt) accept any ``Term`` on either
+# side. A Term is anything that knows how to ``evaluate(state) -> value``;
+# the evaluator dispatches polymorphically. This lets contract authors
+# compose runtime-bound values (``ArgValue("issue_refund", "amount")``)
+# against constants (``Const(50)``) or against other runtime values
+# (``CtxValue("approved_amount")``) in the same comparison.
+#
+# Returning ``None`` from ``evaluate`` is the canonical "missing" signal
+# — comparison evaluation treats either operand being ``None`` as False
+# (the comparison can't decide), so contract authors should wrap fragile
+# comparisons in an ``Implies(scope_predicate, comparison)`` to suppress
+# them where the relevant arg isn't applicable.
+#
+# Subclasses provided in this module:
+#
+# * ``Const(value)`` — literal numeric value.
+# * ``Var(name, *args)`` — predicate-key lookup (existing semantics
+#   preserved; defaults to 0 on missing for counter-style variables).
+# * ``ArgValue(tool, field)`` — raw value of ``args[field]`` when the
+#   current event is a call to ``tool``.
+# * ``CtxValue(key)`` — raw value of an externally pushed context fact.
+# * ``UnaryFn(fn, arg)`` — apply a Python callable to another Term's
+#   value (e.g. ``UnaryFn(len, ArgValue("tool", "field"))``).
+# * ``ArgLength(tool, field)`` — convenience helper for
+#   ``UnaryFn(len, ArgValue(tool, field))``.
+#
+# Backward compatibility: callers that build ``Eq(Var("count", "x"),
+# Const(5))`` continue to work unchanged — ``Var`` and ``Const`` are
+# Term subclasses and the existing arith resolver keeps a fast path for
+# them.
+
+
+class Term:
+    """Base class for value-producing expressions used in comparisons.
+
+    Subclasses must implement ``evaluate(state) -> object | None``.
+
+    ``None`` is the canonical "missing" signal — comparison evaluation
+    treats either operand being ``None`` as False (the comparison can't
+    decide), so contract authors should wrap fragile comparisons in an
+    ``Implies(scope_predicate, comparison)`` to suppress them where the
+    relevant arg isn't applicable.
+    """
+
+    def evaluate(self, state: dict) -> object:  # pragma: no cover - abstract
+        raise NotImplementedError(
+            f"{type(self).__name__} must implement evaluate(state)"
+        )
 
 
 @dataclass(frozen=True)
-class Var(FormulaMixin):
+class Var(FormulaMixin, Term):
     """A numeric or set variable for arithmetic formulas.
 
     Examples: ``Var("cost")``, ``Var("count", "tool")``.
@@ -277,27 +326,47 @@ class Var(FormulaMixin):
             return pred_key(self.name, *self.args)
         return self.name
 
+    def evaluate(self, state: dict) -> object:
+        """Term protocol — counter-style lookup with 0 default.
+
+        Preserves the pre-Term semantics: numeric value if present,
+        ``0`` if the variable is missing (so unevaluated counters
+        compare as zero, matching the long-standing convention for
+        ``count(tool)``-style arithmetic).
+        """
+        key = self.key()
+        val = state.get(key)
+        if isinstance(val, (int, float)):
+            return val
+        return 0
+
     # Comparison operators — return AST nodes so repr() is round-trippable.
+    def _coerce_term(self, other: object) -> "Term":
+        """Coerce ``other`` into a Term: pass Terms through, wrap int/float in Const."""
+        if isinstance(other, Term):
+            return other
+        return Const(other)  # type: ignore[arg-type]
+
     def __le__(self, other):  # type: ignore[override]
-        return Le(self, other if isinstance(other, (Var, Const)) else Const(other))
+        return Le(self, self._coerce_term(other))
 
     def __lt__(self, other):  # type: ignore[override]
-        return Lt(self, other if isinstance(other, (Var, Const)) else Const(other))
+        return Lt(self, self._coerce_term(other))
 
     def __ge__(self, other):  # type: ignore[override]
-        return Ge(self, other if isinstance(other, (Var, Const)) else Const(other))
+        return Ge(self, self._coerce_term(other))
 
     def __gt__(self, other):  # type: ignore[override]
-        return Gt(self, other if isinstance(other, (Var, Const)) else Const(other))
+        return Gt(self, self._coerce_term(other))
 
     def __eq__(self, other):  # type: ignore[override]
-        if isinstance(other, (int, float, Const)):
-            return Eq(self, other if isinstance(other, (Var, Const)) else Const(other))
+        if isinstance(other, (int, float, Term)):
+            return Eq(self, self._coerce_term(other))
         return NotImplemented
 
 
 @dataclass(frozen=True)
-class Const:
+class Const(Term):
     """A constant numeric value."""
 
     value: int | float
@@ -305,17 +374,128 @@ class Const:
     def __repr__(self) -> str:
         return str(self.value)
 
+    def evaluate(self, _state: dict) -> object:
+        return self.value
 
-# Arithmetic expression type: Var or Const
-ArithExpr = Union[Var, Const]
+
+# Generic "anything that produces a value" — Var, Const, or any other
+# Term subclass (ArgValue, CtxValue, UnaryFn, ArgLength, …). Kept as the
+# alias ``ArithExpr`` for backward compatibility with type hints in
+# downstream code.
+ArithExpr = Term
+
+
+@dataclass(frozen=True)
+class ArgValue(Term):
+    """Read ``args[field]`` from the current event when it is a call to ``tool``.
+
+    Returns ``None`` (treated as "missing" by the comparison
+    evaluator) when:
+
+    * the current event is a call to a different tool,
+    * the current event is not a tool call at all,
+    * ``args[field]`` is not present.
+
+    Pair with ``Implies(called(tool), ...)`` to scope the rule cleanly.
+    """
+
+    tool: str
+    field: str
+
+    def __repr__(self) -> str:
+        return f"ArgValue({self.tool!r}, {self.field!r})"
+
+    def evaluate(self, state: dict) -> object:
+        # Grounding (sponsio.tracer.grounding) pushes the raw arg value
+        # under this key on tool_call events. See ``ground_event``.
+        return state.get(pred_key("arg_value", self.tool, self.field))
+
+
+@dataclass(frozen=True)
+class CtxValue(Term):
+    """Read a fact pushed via ``guard.observe_context({key: value})``.
+
+    Returns ``None`` when the key has never been pushed for this trace.
+    """
+
+    key: str
+
+    def __repr__(self) -> str:
+        return f"CtxValue({self.key!r})"
+
+    def evaluate(self, state: dict) -> object:
+        return state.get(pred_key("ctx_value", self.key))
+
+
+@dataclass(frozen=True)
+class UnaryFn(Term):
+    """Apply a Python callable to another Term's value.
+
+    Common use cases::
+
+        ArgLength = UnaryFn(len, ArgValue("book_reservation", "passengers"))
+        Lower     = UnaryFn(str.lower, ArgValue("send_email", "subject"))
+        Abs       = UnaryFn(abs, Var("balance"))
+
+    If the inner Term resolves to ``None``, ``UnaryFn`` also returns
+    ``None``. If the callable raises ``TypeError`` / ``ValueError``
+    (e.g. ``len`` of a non-collection), ``UnaryFn`` returns ``None``
+    rather than crashing — comparison evaluation will then treat the
+    operand as missing and short-circuit to False.
+
+    The ``name`` field is for ``repr()`` only and defaults to the
+    callable's ``__name__`` attribute.
+    """
+
+    fn: object  # callable; ``object`` to keep dataclass-frozen hashable
+    arg: Term
+    name: str = ""
+
+    def __repr__(self) -> str:
+        n = self.name or getattr(self.fn, "__name__", "fn")
+        return f"{n}({self.arg!r})"
+
+    def evaluate(self, state: dict) -> object:
+        v = self.arg.evaluate(state)
+        if v is None:
+            return None
+        try:
+            return self.fn(v)  # type: ignore[operator]
+        except (TypeError, ValueError):
+            return None
+
+
+@dataclass(frozen=True)
+class ArgLength(Term):
+    """Convenience: ``len(args[field])`` for the current event.
+
+    Equivalent to ``UnaryFn(len, ArgValue(tool, field))`` but exposed
+    as its own class for cleaner repr and slightly faster evaluation.
+    Returns ``None`` when the arg is missing or not a sized container.
+    """
+
+    tool: str
+    field: str
+
+    def __repr__(self) -> str:
+        return f"ArgLength({self.tool!r}, {self.field!r})"
+
+    def evaluate(self, state: dict) -> object:
+        v = state.get(pred_key("arg_value", self.tool, self.field))
+        if v is None:
+            return None
+        try:
+            return len(v)  # type: ignore[arg-type]
+        except TypeError:
+            return None
 
 
 @dataclass(frozen=True)
 class Le(FormulaMixin):
     """Less than or equal: left <= right."""
 
-    left: ArithExpr
-    right: ArithExpr
+    left: Term
+    right: Term
 
     def __repr__(self) -> str:
         return f"({self.left} <= {self.right})"
@@ -325,8 +505,8 @@ class Le(FormulaMixin):
 class Lt(FormulaMixin):
     """Strictly less than: left < right."""
 
-    left: ArithExpr
-    right: ArithExpr
+    left: Term
+    right: Term
 
     def __repr__(self) -> str:
         return f"({self.left} < {self.right})"
@@ -336,8 +516,8 @@ class Lt(FormulaMixin):
 class Ge(FormulaMixin):
     """Greater than or equal: left >= right."""
 
-    left: ArithExpr
-    right: ArithExpr
+    left: Term
+    right: Term
 
     def __repr__(self) -> str:
         return f"({self.left} >= {self.right})"
@@ -347,8 +527,8 @@ class Ge(FormulaMixin):
 class Gt(FormulaMixin):
     """Strictly greater than: left > right."""
 
-    left: ArithExpr
-    right: ArithExpr
+    left: Term
+    right: Term
 
     def __repr__(self) -> str:
         return f"({self.left} > {self.right})"
@@ -358,8 +538,8 @@ class Gt(FormulaMixin):
 class Eq(FormulaMixin):
     """Equality: left == right."""
 
-    left: ArithExpr
-    right: ArithExpr
+    left: Term
+    right: Term
 
     def __repr__(self) -> str:
         return f"({self.left} == {self.right})"

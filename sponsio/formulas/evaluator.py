@@ -34,6 +34,7 @@ from sponsio.formulas.formula import (
     Gt,
     Eq,
     Subset,
+    Term,
     Var,
     Const,
     Formula,
@@ -74,8 +75,8 @@ _COUNTER_VAR_NAMES: frozenset[str] = frozenset(
 _warned_missing_vars: set[str] = set()
 
 
-def _resolve_arith(expr: Var | Const, state: dict[str, object]) -> int | float:
-    """Resolves an arithmetic expression to a numeric value.
+def _resolve_arith(expr: object, state: dict[str, object]) -> object:
+    """Resolves a ``Term`` to its underlying value.
 
     For ``Const`` returns the literal. For ``Var``:
 
@@ -88,45 +89,89 @@ def _resolve_arith(expr: Var | Const, state: dict[str, object]) -> int | float:
       backward compatibility but emit a one-shot ``UserWarning`` so
       typos and grounding gaps don't stay hidden forever.
 
+    For any other ``Term`` (``ArgValue``, ``CtxValue``, ``UnaryFn``,
+    ``ArgLength``), dispatch polymorphically via ``term.evaluate(state)``
+    and return whatever the term produces — may be ``None`` (canonical
+    "missing" signal) or a non-numeric value (string equality is common
+    for ``Eq(ArgValue(...), CtxValue(...))``). Comparison operators
+    above handle ``None`` / ``TypeError`` by evaluating to ``False``.
+
     Args:
-        expr: A ``Var`` (looked up in *state*) or ``Const`` (literal).
+        expr: A ``Term`` (Var / Const / ArgValue / CtxValue / UnaryFn /
+            ArgLength / ...).
         state: Predicate valuation dict for the current timestep.
 
     Returns:
-        The numeric value (or 0 if the variable is missing — see above).
+        The resolved value. For Var/Const this is numeric (0 default
+        for missing). For other Terms it is whatever ``evaluate``
+        returns — possibly ``None``.
     """
     if isinstance(expr, Const):
         return expr.value
-    key = expr.key()
-    if key in state:
-        val = state[key]
-        if isinstance(val, (int, float)):
-            return val
-        # Present but non-numeric — that's a real grounding bug;
-        # warn (once) and treat as 0 to avoid crashing evaluation.
-        if key not in _warned_missing_vars:
+    if isinstance(expr, Var):
+        key = expr.key()
+        if key in state:
+            val = state[key]
+            if isinstance(val, (int, float)):
+                return val
+            # Present but non-numeric — that's a real grounding bug;
+            # warn (once) and treat as 0 to avoid crashing evaluation.
+            if key not in _warned_missing_vars:
+                _warned_missing_vars.add(key)
+                warnings.warn(
+                    f"_resolve_arith: predicate {key!r} grounded to "
+                    f"non-numeric value {val!r}; treating as 0. "
+                    "Check the grounding rule for this variable.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            return 0
+        # Missing from state.
+        if expr.name not in _COUNTER_VAR_NAMES and key not in _warned_missing_vars:
             _warned_missing_vars.add(key)
             warnings.warn(
-                f"_resolve_arith: predicate {key!r} grounded to "
-                f"non-numeric value {val!r}; treating as 0. "
-                "Check the grounding rule for this variable.",
+                f"_resolve_arith: predicate {key!r} not present in trace "
+                f"valuations; defaulting to 0. This usually means a typo "
+                f"in the Var name or a missing grounding rule. Add "
+                f"{expr.name!r} to grounding or to the counter-semantics "
+                "allowlist if a 0 default is intended.",
                 UserWarning,
                 stacklevel=2,
             )
         return 0
-    # Missing from state.
-    if expr.name not in _COUNTER_VAR_NAMES and key not in _warned_missing_vars:
-        _warned_missing_vars.add(key)
-        warnings.warn(
-            f"_resolve_arith: predicate {key!r} not present in trace "
-            f"valuations; defaulting to 0. This usually means a typo "
-            f"in the Var name or a missing grounding rule. Add "
-            f"{expr.name!r} to grounding or to the counter-semantics "
-            "allowlist if a 0 default is intended.",
-            UserWarning,
-            stacklevel=2,
-        )
+    # General Term — polymorphic dispatch. May return None.
+    if isinstance(expr, Term):
+        return expr.evaluate(state)
     return 0
+
+
+def _safe_compare(op: str, left: object, right: object) -> bool:
+    """Compare two resolved values with the canonical "missing" semantics.
+
+    If either operand is ``None`` (Term resolved to "missing"), the
+    comparison evaluates to ``False`` rather than raising. Same for
+    ``TypeError`` from mismatched types (e.g. ``str < int``). This is
+    the Hoare-vacuity convention: a comparison that can't decide
+    falls through as not-satisfied, and the contract author should
+    scope it with ``Implies(scope, comparison)`` to suppress where
+    irrelevant.
+    """
+    if left is None or right is None:
+        return False
+    try:
+        if op == "le":
+            return left <= right  # type: ignore[operator]
+        if op == "lt":
+            return left < right  # type: ignore[operator]
+        if op == "ge":
+            return left >= right  # type: ignore[operator]
+        if op == "gt":
+            return left > right  # type: ignore[operator]
+        if op == "eq":
+            return left == right
+    except TypeError:
+        return False
+    return False
 
 
 def evaluate(formula: Formula, trace: list[dict[str, object]], pos: int = 0) -> bool:
@@ -222,28 +267,28 @@ def evaluate(formula: Formula, trace: list[dict[str, object]], pos: int = 0) -> 
     # --- Arithmetic / Set (SMT family) ---
 
     if isinstance(formula, Le):
-        return _resolve_arith(formula.left, state) <= _resolve_arith(
-            formula.right, state
+        return _safe_compare(
+            "le", _resolve_arith(formula.left, state), _resolve_arith(formula.right, state)
         )
 
     if isinstance(formula, Lt):
-        return _resolve_arith(formula.left, state) < _resolve_arith(
-            formula.right, state
+        return _safe_compare(
+            "lt", _resolve_arith(formula.left, state), _resolve_arith(formula.right, state)
         )
 
     if isinstance(formula, Ge):
-        return _resolve_arith(formula.left, state) >= _resolve_arith(
-            formula.right, state
+        return _safe_compare(
+            "ge", _resolve_arith(formula.left, state), _resolve_arith(formula.right, state)
         )
 
     if isinstance(formula, Gt):
-        return _resolve_arith(formula.left, state) > _resolve_arith(
-            formula.right, state
+        return _safe_compare(
+            "gt", _resolve_arith(formula.left, state), _resolve_arith(formula.right, state)
         )
 
     if isinstance(formula, Eq):
-        return _resolve_arith(formula.left, state) == _resolve_arith(
-            formula.right, state
+        return _safe_compare(
+            "eq", _resolve_arith(formula.left, state), _resolve_arith(formula.right, state)
         )
 
     if isinstance(formula, Subset):

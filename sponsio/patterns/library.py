@@ -258,6 +258,69 @@ def _ensure_distinct(a: str, b: str, *, pattern: str, arg_a: str, arg_b: str) ->
         )
 
 
+def workflow_step(
+    trigger: Atom,
+    next_action: Atom,
+    desc: str = "",
+) -> DetFormula:
+    """Prescriptive next-step obligation: ``G(trigger -> X(next_action))``.
+
+    Reads as "whenever ``trigger`` holds at the current event, the agent
+    must satisfy ``next_action`` at the very next event". This is the
+    *prescriptive* counterpart of the existing block-style patterns
+    (``never_together``, ``arg_blacklist``, ...): instead of saying
+    "you must not do X", a workflow_step says "you must do X next".
+
+    Both ``trigger`` and ``next_action`` may be ANY atomic predicate
+    (``called(...)``, ``ctx(k, v)``, ``arg_field_has(...)``, ...) — the
+    runtime extracts them via the same valuation machinery that powers
+    block contracts, so the symmetry is genuine.
+
+    Use case: workflow contracts where ``policy.md`` says "if you
+    observe X, the next step is Y" — the contract author maps the
+    diagnostic outcome (pushed into ``ctx`` by an integration hook or
+    pulled from a tool result) to the prescribed remediation tool.
+
+    Example::
+
+        workflow_step(
+            Atom("ctx", "roaming_status", "disabled"),
+            Atom("called", "toggle_roaming"),
+            desc="after detecting roaming disabled, the next action must be toggle_roaming",
+        )
+
+    Args:
+        trigger: Atomic predicate; when this is True at an event, the
+            obligation is incurred.
+        next_action: Atomic predicate; must hold at the very next event.
+        desc: Optional human-readable description (default auto-built
+            from the two atoms).
+
+    Returns:
+        A ``DetFormula`` (NOT marked liveness — X is one-step bounded
+        and the runtime can decide it after a single event, unlike F).
+    """
+    if not isinstance(trigger, Atom) or not isinstance(next_action, Atom):
+        raise TypeError(
+            f"workflow_step requires Atom arguments; got "
+            f"trigger={type(trigger).__name__}, next_action={type(next_action).__name__}"
+        )
+
+    formula = G(Implies(trigger, X(next_action)))
+    return DetFormula(
+        formula=formula,
+        desc=desc
+        or (
+            f"after {trigger.predicate}({', '.join(trigger.args)}) "
+            f"the next event must satisfy "
+            f"{next_action.predicate}({', '.join(next_action.args)})"
+        ),
+        pattern_name="workflow_step",
+        liveness=False,
+        args=(trigger, next_action),
+    )
+
+
 def must_precede(before: str, after: str, desc: str = "") -> DetFormula:
     """Enforces that one action must happen before another.
 

@@ -37,7 +37,10 @@ from __future__ import annotations
 from sponsio.formulas.formula import (
     And,
     Atom,
+    ArgLength,
+    ArgValue,
     Const,
+    CtxValue,
     Eq,
     F,
     G,
@@ -162,6 +165,14 @@ def _parse_expr(tokens: list[str], pos: int) -> tuple:
     if tok == "Const":
         return _parse_const(tokens, pos)
 
+    # Term subclasses (raw value lookups for runtime-bound comparisons)
+    if tok == "ArgValue":
+        return _parse_term_two_args(tokens, pos, ArgValue)
+    if tok == "CtxValue":
+        return _parse_term_one_arg(tokens, pos, CtxValue)
+    if tok == "ArgLength":
+        return _parse_term_two_args(tokens, pos, ArgLength)
+
     # Atom: predicate(arg1, arg2, ...)
     # Any identifier followed by ( is treated as an atom
     if pos + 1 < len(tokens) and tokens[pos + 1] == "(":
@@ -187,12 +198,19 @@ def _parse_expr(tokens: list[str], pos: int) -> tuple:
 
 
 def _parse_var_or_const(tokens: list[str], pos: int) -> tuple:
-    """Parse a Var or Const."""
+    """Parse a Var, Const, or any other Term subclass (ArgValue, CtxValue, ArgLength)."""
     tok = tokens[pos]
     if tok == "Var":
         return _parse_var(tokens, pos)
     if tok == "Const":
         return _parse_const(tokens, pos)
+    # Term subclasses (runtime-bound value lookups).
+    if tok == "ArgValue":
+        return _parse_term_two_args(tokens, pos, ArgValue)
+    if tok == "CtxValue":
+        return _parse_term_one_arg(tokens, pos, CtxValue)
+    if tok == "ArgLength":
+        return _parse_term_two_args(tokens, pos, ArgLength)
     # Try as number → Const
     try:
         val = int(tok)
@@ -221,6 +239,40 @@ def _parse_var(tokens: list[str], pos: int) -> tuple:
     if not args:
         raise ParseError("Var requires at least a name")
     return Var(args[0], *args[1:]), pos
+
+
+def _parse_term_two_args(tokens: list[str], pos: int, term_cls: type) -> tuple:
+    """Parse a 2-arg Term: ``Cls(arg1, arg2)`` — used for ArgValue, ArgLength."""
+    pos = _expect(tokens, pos + 1, "(")
+    args = []
+    while pos < len(tokens) and tokens[pos] != ")":
+        if args:
+            pos = _expect(tokens, pos, ",")
+        args.append(tokens[pos])
+        pos += 1
+    pos = _expect(tokens, pos, ")")
+    if len(args) != 2:
+        raise ParseError(
+            f"{term_cls.__name__} requires exactly 2 args (tool, field); got {len(args)}"
+        )
+    return term_cls(args[0], args[1]), pos
+
+
+def _parse_term_one_arg(tokens: list[str], pos: int, term_cls: type) -> tuple:
+    """Parse a 1-arg Term: ``Cls(arg)`` — used for CtxValue."""
+    pos = _expect(tokens, pos + 1, "(")
+    args = []
+    while pos < len(tokens) and tokens[pos] != ")":
+        if args:
+            pos = _expect(tokens, pos, ",")
+        args.append(tokens[pos])
+        pos += 1
+    pos = _expect(tokens, pos, ")")
+    if len(args) != 1:
+        raise ParseError(
+            f"{term_cls.__name__} requires exactly 1 arg; got {len(args)}"
+        )
+    return term_cls(args[0]), pos
 
 
 def _parse_const(tokens: list[str], pos: int) -> tuple:
