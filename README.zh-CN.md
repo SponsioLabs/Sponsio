@@ -87,7 +87,7 @@ agents:
       - sponsio:capability/filesystem # 若 Agent 会读写文件
 ```
 
-查看[完整 bundle 参考](docs/reference/contract-lib.md)（共 16 个 bundle）或[底层 45 个模式](docs/reference/patterns.md)。想要面向你 Agent 类型的 bundle？这是目前杠杆率最高的贡献方式。带上事件 / CVE / 模式[开 issue](https://github.com/SponsioLabs/Sponsio/issues/new)。
+查看[完整 bundle 参考](docs/reference/contract-lib.md)（共 16 个 bundle）或[底层 46 个模式](docs/reference/patterns.md)。想要面向你 Agent 类型的 bundle？这是目前杠杆率最高的贡献方式。带上事件 / CVE / 模式[开 issue](https://github.com/SponsioLabs/Sponsio/issues/new)。
 
 ---
 

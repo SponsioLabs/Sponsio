@@ -175,8 +175,8 @@ export function groundEvent(
   event: ToolEvent,
   state: GroundingState,
   contentAtoms?: Record<string, Set<string>>,
-): Record<string, boolean | number> {
-  const v: Record<string, boolean | number> = {};
+): Record<string, unknown> {
+  const v: Record<string, unknown> = {};
   const eventType = event.event_type ?? "tool_call";
 
   // Advance the event clock (mirrors ``state.now = float(event.ts)``).
@@ -211,6 +211,18 @@ export function groundEvent(
     }
     state.lastTool = tool;
     v[predKey("consecutive_count", tool)] = state.consecutiveCounts[tool];
+
+    // arg_value(tool, field) — raw value for Term-based lookups.
+    // ``ArgValue(tool, field)`` reads state[predKey("arg_value", tool,
+    // field)] for runtime comparisons (e.g. Eq(ArgValue(tool, "amount"),
+    // CtxValue("approved_amount"))). Emit unconditionally for every arg
+    // field, every tool_call — Terms read by direct key lookup, not via
+    // contentAtoms extraction.
+    if (event.args) {
+      for (const [field, val] of Object.entries(event.args)) {
+        v[predKey("arg_value", tool, field)] = val;
+      }
+    }
 
     // called_with / count_with — regex on serialized args
     if (contentAtoms) {
@@ -394,9 +406,14 @@ export function groundEvent(
     }
   }
 
-  // ── ctx(k, v) — emit one atom per current_ctx entry, every event ─
+  // ── ctx(k, v) / ctx_value(k) — emit per current_ctx entry, every event ─
+  // ctx(k, v) is the boolean atom (k==v). ctx_value(k) carries the raw
+  // value so Term-based comparisons can read it without hard-coding the
+  // expected value: e.g. Eq(CtxValue("approved_amount"),
+  // ArgValue("issue_refund", "amount")).
   for (const [k, val] of Object.entries(state.currentCtx)) {
     v[predKey("ctx", k, val)] = true;
+    v[predKey("ctx_value", k)] = val;
   }
   // ── ctx_matches(key, pattern) — regex against current_ctx[key] ──
   if (contentAtoms && contentAtoms["ctx_matches"]) {

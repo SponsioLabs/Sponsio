@@ -168,6 +168,39 @@ export function alwaysFollowedBy(trigger: string, response: string): DetFormula 
   };
 }
 
+/**
+ * Prescriptive next-step obligation: ``G(trigger -> X(next_action))``.
+ *
+ * When ``trigger`` holds at the current event, the agent must satisfy
+ * ``next_action`` at the very next event. Prescriptive counterpart to
+ * the block-style patterns (``never_together``, ``arg_blacklist``):
+ * instead of "you must not do X", a workflow_step says "you must do X
+ * next".
+ *
+ * Both arguments are arbitrary atoms (called(...), ctx(k, v),
+ * arg_field_has(...), etc.), so the same factory covers tool ordering,
+ * ctx-driven remediation, and arg-conditional follow-ups.
+ *
+ * NOT marked liveness: X is one-step bounded and the runtime can decide
+ * the obligation after a single event, unlike F.
+ */
+export function workflowStep(
+  trigger: Atom,
+  nextAction: Atom,
+  desc?: string,
+): DetFormula {
+  const f = new G(new Implies(trigger, new X(nextAction)));
+  const triggerStr = `${trigger.predicate}(${trigger.args.join(", ")})`;
+  const nextStr = `${nextAction.predicate}(${nextAction.args.join(", ")})`;
+  return {
+    formula: f,
+    desc:
+      desc ?? `after ${triggerStr} the next event must satisfy ${nextStr}`,
+    patternName: "workflow_step",
+    liveness: false,
+  };
+}
+
 export function noReversal(commitment: string, contradiction: string): DetFormula {
   ensureDistinct(commitment, contradiction, "noReversal", "commitment", "contradiction");
   const f = new G(new Implies(called(commitment), new G(new Not(called(contradiction)))));

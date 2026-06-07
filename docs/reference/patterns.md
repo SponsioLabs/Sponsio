@@ -79,6 +79,7 @@ Run `sponsio patterns` on the CLI to browse this catalog interactively with NL e
 | `requires_permission(tool, perm)` | `"tool `transfer` requires permission `manager`"` | Agent must hold a static permission to use the tool |
 | `no_data_leak(src, dest)` | `"no data leak from `read_db` to `send_email`"` | Data must not flow between two agents/tools |
 | `destructive_action_gate(action)` | `"destructive action `drop_table` requires confirmation"` | A destructive tool needs an explicit gate step |
+| `workflow_step(trigger, next_action)` | `workflow_step(Atom("ctx", "roaming_status", "disabled"), Atom("called", "toggle_roaming"))` | When `trigger` holds, the **next** event must satisfy `next_action`. Prescriptive counterpart to block-style patterns: instead of "you must not do X", it says "you must do X next". Both arguments are arbitrary atoms (`called(...)`, `ctx(k, v)`, `arg_field_has(...)`, etc.), so the same pattern covers tool-ordering, ctx-driven remediation, and arg-conditional follow-ups. |
 
 ### Compliance
 

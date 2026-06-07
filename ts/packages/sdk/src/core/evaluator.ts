@@ -14,17 +14,94 @@ import {
   Formula, Atom, Not, And, Or, Implies,
   G, F, X, U,
   Le, Lt, Ge, Gt, Eq,
-  Var, Const,
+  Var, Const, Term,
 } from "./formula.js";
+import { predKey } from "./formula.js";
 
-export type Valuation = Record<string, boolean | number>;
+/**
+ * State valuation at a single timestep.
+ *
+ * Atoms emit boolean values. Counter-style Vars emit numbers.
+ * arg_value / ctx_value (used by ArgValue / CtxValue Terms) emit any
+ * raw value pushed by grounding; can be string, number, object, etc.
+ * Missing keys evaluate to ``undefined``.
+ */
+export type Valuation = Record<string, boolean | number | string | unknown>;
 
-function resolveArith(expr: Var | Const, state: Valuation): number {
-  if (expr.kind === "Const") return expr.value;
-  const key = expr.key();
-  const val = state[key];
-  if (typeof val === "number") return val;
-  return 0; // default for missing variables
+/**
+ * Resolve a Term to its underlying value at the current state.
+ *
+ * Var / Const: counter-style semantics (numeric value; 0 for missing).
+ * ArgValue / CtxValue: raw value from grounding (may be any type, or
+ * undefined when missing).
+ * UnaryFn / ArgLength: derived value (undefined when inner is missing
+ * or when the callable throws / .length is unsupported).
+ */
+function resolveArith(expr: Term, state: Valuation): unknown {
+  switch (expr.kind) {
+    case "Const":
+      return expr.value;
+    case "Var": {
+      const key = expr.key();
+      const val = state[key];
+      if (typeof val === "number") return val;
+      return 0; // counter-style default for missing
+    }
+    case "ArgValue":
+      return state[predKey("arg_value", expr.tool, expr.field)];
+    case "CtxValue":
+      return state[predKey("ctx_value", expr.key)];
+    case "ArgLength": {
+      const v = state[predKey("arg_value", expr.tool, expr.field)];
+      if (v == null) return undefined;
+      try {
+        if (typeof (v as { length?: unknown }).length === "number") {
+          return (v as { length: number }).length;
+        }
+        if (typeof v === "string") return v.length;
+        return undefined;
+      } catch {
+        return undefined;
+      }
+    }
+    case "UnaryFn": {
+      const inner = resolveArith(expr.arg, state);
+      if (inner === undefined || inner === null) return undefined;
+      try {
+        return expr.fn(inner);
+      } catch {
+        return undefined;
+      }
+    }
+  }
+}
+
+/**
+ * Compare two resolved values with the canonical "missing" semantics.
+ *
+ * If either operand is undefined / null, the comparison is False (the
+ * comparison cannot decide). Same for type errors (mismatched types).
+ * This is the Hoare-vacuity convention.
+ */
+function safeCompare(op: string, left: unknown, right: unknown): boolean {
+  if (left === undefined || left === null) return false;
+  if (right === undefined || right === null) return false;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const l = left as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r = right as any;
+    switch (op) {
+      case "le": return l <= r;
+      case "lt": return l < r;
+      case "ge": return l >= r;
+      case "gt": return l > r;
+      case "eq": return l === r;
+    }
+  } catch {
+    return false;
+  }
+  return false;
 }
 
 export function evaluate(
@@ -81,27 +158,35 @@ export function evaluate(
       }
       return false; // ψ never became true
 
-    // --- Arithmetic ---
+    // --- Arithmetic / Term comparisons ---
     case "Le":
-      return resolveArith(formula.left, state) <= resolveArith(formula.right, state);
+      return safeCompare("le", resolveArith(formula.left, state), resolveArith(formula.right, state));
 
     case "Lt":
-      return resolveArith(formula.left, state) < resolveArith(formula.right, state);
+      return safeCompare("lt", resolveArith(formula.left, state), resolveArith(formula.right, state));
 
     case "Ge":
-      return resolveArith(formula.left, state) >= resolveArith(formula.right, state);
+      return safeCompare("ge", resolveArith(formula.left, state), resolveArith(formula.right, state));
 
     case "Gt":
-      return resolveArith(formula.left, state) > resolveArith(formula.right, state);
+      return safeCompare("gt", resolveArith(formula.left, state), resolveArith(formula.right, state));
 
     case "Eq":
-      return resolveArith(formula.left, state) === resolveArith(formula.right, state);
+      return safeCompare("eq", resolveArith(formula.left, state), resolveArith(formula.right, state));
 
     case "Var":
       return Boolean(state[formula.key()] ?? false);
 
     case "Const":
       return formula.value !== 0;
+
+    // Terms cannot appear at formula-level (only as comparison operands)
+    // but the Formula type union includes them. Treat as truthy fallback.
+    case "ArgValue":
+    case "CtxValue":
+    case "ArgLength":
+    case "UnaryFn":
+      return false;
 
     default: {
       const _exhaustive: never = formula;

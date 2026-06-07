@@ -87,7 +87,7 @@ agents:
       - sponsio:capability/filesystem # エージェントがファイルを操作する場合
 ```
 
-[完全なバンドル リファレンス](docs/reference/contract-lib.md)（16 バンドル）または[基盤となる 45 パターン](docs/reference/patterns.md)を参照。あなたのエージェント タイプ向けのバンドルが欲しい場合、これは現時点で最もレバレッジの高い貢献方法です。インシデント / CVE / パターンを添えて [issue を開いてください](https://github.com/SponsioLabs/Sponsio/issues/new)。
+[完全なバンドル リファレンス](docs/reference/contract-lib.md)（16 バンドル）または[基盤となる 46 パターン](docs/reference/patterns.md)を参照。あなたのエージェント タイプ向けのバンドルが欲しい場合、これは現時点で最もレバレッジの高い貢献方法です。インシデント / CVE / パターンを添えて [issue を開いてください](https://github.com/SponsioLabs/Sponsio/issues/new)。
 
 ---
 

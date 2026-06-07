@@ -25,7 +25,7 @@ Sponsio operates at the **action boundary**. It checks which tool a model is abo
 **3. Zero to protected in minutes, no DSL learning curve.** Existing tools require hand-written YAML / Rego / Cedar policies from scratch. Sponsio offers four paths in:
 
 - **Auto-inferred:** `sponsio init` (interactive wizard) reads your tool signatures and writes starter contracts.
-- **Contract library:** include pre-built bundles by capability (`sponsio:capability/shell`, `…/filesystem`) or by incident (`sponsio:incident/openclaw`); each bundle composes 45 deterministic patterns underneath.
+- **Contract library:** include pre-built bundles by capability (`sponsio:capability/shell`, `…/filesystem`) or by incident (`sponsio:incident/openclaw`); each bundle composes 46 deterministic patterns underneath.
 - **Natural language:** `sponsio validate "..."` compiles plain English to LTL.
 - **Policy doc:** `sponsio scan --policy security.md` parses an existing compliance document.
 

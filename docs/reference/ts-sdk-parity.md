@@ -16,9 +16,23 @@ of what is and isn't available in TS so users can plan around it.
 
 - `Formula` AST: `G`, `F`, `U`, `X`, `And`, `Or`, `Not`, `Implies`, `Atom`,
   `Le`, `Lt`, `Ge`, `Gt`, `Eq`
+- **Term abstraction**: `Term` base + `Var` / `Const` / `ArgValue` /
+  `CtxValue` / `UnaryFn` / `ArgLength`. Comparison nodes accept any
+  `Term`, so runtime-bound values can be compared against constants or
+  against each other (`Eq(ArgValue("refund", "amount"),
+  CtxValue("approved_amount"))`). Polymorphic dispatch + Hoare-vacuity
+  semantics on missing values (`undefined` / `null` operands compare as
+  false rather than throwing).
 - Recursive LTL evaluator with weak finite-trace semantics
-- Per-event grounding for the core temporal/structural predicates
+- Per-event grounding for the core temporal/structural predicates,
+  plus `arg_value(tool, field)` and `ctx_value(key)` for Term-based
+  lookups.
 - Det-only contract enforcement at the action boundary
+- The five benchmark contract libraries (`sponsio:benchmark/redcode_exec`,
+  `…/odcv_bench`, `…/tau2_bench`, `…/agentdojo`, `…/swebench`) ship as
+  YAML files under both `sponsio/contracts/benchmark/` (Python) and
+  `ts/packages/sdk/contracts/benchmark/` (TypeScript). The YAML is the
+  source of truth; both runtimes load and evaluate it identically.
 - Cross-language test scenarios in [`tests/cross_language/scenarios.json`](../../tests/cross_language/scenarios.json)
   pass on both runtimes
 
@@ -36,7 +50,7 @@ The engine is deterministic on both Python and TS. So the parity gap discussed b
 
 ### Patterns
 
-The TS pattern library (`ts/packages/sdk/src/core/patterns.ts`) implements roughly 36 factories; Python (`sponsio/patterns/library.py`) has 45. The unimplemented in TS:
+The TS pattern library (`ts/packages/sdk/src/core/patterns.ts`) implements roughly 37 factories (now including `workflowStep`); Python (`sponsio/patterns/library.py`) has 46. The unimplemented in TS:
 
 | Pattern | Why it matters |
 |---|---|
@@ -83,7 +97,7 @@ Any contract that uses one of these atoms must run on the Python guard. This is 
 
 TS's `parseNl()` (`ts/packages/sdk/src/core/nl-parser.ts`) recognises 8 patterns: `must_precede`, `always_followed_by`, `rate_limit`, `idempotent`, `mutual_exclusion`, `no_reversal`, `cooldown`, `deadline`.
 
-Python's `parse_nl_unified()` recognises all 45 deterministic patterns. NL strings that do not match one of the 8 TS patterns return a parse failure on TS. Callers should fall back to constructing the `DetFormula` directly via the pattern factory, or parse on the Python side.
+Python's `parse_nl_unified()` recognises all 46 deterministic patterns including `workflow_step` and the `Term` comparison forms (`ArgValue(...)`, `CtxValue(...)`, `ArgLength(...)`). NL strings that do not match one of the 8 TS patterns return a parse failure on TS. Callers should fall back to constructing the `DetFormula` directly via the pattern factory (which IS available for `workflowStep` and the Term subclasses on TS), or parse on the Python side.
 
 ### CLI surface
 
@@ -97,8 +111,15 @@ Track issues tagged `area:ts-parity` for status. Priority order:
 2. v0.2 strategy system port: `EnforcementStrategy` protocol, `RedirectToSafe` dispatch in the `@sponsio/sdk/langchain` adapter, `EscalateToHuman.notify` callback hooks.
 3. v0.2 `tool_policy` config block + `filter_tools(candidates)` API parity.
 4. Missing patterns (`no_pii`, `no_keywords`, `max_length`, `data_intact`).
-5. Expand TS NL parser to match Python's surface.
+5. Expand TS NL parser to match Python's surface, including
+   `workflow_step` and `Term` (`ArgValue` / `CtxValue` / `ArgLength`)
+   comparison forms (factories exist on TS; NL recognition does not).
 6. `Subset` node + data-flow predicates.
+7. **DFA-compiled evaluator port.** Python ships both a recursive
+   evaluator and a DFA-compiled fast path
+   (`sponsio/formulas/dfa_evaluator.py`). TS has only the recursive
+   evaluator. Verdicts agree on both, but the DFA path is faster on
+   long traces.
 
 ## What to do today if you need a missing feature
 

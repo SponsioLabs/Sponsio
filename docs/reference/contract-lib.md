@@ -143,4 +143,4 @@ Source attribution is preserved through loading: every compiled contract knows i
 - [`sponsio.yaml` reference](config-yaml.md). Top-level schema, `include:` / `customized:` / `tool_rename:` / `workspace:` mechanics.
 - [Pattern catalog](patterns.md). The Python factories each pack rule compiles into.
 - [Onboarding guide](../guides/onboarding.md), `sponsio init` auto-selects tier-0 packs based on detected tools.
-- *Benchmark contract libraries* (no longer shipped as packaged bundles). Hand-curated libraries that drive Sponsio's published RedCode-Exec and ODCV-Bench headlines. Distinct from the capability packs above: benchmark-reproduction artefacts, not auto-included by `onboard`.
+- [Benchmark contract libraries](benchmark-libraries.md). The five hand-curated YAML libraries (`sponsio:benchmark/redcode_exec`, `…/odcv_bench`, `…/tau2_bench`, `…/agentdojo`, `…/swebench`) that drive Sponsio's published RedCode-Exec, ODCV-Bench, τ²-bench, AgentDojo, and SWE-bench headline numbers. Loadable via `include:` like a capability pack, but distinct in intent: benchmark-reproduction artefacts, not auto-selected by `onboard`.

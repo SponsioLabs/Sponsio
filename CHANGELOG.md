@@ -12,7 +12,58 @@ broke.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- **`Term` abstraction in the formula AST** (`sponsio/formulas/formula.py`).
+  The arithmetic comparison family (`Eq`, `Le`, `Lt`, `Ge`, `Gt`) now
+  accepts any `Term`, not just `Var` or `Const`. Four new term subclasses
+  unlock contracts that compare runtime values against each other:
+  - `ArgValue(tool, field)`: raw value of `args[field]` when the current
+    event is a call to `tool`.
+  - `CtxValue(key)`: raw value of an externally pushed context fact
+    (`guard.observe_context`).
+  - `ArgLength(tool, field)`: `len(args[field])` shorthand.
+  - `UnaryFn(fn, term)`: apply a Python callable to another term.
+
+  `Var` and `Const` become `Term` subclasses, so their existing
+  counter-style semantics (default `0` for missing, numeric-only
+  coercion) are preserved. `ArithExpr` is now an alias of `Term` so
+  existing type hints keep working.
+
+- **`workflow_step(trigger, next_action)` pattern**
+  (`sponsio/patterns/library.py`). Prescriptive counterpart to the
+  block-style patterns: when `trigger` holds at the current event, the
+  next event must satisfy `next_action`. Both arguments are arbitrary
+  atoms, so the same factory covers tool-ordering, ctx-driven
+  remediation, and arg-conditional follow-ups. Compiles to
+  `G(trigger -> X(next_action))`.
+
+- **Five benchmark contract libraries**
+  (`sponsio/contracts/benchmark/*.yaml`). Hand-curated YAML libraries
+  that reproduce Sponsio's published benchmark numbers on RedCode-Exec,
+  ODCV-Bench, τ²-bench, AgentDojo, and SWE-bench. Loadable via
+  `include: [sponsio:benchmark/<name>]` like a capability pack but kept
+  separate in intent (benchmark-reproduction artefacts, not auto-selected
+  by `onboard`). Documented in
+  [`docs/reference/benchmark-libraries.md`](docs/reference/benchmark-libraries.md).
+
+- **NL DSL extensions for the new primitives**
+  (`sponsio/generation/dsl_to_contract.py`). The natural-language parser
+  recognises `workflow_step` and the new `Term` comparison forms so
+  YAML hand-authoring and `sponsio validate` reach the new surface.
+
+### Changed
+
+- **Pattern count is now 46** (was 45). Catalog tables and README
+  callouts are updated to match.
+
+### Known limitations
+
+- **TypeScript SDK parity gap.** The `Term` abstraction, the
+  `workflow_step` factory, and the five benchmark YAML libraries are
+  Python-only in this release. TS will catch up in a follow-up. See
+  [`docs/reference/ts-sdk-parity.md`](docs/reference/ts-sdk-parity.md)
+  for the tracked gap list.
 
 ---
 

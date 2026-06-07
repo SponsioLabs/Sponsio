@@ -16,6 +16,7 @@ import {
   G, F, X, U,
   Le, Lt, Ge, Gt, Eq,
   Var, Const,
+  ArgValue, CtxValue, ArgLength,
 } from "./formula.js";
 
 export class ParseError extends Error {}
@@ -168,6 +169,33 @@ function parseUnary(s: State): Formula {
     }
     consume(s, ")");
     return new Var(args[0], ...args.slice(1));
+  } else if (t === "ArgValue" || t === "ArgLength" || t === "CtxValue") {
+    // Term subclasses for runtime-bound comparisons.
+    // ArgValue / ArgLength: (tool, field). CtxValue: (key).
+    const tok = consume(s);
+    consume(s, "(");
+    const args: string[] = [];
+    while (peek(s) !== ")") {
+      if (peek(s) === ",") consume(s, ",");
+      args.push(stripQuotes(consume(s)));
+    }
+    consume(s, ")");
+    if (tok === "ArgValue") {
+      if (args.length !== 2) {
+        throw new ParseError(`ArgValue requires (tool, field); got ${args.length} args`);
+      }
+      return new ArgValue(args[0], args[1]) as unknown as Formula;
+    }
+    if (tok === "ArgLength") {
+      if (args.length !== 2) {
+        throw new ParseError(`ArgLength requires (tool, field); got ${args.length} args`);
+      }
+      return new ArgLength(args[0], args[1]) as unknown as Formula;
+    }
+    if (args.length !== 1) {
+      throw new ParseError(`CtxValue requires (key); got ${args.length} args`);
+    }
+    return new CtxValue(args[0]) as unknown as Formula;
   } else if (t === "Atom") {
     consume(s, "Atom");
     consume(s, "(");

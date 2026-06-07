@@ -86,7 +86,7 @@ agents:
       - sponsio:capability/filesystem # if your agent touches files
 ```
 
-See the [full bundle reference](docs/reference/contract-lib.md) for all 16 bundles, or the [45 underlying patterns](docs/reference/patterns.md) for the primitives they compose. Want a bundle for your agent type? That is currently the highest-leverage way to contribute. [Open an issue](https://github.com/SponsioLabs/Sponsio/issues/new) with your incident, CVE, or pattern.
+See the [full bundle reference](docs/reference/contract-lib.md) for all 16 bundles, or the [46 underlying patterns](docs/reference/patterns.md) for the primitives they compose. Want a bundle for your agent type? That is currently the highest-leverage way to contribute. [Open an issue](https://github.com/SponsioLabs/Sponsio/issues/new) with your incident, CVE, or pattern.
 
 ---
 
