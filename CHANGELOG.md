@@ -12,6 +12,12 @@ broke.
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [0.2.0a2]: 2026-06-07
+
 ### Added
 
 - **`Term` abstraction in the formula AST** (`sponsio/formulas/formula.py`).

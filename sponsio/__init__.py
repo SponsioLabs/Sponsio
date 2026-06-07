@@ -40,7 +40,7 @@ Direct guard import (advanced)::
     guard = LangGraphGuard(contracts=[...])
 """
 
-__version__ = "0.2.0a1"
+__version__ = "0.2.0a2"
 
 # --- Main entry point ---
 from sponsio.core import Sponsio

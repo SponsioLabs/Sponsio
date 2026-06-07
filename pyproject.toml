@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sponsio"
-version = "0.2.0a1"
+version = "0.2.0a2"
 description = "Runtime contract enforcement for LLM agent systems"
 readme = "README.md"
 requires-python = ">=3.10"
