@@ -1,0 +1,984 @@
+# =============================================================================
+# sponsio/contracts/benchmark/tau2_bench.yaml
+#
+# Benchmark contract library — tau2-bench procedure correctness.
+#
+# tau2-bench (Barres et al., arXiv:2506.07982) is a multi-turn agent benchmark
+# across three customer-service domains: retail, airline, telecom. The native
+# tau2 evaluation reports pass^k (outcome only — the agent either completes
+# the user task or doesn't). AgentPex (Sharma/Barke/Zorn, MSR 2026) showed
+# that 83% of Claude pass=1 traces on tau2-retail/airline still contain
+# procedural violations: the agent reached the right final state by walking
+# the wrong path (missing identity check, bad ordering, same-turn text+tool
+# call, wrong arg grounding). Sponsio reframes tau2 around procedure: did
+# every tool call respect the policy ladder at the moment it was issued.
+#
+# This bundle ships 120 materialised contracts mined from
+# Benchmarks/tau2-bench/data/tau2/domains/<domain>/policy.md and assembled
+# in Benchmarks/tau2-bench/procedure_correctness/contracts_*.py:
+#
+#   - retail  (45)  cancel/modify/return/exchange workflows; identity gate;
+#                   payment-in-profile + order-owner grounding; post-action
+#                   verification; item-count match (Cat-C); distinct-payment
+#                   (Cat-C); cancellation reason enum; bounded calls.
+#   - airline (32)  reservation lifecycle; basic-economy lockdown;
+#                   membership-gated compensation; search-before-book ordering;
+#                   no-insurance-add cover-up; max-5-passenger cap (Cat-C);
+#                   post-action verification.
+#   - telecom (40)  line-state preconditions; roaming idempotency; bill-
+#                   status gate; customer-identification ordering; data-usage
+#                   gating; 10 diagnostic decision-tree prescriptions
+#                   (workflow_step shape) + 1 overdue-bill prescription.
+#   - cross   (3)   same-turn protocol; transfer summary non-empty;
+#                   transfer is one-shot per session.
+#
+# 78 distinct pattern sites in the Python source expand to 120 materialised
+# contracts via per-tool loops (e.g. one `must_precede` site expands once per
+# write-tool in _ORDER_WRITE_TOOLS). Each materialised contract corresponds
+# to exactly one yaml entry below.
+#
+# AgentPex evaluator coverage (6 of 7):
+#   - output_spec        same-turn protocol; non-empty transfer summary.
+#   - transition_spec    identity gate; lookup-before-write ordering;
+#                        post-action verification; account-active gate.
+#   - forbidden_edges    cancellation reason enum; no-insurance-add;
+#                        roaming idempotency; bill-overdue-only.
+#   - argument_spec      pending/delivered state required; numeric range
+#                        on refuel_data.gb_amount and book_reservation.
+#                        insurance; max-5-passenger; non-empty dob.
+#   - arg_groundedness   payment-in-profile; order-owner match; reservation-
+#                        owner match; distinct-payment-from-original.
+#   - predicted_plan     per-tool rate-limits on idempotent write actions.
+# (predicted_final_state — covered by tau2's native db_check, omitted here.)
+#
+# Pattern coverage:
+#   - Named patterns (registered in sponsio.patterns.library + the yaml
+#     loader): must_precede, arg_blacklist, arg_allowlist, arg_value_range,
+#     rate_limit. Most of the 120 contracts dispatch through these.
+#   - Raw LTL (`ltl:` field, parsed via parse_repr's infix syntax): used for
+#     (a) ctx-precondition checks that wrap a tool call with a single ctx
+#     atom or a disjunction of ctx atoms; (b) the search-before-* OR-of-two
+#     orderings in airline + telecom; (c) workflow_step prescriptions
+#     (G(trigger -> X(next_action))) which are not yet registered in
+#     public Sponsio's pattern dispatcher; (d) Cat-C contracts that compose
+#     Var('arg_length', tool, field) / Var('arg_value', tool, field) /
+#     Var('ctx_value', key) via Eq/Le comparisons.
+#
+# Source-tag convention:
+#   library:benchmark.tau2/<domain>/<category>
+# where <domain> is one of {retail, airline, telecom, cross} and <category>
+# is one of {output_spec, transition_spec, forbidden_edges, argument_spec,
+# arg_groundedness, predicted_plan}. Filter via
+# `sponsio scan --filter source=library:benchmark.tau2/...`.
+#
+# Executing source of truth:
+#   Benchmarks/tau2-bench/procedure_correctness/contracts_retail.py
+#   Benchmarks/tau2-bench/procedure_correctness/contracts_airline.py
+#   Benchmarks/tau2-bench/procedure_correctness/contracts_telecom.py
+#   Benchmarks/tau2-bench/procedure_correctness/contracts_cross.py
+#
+# Include via:
+#   include:
+#     - sponsio:benchmark/tau2_bench
+# =============================================================================
+
+version: "1"
+
+tools:
+  # ── retail ─────────────────────────────────────────────────────────
+  - name: cancel_pending_order
+    description: "Cancel a pending retail order"
+    params: "order_id: str, reason: str"
+  - name: modify_pending_order_address
+    description: "Modify shipping address on a pending order"
+    params: "order_id: str, address1: str, address2: str, city: str, state: str, country: str, zip: str"
+  - name: modify_pending_order_items
+    description: "Swap items on a pending order"
+    params: "order_id: str, item_ids: list[str], new_item_ids: list[str], payment_method_id: str"
+  - name: modify_pending_order_payment
+    description: "Change payment method on a pending order"
+    params: "order_id: str, payment_method_id: str"
+  - name: return_delivered_order_items
+    description: "Return items from a delivered order"
+    params: "order_id: str, item_ids: list[str], payment_method_id: str"
+  - name: exchange_delivered_order_items
+    description: "Exchange items on a delivered order"
+    params: "order_id: str, item_ids: list[str], new_item_ids: list[str], payment_method_id: str"
+  - name: modify_user_address
+    description: "Modify user default address"
+    params: "user_id: str, address1: str, ..."
+  - name: get_order_details
+    description: "Look up an order"
+    params: "order_id: str"
+  - name: get_product_details
+    description: "Look up a product / variant"
+    params: "product_id: str"
+
+  # ── airline ────────────────────────────────────────────────────────
+  - name: book_reservation
+    description: "Book a new airline reservation"
+    params: "user_id: str, origin: str, destination: str, flight_type: str, cabin: str, flights: list, passengers: list, payment_methods: list, total_baggages: int, nonfree_baggages: int, insurance: int"
+  - name: cancel_reservation
+    description: "Cancel an existing airline reservation"
+    params: "reservation_id: str, reason: str"
+  - name: update_reservation_flights
+    description: "Change the flights on an airline reservation"
+    params: "reservation_id: str, cabin: str, flights: list, payment_id: str"
+  - name: update_reservation_baggages
+    description: "Update baggage count on a reservation"
+    params: "reservation_id: str, total_baggages: int, nonfree_baggages: int, payment_id: str"
+  - name: update_reservation_passengers
+    description: "Update passengers on a reservation"
+    params: "reservation_id: str, passengers: list"
+  - name: send_certificate
+    description: "Issue a travel certificate (compensation)"
+    params: "user_id: str, amount: float"
+  - name: get_reservation_details
+    description: "Look up a reservation"
+    params: "reservation_id: str"
+  - name: search_direct_flight
+    description: "Search direct flights"
+    params: "origin: str, destination: str, date: str"
+  - name: search_onestop_flight
+    description: "Search one-stop flights"
+    params: "origin: str, destination: str, date: str"
+
+  # ── telecom ────────────────────────────────────────────────────────
+  - name: suspend_line
+    description: "Suspend a phone line"
+    params: "line_id: str"
+  - name: resume_line
+    description: "Resume a suspended phone line"
+    params: "line_id: str"
+  - name: enable_roaming
+    description: "Enable roaming on a line"
+    params: "line_id: str"
+  - name: disable_roaming
+    description: "Disable roaming on a line"
+    params: "line_id: str"
+  - name: refuel_data
+    description: "Top up data on a line"
+    params: "line_id: str, gb_amount: float"
+  - name: send_payment_request
+    description: "Send a payment request to a customer"
+    params: "bill_id: str"
+  - name: get_bills_for_customer
+    description: "List bills for a customer"
+    params: "customer_id: str"
+  - name: get_customer_by_phone
+    description: "Look up customer by phone"
+    params: "phone: str"
+  - name: get_customer_by_id
+    description: "Look up customer by id"
+    params: "customer_id: str"
+  - name: get_customer_by_name
+    description: "Look up customer by name + dob"
+    params: "name: str, dob: str"
+  - name: get_data_usage
+    description: "Get current data usage"
+    params: "line_id: str"
+  - name: get_details_by_id
+    description: "Look up line details by id"
+    params: "line_id: str"
+  # Telecom diagnostic remediation tools (called by the user-sim under
+  # the agent's instruction; surfaced in the trace as tool_call events).
+  - name: toggle_airplane_mode
+    description: "Toggle airplane mode on the device"
+    params: ""
+  - name: reseat_sim_card
+    description: "Remove and reseat the SIM card"
+    params: ""
+  - name: toggle_data
+    description: "Toggle mobile data"
+    params: ""
+  - name: toggle_roaming
+    description: "Toggle data roaming on the device"
+    params: ""
+  - name: reset_apn_settings
+    description: "Reset APN settings to default"
+    params: ""
+  - name: disconnect_vpn
+    description: "Disconnect the device VPN"
+    params: ""
+  - name: toggle_wifi_calling
+    description: "Toggle Wi-Fi calling on the device"
+    params: ""
+  - name: grant_app_permission
+    description: "Grant a missing app permission"
+    params: "app: str, permission: str"
+  - name: set_network_mode_preference
+    description: "Set network mode preference"
+    params: "mode: str"
+  - name: toggle_data_saver_mode
+    description: "Toggle Data Saver mode"
+    params: ""
+
+  # ── cross-domain ───────────────────────────────────────────────────
+  - name: transfer_to_human_agents
+    description: "Hand off the session to a human agent"
+    params: "summary: str"
+
+agents:
+  "*":
+    contracts:
+
+      # ===================================================================
+      # § Retail (45 contracts)
+      # Source: Benchmarks/tau2-bench/procedure_correctness/contracts_retail.py
+      # ===================================================================
+
+      # ── retail output_spec ─────────────────────────────────────────
+      - desc: "assistant must not produce user-facing text in the same message as a tool call"
+        G:
+          ltl: "G(!ctx(same_turn_text_and_tool_call, yes))"
+          source: "library:benchmark.tau2/retail/output_spec"
+
+      - desc: "transfer_to_human_agents summary must not be empty"
+        G:
+          pattern: arg_blacklist
+          args:
+            - transfer_to_human_agents
+            - summary
+            - - "^\\s*$"
+          source: "library:benchmark.tau2/retail/output_spec"
+
+      # ── retail transition_spec: identity gate (×7 write tools) ─────
+      - desc: "cancel_pending_order requires the user to be authenticated first"
+        G:
+          ltl: "G(called(cancel_pending_order) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      - desc: "modify_pending_order_address requires the user to be authenticated first"
+        G:
+          ltl: "G(called(modify_pending_order_address) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      - desc: "modify_pending_order_items requires the user to be authenticated first"
+        G:
+          ltl: "G(called(modify_pending_order_items) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      - desc: "modify_pending_order_payment requires the user to be authenticated first"
+        G:
+          ltl: "G(called(modify_pending_order_payment) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      - desc: "return_delivered_order_items requires the user to be authenticated first"
+        G:
+          ltl: "G(called(return_delivered_order_items) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      - desc: "exchange_delivered_order_items requires the user to be authenticated first"
+        G:
+          ltl: "G(called(exchange_delivered_order_items) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      - desc: "modify_user_address requires the user to be authenticated first"
+        G:
+          ltl: "G(called(modify_user_address) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      # ── retail transition_spec: get_order_details must precede each ORDER_WRITE_TOOL (×6) ──
+      - desc: "get_order_details must precede cancel_pending_order"
+        G:
+          pattern: must_precede
+          args: [get_order_details, cancel_pending_order]
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      - desc: "get_order_details must precede modify_pending_order_address"
+        G:
+          pattern: must_precede
+          args: [get_order_details, modify_pending_order_address]
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      - desc: "get_order_details must precede modify_pending_order_items"
+        G:
+          pattern: must_precede
+          args: [get_order_details, modify_pending_order_items]
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      - desc: "get_order_details must precede modify_pending_order_payment"
+        G:
+          pattern: must_precede
+          args: [get_order_details, modify_pending_order_payment]
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      - desc: "get_order_details must precede return_delivered_order_items"
+        G:
+          pattern: must_precede
+          args: [get_order_details, return_delivered_order_items]
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      - desc: "get_order_details must precede exchange_delivered_order_items"
+        G:
+          pattern: must_precede
+          args: [get_order_details, exchange_delivered_order_items]
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      # ── retail transition_spec: get_product_details before variant-picking tools (×2) ──
+      - desc: "get_product_details must precede exchange_delivered_order_items"
+        G:
+          pattern: must_precede
+          args: [get_product_details, exchange_delivered_order_items]
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      - desc: "get_product_details must precede modify_pending_order_items"
+        G:
+          pattern: must_precede
+          args: [get_product_details, modify_pending_order_items]
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      # ── retail forbidden_edges ─────────────────────────────────────
+      - desc: "cancel_pending_order reason must be one of the two policy values"
+        G:
+          pattern: arg_allowlist
+          args:
+            - cancel_pending_order
+            - reason
+            - - "^no longer needed$"
+              - "^ordered by mistake$"
+          source: "library:benchmark.tau2/retail/forbidden_edges"
+
+      # ── retail argument_spec: order-state preconditions ────────────
+      - desc: "cancel_pending_order target order status must be one of ['pending']"
+        G:
+          ltl: "G(called(cancel_pending_order) -> ctx(target_order_status, pending))"
+          source: "library:benchmark.tau2/retail/argument_spec"
+
+      - desc: "modify_pending_order_address target order status must be one of ['pending']"
+        G:
+          ltl: "G(called(modify_pending_order_address) -> ctx(target_order_status, pending))"
+          source: "library:benchmark.tau2/retail/argument_spec"
+
+      - desc: "modify_pending_order_items target order status must be one of ['pending']"
+        G:
+          ltl: "G(called(modify_pending_order_items) -> ctx(target_order_status, pending))"
+          source: "library:benchmark.tau2/retail/argument_spec"
+
+      - desc: "modify_pending_order_payment target order status must be one of ['pending']"
+        G:
+          ltl: "G(called(modify_pending_order_payment) -> ctx(target_order_status, pending))"
+          source: "library:benchmark.tau2/retail/argument_spec"
+
+      - desc: "return_delivered_order_items target order status must be one of ['delivered']"
+        G:
+          ltl: "G(called(return_delivered_order_items) -> ctx(target_order_status, delivered))"
+          source: "library:benchmark.tau2/retail/argument_spec"
+
+      - desc: "exchange_delivered_order_items target order status must be one of ['delivered']"
+        G:
+          ltl: "G(called(exchange_delivered_order_items) -> ctx(target_order_status, delivered))"
+          source: "library:benchmark.tau2/retail/argument_spec"
+
+      # ── retail arg_groundedness: payment_in_profile (×4) ───────────
+      - desc: "modify_pending_order_payment payment_method_id must already be in user profile"
+        G:
+          ltl: "G(called(modify_pending_order_payment) -> ctx(target_payment_in_profile, yes))"
+          source: "library:benchmark.tau2/retail/arg_groundedness"
+
+      - desc: "modify_pending_order_items payment_method_id must already be in user profile"
+        G:
+          ltl: "G(called(modify_pending_order_items) -> ctx(target_payment_in_profile, yes))"
+          source: "library:benchmark.tau2/retail/arg_groundedness"
+
+      - desc: "return_delivered_order_items payment_method_id must already be in user profile"
+        G:
+          ltl: "G(called(return_delivered_order_items) -> ctx(target_payment_in_profile, yes))"
+          source: "library:benchmark.tau2/retail/arg_groundedness"
+
+      - desc: "exchange_delivered_order_items payment_method_id must already be in user profile"
+        G:
+          ltl: "G(called(exchange_delivered_order_items) -> ctx(target_payment_in_profile, yes))"
+          source: "library:benchmark.tau2/retail/arg_groundedness"
+
+      # ── retail arg_groundedness: order_owner_match (×6) ────────────
+      - desc: "cancel_pending_order target order must be owned by the authenticated user"
+        G:
+          ltl: "G(called(cancel_pending_order) -> ctx(target_order_owner_match, yes))"
+          source: "library:benchmark.tau2/retail/arg_groundedness"
+
+      - desc: "modify_pending_order_address target order must be owned by the authenticated user"
+        G:
+          ltl: "G(called(modify_pending_order_address) -> ctx(target_order_owner_match, yes))"
+          source: "library:benchmark.tau2/retail/arg_groundedness"
+
+      - desc: "modify_pending_order_items target order must be owned by the authenticated user"
+        G:
+          ltl: "G(called(modify_pending_order_items) -> ctx(target_order_owner_match, yes))"
+          source: "library:benchmark.tau2/retail/arg_groundedness"
+
+      - desc: "modify_pending_order_payment target order must be owned by the authenticated user"
+        G:
+          ltl: "G(called(modify_pending_order_payment) -> ctx(target_order_owner_match, yes))"
+          source: "library:benchmark.tau2/retail/arg_groundedness"
+
+      - desc: "return_delivered_order_items target order must be owned by the authenticated user"
+        G:
+          ltl: "G(called(return_delivered_order_items) -> ctx(target_order_owner_match, yes))"
+          source: "library:benchmark.tau2/retail/arg_groundedness"
+
+      - desc: "exchange_delivered_order_items target order must be owned by the authenticated user"
+        G:
+          ltl: "G(called(exchange_delivered_order_items) -> ctx(target_order_owner_match, yes))"
+          source: "library:benchmark.tau2/retail/arg_groundedness"
+
+      # ── retail Cat-C: item_count_match (×2) ────────────────────────
+      - desc: "modify_pending_order_items: item_ids and new_item_ids must have the same length"
+        G:
+          ltl: "G(called(modify_pending_order_items) -> (Var(arg_length, modify_pending_order_items, item_ids) == Var(arg_length, modify_pending_order_items, new_item_ids)))"
+          source: "library:benchmark.tau2/retail/argument_spec"
+
+      - desc: "exchange_delivered_order_items: item_ids and new_item_ids must have the same length"
+        G:
+          ltl: "G(called(exchange_delivered_order_items) -> (Var(arg_length, exchange_delivered_order_items, item_ids) == Var(arg_length, exchange_delivered_order_items, new_item_ids)))"
+          source: "library:benchmark.tau2/retail/argument_spec"
+
+      # ── retail Cat-C: distinct-payment-from-original ───────────────
+      - desc: "modify_pending_order_payment.payment_method_id must differ from the order's original method"
+        G:
+          ltl: "G(called(modify_pending_order_payment) -> !(Var(arg_value, modify_pending_order_payment, payment_method_id) == Var(ctx_value, original_pm_id)))"
+          source: "library:benchmark.tau2/retail/arg_groundedness"
+
+      # ── retail post-action verification (workflow_step → X-form LTL) ──
+      - desc: "modify_pending_order_items must be followed by get_order_details verification"
+        G:
+          ltl: "G(called(modify_pending_order_items) -> X(called(get_order_details)))"
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      - desc: "modify_pending_order_address must be followed by get_order_details verification"
+        G:
+          ltl: "G(called(modify_pending_order_address) -> X(called(get_order_details)))"
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      - desc: "modify_pending_order_payment must be followed by get_order_details verification"
+        G:
+          ltl: "G(called(modify_pending_order_payment) -> X(called(get_order_details)))"
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      - desc: "cancel_pending_order must be followed by get_order_details verification"
+        G:
+          ltl: "G(called(cancel_pending_order) -> X(called(get_order_details)))"
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      - desc: "return_delivered_order_items must be followed by get_order_details verification"
+        G:
+          ltl: "G(called(return_delivered_order_items) -> X(called(get_order_details)))"
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      - desc: "exchange_delivered_order_items must be followed by get_order_details verification"
+        G:
+          ltl: "G(called(exchange_delivered_order_items) -> X(called(get_order_details)))"
+          source: "library:benchmark.tau2/retail/transition_spec"
+
+      # ── retail predicted_plan: bounded calls (×2) ──────────────────
+      - desc: "cancel_pending_order should be called at most 2x"
+        G:
+          pattern: rate_limit
+          args: [cancel_pending_order, 2]
+          source: "library:benchmark.tau2/retail/predicted_plan"
+
+      - desc: "modify_pending_order_items should be called at most 2x"
+        G:
+          pattern: rate_limit
+          args: [modify_pending_order_items, 2]
+          source: "library:benchmark.tau2/retail/predicted_plan"
+
+      # ===================================================================
+      # § Airline (32 contracts)
+      # Source: Benchmarks/tau2-bench/procedure_correctness/contracts_airline.py
+      # ===================================================================
+
+      # ── airline output_spec ────────────────────────────────────────
+      - desc: "assistant must not produce user-facing text in the same message as a tool call"
+        G:
+          ltl: "G(!ctx(same_turn_text_and_tool_call, yes))"
+          source: "library:benchmark.tau2/airline/output_spec"
+
+      - desc: "transfer_to_human_agents summary must not be empty"
+        G:
+          pattern: arg_blacklist
+          args:
+            - transfer_to_human_agents
+            - summary
+            - - "^\\s*$"
+          source: "library:benchmark.tau2/airline/output_spec"
+
+      # ── airline transition_spec: identity gate (×6) ────────────────
+      - desc: "book_reservation requires the user to be authenticated first"
+        G:
+          ltl: "G(called(book_reservation) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/airline/transition_spec"
+
+      - desc: "cancel_reservation requires the user to be authenticated first"
+        G:
+          ltl: "G(called(cancel_reservation) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/airline/transition_spec"
+
+      - desc: "update_reservation_flights requires the user to be authenticated first"
+        G:
+          ltl: "G(called(update_reservation_flights) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/airline/transition_spec"
+
+      - desc: "update_reservation_baggages requires the user to be authenticated first"
+        G:
+          ltl: "G(called(update_reservation_baggages) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/airline/transition_spec"
+
+      - desc: "update_reservation_passengers requires the user to be authenticated first"
+        G:
+          ltl: "G(called(update_reservation_passengers) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/airline/transition_spec"
+
+      - desc: "send_certificate requires the user to be authenticated first"
+        G:
+          ltl: "G(called(send_certificate) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/airline/transition_spec"
+
+      # ── airline transition_spec: get_reservation_details before mod/cancel (×4) ──
+      - desc: "get_reservation_details must precede cancel_reservation"
+        G:
+          pattern: must_precede
+          args: [get_reservation_details, cancel_reservation]
+          source: "library:benchmark.tau2/airline/transition_spec"
+
+      - desc: "get_reservation_details must precede update_reservation_flights"
+        G:
+          pattern: must_precede
+          args: [get_reservation_details, update_reservation_flights]
+          source: "library:benchmark.tau2/airline/transition_spec"
+
+      - desc: "get_reservation_details must precede update_reservation_baggages"
+        G:
+          pattern: must_precede
+          args: [get_reservation_details, update_reservation_baggages]
+          source: "library:benchmark.tau2/airline/transition_spec"
+
+      - desc: "get_reservation_details must precede update_reservation_passengers"
+        G:
+          pattern: must_precede
+          args: [get_reservation_details, update_reservation_passengers]
+          source: "library:benchmark.tau2/airline/transition_spec"
+
+      # ── airline transition_spec: search-before-book / search-before-update ──
+      - desc: "search_direct_flight or search_onestop_flight must precede book_reservation"
+        G:
+          ltl: "((!called(book_reservation) U (called(search_direct_flight) | called(search_onestop_flight))) | G(!called(book_reservation)))"
+          source: "library:benchmark.tau2/airline/transition_spec"
+
+      - desc: "search_direct_flight or search_onestop_flight must precede update_reservation_flights"
+        G:
+          ltl: "((!called(update_reservation_flights) U (called(search_direct_flight) | called(search_onestop_flight))) | G(!called(update_reservation_flights)))"
+          source: "library:benchmark.tau2/airline/transition_spec"
+
+      # ── airline forbidden_edges ────────────────────────────────────
+      - desc: "cancel_reservation reason must be one of the three policy values"
+        G:
+          pattern: arg_allowlist
+          args:
+            - cancel_reservation
+            - reason
+            - - "^change of plan$"
+              - "^airline cancelled flight$"
+              - "^other reasons$"
+          source: "library:benchmark.tau2/airline/forbidden_edges"
+
+      - desc: "update_reservation_flights forbidden when cabin is basic_economy"
+        G:
+          ltl: "G(called(update_reservation_flights) -> !ctx(target_reservation_cabin, basic_economy))"
+          source: "library:benchmark.tau2/airline/forbidden_edges"
+
+      - desc: "send_certificate restricted to silver/gold/premium members"
+        G:
+          ltl: "G(called(send_certificate) -> ((ctx(user_membership, silver) | ctx(user_membership, gold)) | ctx(user_membership, premium)))"
+          source: "library:benchmark.tau2/airline/forbidden_edges"
+
+      # ── airline forbidden_edges: no-insurance-add (×3) ─────────────
+      - desc: "update_reservation_baggages must not set insurance (cannot be added after booking)"
+        G:
+          pattern: arg_blacklist
+          args:
+            - update_reservation_baggages
+            - insurance
+            - - "^[Tt]rue$"
+              - "^1$"
+              - "^[Yy]es$"
+          source: "library:benchmark.tau2/airline/forbidden_edges"
+
+      - desc: "update_reservation_passengers must not set insurance (cannot be added after booking)"
+        G:
+          pattern: arg_blacklist
+          args:
+            - update_reservation_passengers
+            - insurance
+            - - "^[Tt]rue$"
+              - "^1$"
+              - "^[Yy]es$"
+          source: "library:benchmark.tau2/airline/forbidden_edges"
+
+      - desc: "update_reservation_flights must not set insurance (cannot be added after booking)"
+        G:
+          pattern: arg_blacklist
+          args:
+            - update_reservation_flights
+            - insurance
+            - - "^[Tt]rue$"
+              - "^1$"
+              - "^[Yy]es$"
+          source: "library:benchmark.tau2/airline/forbidden_edges"
+
+      # ── airline argument_spec ──────────────────────────────────────
+      - desc: "book_reservation insurance flag must be 0 or 1"
+        G:
+          pattern: arg_value_range
+          args: [book_reservation, insurance, 0, 1]
+          source: "library:benchmark.tau2/airline/argument_spec"
+
+      # ── airline arg_groundedness: reservation_owner_match (×4) ─────
+      - desc: "cancel_reservation target reservation must be owned by the authenticated user"
+        G:
+          ltl: "G(called(cancel_reservation) -> ctx(target_reservation_owner_match, yes))"
+          source: "library:benchmark.tau2/airline/arg_groundedness"
+
+      - desc: "update_reservation_flights target reservation must be owned by the authenticated user"
+        G:
+          ltl: "G(called(update_reservation_flights) -> ctx(target_reservation_owner_match, yes))"
+          source: "library:benchmark.tau2/airline/arg_groundedness"
+
+      - desc: "update_reservation_baggages target reservation must be owned by the authenticated user"
+        G:
+          ltl: "G(called(update_reservation_baggages) -> ctx(target_reservation_owner_match, yes))"
+          source: "library:benchmark.tau2/airline/arg_groundedness"
+
+      - desc: "update_reservation_passengers target reservation must be owned by the authenticated user"
+        G:
+          ltl: "G(called(update_reservation_passengers) -> ctx(target_reservation_owner_match, yes))"
+          source: "library:benchmark.tau2/airline/arg_groundedness"
+
+      # ── airline Cat-C: max passengers ──────────────────────────────
+      - desc: "book_reservation must have at most 5 passengers"
+        G:
+          ltl: "G(called(book_reservation) -> (Var(arg_length, book_reservation, passengers) <= 5))"
+          source: "library:benchmark.tau2/airline/argument_spec"
+
+      # ── airline post-action verification (workflow_step → X-form LTL) ──
+      - desc: "update_reservation_flights must be followed by get_reservation_details verification"
+        G:
+          ltl: "G(called(update_reservation_flights) -> X(called(get_reservation_details)))"
+          source: "library:benchmark.tau2/airline/transition_spec"
+
+      - desc: "update_reservation_baggages must be followed by get_reservation_details verification"
+        G:
+          ltl: "G(called(update_reservation_baggages) -> X(called(get_reservation_details)))"
+          source: "library:benchmark.tau2/airline/transition_spec"
+
+      - desc: "update_reservation_passengers must be followed by get_reservation_details verification"
+        G:
+          ltl: "G(called(update_reservation_passengers) -> X(called(get_reservation_details)))"
+          source: "library:benchmark.tau2/airline/transition_spec"
+
+      - desc: "cancel_reservation must be followed by get_reservation_details verification"
+        G:
+          ltl: "G(called(cancel_reservation) -> X(called(get_reservation_details)))"
+          source: "library:benchmark.tau2/airline/transition_spec"
+
+      # ── airline predicted_plan ─────────────────────────────────────
+      - desc: "cancel_reservation should not be called more than 2x per session"
+        G:
+          pattern: rate_limit
+          args: [cancel_reservation, 2]
+          source: "library:benchmark.tau2/airline/predicted_plan"
+
+      - desc: "send_certificate is one-shot per session"
+        G:
+          pattern: rate_limit
+          args: [send_certificate, 1]
+          source: "library:benchmark.tau2/airline/predicted_plan"
+
+      # ===================================================================
+      # § Telecom (40 contracts)
+      # Source: Benchmarks/tau2-bench/procedure_correctness/contracts_telecom.py
+      # ===================================================================
+
+      # ── telecom output_spec ────────────────────────────────────────
+      - desc: "assistant must not produce user-facing text in the same message as a tool call"
+        G:
+          ltl: "G(!ctx(same_turn_text_and_tool_call, yes))"
+          source: "library:benchmark.tau2/telecom/output_spec"
+
+      - desc: "transfer_to_human_agents summary must not be empty"
+        G:
+          pattern: arg_blacklist
+          args:
+            - transfer_to_human_agents
+            - summary
+            - - "^\\s*$"
+          source: "library:benchmark.tau2/telecom/output_spec"
+
+      # ── telecom transition_spec: identity gate (×6) ────────────────
+      - desc: "suspend_line requires the customer to be identified first"
+        G:
+          ltl: "G(called(suspend_line) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "resume_line requires the customer to be identified first"
+        G:
+          ltl: "G(called(resume_line) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "enable_roaming requires the customer to be identified first"
+        G:
+          ltl: "G(called(enable_roaming) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "disable_roaming requires the customer to be identified first"
+        G:
+          ltl: "G(called(disable_roaming) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "refuel_data requires the customer to be identified first"
+        G:
+          ltl: "G(called(refuel_data) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "send_payment_request requires the customer to be identified first"
+        G:
+          ltl: "G(called(send_payment_request) -> ctx(user_authenticated, yes))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      # ── telecom transition_spec: account_active_required (×6) ──────
+      - desc: "suspend_line requires the customer account to be Active"
+        G:
+          ltl: "G(called(suspend_line) -> ctx(account_status, Active))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "resume_line requires the customer account to be Active"
+        G:
+          ltl: "G(called(resume_line) -> ctx(account_status, Active))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "enable_roaming requires the customer account to be Active"
+        G:
+          ltl: "G(called(enable_roaming) -> ctx(account_status, Active))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "disable_roaming requires the customer account to be Active"
+        G:
+          ltl: "G(called(disable_roaming) -> ctx(account_status, Active))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "refuel_data requires the customer account to be Active"
+        G:
+          ltl: "G(called(refuel_data) -> ctx(account_status, Active))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "send_payment_request requires the customer account to be Active"
+        G:
+          ltl: "G(called(send_payment_request) -> ctx(account_status, Active))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      # ── telecom transition_spec: lookup orderings ──────────────────
+      - desc: "get_bills_for_customer must precede send_payment_request"
+        G:
+          pattern: must_precede
+          args: [get_bills_for_customer, send_payment_request]
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "get_customer_by_phone/id/name must precede get_bills_for_customer"
+        G:
+          ltl: "((!called(get_bills_for_customer) U ((called(get_customer_by_phone) | called(get_customer_by_id)) | called(get_customer_by_name))) | G(!called(get_bills_for_customer)))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "get_data_usage must precede enable_roaming"
+        G:
+          pattern: must_precede
+          args: [get_data_usage, enable_roaming]
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "get_details_by_id must precede enable_roaming"
+        G:
+          pattern: must_precede
+          args: [get_details_by_id, enable_roaming]
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "get_details_by_id must precede disable_roaming"
+        G:
+          pattern: must_precede
+          args: [get_details_by_id, disable_roaming]
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "get_data_usage must precede refuel_data"
+        G:
+          pattern: must_precede
+          args: [get_data_usage, refuel_data]
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      # ── telecom forbidden_edges ────────────────────────────────────
+      - desc: "suspend_line requires line status ∈ ['Active']"
+        G:
+          ltl: "G(called(suspend_line) -> ctx(target_line_status, Active))"
+          source: "library:benchmark.tau2/telecom/forbidden_edges"
+
+      - desc: "resume_line requires line status ∈ ['Suspended', 'Pending Activation']"
+        G:
+          ltl: "G(called(resume_line) -> (ctx(target_line_status, Suspended) | ctx(target_line_status, \"Pending Activation\")))"
+          source: "library:benchmark.tau2/telecom/forbidden_edges"
+
+      - desc: "enable_roaming requires line roaming_enabled == no"
+        G:
+          ltl: "G(called(enable_roaming) -> ctx(target_line_roaming_enabled, no))"
+          source: "library:benchmark.tau2/telecom/forbidden_edges"
+
+      - desc: "disable_roaming requires line roaming_enabled == yes"
+        G:
+          ltl: "G(called(disable_roaming) -> ctx(target_line_roaming_enabled, yes))"
+          source: "library:benchmark.tau2/telecom/forbidden_edges"
+
+      - desc: "send_payment_request can only target an Overdue bill"
+        G:
+          ltl: "G(called(send_payment_request) -> ctx(target_bill_status, Overdue))"
+          source: "library:benchmark.tau2/telecom/forbidden_edges"
+
+      # ── telecom argument_spec ──────────────────────────────────────
+      - desc: "refuel_data gb_amount must be in (0, 2] GB"
+        G:
+          pattern: arg_value_range
+          args: [refuel_data, gb_amount, 0, 2]
+          source: "library:benchmark.tau2/telecom/argument_spec"
+
+      - desc: "get_customer_by_name dob must not be empty"
+        G:
+          pattern: arg_blacklist
+          args:
+            - get_customer_by_name
+            - dob
+            - - "^\\s*$"
+          source: "library:benchmark.tau2/telecom/argument_spec"
+
+      # ── telecom workflow_step prescriptions (Cat-D; expand to G(trigger -> X(next))) ──
+      - desc: "after a bill list reveals an Overdue bill, the agent's next action must be send_payment_request"
+        G:
+          ltl: "G(ctx(bill_status_overdue_present, yes) -> X(called(send_payment_request)))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "after observing Airplane Mode in status bar / network check, the next action must be toggle_airplane_mode"
+        G:
+          ltl: "G(ctx(diag_airplane_mode_on, yes) -> X(called(toggle_airplane_mode)))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "after SIM check reports MISSING, the next action must be reseat_sim_card"
+        G:
+          ltl: "G(ctx(diag_sim_missing, yes) -> X(called(reseat_sim_card)))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "after observing Mobile Data is OFF, the next action must be toggle_data"
+        G:
+          ltl: "G(ctx(diag_mobile_data_off, yes) -> X(called(toggle_data)))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "after observing Data Roaming is OFF, the next action must be toggle_roaming"
+        G:
+          ltl: "G(ctx(diag_roaming_off, yes) -> X(called(toggle_roaming)))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "after observing broken APN, the next action must be reset_apn_settings"
+        G:
+          ltl: "G(ctx(diag_apn_broken, yes) -> X(called(reset_apn_settings)))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "after observing VPN is on, the next action must be disconnect_vpn (workflow §6: VPN can interfere with cellular / Wi-Fi data)"
+        G:
+          ltl: "G(ctx(diag_vpn_on, yes) -> X(called(disconnect_vpn)))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "after observing Wi-Fi Calling is OFF in a Wi-Fi-only flow, the next action must be toggle_wifi_calling"
+        G:
+          ltl: "G(ctx(diag_wifi_calling_off, yes) -> X(called(toggle_wifi_calling)))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "after observing an app missing required permissions, the next action must be grant_app_permission"
+        G:
+          ltl: "G(ctx(diag_app_missing_permissions, yes) -> X(called(grant_app_permission)))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "after observing Network Mode set to a low-speed-only preference, the next action must be set_network_mode_preference"
+        G:
+          ltl: "G(ctx(diag_network_mode_low, yes) -> X(called(set_network_mode_preference)))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      - desc: "after observing Data Saver is ON during a slow-speed investigation, the next action must be toggle_data_saver_mode"
+        G:
+          ltl: "G(ctx(diag_data_saver_on, yes) -> X(called(toggle_data_saver_mode)))"
+          source: "library:benchmark.tau2/telecom/transition_spec"
+
+      # ── telecom predicted_plan ─────────────────────────────────────
+      - desc: "refuel_data should not be called more than 2x per session"
+        G:
+          pattern: rate_limit
+          args: [refuel_data, 2]
+          source: "library:benchmark.tau2/telecom/predicted_plan"
+
+      - desc: "resume_line is one-shot per session"
+        G:
+          pattern: rate_limit
+          args: [resume_line, 1]
+          source: "library:benchmark.tau2/telecom/predicted_plan"
+
+      # ===================================================================
+      # § Cross-domain (3 contracts)
+      # Source: Benchmarks/tau2-bench/procedure_correctness/contracts_cross.py
+      # ===================================================================
+
+      - desc: "assistant must not produce user-facing text in the same message as a tool call"
+        G:
+          ltl: "G(!ctx(same_turn_text_and_tool_call, yes))"
+          source: "library:benchmark.tau2/cross/output_spec"
+
+      - desc: "transfer_to_human_agents summary must not be empty"
+        G:
+          pattern: arg_blacklist
+          args:
+            - transfer_to_human_agents
+            - summary
+            - - "^\\s*$"
+          source: "library:benchmark.tau2/cross/output_spec"
+
+      - desc: "transfer_to_human_agents is one-shot per session"
+        G:
+          pattern: rate_limit
+          args: [transfer_to_human_agents, 1]
+          source: "library:benchmark.tau2/cross/forbidden_edges"
+
+# -----------------------------------------------------------------------------
+# Bench metadata (informational; not loaded at runtime)
+#
+# total_det_contracts_translated:    120  (78 distinct pattern sites)
+#   retail:   45
+#   airline:  32
+#   telecom:  40
+#   cross:     3
+#
+# Named pattern vs raw LTL split:
+#   pattern: ...     36   (arg_blacklist, arg_allowlist, arg_value_range,
+#                          must_precede, rate_limit)
+#   ltl: ...         84   (ctx-precondition + ctx-disjunction guards,
+#                          search-before-* OR-orderings, workflow_step
+#                          expansions G(trigger -> X(next)), Cat-C
+#                          Eq/Le comparisons over Var('arg_length', ...)
+#                          / Var('arg_value', ...) / Var('ctx_value', ...))
+#
+# Patterns NOT yet registered in public Sponsio's yaml loader and
+# expanded to raw LTL here:
+#   - workflow_step → G(Implies(trigger_atom, X(next_action_atom)))
+#                     used by 6 retail post-verify + 4 airline post-verify
+#                     + 11 telecom Cat-D contracts (10 diagnostic + 1
+#                     overdue-bill). Pattern lives in
+#                     sponsio.patterns.library but isn't in
+#                     sponsio.generation.dsl_to_contract._PATTERN_REGISTRY.
+#
+# Executing source of truth:
+#   Benchmarks/tau2-bench/procedure_correctness/contracts_retail.py
+#   Benchmarks/tau2-bench/procedure_correctness/contracts_airline.py
+#   Benchmarks/tau2-bench/procedure_correctness/contracts_telecom.py
+#   Benchmarks/tau2-bench/procedure_correctness/contracts_cross.py
+# last_updated:              2026-06-06
+# -----------------------------------------------------------------------------
