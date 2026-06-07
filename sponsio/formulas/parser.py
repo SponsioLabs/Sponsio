@@ -269,9 +269,7 @@ def _parse_term_one_arg(tokens: list[str], pos: int, term_cls: type) -> tuple:
         pos += 1
     pos = _expect(tokens, pos, ")")
     if len(args) != 1:
-        raise ParseError(
-            f"{term_cls.__name__} requires exactly 1 arg; got {len(args)}"
-        )
+        raise ParseError(f"{term_cls.__name__} requires exactly 1 arg; got {len(args)}")
     return term_cls(args[0]), pos
 
 

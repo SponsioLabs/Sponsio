@@ -268,27 +268,37 @@ def evaluate(formula: Formula, trace: list[dict[str, object]], pos: int = 0) -> 
 
     if isinstance(formula, Le):
         return _safe_compare(
-            "le", _resolve_arith(formula.left, state), _resolve_arith(formula.right, state)
+            "le",
+            _resolve_arith(formula.left, state),
+            _resolve_arith(formula.right, state),
         )
 
     if isinstance(formula, Lt):
         return _safe_compare(
-            "lt", _resolve_arith(formula.left, state), _resolve_arith(formula.right, state)
+            "lt",
+            _resolve_arith(formula.left, state),
+            _resolve_arith(formula.right, state),
         )
 
     if isinstance(formula, Ge):
         return _safe_compare(
-            "ge", _resolve_arith(formula.left, state), _resolve_arith(formula.right, state)
+            "ge",
+            _resolve_arith(formula.left, state),
+            _resolve_arith(formula.right, state),
         )
 
     if isinstance(formula, Gt):
         return _safe_compare(
-            "gt", _resolve_arith(formula.left, state), _resolve_arith(formula.right, state)
+            "gt",
+            _resolve_arith(formula.left, state),
+            _resolve_arith(formula.right, state),
         )
 
     if isinstance(formula, Eq):
         return _safe_compare(
-            "eq", _resolve_arith(formula.left, state), _resolve_arith(formula.right, state)
+            "eq",
+            _resolve_arith(formula.left, state),
+            _resolve_arith(formula.right, state),
         )
 
     if isinstance(formula, Subset):
