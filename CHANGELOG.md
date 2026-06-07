@@ -16,6 +16,26 @@ _Nothing yet._
 
 ---
 
+## [0.2.0a1]: 2026-06-06
+
+PyPI-render fix on top of `0.2.0a0`. No runtime changes; if you are
+already on `0.2.0a0` there is no functional reason to upgrade.
+
+### Fixed
+
+- **README image references are now absolute GitHub raw URLs**
+  (`https://raw.githubusercontent.com/SponsioLabs/Sponsio/main/assets/...`).
+  The PyPI / TestPyPI README renderer does not resolve relative paths,
+  so the banner / architecture diagram / freeze comparison were
+  missing on the project page. Three READMEs (en / zh-CN / ja) are
+  updated for consistency; only `README.md` is what PyPI actually
+  serves.
+- **CI lint regex updated to accept either relative or absolute URL**
+  for the banner check, so the old `WYSIWYG-stripped-the-banner`
+  warning keeps working under both URL forms.
+
+---
+
 ## [0.2.0a0]: 2026-06-03
 
 Three new enforcement primitives plus a sharper failure-strategy

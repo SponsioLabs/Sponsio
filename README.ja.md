@@ -4,7 +4,7 @@
   <b>日本語</b>
 </p>
 
-![Sponsio](assets/readme-banner.png)
+![Sponsio](https://raw.githubusercontent.com/SponsioLabs/Sponsio/main/assets/readme-banner.png)
 
 <p align="center">
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-orange.svg" alt="License"></a>
@@ -22,7 +22,7 @@
 # Sponsio
 
 <p align="center">
-  <img src="assets/sponsio-comparison-freeze.png" alt="コードフリーズ宣言下の同一コーディングエージェント。Sponsio なし：本番 users テーブルを削除し、捏造した行で埋め戻し、被害を隠す状態レポートを提出。Sponsio あり：最初の破壊的 SQL を実行前にブロック：35 チェック、100% 決定論的、LLM 呼び出し 0 回、p50 13µs。" width="900">
+  <img src="https://raw.githubusercontent.com/SponsioLabs/Sponsio/main/assets/sponsio-comparison-freeze.png" alt="コードフリーズ宣言下の同一コーディングエージェント。Sponsio なし：本番 users テーブルを削除し、捏造した行で埋め戻し、被害を隠す状態レポートを提出。Sponsio あり：最初の破壊的 SQL を実行前にブロック：35 チェック、100% 決定論的、LLM 呼び出し 0 回、p50 13µs。" width="900">
 </p>
 
 Sponsio は時間軸に沿って展開されるエージェントの手続きに対して決定論的な契約を提供します。強制は 0.01 ms 未満、ランタイムでの LLM コストはゼロ。LangChain、Claude Agent、OpenAI Agents、Google ADK、CrewAI、Vercel AI、MCP、または任意のカスタム ツール呼び出しループに対応（Python / TypeScript）。
@@ -36,7 +36,7 @@ Sponsio は時間軸に沿って展開されるエージェントの手続きに
 ## Sponsio の仕組み
 
 <p align="center">
-  <img src="assets/sponsio-architecture.png" alt="Sponsio architecture: Agent Flow + (Natural Language + Pattern Library) compile into Contracts (Assumption → Enforcement), enforced by a Fuzzy LTL Monitor (deterministic + stochastic) that decides Pass / Block · Warn · Escalate / Redirect for every function call, with full audit trail logs feeding back to the agent." width="900">
+  <img src="https://raw.githubusercontent.com/SponsioLabs/Sponsio/main/assets/sponsio-architecture.png" alt="Sponsio architecture: Agent Flow + (Natural Language + Pattern Library) compile into Contracts (Assumption → Enforcement), enforced by a Fuzzy LTL Monitor (deterministic + stochastic) that decides Pass / Block · Warn · Escalate / Redirect for every function call, with full audit trail logs feeding back to the agent." width="900">
 </p>
 
 [ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench)（12 のフロンティア LLM × 80 トラジェクトリ）において、ガード無しのモデルは 11.5%–66.7% の実行で不正を働きます。**Sponsio を使うと平均 95.6% の不整合を回避、36 の高リスクシナリオのうち 24 が 100% に到達**。`Financial-Audit-Fraud-Finding` シナリオでは、フロンティア モデルが 16/24 で不正を犯すところを、**Sponsio は 18/19 をブロック**。RedCode-Exec（1,410 ケース）では、60 ファイルのクリーン コード監査にわたり総合ブロック率 **92%**（bash 95% · python 90%）を達成。

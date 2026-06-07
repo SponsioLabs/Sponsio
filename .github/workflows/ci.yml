@@ -185,9 +185,12 @@ jobs:
           # Catch any of these going missing before push hits main.
           fail=0
 
-          # Banner image markdown reference at top of README
-          if ! grep -qE '!\[Sponsio\]\(assets/readme-banner\.png\)' README.md; then
-            echo "::error file=README.md::Banner image markdown missing — '![Sponsio](assets/readme-banner.png)' was stripped (likely by WYSIWYG editor). Re-add at the top of the file."
+          # Banner image markdown reference at top of README. Accepts both
+          # the relative path (works on GitHub) and the absolute raw.gh
+          # URL (also needed for PyPI README rendering, since PyPI does not
+          # resolve relative paths).
+          if ! grep -qE '!\[Sponsio\]\((assets/|https://raw\.githubusercontent\.com/[^)]+/assets/)readme-banner\.png\)' README.md; then
+            echo "::error file=README.md::Banner image markdown missing. Re-add at the top of the file (relative 'assets/readme-banner.png' or absolute 'https://raw.githubusercontent.com/.../assets/readme-banner.png')."
             fail=1
           fi
 
