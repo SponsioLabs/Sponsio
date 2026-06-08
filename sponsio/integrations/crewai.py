@@ -102,7 +102,10 @@ class CrewAIGuard(BaseGuard):
         )
         self.last_check = check
 
-        if check.blocked:
+        # ``stop_original`` folds in ``redirected``: CrewAI's adapter has
+        # no transparent-substitution path, so a redirect fails closed
+        # (returns the rejection) rather than executing the unsafe tool.
+        if check.stop_original:
             msg = select_agent_message(
                 check.det_violations, fallback="Contract violation detected"
             )
@@ -186,7 +189,8 @@ class CrewAIGuard(BaseGuard):
                 def guarded(*args: Any, **kwargs: Any) -> Any:
                     call_args = kwargs if kwargs else {"args": list(args)}
                     check = guard.guard_before(name, call_args)
-                    if check.blocked:
+                    # Fail closed on redirect too (no substitution path here).
+                    if check.stop_original:
                         msg = select_agent_message(
                             check.det_violations, fallback="contract violated"
                         )

@@ -130,7 +130,11 @@ class AgentsSDKGuard(BaseGuard):
             async def guarded_async(*args: Any, **kwargs: Any) -> Any:
                 check = guard.guard_before(tool_name, kwargs)
                 guard.last_check = check
-                if check.blocked:
+                # ``stop_original`` folds in ``redirected``: this adapter
+                # does not implement transparent tool substitution, so a
+                # ``redirect_to_safe`` redirect fails closed (refuse)
+                # rather than running the unsafe call.
+                if check.stop_original:
                     msg = select_agent_message(
                         check.det_violations, fallback="Contract violation"
                     )
@@ -151,7 +155,11 @@ class AgentsSDKGuard(BaseGuard):
             def guarded_sync(*args: Any, **kwargs: Any) -> Any:
                 check = guard.guard_before(tool_name, kwargs)
                 guard.last_check = check
-                if check.blocked:
+                # ``stop_original`` folds in ``redirected``: this adapter
+                # does not implement transparent tool substitution, so a
+                # ``redirect_to_safe`` redirect fails closed (refuse)
+                # rather than running the unsafe call.
+                if check.stop_original:
                     msg = select_agent_message(
                         check.det_violations, fallback="Contract violation"
                     )

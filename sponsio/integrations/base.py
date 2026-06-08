@@ -314,6 +314,27 @@ class CheckResult:
         return any(r.action == "redirected" for r in self.det_violations)
 
     @property
+    def stop_original(self) -> bool:
+        """True when the adapter must NOT execute the original tool call.
+
+        Folds hard blocks together with redirects. A ``redirect_to_safe``
+        violation rolls the original ``unsafe`` call out of the trace and
+        sets ``redirected_to``; an adapter that runs the original call
+        anyway would execute the exact action the contract forbade — a
+        fail-*open* hole, the worst outcome for an enforcement layer.
+
+        Adapters that implement transparent substitution (LangGraph)
+        MUST branch on ``redirected`` / ``redirected_to`` *first* and
+        invoke the safe tool. Adapters that don't (yet) support
+        substitution MUST gate execution on ``stop_original`` so a
+        redirect fails *closed* (the unsafe call is refused) instead of
+        falling through to ``if check.blocked``, which is False on a
+        redirect. ``escalated`` is intentionally excluded — see
+        ``guard_before`` for why escalation does not gate execution.
+        """
+        return self.blocked or self.redirected
+
+    @property
     def needs_retry(self) -> bool:
         """True if any sto violation returned a retry with feedback."""
         return any(r.action == "retrying" for r in self.sto_violations)

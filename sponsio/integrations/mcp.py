@@ -142,13 +142,17 @@ class MCPContractProxy:
         # that proxy this to an LLM (Claude Desktop, custom orchestrators)
         # can show the agent-tuned phrasing while keeping the legacy
         # ``violations`` array of log-formatted strings for back-compat.
-        blocked = [r for r in results if r.action == "blocked"]
-        if blocked:
+        # Treat ``redirected`` the same as ``blocked`` here: this proxy
+        # has no transparent-substitution path, so a ``redirect_to_safe``
+        # redirect must refuse the unsafe call rather than fall through
+        # and execute it (a fail-open hole).
+        stopped = [r for r in results if r.action in ("blocked", "redirected")]
+        if stopped:
             return {
                 "error": "Blocked by behavioral contract",
-                "violations": [r.message for r in blocked],
+                "violations": [r.message for r in stopped],
                 "agent_messages": [
-                    r.agent_msg for r in blocked if getattr(r, "agent_msg", "")
+                    r.agent_msg for r in stopped if getattr(r, "agent_msg", "")
                 ],
             }
 
