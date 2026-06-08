@@ -26,14 +26,26 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import type { SkippedItem } from "./config-loader.js";
 
-const requireCjs = createRequire(import.meta.url);
+// Lazily built on first use, with a fallback URL. On runtimes where
+// `import.meta.url` is `undefined` (Cloudflare Workers, Deno Deploy),
+// an eager `createRequire(undefined)` throws at module load and breaks
+// the whole bundle even when YAML packs are never loaded. Deferring the
+// call keeps Worker bundles that never touch packs from hitting it; the
+// `?? noop` guard avoids the throw if it is reached. See config-loader.
+let _requireCjs: ReturnType<typeof createRequire> | null = null;
+function getRequireCjs(): ReturnType<typeof createRequire> {
+  if (_requireCjs === null) {
+    _requireCjs = createRequire(import.meta.url ?? "file:///sponsio-noop.js");
+  }
+  return _requireCjs;
+}
 
 interface YamlLib {
   parse: (src: string) => unknown;
 }
 
 function loadYamlLib(): YamlLib {
-  return requireCjs("yaml") as YamlLib;
+  return getRequireCjs()("yaml") as YamlLib;
 }
 
 /**
