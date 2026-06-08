@@ -29,7 +29,7 @@ Sponsio は時間軸に沿って展開されるエージェントの手続きに
 
 > **エージェント契約** とは、エージェントのすべてのアクションでチェックされるランタイムルールであり、[形式手法に裏打ちされています](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a2 alpha リリース。** `pip install --pre sponsio==0.2.0a2`。`Term` 抽象（実行時 arg と ctx の値を契約内で直接比較）、`workflow_step` 前向き obligation パターン、5 つのベンチマーク契約ライブラリ（RedCode / ODCV / τ² / AgentDojo / SWE-bench）、および TypeScript SDK の上記機能パリティを追加。詳細は [v0.2.0a2 リリースノート](docs/release-notes/v0.2.0a2.md)。
+> **v0.2.0a3 alpha リリース。** `pip install --pre sponsio==0.2.0a3`。非 LangGraph アダプタで `redirect_to_safe` 発火時に fail-open になるバグを修正（元の unsafe ツールが実行されていた）。TS `Eq` を複合値で Python の値等価セマンティクスに揃え、Cloudflare Workers 互換性を追加。**0.2.0a2 利用者はアップグレード推奨。** 詳細は [v0.2.0a3 リリースノート](docs/release-notes/v0.2.0a3.md)。
 
 ---
 

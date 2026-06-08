@@ -16,6 +16,94 @@ _Nothing yet._
 
 ---
 
+## [0.2.0a3]: 2026-06-08
+
+Security-relevant fix on top of `0.2.0a2`. If you are on `0.2.0a2` and
+use any adapter OTHER than LangGraph with a `redirect_to_safe`
+contract, you should upgrade.
+
+### Fixed
+
+- **`redirect_to_safe` now fails closed in non-LangGraph adapters**
+  (`sponsio/integrations/base.py`, `crewai.py`, `agents.py`,
+  `claude_agent.py`, `google_adk.py`, `vercel_ai.py`, `mcp.py`).
+  Previously, a `redirect_to_safe` violation returned
+  `action="redirected"` with `blocked=False`, and every adapter
+  except LangGraph gated on `if check.blocked` — meaning the
+  guard rolled the unsafe call out of the trace AND THEN the
+  adapter executed the original unsafe tool anyway. A new
+  `CheckResult.stop_original` property (`blocked OR redirected`)
+  is wired through every non-substituting adapter, so a redirect
+  now refuses the unsafe call. LangGraph still branches on
+  `redirected` first and performs the substitution. The Cursor
+  adapter takes a separate `evaluate_event` path and is tracked
+  as follow-up. Regression test added at
+  `tests/test_redirect_to_safe.py`.
+
+- **TS `Eq` now matches Python `==` for composite values**
+  (`ts/packages/sdk/src/core/evaluator.ts`). The previous `===`
+  comparison was reference equality for arrays and objects, so
+  `Eq(ArgValue("tool", "field"), CtxValue("expected"))` on
+  list- or object-valued args could pass in Python and fail in
+  TS on the same trace. New `valuesEqual` does element-/key-wise
+  deep comparison; parity test added at
+  `ts/packages/sdk/src/__tests__/parity.test.ts`.
+
+- **TS SDK no longer crashes on Cloudflare Workers** at import
+  time (`ts/packages/sdk/src/core/config-loader.ts`,
+  `pack-loader.ts`). The eager top-level
+  `createRequire(import.meta.url)` threw when
+  `import.meta.url` was undefined (Workers, some edge runtimes).
+  Now built lazily on first YAML load with a
+  `?? "file:///sponsio-noop.js"` fallback, so a Worker bundle
+  that never loads YAML never calls `createRequire`.
+
+- **Suite-wide pytest setup errors cleared up**
+  (`tests/conftest.py`). The autouse rich-style cache reset
+  invoked `isinstance(obj, Style)` on every live object; lazy
+  proxies from optional SDK imports (notably OpenAI's
+  `sounddevice`-pulling submodules) raised from their
+  `__class__` getter and errored 1684 of 2312 test setups. Now
+  swallows introspection failures.
+
+### Changed
+
+- **`filter_tools` documents O(candidates × trace_length)
+  re-grounding cost**
+  (`sponsio/integrations/base.py`).
+- **`workflow_step` documents the end-of-trace weak-next
+  vacuity caveat** for batch verify / replay paths
+  (`sponsio/patterns/library.py`).
+- **`Var.__eq__`, `_warned_missing_vars`, and `arg_value`
+  retention** all get explicit footgun notes
+  (`sponsio/formulas/evaluator.py`, `sponsio/formulas/formula.py`,
+  `sponsio/tracer/grounding.py`).
+- **Test infrastructure** moves off the deprecated
+  `asyncio.get_event_loop().run_until_complete` to `asyncio.run`
+  (`tests/test_claude_agent_integration.py`).
+
+### Documentation
+
+- Several docstrings repaired (artifacts left over from the v0.2
+  em-dash sweep, mostly first-line typos that surfaced in
+  `help()` and IDE hover popups).
+
+### Compatibility
+
+No breaking API changes. The `CheckResult` shape is unchanged
+(`stop_original` is a new derived property, computed from
+existing fields). Existing tests against `blocked` /
+`redirected` still hold.
+
+### Credits
+
+Thanks to @donalddellapietra for the review pass that surfaced
+the fail-open bug, the TS `Eq` parity gap, and the Worker
+runtime crash. PR
+[#78](https://github.com/SponsioLabs/Sponsio/pull/78).
+
+---
+
 ## [0.2.0a2]: 2026-06-07
 
 ### Added
