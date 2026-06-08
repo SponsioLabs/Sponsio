@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "plugins" / "sponsio-openclaw"
 DST_ROOT = REPO_ROOT / "sponsio" / "plugin" / "openclaw_artifact"
@@ -38,6 +40,20 @@ _SYNCED_FILES = [
 
 def test_runtime_artifact_matches_canonical_plugin():
     """Every file the sync script copies must be byte-identical."""
+    # The canonical ``dist/`` is an npm build output and is gitignored.
+    # A fresh source checkout that hasn't run ``npm run build`` has
+    # nothing to compare against, so this guard can't run — skip rather
+    # than fail with a spurious "source missing". CI builds the plugin
+    # before pytest, so the sync check still fires there; a *built* tree
+    # that has actually drifted (bundled copy missing, or bytes differ)
+    # still fails below.
+    if not (SRC_ROOT / "dist" / "index.js").exists():
+        pytest.skip(
+            "canonical plugin not built — plugins/sponsio-openclaw/dist/ is "
+            "absent. Run `cd plugins/sponsio-openclaw && npm install && "
+            "npm run build` to enable this sync check."
+        )
+
     diffs: list[str] = []
     missing: list[str] = []
     for rel in _SYNCED_FILES:
