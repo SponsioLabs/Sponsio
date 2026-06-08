@@ -1,4 +1,4 @@
-"""BaseGuard. unified parent class for all framework integrations.
+"""BaseGuard — unified parent class for all framework integrations.
 
 Every framework adapter (LangGraph, MCP, CrewAI, etc.) inherits from
 BaseGuard. The base class owns all contract logic:

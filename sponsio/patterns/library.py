@@ -1,4 +1,4 @@
-"""Pattern library. the constraint primitive layer.
+"""Pattern library — the constraint primitive layer.
 
 Patterns are the building blocks the rest of Sponsio compiles to: each
 function takes plain string args and returns a ``DetFormula`` (an LTL
@@ -1951,8 +1951,8 @@ def delegation_depth_limit(max_depth: int, desc: str = "") -> DetFormula:
 #
 # Covers the runtime half of **ASI-03** (identity), **ASI-06** (memory
 # poisoning via content-source gating), and **ASI-07** (inter-agent
-# comm via msg_verified gating). Users supply their own key convention
-# . Sponsio doesn't hard-code "caller_id" vs "source" vs "msg_sender"
+# comm via msg_verified gating). Users supply their own key convention;
+# Sponsio doesn't hard-code "caller_id" vs "source" vs "msg_sender"
 # because each team has their own tagging scheme.
 # ---------------------------------------------------------------------------
 
