@@ -56,9 +56,7 @@ class TestClaudeAgentGuard:
             "agent_type": "test",
         }
 
-        result = asyncio.get_event_loop().run_until_complete(
-            pre_hook(input_data, "id_1", None)
-        )
+        result = asyncio.run(pre_hook(input_data, "id_1", None))
 
         assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
         assert "Sponsio" in result.get("hookSpecificOutput", {}).get(
@@ -85,9 +83,7 @@ class TestClaudeAgentGuard:
             "agent_id": "test",
             "agent_type": "test",
         }
-        result1 = asyncio.get_event_loop().run_until_complete(
-            pre_hook(input_check, "id_1", None)
-        )
+        result1 = asyncio.run(pre_hook(input_check, "id_1", None))
         assert result1 == {}
 
         # Record that tool completed
@@ -104,9 +100,7 @@ class TestClaudeAgentGuard:
             "agent_id": "test",
             "agent_type": "test",
         }
-        result2 = asyncio.get_event_loop().run_until_complete(
-            pre_hook(input_refund, "id_2", None)
-        )
+        result2 = asyncio.run(pre_hook(input_refund, "id_2", None))
         assert result2 == {}
 
     def test_pre_tool_hook_rate_limit(self):
@@ -129,16 +123,12 @@ class TestClaudeAgentGuard:
         }
 
         # First call — allowed
-        r1 = asyncio.get_event_loop().run_until_complete(
-            pre_hook(input_data, "id_1", None)
-        )
+        r1 = asyncio.run(pre_hook(input_data, "id_1", None))
         assert r1 == {}
         guard.guard_after("issue_refund", "done")
 
         # Second call — blocked
-        r2 = asyncio.get_event_loop().run_until_complete(
-            pre_hook(input_data, "id_2", None)
-        )
+        r2 = asyncio.run(pre_hook(input_data, "id_2", None))
         assert r2.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
 
     def test_last_check_updated(self):
@@ -162,7 +152,7 @@ class TestClaudeAgentGuard:
             "agent_type": "test",
         }
 
-        asyncio.get_event_loop().run_until_complete(pre_hook(input_data, "id_1", None))
+        asyncio.run(pre_hook(input_data, "id_1", None))
         assert guard.last_check is not None
         assert guard.last_check.allowed
 
@@ -198,9 +188,7 @@ class TestClaudeAgentGuard:
             "agent_type": "test",
         }
 
-        result = asyncio.get_event_loop().run_until_complete(
-            pre_hook(input_data, "id_1", None)
-        )
+        result = asyncio.run(pre_hook(input_data, "id_1", None))
 
         msg = result.get("systemMessage", "")
         assert "issue_refund" in msg
