@@ -299,6 +299,17 @@ def workflow_step(
     Returns:
         A ``DetFormula`` (NOT marked liveness — X is one-step bounded
         and the runtime can decide it after a single event, unlike F).
+
+    Caveat (end-of-trace): under weak finite-trace semantics ``X`` is
+    vacuously true at the last position, so a ``trigger`` that fires on
+    the *final* event of a batch-verified trace incurs no violation
+    (there is no "next" event to inspect). In incremental enforce mode
+    this self-corrects — when the next event arrives, a non-matching
+    next action is blocked and rolled back, effectively forcing
+    ``next_action`` — but a whole-trace ``verify`` / replay will
+    silently pass a trailing trigger. Mirrors the ``rotate_session``
+    liveness caveat; relevant only to post-hoc batch checks, not live
+    guarding.
     """
     if not isinstance(trigger, Atom) or not isinstance(next_action, Atom):
         raise TypeError(

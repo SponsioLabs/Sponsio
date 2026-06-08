@@ -72,6 +72,14 @@ _COUNTER_VAR_NAMES: frozenset[str] = frozenset(
     }
 )
 
+# Process-global, append-only, lock-free. It backs "warn at most once
+# per missing Var key for the lifetime of the process" — deliberately
+# coarse: the warning is a developer aid, not session state, so a benign
+# data race on ``add`` (which never loses the warning, only its exact
+# ordering) is acceptable and not worth taking the monitor's RLock for.
+# Consequence: warnings do not re-fire across sessions or test cases in
+# the same interpreter. Tests that assert on the warning should reset
+# this set in a fixture.
 _warned_missing_vars: set[str] = set()
 
 

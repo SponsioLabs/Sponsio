@@ -1374,6 +1374,17 @@ class BaseGuard:
         via ``guard_before``. Treat ``filter_tools`` as a first-line
         defence, not a replacement for ``guard_before``.
 
+        Cost: O(len(candidates) × trace_length) per call. Each probe
+        appends a synthetic event and ``rollback_last_event`` resets the
+        verifier, so the *next* probe re-grounds the whole trace from
+        scratch rather than incrementally. That's fine for typical tool
+        menus and session lengths, but on a long-running agent with a
+        wide toolset it is the one spot that gives up the otherwise
+        incremental O(ΔN) grounding — call it once per turn, not per
+        candidate-per-turn, and lean on ``rotate_session`` to bound the
+        trace length. (A snapshot/restore fast path that avoids the full
+        re-ground is tracked as a follow-up.)
+
         Args:
             candidates: Tool names the framework would normally expose
                 to the agent for the next turn.
