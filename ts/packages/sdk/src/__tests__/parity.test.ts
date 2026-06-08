@@ -16,6 +16,7 @@ import {
   Atom, G, Implies, X, F, And,
   type Valuation,
 } from "../index.js";
+import { Eq, ArgValue, CtxValue, Const, predKey } from "../core/formula.js";
 import {
   deadline,
   requiredStepsCompletion,
@@ -348,12 +349,63 @@ function testDegeneratePatternRejection() {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Eq value-equality parity (composite values)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Python ``_safe_compare`` eq uses ``left == right``; the TS evaluator
+// used ``l === r``, which compares arrays/objects by reference. With the
+// Term abstraction, ``Eq(ArgValue(...), CtxValue(...))`` over list-valued
+// args could pass in Python (``[1,2] == [1,2]`` is True) and fail in TS.
+// ``valuesEqual`` now closes the gap with deep comparison.
+function testEqValueEquality() {
+  console.log("[Eq value-equality parity]");
+
+  const key = (p: string, ...a: string[]) => predKey(p, ...a);
+  const eqArgCtx = new Eq(
+    new ArgValue("book", "seats"),
+    new CtxValue("expected_seats"),
+  );
+
+  // Equal-by-value arrays: Python True, TS now True (was False).
+  assert(
+    evaluate(eqArgCtx, [
+      {
+        [key("arg_value", "book", "seats")]: [1, 2, 3],
+        [key("ctx_value", "expected_seats")]: [1, 2, 3],
+      },
+    ] as unknown as Valuation[]) === true,
+    "Eq over equal arrays is True (deep equality)",
+  );
+
+  // Different arrays: False.
+  assert(
+    evaluate(eqArgCtx, [
+      {
+        [key("arg_value", "book", "seats")]: [1, 2, 3],
+        [key("ctx_value", "expected_seats")]: [1, 2],
+      },
+    ] as unknown as Valuation[]) === false,
+    "Eq over unequal arrays is False",
+  );
+
+  // Scalar equality still works.
+  const eqScalar = new Eq(new ArgValue("pay", "amount"), new Const(50));
+  assert(
+    evaluate(eqScalar, [
+      { [key("arg_value", "pay", "amount")]: 50 },
+    ] as unknown as Valuation[]) === true,
+    "Eq over equal scalars is True",
+  );
+}
+
 console.log("=== TS↔Python Parity Regression Tests ===\n");
 testBoundedEventuallyDeadline();
 testRequiredStepsCompletion();
 testGuardBeforeRollback();
 testDeadlineNlParity();
 testDegeneratePatternRejection();
+testEqValueEquality();
 
 console.log(`\n${"=".repeat(40)}`);
 console.log(`Results: ${passed} passed, ${failed} failed`);

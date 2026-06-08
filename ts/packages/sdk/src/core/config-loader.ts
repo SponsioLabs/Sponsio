@@ -43,7 +43,21 @@ import { dirname, resolve as resolvePath } from "node:path";
 // Use createRequire so we can lazily load the optional `yaml` package
 // without breaking non-yaml users (ESM dynamic import would force the
 // entire constructor path async, which we don't want).
-const requireCjs = createRequire(import.meta.url);
+//
+// Built lazily on first use rather than at module load. On runtimes
+// where the SDK is bundled but YAML config is never used (Cloudflare
+// Workers, Deno Deploy), `import.meta.url` is `undefined` and an eager
+// `createRequire(undefined)` throws at import time, taking the whole
+// bundle down. Deferring the call means a Worker that never loads YAML
+// never touches `createRequire`; the `?? noop` guard keeps it from
+// throwing in the rare case it is reached on such a runtime.
+let _requireCjs: ReturnType<typeof createRequire> | null = null;
+function getRequireCjs(): ReturnType<typeof createRequire> {
+  if (_requireCjs === null) {
+    _requireCjs = createRequire(import.meta.url ?? "file:///sponsio-noop.js");
+  }
+  return _requireCjs;
+}
 
 export interface LoadedConfig {
   /**
@@ -114,7 +128,7 @@ type YamlLib = {
 
 function loadYamlLib(): YamlLib {
   try {
-    return requireCjs("yaml") as YamlLib;
+    return getRequireCjs()("yaml") as YamlLib;
   } catch {
     throw new Error(
       "[sponsio] config loading requires the `yaml` package. " +

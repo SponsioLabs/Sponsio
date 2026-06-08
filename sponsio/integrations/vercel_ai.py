@@ -120,7 +120,9 @@ class VercelAIGuard(BaseGuard):
                 check = guard.guard_before(tool_name, kwargs)
                 guard.last_check = check
 
-                if check.blocked:
+                # ``stop_original`` folds in ``redirected``: no transparent
+                # substitution path here, so a redirect fails closed.
+                if check.stop_original:
                     msg = select_agent_message(
                         check.det_violations, fallback="Contract violation"
                     )

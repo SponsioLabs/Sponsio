@@ -96,6 +96,34 @@ class TestRedirectStrategyOutcome:
         # ``allowed`` stays True so adapters know the agent flow can
         # continue (with the substituted tool, not the original).
         assert result.allowed is True
+        # ...but ``stop_original`` is True so an adapter that cannot
+        # substitute fails *closed* (refuses the unsafe call) instead of
+        # reading ``allowed``/``blocked`` and running the original.
+        assert result.stop_original is True
+
+    def test_stop_original_fail_closed_contract(self) -> None:
+        """A redirect must never let the original ``unsafe`` call run.
+
+        ``blocked`` is False on a redirect (by design), so any adapter
+        that gated execution on ``if check.blocked`` alone would
+        fail open. ``stop_original`` is the safe gate: True for both
+        blocks and redirects, False on a clean pass.
+        """
+        guard = Sponsio(
+            agent_id="bot",
+            contracts=[
+                contract("redirect rm to trash").guarantees(
+                    redirect_to_safe("rm_rf", "trash")
+                )
+            ],
+            mode="enforce",
+            verbose=False,
+        )
+        redirected = guard.guard_before("rm_rf", {"path": "/tmp/x"})
+        assert redirected.stop_original is True
+        # A clean call does not stop.
+        clean = guard.guard_before("read_file", {"path": "/tmp/x"})
+        assert clean.stop_original is False
 
     def test_other_tools_pass_through(self) -> None:
         guard = Sponsio(

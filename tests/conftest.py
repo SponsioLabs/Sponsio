@@ -76,7 +76,21 @@ def _reset_rich_style_cache():
     if hasattr(Color, "parse") and hasattr(Color.parse, "cache_clear"):
         Color.parse.cache_clear()
     for obj in gc.get_objects():
-        if isinstance(obj, Style):
+        # ``isinstance(obj, Style)`` reads ``obj.__class__`` (CPython
+        # consults the instance's ``__class__`` attribute, not just
+        # ``type(obj)``). Some live objects are lazy-import proxies
+        # whose ``__class__`` getter has side effects — e.g. once an
+        # openai-touching test has run, the openai SDK leaves proxies
+        # for its optional submodules in memory, and probing their
+        # ``__class__`` tries to import ``sounddevice`` (voice helpers)
+        # or raises ``OpenAIError``. That used to escape this autouse
+        # fixture and error the *setup* of every subsequent test. Treat
+        # any object that objects to introspection as "not a Style".
+        try:
+            is_style = isinstance(obj, Style)
+        except Exception:
+            continue
+        if is_style:
             try:
                 obj._ansi = None
             except Exception:

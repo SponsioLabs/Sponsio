@@ -93,7 +93,8 @@ class GoogleADKGuard(BaseGuard):
             async def guarded_async(*args: Any, **kwargs: Any) -> Any:
                 check = guard.guard_before(tool_name, _call_args(tool, args, kwargs))
                 guard.last_check = check
-                if check.blocked:
+                # Fail closed on redirect too (no substitution path here).
+                if check.stop_original:
                     return _blocked_result(check)
 
                 result = await tool(*args, **kwargs)

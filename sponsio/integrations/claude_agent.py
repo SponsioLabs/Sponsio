@@ -112,7 +112,11 @@ class ClaudeAgentGuard(BaseGuard):
             check = guard.guard_before(tool_name, tool_input)
             guard.last_check = check
 
-            if check.blocked:
+            # ``stop_original`` folds in ``redirected``: this hook denies
+            # via the SDK permission system and has no substitution path,
+            # so a redirect fails closed (denied) rather than running the
+            # unsafe call.
+            if check.stop_original:
                 # Prefer the structured ``agent_msg`` from OutcomeBuilder
                 # — it's already phrased to steer the model toward
                 # abandoning this action. Falls back to the legacy

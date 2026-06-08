@@ -467,6 +467,13 @@ def ground_event(
         # Emit unconditionally for every arg field on every tool_call —
         # Terms read by direct key lookup, not by content_atoms
         # extraction.
+        #
+        # Memory note: this stores the raw arg value (by reference) into
+        # the per-timestep valuation, which is retained for the whole
+        # trace. For tools with large or deeply-nested args that keeps
+        # those objects alive until ``reset`` / ``rotate_session``. Fine
+        # for typical scalar args; if a tool passes megabyte payloads,
+        # bound the trace with ``rotate_session``.
         if event.args:
             for _field, _val in event.args.items():
                 v[pred_key("arg_value", event.tool, _field)] = _val

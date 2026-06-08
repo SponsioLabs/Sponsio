@@ -77,11 +77,53 @@ function resolveArith(expr: Term, state: Valuation): unknown {
 }
 
 /**
+ * Structural value-equality, matching Python's `==` for the value
+ * shapes that flow through grounding (numbers, strings, booleans,
+ * arrays, plain objects).
+ *
+ * The naive `l === r` diverged from the Python evaluator (`left ==
+ * right`) for composite values: an `Eq(ArgValue(...), CtxValue(...))`
+ * over list- or object-valued args compares by *value* in Python
+ * (`[1] == [1]` is True) but `===` compares arrays/objects by
+ * *reference* in JS (`[1] === [1]` is False). With the v0.2 Term
+ * abstraction making value-equality reachable, that gap could pass a
+ * contract in Python and fail it in TS on the same trace. `valuesEqual`
+ * closes it with element-/key-wise deep comparison.
+ */
+function valuesEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || a === undefined || b === undefined) {
+    return false;
+  }
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
+      return false;
+    }
+    return a.every((x, i) => valuesEqual(x, b[i]));
+  }
+  if (typeof a === "object" && typeof b === "object") {
+    const ka = Object.keys(a as object);
+    const kb = Object.keys(b as object);
+    if (ka.length !== kb.length) return false;
+    return ka.every(
+      (k) =>
+        Object.prototype.hasOwnProperty.call(b, k) &&
+        valuesEqual(
+          (a as Record<string, unknown>)[k],
+          (b as Record<string, unknown>)[k],
+        ),
+    );
+  }
+  return false;
+}
+
+/**
  * Compare two resolved values with the canonical "missing" semantics.
  *
  * If either operand is undefined / null, the comparison is False (the
  * comparison cannot decide). Same for type errors (mismatched types).
- * This is the Hoare-vacuity convention.
+ * This is the Hoare-vacuity convention. `eq` uses `valuesEqual` for
+ * Python `==` parity on composite values.
  */
 function safeCompare(op: string, left: unknown, right: unknown): boolean {
   if (left === undefined || left === null) return false;
@@ -96,7 +138,7 @@ function safeCompare(op: string, left: unknown, right: unknown): boolean {
       case "lt": return l < r;
       case "ge": return l >= r;
       case "gt": return l > r;
-      case "eq": return l === r;
+      case "eq": return valuesEqual(l, r);
     }
   } catch {
     return false;

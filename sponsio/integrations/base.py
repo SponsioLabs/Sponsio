@@ -1,4 +1,4 @@
-"""BaseGuard. unified parent class for all framework integrations.
+"""BaseGuard — unified parent class for all framework integrations.
 
 Every framework adapter (LangGraph, MCP, CrewAI, etc.) inherits from
 BaseGuard. The base class owns all contract logic:
@@ -312,6 +312,27 @@ class CheckResult:
     def redirected(self) -> bool:
         """True if any det violation returned a redirect outcome."""
         return any(r.action == "redirected" for r in self.det_violations)
+
+    @property
+    def stop_original(self) -> bool:
+        """True when the adapter must NOT execute the original tool call.
+
+        Folds hard blocks together with redirects. A ``redirect_to_safe``
+        violation rolls the original ``unsafe`` call out of the trace and
+        sets ``redirected_to``; an adapter that runs the original call
+        anyway would execute the exact action the contract forbade — a
+        fail-*open* hole, the worst outcome for an enforcement layer.
+
+        Adapters that implement transparent substitution (LangGraph)
+        MUST branch on ``redirected`` / ``redirected_to`` *first* and
+        invoke the safe tool. Adapters that don't (yet) support
+        substitution MUST gate execution on ``stop_original`` so a
+        redirect fails *closed* (the unsafe call is refused) instead of
+        falling through to ``if check.blocked``, which is False on a
+        redirect. ``escalated`` is intentionally excluded — see
+        ``guard_before`` for why escalation does not gate execution.
+        """
+        return self.blocked or self.redirected
 
     @property
     def needs_retry(self) -> bool:
@@ -1352,6 +1373,17 @@ class BaseGuard:
         model hasn't generated yet, so those still apply at call time
         via ``guard_before``. Treat ``filter_tools`` as a first-line
         defence, not a replacement for ``guard_before``.
+
+        Cost: O(len(candidates) × trace_length) per call. Each probe
+        appends a synthetic event and ``rollback_last_event`` resets the
+        verifier, so the *next* probe re-grounds the whole trace from
+        scratch rather than incrementally. That's fine for typical tool
+        menus and session lengths, but on a long-running agent with a
+        wide toolset it is the one spot that gives up the otherwise
+        incremental O(ΔN) grounding — call it once per turn, not per
+        candidate-per-turn, and lean on ``rotate_session`` to bound the
+        trace length. (A snapshot/restore fast path that avoids the full
+        re-ground is tracked as a follow-up.)
 
         Args:
             candidates: Tool names the framework would normally expose
