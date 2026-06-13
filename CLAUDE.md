@@ -77,8 +77,7 @@ sponsio/
 └── tracer/            event collection and grounding
 
 ts/                    TypeScript workspace (npm workspaces)
-├── packages/sdk/      @sponsio/sdk: det engine + framework integrations
-└── packages/sdk/  @sponsio/sdk: AST static scanner CLI
+└── packages/sdk/      @sponsio/sdk: det engine, framework integrations, and AST static scanner CLI
 docs/                  user-facing documentation
 scripts/               one-off maintenance utilities (e.g. plugin sync)
 tests/                 pytest suite
