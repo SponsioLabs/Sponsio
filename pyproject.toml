@@ -89,7 +89,9 @@ all = [
 ]
 # Pinned for the lint job. Ruff's `format` rules change between minor
 # versions, so a floating install drifts between local and CI.
-dev = ["ruff==0.15.16"]
+# mypy + types-PyYAML back the (non-gating) `[tool.mypy]` foothold; not
+# pinned because type checking is not yet a CI gate.
+dev = ["ruff==0.15.16", "mypy>=1.11", "types-PyYAML"]
 
 [tool.setuptools.packages.find]
 include = ["sponsio*"]
@@ -152,6 +154,24 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]
+
+# Mypy foothold. This is intentionally a *local* baseline, not yet a CI
+# gate: the tree is not clean under mypy, so wiring `mypy -p sponsio`
+# into CI today would just fail. The config exists so contributors get a
+# single reproducible invocation (`mypy -p sponsio`) with the framework
+# import noise already silenced, and so strictness can be ratcheted up
+# module by module. Path to a CI gate: pick a clean package, add a
+# stricter `[[tool.mypy.overrides]]` block for it, then add the rest as
+# they are cleaned and finally flip the whole tree on.
+[tool.mypy]
+python_version = "3.10"
+# Most framework adapters depend on packages that ship no type stubs
+# (langgraph, crewai, openai-agents, google-adk, …). Treat those imports
+# as untyped rather than erroring on every adapter module.
+ignore_missing_imports = true
+# Off while the baseline still has errors — flip on once a package is
+# clean so stale `# type: ignore`s get flagged.
+warn_unused_ignores = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
