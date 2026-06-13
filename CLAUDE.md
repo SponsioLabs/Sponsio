@@ -73,7 +73,6 @@ sponsio/
 ├── patterns/          deterministic pattern library
 ├── reporting/         shadow-mode report aggregation/rendering
 ├── runtime/           monitor, verifier, strategies, feedback, session logging
-├── scoring/           tool configuration risk scoring
 └── tracer/            event collection and grounding
 
 ts/                    TypeScript workspace (npm workspaces)
