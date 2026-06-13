@@ -209,6 +209,31 @@ Health checks: install integrity, config syntax, framework wiring.
 sponsio doctor
 ```
 
+## sponsio refresh
+
+Library-maintenance companion to `sponsio scan`. Re-mines `source: trace` contracts from recent session logs and surgically merges them into an existing `sponsio.yaml`. Where `scan` *creates* contracts, `refresh` keeps them honest as traces accumulate — discovering new patterns and retiring stale ones without clobbering anything you wrote or tuned by hand.
+
+```bash
+sponsio refresh                           # dry-run, last 7d of session logs
+sponsio refresh --since 24h               # narrower window
+sponsio refresh --apply                   # write it (backs up to <config>.sponsio.bak)
+sponsio refresh -t 'otel/*.jsonl' --apply # explicit trace source
+sponsio refresh --mode add-only --apply   # only add, never remove or drift
+```
+
+| Option | Description |
+|---|---|
+| `-c, --config PATH` | sponsio.yaml to update in place (default: `sponsio.yaml`). |
+| `-a, --agent NAME` | Agent to refresh. Omit to refresh every agent in the config. |
+| `-t, --trace GLOB` | Trace file glob (repeatable). Default: `~/.sponsio/sessions/<agent>/*.jsonl`. |
+| `--since DUR` | Window for default session-log discovery (`24h` / `7d` / `all`). Ignored when `-t` is given. |
+| `--mode add-only\|replace-trace` | Merge strategy (default `replace-trace`). |
+| `--apply` | Write changes. Without it, refresh is a pure dry-run that prints the diff. |
+
+Only `source: trace` contracts are touched. User-written rules, `source: scan` (from code), `source: policy`, and `customized:` blocks flow through unchanged. Comments are not preserved through `--apply` (PyYAML can't round-trip them) — the `.sponsio.bak` backup exists so you can recover any prose annotations.
+
+> Trace mining is an extension point that may not be bundled in every distribution; where it isn't, `refresh` degrades to "no new contracts mined" rather than failing.
+
 ## sponsio packs
 
 List shipped contract packs with rule counts and `include:` syntax.
