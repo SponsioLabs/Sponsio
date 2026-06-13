@@ -12,7 +12,33 @@ broke.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- **`sponsio refresh` CLI command restored.** Re-mines `source: trace`
+  contracts from recent session logs and surgically merges them into an
+  existing `sponsio.yaml` (companion to `sponsio scan`). Dry-run by
+  default; `--apply` writes with a `.sponsio.bak` backup. The backing
+  logic and all docs already shipped — only the command registration was
+  missing, so the documented `sponsio refresh` errored as unknown.
+
+### Fixed
+
+- **`@sponsio/sdk` is now edge-runtime safe.** Marked the package
+  `"sideEffects": false` so bundlers can tree-shake the Node-only
+  YAML/config-loading path out of edge bundles (Cloudflare Workers),
+  complementing the `createRequire` deferral in `0.2.0a3`.
+- **Trace mining fails open when its extension isn't bundled.**
+  `CodeAnalyzer` imported `TraceMiner` unguarded, crashing
+  `sponsio scan --trace` / `sponsio refresh` with `ModuleNotFoundError`
+  in builds without the optional `trace_mining` extension; it now
+  degrades to "no contracts mined", matching the other call sites.
+
+### Changed
+
+- Added explicit `[tool.ruff]` / `[tool.mypy]` config to `pyproject.toml`
+  (mypy is a non-gating local foothold), and synced
+  `docs/reference/cli.md` with the real CLI surface
+  (`onboard`/`serve`/`daemon`/`cursor` documented).
 
 ---
 
