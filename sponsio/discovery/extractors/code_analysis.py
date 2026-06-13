@@ -2134,7 +2134,21 @@ class CodeAnalyzer:
             already present in ``existing``.  Empty if no trace files
             matched or every mined pattern was a duplicate.
         """
-        from sponsio.discovery.extractors.trace_mining import TraceMiner
+        # Cross-trace mining is an extension point not shipped in every
+        # build (see sponsio/discovery/extractors/__init__.py). Fail open
+        # — same as trace loading below — so `scan --trace` / `refresh`
+        # degrade to "no mined contracts" instead of crashing when the
+        # module is absent.
+        try:
+            from sponsio.discovery.extractors.trace_mining import (  # type: ignore[import-not-found]
+                TraceMiner,
+            )
+        except ImportError:
+            self._emit(
+                "Trace mining unavailable (trace_mining extension not "
+                "installed in this build); skipping."
+            )
+            return []
         from sponsio.discovery.loaders import load_traces
 
         self._emit(f"Loading traces from {len(trace_paths)} path(s)…")
