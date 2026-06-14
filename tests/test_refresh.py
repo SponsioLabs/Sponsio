@@ -347,24 +347,116 @@ def _write_trace_jsonl(path: Path, events: list[dict]) -> None:
     path.write_text("\n".join(json.dumps(e) for e in events) + "\n")
 
 
-def _make_native_trace(tool_sequence: list[str]) -> list[dict]:
-    """Build a minimal native-format trace that the trace miner will
-    accept.  We exercise the CLI's end-to-end path through
-    ``CodeAnalyzer.generate_yaml``.  Exact schema details are less
-    important than: (1) the file loads, (2) the miner produces
-    something we can diff."""
-    events = []
-    for i, name in enumerate(tool_sequence):
-        events.append(
-            {
-                "session_id": "s1",
-                "step": i,
-                "type": "tool_call",
-                "tool": name,
-                "args": {},
-            }
-        )
-    return events
+def _patch_mined(monkeypatch, fresh_contracts: list, agent: str = "bot") -> None:
+    """Stub ``CodeAnalyzer.generate_yaml`` so the CLI sees a known set of
+    freshly-mined contracts without depending on the (optional, often
+    unbundled) trace_mining backend.
+
+    This guards the schema contract between what mining emits and what
+    ``_normalize_contract_entry`` consumes: ``fresh_contracts`` must be
+    in the same ``{"G": {pattern, args, source}}`` shape real mining
+    produces, so a drift in either side fails the test.
+    """
+    from sponsio.discovery.extractors.code_analysis import CodeAnalyzer
+
+    fresh_yaml = yaml.safe_dump(
+        {"agents": {agent: {"contracts": fresh_contracts}}}, sort_keys=False
+    )
+
+    def _fake_generate_yaml(self, *args, **kwargs):
+        return fresh_yaml
+
+    monkeypatch.setattr(CodeAnalyzer, "generate_yaml", _fake_generate_yaml)
+
+
+def test_cli_refresh_mines_and_merges(tmp_path, monkeypatch):
+    """End-to-end: a non-empty mining result must add / drift / retire
+    the source:trace subset while preserving user rules — the path the
+    empty-trace CLI tests never exercise."""
+    cfg_path = tmp_path / "sponsio.yaml"
+    _write_config(
+        cfg_path,
+        [
+            {"G": "hand-written user rule — keep me"},
+            _e("rate_limit", ["send_email", 5]),  # will drift → 12
+            _e("idempotent", ["list_users"]),  # not re-observed → stale
+        ],
+    )
+    trace_path = tmp_path / "t.jsonl"
+    _write_trace_jsonl(trace_path, [])  # content irrelevant — mining is stubbed
+
+    _patch_mined(
+        monkeypatch,
+        [
+            _e("rate_limit", ["send_email", 12]),  # drift
+            _e("must_precede", ["check_policy", "issue_refund"]),  # new
+        ],
+    )
+
+    # Dry-run first: reports the diff, writes nothing.
+    dry = CliRunner().invoke(
+        cli,
+        ["refresh", "-c", str(cfg_path), "-t", str(trace_path), "--agent", "bot"],
+    )
+    assert dry.exit_code == 0, dry.output
+    assert cfg_path.read_text() == yaml.safe_dump(
+        {
+            "version": "1",
+            "agents": {
+                "bot": {
+                    "contracts": [
+                        {"G": "hand-written user rule — keep me"},
+                        _e("rate_limit", ["send_email", 5]),
+                        _e("idempotent", ["list_users"]),
+                    ]
+                }
+            },
+        },
+        sort_keys=False,
+    )
+
+    # Apply: replace-trace drops the trace subset, appends the fresh set,
+    # preserves the user rule, and backs up the original.
+    applied = CliRunner().invoke(
+        cli,
+        [
+            "refresh",
+            "-c",
+            str(cfg_path),
+            "-t",
+            str(trace_path),
+            "--agent",
+            "bot",
+            "--apply",
+        ],
+    )
+    assert applied.exit_code == 0, applied.output
+
+    after = yaml.safe_load(cfg_path.read_text())
+    contracts = after["agents"]["bot"]["contracts"]
+    # User rule survives.
+    assert {"G": "hand-written user rule — keep me"} in contracts
+    # Drifted threshold reflects the fresh value.
+    rate = [
+        c
+        for c in contracts
+        if isinstance(c.get("G"), dict) and c["G"]["pattern"] == "rate_limit"
+    ]
+    assert rate and rate[0]["G"]["args"] == ["send_email", 12]
+    # Newly-mined rule is present.
+    assert any(
+        isinstance(c.get("G"), dict) and c["G"]["pattern"] == "must_precede"
+        for c in contracts
+    )
+    # Stale rule (not re-observed) is gone.
+    assert not any(
+        isinstance(c.get("G"), dict) and c["G"]["pattern"] == "idempotent"
+        for c in contracts
+    )
+    # Backup holds the original verbatim.
+    backup = cfg_path.with_name(cfg_path.name + ".sponsio.bak")
+    assert backup.is_file()
+    assert "idempotent" in backup.read_text()
 
 
 def test_cli_refresh_dry_run_does_not_write(tmp_path):
@@ -430,7 +522,7 @@ def test_cli_refresh_apply_writes_backup(tmp_path):
     # Backup exists and still contains the original file verbatim.
     backup = cfg_path.with_name(cfg_path.name + ".sponsio.bak")
     assert backup.is_file()
-    assert "hand-written" not in backup.read_text() or True  # trivially true
+    assert "user rule kept" in backup.read_text()
     # User rule survives the round-trip (replace-trace mode drops
     # source:trace but preserves everything else).
     after = yaml.safe_load(cfg_path.read_text())
