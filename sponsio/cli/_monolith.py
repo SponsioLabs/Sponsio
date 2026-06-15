@@ -20,14 +20,8 @@ from typing import Literal
 
 import click
 
-from sponsio import __version__
+from sponsio.cli.app import cli
 from sponsio.constants import DASHBOARD_DEFAULT_PORT
-
-
-@click.group()
-@click.version_option(version=__version__, prog_name="sponsio")
-def cli():
-    """Sponsio. the contract layer for LLM agent systems."""
 
 
 def _contract_guarantee(entry):
