@@ -90,6 +90,30 @@ sponsio init . --plan "framework=crewai;ides=cursor:skill"                  # dr
 
 See [getting-started/quickstart.md](../getting-started/quickstart.md) for the typical interactive flow.
 
+## sponsio onboard
+
+One-shot project wire-up: composes `init` + `scan` + `doctor` into a single command so first-time users don't have to learn three subcommands. Detects the framework, picks the best available LLM provider (env → `OPENAI_BASE_URL` → local Ollama → none), writes `sponsio.yaml` in observe mode with an inferred contract set, then prints the framework-specific agent-entry patch.
+
+```bash
+sponsio onboard [TARGET] [--agent NAME] [--mode observe|enforce] [--force]
+```
+
+| Option | Description |
+|---|---|
+| `TARGET` | File or directory to scan (default: current). |
+| `--mode` | Runtime mode written into `sponsio.yaml`. Omit to be prompted; `observe` is the safe default. |
+| `--force` | Overwrite an existing `sponsio.yaml` without prompting. |
+| `--no-probe-ollama` | Skip the `localhost:11434` liveness probe. |
+| `--no-doctor` | Skip the post-onboard `sponsio doctor` run. |
+| `--emit-context` | Skip the LLM step; emit the structured inputs as JSON for the `sponsio` skill. Pair with `sponsio prompt onboard`. |
+| `--json` | Emit the structured `OnboardReport` as JSON. |
+
+```bash
+sponsio onboard
+sponsio onboard src/ --agent customer_bot
+sponsio onboard --force --no-probe-ollama
+```
+
 ## sponsio validate
 
 Parse-check contract strings. CI-friendly.
@@ -184,17 +208,6 @@ Health checks: install integrity, config syntax, framework wiring.
 ```bash
 sponsio doctor
 ```
-
-## sponsio refresh
-
-Re-mine `source: trace` contracts from recent sessions.
-
-```bash
-sponsio refresh --since 7d           # dry-run
-sponsio refresh --since 7d --apply   # write back, with .sponsio.bak
-```
-
-User-written rules and `customized:` blocks pass through unchanged. Mines your own local session log.
 
 ## sponsio packs
 
@@ -293,6 +306,37 @@ sponsio prompt (onboard|refresh|scan)
 ```
 
 Output is a copy-pasteable prompt block your AI assistant can run.
+
+## sponsio serve
+
+Placeholder for the web-dashboard server. This distribution ships the contract runtime + CLI only; the long-lived HTTP backend is not bundled, so the command exits non-zero and points you at the local-inspection alternatives.
+
+```bash
+sponsio serve   # prints the alternatives below and exits 2
+```
+
+For local observability use `sponsio host trace --follow` (live stream), `sponsio report --since 1h` (session summary), `sponsio replay <session>` (re-render a recorded session), or `sponsio export-sessions` (ship to a collector).
+
+## sponsio daemon
+
+Privileged-process side of the IPC split. The daemon owns the host bucket / per-plugin yaml files and is the only entity the host agent can reach to write them, so self-modify protection becomes an OS-level guarantee (ideally a separate UID under launchd/systemd) rather than a regex-on-tool-args one.
+
+```bash
+sponsio daemon run [--socket PATH] [--mode 0600]   # foreground; used by launchd/systemd
+sponsio daemon ping [--echo VALUE]                 # round-trip health check
+sponsio daemon status                              # resolved socket path + reachability
+```
+
+Socket path resolves to `$SPONSIO_DAEMON_SOCKET`, then `/var/run/sponsio.sock` if writable, else `~/.sponsio/sponsio.sock`.
+
+## sponsio cursor
+
+Cursor IDE integration. Cursor 1.7+ ships a deny-capable hook system (`hooks.json`); Sponsio plugs in as the command for the relevant pre-* events so every Shell/Read/Write/MCP call is evaluated against the contract library before Cursor executes it.
+
+```bash
+sponsio cursor install-hooks            # writes ~/.cursor/hooks.json (or project .cursor/hooks.json)
+sponsio cursor guard --event <name>     # runtime hook handler; reads payload on stdin, denies via exit 2
+```
 
 ---
 
