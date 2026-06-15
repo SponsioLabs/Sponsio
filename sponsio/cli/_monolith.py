@@ -110,7 +110,11 @@ def demo(scenario: str, mode: str, no_guard: bool, fast: bool):
         run_demo(scenario, no_guard=no_guard, fast=fast)
         return
 
-    repo_root = Path(__file__).resolve().parent.parent
+    import sponsio
+
+    # Resolve relative to the installed package, not this file's depth,
+    # so it stays correct regardless of where the CLI code lives.
+    repo_root = Path(sponsio.__file__).resolve().parent.parent
     script_path = repo_root / "examples" / "demo" / script_name
 
     if not script_path.exists():
