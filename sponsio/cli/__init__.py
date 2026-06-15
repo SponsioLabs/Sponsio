@@ -17,6 +17,7 @@ from sponsio.cli.app import cli
 # for back-compat (`from sponsio.cli import daemon`).
 from sponsio.cli.groups.cursor import cursor
 from sponsio.cli.groups.daemon import daemon
+from sponsio.cli.groups.host import _refresh_per_host_bundles, host
 from sponsio.cli.groups.plugin import _stamp_bundled_source, plugin
 from sponsio.cli.groups.skill import (
     _SKILL_TOOL_DIRS,
@@ -30,7 +31,6 @@ from sponsio.cli._monolith import (
     _drop_contract_indices,
     _filter_invalid_contracts,
     _patch_mode_in_yaml,
-    _refresh_per_host_bundles,
     _resolve_entry,
     check,
     cmd_mode,
@@ -41,7 +41,6 @@ from sponsio.cli._monolith import (
     explain,
     export_cmd,
     export_sessions_cmd,
-    host,
     init,
     main,
     onboard,
