@@ -13,7 +13,7 @@
   },
   "homepage": "https://github.com/SponsioLabs/Sponsio#readme",
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": ["./dist/cli/**"],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {

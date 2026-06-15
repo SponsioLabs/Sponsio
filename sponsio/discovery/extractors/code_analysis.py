@@ -1779,7 +1779,7 @@ class CodeAnalyzer:
                 if t.get("params"):
                     lines.append(f'    params: "{t["params"]}"')
 
-        # Agents section — emit `contracts:` with `E:` short-keys (YAML
+        # Agents section — emit `contracts:` with `G:` short-keys (YAML
         # schema). Each proposal becomes one unconditional contract entry.
         lines.append("")
         lines.append("agents:")
