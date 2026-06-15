@@ -27,11 +27,11 @@ from sponsio.cli.groups.skill import (
 )
 
 # Still-monolithic commands/groups (carved out incrementally).
+from sponsio.cli._shared import _resolve_entry
 from sponsio.cli._monolith import (
     _drop_contract_indices,
     _filter_invalid_contracts,
     _patch_mode_in_yaml,
-    _resolve_entry,
     check,
     cmd_mode,
     cmd_prompt,
