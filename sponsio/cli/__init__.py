@@ -17,18 +17,21 @@ from sponsio.cli.app import cli
 # for back-compat (`from sponsio.cli import daemon`).
 from sponsio.cli.groups.cursor import cursor
 from sponsio.cli.groups.daemon import daemon
+from sponsio.cli.groups.skill import (
+    _SKILL_TOOL_DIRS,
+    _packaged_skill_source,
+    _verify_skill_install_target,
+    skill,
+)
 
 # Still-monolithic commands/groups (carved out incrementally).
 from sponsio.cli._monolith import (
-    _SKILL_TOOL_DIRS,
     _drop_contract_indices,
     _filter_invalid_contracts,
-    _packaged_skill_source,
     _patch_mode_in_yaml,
     _refresh_per_host_bundles,
     _resolve_entry,
     _stamp_bundled_source,
-    _verify_skill_install_target,
     check,
     cmd_mode,
     cmd_prompt,
@@ -49,7 +52,6 @@ from sponsio.cli._monolith import (
     report,
     scan,
     serve,
-    skill,
     validate,
 )
 
