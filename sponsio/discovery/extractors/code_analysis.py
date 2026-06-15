@@ -2120,9 +2120,9 @@ class CodeAnalyzer:
         Args:
             trace_paths: Paths or globs to trace files.
             min_support: Minimum traces that must exhibit a pattern
-                before it's proposed.  Default **1** (loose) — CLI
-                callers can tighten via ``--trace-min-support`` when
-                feeding a large production audit log.
+                before it's proposed.  Default **1** (loose); callers
+                can tighten via ``min_support`` when feeding a large
+                production audit log.
             confidence_threshold: Floor for ordering / sequence
                 confidence (0–1).
             existing: Proposals already in the list — any trace-mined

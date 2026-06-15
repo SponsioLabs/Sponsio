@@ -65,7 +65,7 @@ pip install sponsio        # or: npm install -D @sponsio/sdk
 sponsio init .             # interactive wizard: detects framework, IDE hosts, observe vs enforce
 ```
 
-The wizard auto-detects your framework and prints the right wrap snippet. For manual wiring, see [all supported integrations](docs/integrations/index.md). [OpenClaw users](docs/integrations/openclaw.md) get bundled ClawHavoc and CVE-2026-25253 coverage out of the box. For config reference, observe → enforce flip, `sponsio refresh`, and CI wiring, see the [full walkthrough](QUICKSTART.md).
+The wizard auto-detects your framework and prints the right wrap snippet. For manual wiring, see [all supported integrations](docs/integrations/index.md). [OpenClaw users](docs/integrations/openclaw.md) get bundled ClawHavoc and CVE-2026-25253 coverage out of the box. For config reference, observe → enforce flip, and CI wiring, see the [full walkthrough](QUICKSTART.md).
 
 **Drafting contracts from natural language.** `sponsio validate "<rule in plain English>"` turns a plain-English rule into a contract you can read back. Treat the output as a starting draft to review and adjust before you enforce. The determinism is in how contracts are *enforced* at runtime, not in how they're drafted.
 

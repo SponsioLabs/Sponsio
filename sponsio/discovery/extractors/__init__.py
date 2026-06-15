@@ -3,10 +3,10 @@
 from sponsio.discovery.extractors.document import DocumentExtractor
 from sponsio.discovery.extractors.code_analysis import CodeAnalyzer
 
-# ``TraceMiner`` is the cross-trace mining extractor that backs the
-# ``sponsio refresh`` CLI; it is not part of this build. Best-effort
-# import keeps ``from sponsio.discovery.extractors import TraceMiner``
-# working when a separate implementation is installed alongside.
+# ``TraceMiner`` is the cross-trace mining extractor; it is not part of
+# this build. Best-effort import keeps ``from sponsio.discovery.extractors
+# import TraceMiner`` working when a separate implementation is installed
+# alongside.
 try:  # pragma: no cover - guarded import
     from sponsio.discovery.extractors.trace_mining import (  # type: ignore[import-not-found]
         TraceMiner,

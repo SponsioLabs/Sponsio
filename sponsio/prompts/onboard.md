@@ -48,9 +48,8 @@ A JSON object from `sponsio onboard --emit-context`:
   the user has to clean up.
 
 - **Source tagging.**  Every contract YOU author carries
-  `source: agent-extracted` so future `sponsio refresh` runs can
-  distinguish your additions from pack rules and from
-  CLI-emitted starter rules.
+  `source: agent-extracted` so later tooling can distinguish your
+  additions from pack rules and from CLI-emitted starter rules.
 
 - **One contract per concrete failure mode.**  Plain-English
   `desc:` so the user can review by reading.  No omnibus rules.
@@ -184,9 +183,8 @@ agents:
 ## Source tagging
 
 Every contract YOU author should carry `source: agent-extracted` so
-future `sponsio refresh` runs know they were agent-generated and
-can be re-considered.  Don't tag pack-included rules — those have
-their own source from the pack.
+later tooling knows they were agent-generated.  Don't tag
+pack-included rules; those have their own source from the pack.
 
 ## What to do after
 

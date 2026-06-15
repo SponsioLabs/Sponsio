@@ -66,7 +66,7 @@ pip install sponsio        # または: npm install -D @sponsio/sdk
 sponsio init .             # 対話型ウィザード: フレームワーク・IDE ホスト・observe vs enforce を検出
 ```
 
-ウィザードがフレームワークを自動検出し、対応するラップ スニペットを表示します。手動配線は [docs/integrations/](docs/integrations/index.md) を参照。[OpenClaw ユーザー](docs/integrations/openclaw.md)は ClawHavoc + CVE-2026-25253 のカバレッジを最初から利用できます。設定リファレンス、observe → enforce 切替、`sponsio refresh`、CI 配線は[完全ガイド](QUICKSTART.md)を参照。
+ウィザードがフレームワークを自動検出し、対応するラップ スニペットを表示します。手動配線は [docs/integrations/](docs/integrations/index.md) を参照。[OpenClaw ユーザー](docs/integrations/openclaw.md)は ClawHavoc + CVE-2026-25253 のカバレッジを最初から利用できます。設定リファレンス、observe → enforce 切替、CI 配線は[完全ガイド](QUICKSTART.md)を参照。
 
 **自然言語から契約を下書きする。** `sponsio validate "<平易な文のルール>"` は、自然言語のルールを読み返せる契約に変換します。出力はあくまで下書きとして扱い、enforce する前に自分でレビューして調整してください。決定論的なのは契約がランタイムでどう*強制される*かであって、どう下書きされるかではありません。
 

@@ -105,11 +105,9 @@ to enforce and they wedge the agent.  For each tool in
   here — take them seriously.  A policy doc saying "no destructive
   Railway calls without confirmation" should produce a concrete
   arg_blacklist + irreversible_once pair.
-- **`trace_summary.total_events`** > 0: ordering / sequence rules are
-  more reliable now (you can run `sponsio refresh --emit-traces` to
-  mine them properly).  Without traces, prefer single-event patterns
-  (`arg_blacklist`, `rate_limit`, `irreversible_once`) over
-  trace-aware ones.
+- Prefer single-event patterns (`arg_blacklist`, `rate_limit`,
+  `irreversible_once`) unless the code clearly establishes a required
+  ordering; only then reach for sequence-shaped rules.
 - **`existing_yaml`**: don't duplicate rules already there.  Read its
   contracts, only emit gaps.
 

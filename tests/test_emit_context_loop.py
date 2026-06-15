@@ -16,7 +16,6 @@ in a live IDE, every CLI step here is the same path that fires.
 Coverage:
 
   W1  — onboard agent-driven path (`--emit-context` + `prompt onboard`)
-  W3b — refresh agent-driven path (`--emit-traces` + `prompt refresh`)
   Mode A — plugin scan agent-driven (`--introspect` + `plugin prompt <host>`)
 
 If any prompt template is renamed, deleted, or changes the
@@ -66,7 +65,7 @@ def _run_cli(*args: str, timeout: int = 60) -> subprocess.CompletedProcess:
         (("plugin", "prompt"), "openclaw"),
         (("plugin", "prompt"), "mcp-bare"),
         (("prompt",), "onboard"),
-        (("prompt",), "refresh"),
+        (("prompt",), "scan"),
     ],
 )
 def test_prompt_template_prints_well_formed(subcmd, flow):

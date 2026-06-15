@@ -255,7 +255,7 @@ def render_sponsiorc(answers: SetupAnswers) -> str:
         "",
         f"framework: {answers.framework}",
         "",
-        "# Parse-time LLM — used by `sponsio scan` / `sponsio refresh`",
+        "# Parse-time LLM used by `sponsio scan`",
         "# to infer contracts from your tool definitions.",
         "extractor:",
         f"  provider: {answers.provider or 'none'}",

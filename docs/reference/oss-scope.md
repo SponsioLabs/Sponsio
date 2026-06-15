@@ -65,9 +65,6 @@ is no LLM call on the enforcement path.
 - `sponsio/discovery/starter_pack.py`: static rule matching for
   starter-pack selection
 - `sponsio/discovery/trace_replay.py`: `sponsio eval` replay engine
-- `sponsio/refresh.py` + `sponsio refresh` CLI. Local trace mining
-  over your own `~/.sponsio/sessions/*` (proposes new contracts from
-  patterns repeating in your traces).
 
 ### Generation
 - `sponsio/generation/dsl_to_contract.py`: text DSL → contract parser

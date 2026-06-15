@@ -2169,41 +2169,6 @@ def serve(host: str, port: int, dev: bool):
     help="Policy document (.md/.txt) to extract constraints from",
 )
 @click.option(
-    "--trace",
-    "-t",
-    "traces",
-    multiple=True,
-    type=str,
-    help=(
-        "Execution trace file, directory, or glob to mine contracts "
-        "from. Accepts OTLP/JSON, OTLP JSONL, native Sponsio "
-        "JSON/JSONL, and session-log JSONL "
-        "(~/.sponsio/sessions/<agent>/*.jsonl). `~` is expanded. Can "
-        "be repeated: `-t 'traces/*.jsonl' -t extra.json`. No LLM required."
-    ),
-)
-@click.option(
-    "--trace-min-support",
-    type=int,
-    default=1,
-    show_default=True,
-    help=(
-        "Minimum number of traces a pattern must appear in before "
-        "trace-mining proposes it. Default `1` is loose. bump up "
-        "(e.g. `5`) when feeding a large production audit log."
-    ),
-)
-@click.option(
-    "--trace-confidence-threshold",
-    type=float,
-    default=0.95,
-    show_default=True,
-    help=(
-        "Confidence floor for ordering / sequence mining (0–1). "
-        "Higher = stricter. Default 0.95."
-    ),
-)
-@click.option(
     "--push/--no-push",
     default=False,
     help=(
@@ -2238,7 +2203,7 @@ def serve(host: str, port: int, dev: bool):
     help=(
         "Skip the LLM step and instead emit the structured inputs "
         "(framework / tool inventory / scanned code excerpts / policy "
-        "docs / trace summaries) as JSON to stdout.  Used by the host "
+        "docs) as JSON to stdout.  Used by the host "
         "agent driving the ``sponsio`` skill: pair with "
         "``sponsio prompt scan`` and apply in the agent's own LLM "
         "context. no UnifiedExtractor call, no extra API key."
@@ -2254,36 +2219,29 @@ def scan(
     out: str | None,
     append: bool,
     policy: tuple[str, ...],
-    traces: tuple[str, ...],
-    trace_min_support: int,
-    trace_confidence_threshold: float,
     push: bool,
     push_url: str,
     config_path: str | None,
     emit_context: bool,
 ):
-    """Scan source code, policy docs, and traces to propose contracts.
+    """Scan source code and policy docs to propose contracts.
 
     For first-time setup, prefer ``sponsio onboard``. it composes
     framework detection + scan + ``init``-style provider config +
     ``doctor`` health checks into a single command.  ``scan`` is the
     library-maintenance tool you reach for *after* you have a
-    ``sponsio.yaml``: re-mine contracts from new code, append from
-    a policy doc, or pull in trace-derived ordering rules.
+    ``sponsio.yaml``: re-mine contracts from new code or append from
+    a policy doc.
 
     Analyzes tool definitions, decorators, and call patterns to infer
     safety constraints. Optionally extracts constraints from policy
-    documents (.md/.txt) using the discovered tool inventory as context,
-    and mines ordering / exclusion / rate-limit patterns from execution
-    traces (OTLP/JSON, OTLP JSONL, or native Sponsio).
+    documents (.md/.txt) using the discovered tool inventory as context.
 
     \b
     Examples:
       sponsio scan src/                                # writes ./sponsio.yaml (rule-based)
       sponsio scan src/ --llm                          # + LLM inference
       sponsio scan src/ --policy security.md --llm     # code + policy
-      sponsio scan src/ -t 'traces/*.jsonl'            # code + trace mining
-      sponsio scan src/ -t traces/ --trace-min-support 5
       sponsio scan src/ -o custom.yaml                 # write to custom path
       sponsio scan src/ -o sponsio.yaml --append       # merge into existing
       sponsio scan src/ -o -                           # print to stdout (pipe)
@@ -2300,8 +2258,8 @@ def scan(
 
     # ---- agent-driven path: dump inputs, skip LLM step ------------------
     # ``--emit-context`` runs the deterministic scan stages (AST tool
-    # inventory, policy doc collection, trace summary) and stops short
-    # of the LLM contract-mining inside ``CodeAnalyzer.generate_yaml``.
+    # inventory, policy doc collection) and stops short of the LLM
+    # contract-mining inside ``CodeAnalyzer.generate_yaml``.
     # The host agent picks up using ``sponsio prompt scan``.
     if emit_context:
         analyzer = CodeAnalyzer(use_llm=False)
@@ -2320,26 +2278,6 @@ def scan(
             except OSError:
                 continue
 
-        # Lightweight trace summary: how many traces / events, no full
-        # event dump (the agent doesn't need every event to write
-        # sequence-shape contracts; per-pair counts are enough).
-        trace_summary: dict = {"files": [], "total_events": 0}
-        if traces:
-            from sponsio.discovery.trace_replay import (  # noqa: F401
-                load_traces_from_paths,
-            )
-
-            try:
-                loaded = load_traces_from_paths(list(traces))
-                trace_summary["files"] = sorted(
-                    {str(t.source_path) for t in loaded if hasattr(t, "source_path")}
-                )
-                trace_summary["total_events"] = sum(
-                    len(t.events) for t in loaded if hasattr(t, "events")
-                )
-            except Exception as e:  # pragma: no cover. best-effort
-                trace_summary["error"] = str(e)
-
         existing_yaml_text = ""
         out_path = Path(out) if out and out != "-" else Path("sponsio.yaml")
         if out_path.exists():
@@ -2355,7 +2293,6 @@ def scan(
                     "source_paths": source_paths,
                     "tool_inventory": tool_inventory,
                     "policy_docs": policy_docs,
-                    "trace_summary": trace_summary,
                     "existing_yaml": existing_yaml_text,
                     "out_path": str(out_path),
                     "next_steps_hint": (
@@ -2422,9 +2359,6 @@ def scan(
         agent_id=agent,
         policy_paths=list(policy),
         tool_inventory=tool_inventory,
-        trace_paths=list(traces) if traces else None,
-        trace_min_support=trace_min_support,
-        trace_confidence_threshold=trace_confidence_threshold,
     )
 
     # --- Auto-validate & drop unparseable contracts ---------------------
@@ -4863,11 +4797,11 @@ def onboard(
 # ---------------------------------------------------------------------------
 #
 # Counterpart to ``sponsio plugin prompt <host>``: prints the agent-facing
-# extraction prompt for a top-level workflow (``onboard`` / ``refresh``).
+# extraction prompt for a top-level workflow (``onboard`` / ``scan``).
 # The setup skill at ``sponsio/skills/sponsio/SKILL.md`` calls this so the
 # host agent (Claude Code, Cursor, Codex) can apply the prompt in its own
 # LLM context against the JSON emitted by ``sponsio onboard --emit-context``
-# or ``sponsio refresh --emit-traces``.
+# or ``sponsio scan --emit-context``.
 
 
 def _patch_mode_in_yaml(text: str, target_mode: str) -> tuple[str, str]:
@@ -5033,15 +4967,14 @@ def cmd_mode(target_mode: str, config_path: Path):
 @cli.command(name="prompt")
 @click.argument(
     "flow",
-    type=click.Choice(["onboard", "refresh", "scan"]),
+    type=click.Choice(["onboard", "scan"]),
 )
 def cmd_prompt(flow: str):
     """Print the agent-facing prompt template for a sponsio workflow.
 
     Used by the ``sponsio`` skill (``W1``. initial setup, ``W2``.
-    audit & refine, ``W3b``. refresh from traces) to drive the host
-    agent through contract authoring without burning a separate LLM
-    API call.
+    audit & refine) to drive the host agent through contract authoring
+    without burning a separate LLM API call.
 
     Pair with the corresponding ``--emit-*`` flag:
 
@@ -5052,10 +4985,6 @@ def cmd_prompt(flow: str):
     \b
         sponsio scan src/ --emit-context
         sponsio prompt scan
-
-    \b
-        sponsio refresh sponsio.yaml --emit-traces
-        sponsio prompt refresh
 
     The agent reads both, applies the prompt to the JSON in its own
     context, and writes the result via Edit/Write.  No

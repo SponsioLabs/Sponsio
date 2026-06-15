@@ -1,7 +1,7 @@
 /**
  * ``sponsio skill install`` — drop the universal SKILL.md
  * into Cursor / Claude Code / Codex skill directories so your
- * coding agent knows how to ``onboard`` / ``scan`` / ``refresh`` /
+ * coding agent knows how to ``onboard`` / ``scan`` /
  * flip-to-enforce on every future project without re-pasting the
  * one-prompt setup.
  *

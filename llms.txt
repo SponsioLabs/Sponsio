@@ -10,7 +10,7 @@
 ## Reference
 
 - [docs/concepts/contracts.md](docs/concepts/contracts.md): Contract DSL — deterministic patterns, LTL syntax, YAML schema.
-- [docs/reference/cli.md](docs/reference/cli.md): CLI reference — scan, validate, check, report, demo, onboard, serve, refresh.
+- [docs/reference/cli.md](docs/reference/cli.md): CLI reference — scan, validate, check, report, demo, onboard, serve.
 - [docs/integrations/index.md](docs/integrations/index.md): Per-framework integration guides.
 - [docs/concepts/architecture.md](docs/concepts/architecture.md): Design — LTL evaluator, det/sto pipelines, grounding.
 - [docs/concepts/owasp-coverage.md](docs/concepts/owasp-coverage.md): OWASP Agentic Top 10 (2026) → Sponsio control mapping.

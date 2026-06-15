@@ -19,8 +19,8 @@ broke.
   the Node-only YAML/config-loading path out of edge bundles (Cloudflare
   Workers), complementing the `createRequire` deferral in `0.2.0a3`.
 - **Trace mining fails open when its extension isn't bundled.**
-  `CodeAnalyzer` imported `TraceMiner` unguarded, crashing
-  `sponsio scan --trace` with `ModuleNotFoundError` in builds without the
+  `CodeAnalyzer` imported `TraceMiner` unguarded, crashing the
+  trace-mining path with `ModuleNotFoundError` in builds without the
   optional `trace_mining` extension; it now degrades to "no contracts
   mined", matching the other call sites.
 
@@ -29,6 +29,11 @@ broke.
 - Added an explicit `[tool.ruff]` config to `pyproject.toml` so local
   lint matches CI, and synced `docs/reference/cli.md` with the real CLI
   surface (`onboard`/`serve`/`daemon`/`cursor` now documented).
+- The CLI now centers on code and policy scanning. `sponsio scan` reads
+  source code and policy docs; `sponsio check --trace` and `sponsio eval`
+  still replay traces. Trace-derived contract mining (the `sponsio
+  refresh` command and `sponsio scan --trace`) is no longer part of this
+  distribution.
 
 ---
 
