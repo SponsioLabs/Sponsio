@@ -1,9 +1,9 @@
 /**
  * ``sponsio prompt`` — print the agent-facing prompt template for a
- * sponsio workflow (onboard / scan / refresh).
+ * sponsio workflow (onboard / scan).
  *
- * Mirrors the Python ``sponsio prompt`` command. The same three .md
- * files live in ``ts/packages/sdk/prompts/`` (mirrored from
+ * Mirrors the Python ``sponsio prompt`` command. The same .md files
+ * live in ``ts/packages/sdk/prompts/`` (mirrored from
  * ``sponsio/prompts/``); this command just reads and prints the right
  * one. Used by the Sponsio skill to drive contract authoring without
  * a separate LLM API call.
@@ -11,7 +11,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
-const FLOWS = new Set(["onboard", "scan", "refresh"]);
+const FLOWS = new Set(["onboard", "scan"]);
 
 const HELP =
   "sponsio prompt — print the contract-authoring prompt for a workflow\n" +
@@ -20,7 +20,7 @@ const HELP =
   "  sponsio prompt <flow>\n" +
   "\n" +
   "ARGUMENTS:\n" +
-  "  <flow>      onboard | scan | refresh\n" +
+  "  <flow>      onboard | scan\n" +
   "\n" +
   "EXAMPLES:\n" +
   "  sponsio prompt onboard\n" +

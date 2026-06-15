@@ -66,7 +66,7 @@ pip install sponsio        # 或 npm install -D @sponsio/sdk
 sponsio init .             # 交互式向导：检测框架、选择 IDE host、observe vs enforce
 ```
 
-向导会自动检测你的框架并打印对应的接入片段。手动接线见 [docs/integrations/](docs/integrations/index.md)。[OpenClaw 用户](docs/integrations/openclaw.md)开箱即享 ClawHavoc + CVE-2026-25253 覆盖。配置参考、observe → enforce 切换、`sponsio refresh`、CI 接线见[完整指引](QUICKSTART.md)。
+向导会自动检测你的框架并打印对应的接入片段。手动接线见 [docs/integrations/](docs/integrations/index.md)。[OpenClaw 用户](docs/integrations/openclaw.md)开箱即享 ClawHavoc + CVE-2026-25253 覆盖。配置参考、observe → enforce 切换、CI 接线见[完整指引](QUICKSTART.md)。
 
 **用自然语言起草合约。** `sponsio validate "<一句话规则>"` 会把一条自然语言规则转成一份你能读回来的合约。把输出当作起点草稿，enforce 之前先自己 review、按需调整。确定性在于合约在运行时如何被*强制执行*，而不在于它如何被起草。
 

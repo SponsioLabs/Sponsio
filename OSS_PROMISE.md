@@ -46,7 +46,7 @@ Apache 2.0. We will not relicense, gate, or remove them.
 
 - `sponsio init` (interactive wizard, the user-facing entry),
   plus the underlying `sponsio onboard`, `scan`, `validate`,
-  `check`, `report`, `refresh`, `eval`, `export`,
+  `check`, `report`, `eval`, `export`,
   `export-sessions`
 - `sponsio host` group: install / status / list / trace / uninstall
   for the Cursor / Claude Code / OpenClaw plugins
@@ -67,8 +67,6 @@ Apache 2.0. We will not relicense, gate, or remove them.
 - AST-based code scan (`sponsio scan`) over your own codebase
 - Document parser (`sponsio scan --policy policy.md`) for natural
   language → contract
-- Trace mining (`sponsio refresh`) over your own traces: finds
-  repeating unsafe patterns and proposes new contracts
 - NL → contract parser (deterministic patterns)
 
 These will never be relicensed. New work in these areas ships under

@@ -112,9 +112,8 @@ After merge:
     "ok" before writing.
   - sponsio validate --config sponsio.yaml
 
-Done.  Host-plugin tuning, refresh from traces, flip to enforce,
-or debugging a specific contract: those live in the ``sponsio``
-skill, not in this prompt.
+Done.  Host-plugin tuning, flip to enforce, or debugging a specific
+contract: those live in the ``sponsio`` skill, not in this prompt.
 ```
 
 ## TypeScript project
@@ -225,9 +224,8 @@ After merge:
     "ok" before writing.
   - npx sponsio validate sponsio.yaml
 
-Done.  Host-plugin tuning, refresh from traces, flip to enforce,
-or debugging a specific contract: those live in the ``sponsio``
-skill, not in this prompt.
+Done.  Host-plugin tuning, flip to enforce, or debugging a specific
+contract: those live in the ``sponsio`` skill, not in this prompt.
 ```
 
 ## Why two phases (CLI then agent)

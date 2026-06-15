@@ -260,8 +260,8 @@ def _render_library_yaml(
     Output shape matches what ``plugin init`` already writes for
     ``_host`` — top-level ``agents:<agent_id>`` with optional
     ``include:`` and a list of ``contracts:``. Each contract gets a
-    ``source: plugin-scan`` tag so future ``sponsio refresh`` runs
-    can distinguish heuristic contracts from user-written ones.
+    ``source: plugin-scan`` tag so later tooling can distinguish
+    heuristic contracts from user-written ones.
     """
     contracts: list[dict] = []
     for p in proposed:

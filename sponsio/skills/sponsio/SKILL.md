@@ -1,6 +1,6 @@
 ---
 name: sponsio
-description: Install, observe, tune, enforce, and periodically refresh Sponsio — a runtime contract layer for LLM agents that blocks unsafe tool calls and scores output quality against declared rules. Use when the user wants to set up / add / install Sponsio, add guardrails or runtime safety to an LLM agent, generate or refine a sponsio.yaml, audit tool configurations for risks (data leaks, unguarded writes, missing confirmations), explain or review existing contracts, check what Sponsio would have blocked (`sponsio report`), refresh the contract library from recent traces (`sponsio refresh`), move from observe to enforce mode, or debug why a contract is (or isn't) firing. Triggers on phrases like "set up sponsio", "add sponsio", "install sponsio", "add guardrails", "monitor my agent", "harden my agent", "audit my agent", "generate contracts", "explain my sponsio.yaml", "sponsio report", "refresh contracts", "update my sponsio.yaml from traces", "flip to enforce", "false positive", "why is this rule firing".
+description: Install, observe, tune, and enforce Sponsio: a runtime contract layer for LLM agents that blocks unsafe tool calls and scores output quality against declared rules. Use when the user wants to set up / add / install Sponsio, add guardrails or runtime safety to an LLM agent, generate or refine a sponsio.yaml, audit tool configurations for risks (data leaks, unguarded writes, missing confirmations), explain or review existing contracts, check what Sponsio would have blocked (`sponsio report`), move from observe to enforce mode, or debug why a contract is (or isn't) firing. Triggers on phrases like "set up sponsio", "add sponsio", "install sponsio", "add guardrails", "monitor my agent", "harden my agent", "audit my agent", "generate contracts", "explain my sponsio.yaml", "sponsio report", "flip to enforce", "false positive", "why is this rule firing".
 ---
 
 # Sponsio — Agent Safety Lifecycle Companion
@@ -21,7 +21,6 @@ Dispatch by what the user is trying to do. Pick ONE workflow and follow it; do n
 | Tightening rules that apply to Task-spawned subagents (Cursor / Claude Code) — they lack user context and need stricter privileges than the main agent | **W2c — Subagent privilege boundary** |
 | Tuning the IDE's OWN host-plugin library (Claude Code's Bash / Read / Write / MCP gating; Cursor likewise) — different from the user's project sponsio.yaml | hand off to the ``sponsio-claude-code:configure`` skill (or the cursor analog).  Don't reimplement here. |
 | Has Sponsio running in observe mode and wants to review violations, tune thresholds, silence false positives | **W3 — Tune in observe** |
-| Wants to re-mine contracts from accumulated production traces / periodically maintain the library | **W3b — Refresh from traces** |
 | Ready to ship — wants to move from observe to enforce, needs regression confidence | **W4 — Flip to enforce** |
 | Sponsio errored, a rule isn't firing when it should, a rule is firing when it shouldn't | **W5 — Troubleshoot** |
 
@@ -48,8 +47,8 @@ are still a config-correctness bug we'd rather avoid up-front.
 ### Zone A — project YAML (you may add additively)
 
 Path: `<project>/sponsio.yaml` — the file `sponsio onboard` writes
-into the user's repo. This evolves through every onboard / scan /
-refresh cycle. **Adding** new contracts via `Edit` (extending
+into the user's repo. This evolves through every onboard / scan
+cycle. **Adding** new contracts via `Edit` (extending
 `old_string`) is the supported workflow.
 
 Three legal write modes:
@@ -75,12 +74,11 @@ Three legal write modes:
        # or disabled: true                                  # to silence (last resort)
    ```
 
-3. **Run `sponsio scan`** for bulk additions from code / policy /
-   traces — merges additively and writes atomically:
+3. **Run `sponsio scan`** for bulk additions from code / policy,
+   merges additively and writes atomically:
 
    ```bash
    sponsio scan <paths> -o ./sponsio.yaml --append
-   sponsio refresh --since 7d --apply --mode add-only
    ```
 
 ### Zone B — host bucket + plugin bundle YAMLs (user-only — never write directly)
@@ -276,7 +274,6 @@ workflows, not extensions of W1:
     That skill owns ``sponsio plugin scan`` / ``sponsio plugin
     append`` / per-MCP-server library generation.  W1 doesn't
     duplicate it.
-  - **Refresh contracts from accumulated traces** → **W3b**.
   - **Move from observe to enforce** → **W4**.
   - **Something doesn't fire / fires wrong** → **W5**.
 
@@ -397,10 +394,9 @@ Match the user's input to the source(s):
 - "Explain / review my `sponsio.yaml`" → source 1 and/or others already applied; jump to "Explain contracts" below.
 - "Scan my agent code" → source 2, code-only.
 - "We have a security policy document" → source 2, add `--policy <doc> --llm`.
-- "We already have session logs / OTLP traces" → source 2, add `-t '<glob>'` (trace mining; no LLM needed).
 - "I know the pattern I want but not the syntax" → source 4, then show them the yaml entry.
 
-If ambiguous: ask ONE question — "(a) scan your code, (b) extract from a policy document, or (c) mine from traces?"
+If ambiguous: ask ONE question — "(a) scan your code, or (b) extract from a policy document?"
 
 ### Run scan (when extraction is needed)
 
@@ -408,14 +404,14 @@ You ARE the LLM.  Use the agent-mediated path — Sponsio collects deterministic
 
 ```bash
 # 1. Sponsio dumps the deterministic inputs (AST tool inventory, policy
-#    docs, trace summary, existing yaml) as JSON:
-sponsio scan <PATHS> --agent <AGENT> [--policy <doc>] [-t '<traces>'] --emit-context
+#    docs, existing yaml) as JSON:
+sponsio scan <PATHS> --agent <AGENT> [--policy <doc>] --emit-context
 
 # 2. Sponsio prints the contract-authoring prompt template:
 sponsio prompt scan
 ```
 
-Read both, apply the prompt to the JSON in your own context, and produce contract YAML entries.  Source-tag every entry you author with `source: agent-extracted` so future `sponsio refresh` can re-consider them.  Trace-mined entries (when `-t` was passed) carry `source: trace` and are the subset W3b maintains over time.
+Read both, apply the prompt to the JSON in your own context, and produce contract YAML entries.  Source-tag every entry you author with `source: agent-extracted` so later tooling can distinguish them from heuristic rules.
 
 **Decide the write target by intent BEFORE writing**, using the W1 step-4 (A) vs (B) test.  Write path differs by destination:
 
@@ -674,69 +670,6 @@ With the assumption, the rule stays silent until the integration actually emits 
 
 ---
 
-## W3b — Refresh from traces
-
-Goal: treat `sponsio.yaml` as a **living library**, not a one-shot output. As real session logs accumulate, re-mine them to discover new patterns and retire stale ones, without clobbering anything the user wrote or tuned.
-
-### When to run
-
-- Weekly / sprint boundary — recommended cadence for an agent seeing live traffic.
-- After a material behavior change (new tools, new workflow, new integration).
-- Before flipping to enforce (W4) — catches late-arriving trace-sourced rules that weren't present in the original scan.
-
-### Steps
-
-You ARE the LLM here too.  Use the agent-mediated path: Sponsio mines deterministic candidates from the trace, you decide which to keep / drop / adjust in your own context.
-
-1. Dry-run first. Always.
-
-   ```bash
-   sponsio refresh --since 7d --emit-traces
-   sponsio prompt refresh
-   ```
-
-   The first dumps recent trace events + the current `source: trace` rules as JSON; the second prints the merge / dedup / drift prompt.  Apply the prompt to the JSON in your context — you produce a structured diff per agent.  Show the user the diff in this shape:
-
-   ```
-   Agent: support_bot
-     + new      must_precede(validate_payment, charge_card)
-     ~ drifted  rate_limit(send_email, 5) → args [send_email, 12]
-     - stale    idempotent(list_users)  (not re-observed)
-     = 8 unchanged (source: trace, re-observed)
-     = 12 preserved (user / scan / policy / customized — not touched)
-   ```
-
-2. Review with the user. For each bucket:
-   - `+ new` — "the agent started doing X that your current yaml doesn't cover." User usually wants this.
-   - `~ drifted` — threshold moved. If new value is bigger, the rule was too tight; if smaller, production tightened up. User decides.
-   - `- stale` — rule hasn't fired in this window. **Not necessarily dead** — could just be rare. Conservative default is `--mode add-only` (never remove), which we recommend for the first few refreshes until the user trusts the window size.
-   - `= preserved` — these include every user rule, `source: scan`, `source: policy`, and anything under `customized:`. The count being non-zero is the load-bearing invariant: refresh **only** ever changes `source: trace` entries.
-
-3. Apply via Edit/Write.  You produced the YAML changes in step 1 in your own context — write them to `sponsio.yaml`, back the old file up to `sponsio.yaml.sponsio.bak`, then validate:
-
-   ```bash
-   sponsio validate --config sponsio.yaml
-   ```
-
-   **Fallback** (bare CLI, no host agent): `sponsio refresh --since 7d --apply [--mode add-only|replace-trace]` — uses Sponsio's own LLM via API key.  Only that path needs a key.
-
-   **Comments in the YAML are not preserved** — the backup is how users recover any prose annotations they'd inlined. Warn them of this before running.
-
-### Mode selection
-
-| Situation | Mode |
-|---|---|
-| First time running refresh, or small trace window | `add-only` (never removes) |
-| Healthy trace volume, stable agent behavior | `replace-trace` (default — recent traces are authoritative) |
-| Window just covers a launch / migration / incident (abnormal traffic) | Skip — artifact traces mislead the miner |
-
-### Do NOT
-
-- Do NOT run refresh on traces from an agent still in early iteration. Wait until the workflow is stable; otherwise every sprint invalidates the library.
-- Do NOT remove `source: scan` / `source: policy` entries in the yaml by hand just because refresh doesn't touch them — they represent knowledge refresh can't reconstruct (code AST, policy docs). If you think one is wrong, edit `customized:`, don't delete.
-
----
-
 ## W4 — Flip to enforce
 
 Goal: move from observe to enforce with regression confidence — no more logging, actual blocking. **This is a production change**; don't skip the checks.
@@ -954,7 +887,7 @@ If asked for something out of scope (e.g., "also check my DB schema"), say so an
 
 This skill only uses these. Internal refactors are safe as long as these stay stable.
 
-1. **CLI**: `sponsio onboard`, `sponsio scan PATHS [--agent N] [--llm] [--policy P] [-t GLOB] [-o FILE] [--append]`, `sponsio refresh [-c FILE] [-a AGENT] [-t GLOB] [--since DUR] [--mode add-only|replace-trace] [--apply]`, `sponsio validate [--config FILE | "NL string"] [--json]`, `sponsio check --trace FILE --config FILE --agent ID`, `sponsio report --agent ID --since DUR`, `sponsio doctor`, `sponsio patterns`, `sponsio packs`, `sponsio skill install [--tool cursor|claude|codex|both|auto]`. Exit 0 on success.
+1. **CLI**: `sponsio onboard`, `sponsio scan PATHS [--agent N] [--llm] [--policy P] [-o FILE] [--append]`, `sponsio validate [--config FILE | "NL string"] [--json]`, `sponsio check --trace FILE --config FILE --agent ID`, `sponsio report --agent ID --since DUR`, `sponsio doctor`, `sponsio patterns`, `sponsio packs`, `sponsio skill install [--tool cursor|claude|codex|both|auto]`. Exit 0 on success.
 2. **YAML**: top-level `agents:` as dict; each agent has optional `include:` / `tool_rename:` / `customized:` / `workspace:` and required `contracts:`; top-level `runtime:`.
 3. **Patterns**: names in the table above keep their semantics. Renaming is a breaking change for this skill.
 4. **`validate --json` shape**: per-contract `ok` / `type` / `pattern` / `formula` / `agent`.

@@ -9,10 +9,10 @@ Every `sponsio` command exits 0 on success and 1 on failure (parse error, violat
 
 ## sponsio scan
 
-Scan source code, policy documents, or execution traces to discover contracts.
+Scan source code or policy documents to discover contracts.
 
 ```bash
-sponsio scan PATHS... [--llm] [--policy DOC] [--trace FILE] [-o sponsio.yaml]
+sponsio scan PATHS... [--llm] [--policy DOC] [-o sponsio.yaml]
 ```
 
 | Option | Description |
@@ -25,9 +25,6 @@ sponsio scan PATHS... [--llm] [--policy DOC] [--trace FILE] [-o sponsio.yaml]
 | `--out`, `-o` | Output file (default: `./sponsio.yaml`; `-o -` for stdout) |
 | `--append` | Append to existing file instead of overwriting |
 | `--policy`, `-p` | Policy document(s), repeatable |
-| `--trace`, `-t` | Trace file or glob (OTLP, Phoenix, Langfuse, Sponsio session JSONL). No LLM required. |
-| `--trace-min-support` | Minimum traces a pattern must appear in (default `1`) |
-| `--trace-confidence-threshold` | Confidence floor for ordering or sequence mining, 0-1 (default `0.95`) |
 
 ### Provider matrix
 
@@ -47,9 +44,6 @@ sponsio scan src/agents/
 
 # With LLM and policy
 sponsio scan src/agents/ --policy security.md --llm -o sponsio.yaml
-
-# Mine from traces (no LLM)
-sponsio scan src/ -t '~/.sponsio/sessions/agent/*.jsonl'
 
 # Local model via Ollama
 sponsio scan src/ --llm --base-url http://localhost:11434/v1 --model llama3.1
@@ -302,7 +296,7 @@ The walker ignores `mode:` lines nested under unrelated keys (e.g. `judge.fallba
 Print the agent-facing prompt template for a Sponsio workflow. Used by the `sponsio` skill (W1 initial setup, W2 audit, W3 tune, W4 enforce, W5 troubleshoot).
 
 ```bash
-sponsio prompt (onboard|refresh|scan)
+sponsio prompt (onboard|scan)
 ```
 
 Output is a copy-pasteable prompt block your AI assistant can run.

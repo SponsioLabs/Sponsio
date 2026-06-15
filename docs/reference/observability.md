@@ -16,7 +16,7 @@ ls ~/.sponsio/sessions/support_bot/
 # 2026-04-24T10-12-33Z.jsonl
 ```
 
-`sponsio report` reads these files. `sponsio scan -t '~/.sponsio/sessions/bot/*.jsonl'` mines them for contract candidates. Disable with `SPONSIO_SESSION_LOG=0` or `sessions_dir: null` in `sponsio.yaml`.
+`sponsio report` reads these files. Disable with `SPONSIO_SESSION_LOG=0` or `sessions_dir: null` in `sponsio.yaml`.
 
 ## OpenTelemetry
 

@@ -40,9 +40,8 @@ def _resolve_default_base_dir() -> Path:
 
     ``SPONSIO_SESSIONS_DIR`` (if set) takes precedence over the
     user-home default.  Used by tests + ops setups that want
-    sandboxed traces (e.g. ``sponsio refresh --emit-traces`` against
-    a CI-staged log directory).  Resolved per-import — set the env
-    before launching the sponsio process.
+    sandboxed traces (e.g. a CI-staged log directory).  Resolved
+    per-import; set the env before launching the sponsio process.
     """
     import os as _os
 

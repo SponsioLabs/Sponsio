@@ -121,8 +121,7 @@ def discover(
 
     # --- Phase 2: Trace mining ---
     # Cross-trace pattern mining is an extension point not shipped in
-    # this build (`sponsio refresh` is its user-facing entry point).
-    # We skip Phase 2 silently when the module is absent so
+    # this build. We skip Phase 2 silently when the module is absent so
     # `discover(documents=[...], code_paths=[...])` still works for
     # the single-project case.
     if all_traces:

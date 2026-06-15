@@ -65,13 +65,8 @@ SURFACE: list[tuple[tuple[str, ...], list[str]]] = [
     (("onboard",), []),
     (
         ("scan",),
-        ["--agent", "--llm", "--policy", "-t", "-o", "--append"],
+        ["--agent", "--llm", "--policy", "-o", "--append"],
     ),
-    # ``refresh`` is not part of this build: cross-trace pattern
-    # mining is an extension point that ``sponsio refresh`` would back.
-    # The SKILL.md still describes the workflow narratively (W3b) so
-    # contract authors know it exists, but the CLI no longer exposes
-    # the subcommand.
     (("validate",), ["--config", "--json"]),
     (("check",), ["--trace", "--config", "--agent"]),
     (("report",), ["--agent", "--since"]),
@@ -141,11 +136,9 @@ _NOT_SUBCOMMANDS: frozenset[str] = frozenset(
         "runtime",
         "auto",
         "skill",  # bare "sponsio skill" — the group, not a subcommand invocation
-        # ``refresh`` and ``bench`` are not part of this build: refresh
-        # is an extension point (cross-trace pattern mining), bench
-        # deleted. SKILL.md still mentions them in narrative context to
-        # explain the broader surface to users authoring contracts.
-        "refresh",
+        # ``bench`` is not part of this build (deleted). SKILL.md may
+        # still mention it in narrative context to explain the broader
+        # surface to users authoring contracts.
         "bench",
     }
 )

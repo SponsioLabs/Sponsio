@@ -231,8 +231,7 @@ LLM the prompt is written for.
    merge it into the heuristic library (or keep it as a separate
    `sponsio.semantic.yaml` next to the heuristic one).  Each
    semantic contract should carry `source: agent-extracted` so
-   future `sponsio refresh` runs can distinguish them from
-   heuristic rules.
+   later tooling can distinguish them from heuristic rules.
 
 The whole loop is fast because (a) introspect + heuristic generation
 is one CLI call, (b) the prompt is short and on-disk (no network),

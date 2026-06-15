@@ -4,8 +4,8 @@
  * Mirrors the Python ``sponsio scan`` library-maintenance flow: AST
  * scan a path, infer deterministic contracts heuristically, write a
  * sponsio.yaml (or append to an existing one). Used *after* ``onboard``
- * has set up the project — when you've added new tools and want to
- * refresh the contract list.
+ * has set up the project, when you've added new tools and want to
+ * update the contract list.
  *
  * Differs from the default ``npx sponsio <patterns>`` mode (which
  * emits a tools.json inventory) and from ``onboard`` (first-time
