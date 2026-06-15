@@ -10,6 +10,15 @@ keeps working regardless of which submodule ``X`` now lives in.
 
 from __future__ import annotations
 
+from sponsio.cli.app import cli
+
+# Command groups carved into sponsio/cli/groups/. Importing each module
+# registers its group + subcommands on `cli`; the name is re-exported
+# for back-compat (`from sponsio.cli import daemon`).
+from sponsio.cli.groups.cursor import cursor
+from sponsio.cli.groups.daemon import daemon
+
+# Still-monolithic commands/groups (carved out incrementally).
 from sponsio.cli._monolith import (
     _SKILL_TOOL_DIRS,
     _drop_contract_indices,
@@ -21,11 +30,8 @@ from sponsio.cli._monolith import (
     _stamp_bundled_source,
     _verify_skill_install_target,
     check,
-    cli,
     cmd_mode,
     cmd_prompt,
-    cursor,
-    daemon,
     demo,
     doctor,
     eval_cmd,
