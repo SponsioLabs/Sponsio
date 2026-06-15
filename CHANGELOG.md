@@ -12,7 +12,23 @@ broke.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **`@sponsio/sdk` is now edge-runtime safe.** Marked the package
+  `sideEffects` (narrowed to the CLI entry) so bundlers can tree-shake
+  the Node-only YAML/config-loading path out of edge bundles (Cloudflare
+  Workers), complementing the `createRequire` deferral in `0.2.0a3`.
+- **Trace mining fails open when its extension isn't bundled.**
+  `CodeAnalyzer` imported `TraceMiner` unguarded, crashing
+  `sponsio scan --trace` with `ModuleNotFoundError` in builds without the
+  optional `trace_mining` extension; it now degrades to "no contracts
+  mined", matching the other call sites.
+
+### Changed
+
+- Added an explicit `[tool.ruff]` config to `pyproject.toml` so local
+  lint matches CI, and synced `docs/reference/cli.md` with the real CLI
+  surface (`onboard`/`serve`/`daemon`/`cursor` now documented).
 
 ---
 
