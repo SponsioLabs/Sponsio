@@ -1,0 +1,72 @@
+# =============================================================================
+# Recipe: OpenClaw social-account actions (TweetClaw)
+#
+# A small, fully *deterministic* example for OpenClaw plugins that act through
+# a real, public social account. The shape is the common one for live
+# account-scoped tools:
+#
+#   * discovery / planning stays open  — the agent can freely review which
+#     endpoints exist and draft a post (read-only, no side effects);
+#   * the *live* action is gated       — an account-scoped post requires an
+#     explicit human re-confirmation, and is capped per session.
+#
+# `tweetclaw` is used as the concrete plugin path, but the same two contracts
+# apply to any "live, account-scoped side effect behind a planning step".
+#
+# This recipe is intentionally det-only (pure-Python checks, no LLM judge) so
+# default OSS users can validate and adapt it before opting into the broader
+# `sponsio:incident/openclaw` pack. To layer this on top of that pack, add:
+#
+#   include:
+#     - sponsio:incident/openclaw
+#
+# under the agent and keep the contracts below.
+#
+# Validate:
+#   sponsio validate --config examples/recipes/openclaw_social_actions/sponsio.yaml
+# =============================================================================
+
+version: "1"
+
+# `confirm_reconfirmed` is a marker tool: it executes nothing. The integration
+# emits a `confirm_reconfirmed` event when a human operator approves the next
+# live action, so contracts can require it. (Same marker the OpenClaw incident
+# pack uses.)
+tools:
+  - name: explore
+    description: "Read-only discovery: list/review available social endpoints and plan a post. No side effects."
+    params: "query: str"
+  - name: draft_tweet
+    description: "Compose a tweet draft locally. No live API call."
+    params: "text: str"
+  - name: tweetclaw
+    description: "TweetClaw plugin: live, account-scoped post to the connected social account."
+    params: "text: str"
+  - name: confirm_reconfirmed
+    description: "Marker: a human operator confirmed the next live action."
+
+agents:
+  social_bot:
+    contracts:
+      # 1) Discovery stays open.
+      #    `explore` (and `draft_tweet`) carry NO contract, so the default
+      #    allow policy lets the agent review endpoints and plan freely. Only
+      #    the live action below is constrained. This is the point of the
+      #    recipe: gate the side effect, not the planning that precedes it.
+
+      # 2) A live TweetClaw post requires explicit operator re-confirmation.
+      #    `must_precede(confirm_reconfirmed, tweetclaw)`: `tweetclaw` is
+      #    forbidden until a `confirm_reconfirmed` event has been observed.
+      - desc: "Live TweetClaw post requires operator re-confirmation first"
+        G:
+          pattern: must_precede
+          args: [confirm_reconfirmed, tweetclaw]
+          source: "recipe:openclaw-social-actions.confirm_before_post"
+
+      # 3) Cap live TweetClaw calls per session.
+      #    `rate_limit(tweetclaw, 3)`: at most 3 live posts in one session.
+      - desc: "At most 3 live TweetClaw posts per session"
+        G:
+          pattern: rate_limit
+          args: [tweetclaw, 3]
+          source: "recipe:openclaw-social-actions.rate_limit"
