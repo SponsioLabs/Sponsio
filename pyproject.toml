@@ -89,7 +89,7 @@ all = [
 ]
 # Pinned for the lint job. Ruff's `format` rules change between minor
 # versions, so a floating install drifts between local and CI.
-dev = ["ruff==0.15.17"]
+dev = ["ruff==0.15.20"]
 
 [tool.setuptools.packages.find]
 include = ["sponsio*"]
