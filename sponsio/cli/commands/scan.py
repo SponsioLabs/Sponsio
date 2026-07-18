@@ -230,6 +230,20 @@ def scan(
             llm = True
             _scan_progress("--config implies --llm; enabling LLM inference")
 
+    # ``--policy`` without an LLM path is a hard error, not a silent skip:
+    # the rule-based AST stage cannot read prose, so proceeding would write
+    # a YAML that quietly ignores the very document the user pointed at.
+    # (``--emit-context`` is exempt — it hands the policy text to the host
+    # agent, which does the extraction in its own LLM context.)
+    if policy and not llm:
+        raise click.UsageError(
+            f"--policy given without --llm: {len(policy)} policy file(s) "
+            "would be ignored (the AST scan cannot read prose). Either add "
+            "--llm (needs `pip install 'sponsio[llm]'` + an API key), or use "
+            "`sponsio scan --emit-context` + `sponsio prompt scan` to let "
+            "your IDE agent do the extraction with no key."
+        )
+
     analyzer = CodeAnalyzer(
         use_llm=llm,
         llm_model=model,
@@ -291,13 +305,6 @@ def scan(
             + "no contracts inferred from AST. Re-run with "
             + click.style("--llm", bold=True)
             + " (and optionally --policy <doc>) for richer inference.",
-            err=True,
-        )
-    if policy and not llm:
-        click.echo(
-            click.style("  warn: ", fg="yellow")
-            + "--policy was given but --llm was not. "
-            + f"{len(policy)} policy file(s) were ignored.",
             err=True,
         )
 
