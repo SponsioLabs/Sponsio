@@ -42,6 +42,7 @@ The semantic-convention key constants live in
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -370,6 +371,19 @@ def _new_span_id(counter: list[int]) -> str:
     return f"{counter[0]:016x}"
 
 
+def _derive_trace_id(conversation_id: str | None, agent: str) -> str:
+    """Stable 32-hex OTLP trace id per ``(conversation, agent)``.
+
+    Every turn a given agent runs in the same conversation maps to the SAME
+    trace id, so an external OTLP backend (Datadog / Honeycomb / …) groups that
+    agent's turns into one independent trace — one trace *per agent*. Different
+    agents (or conversations) get different ids. Span ids are salted per turn
+    (see ``span_tree_to_otlp``) so they stay unique within the shared trace.
+    """
+    seed = f"sponsio-trace|{conversation_id or ''}|{agent}"
+    return hashlib.sha1(seed.encode()).hexdigest()[:32]
+
+
 def _wall_time_ns(span: Any) -> tuple[int, int]:
     """Return (start_ns, end_ns) for a Span.
 
@@ -460,12 +474,22 @@ def span_tree_to_otlp(
     """
     counter: list[int] = [0]
     spans: list[dict] = []
-    trace_id = "0" * 32  # one trace per turn; per-turn isolation is the norm
+    resolved_agent = agent_id or getattr(turn_span, "agent_id", None) or "agent"
+    # Per-agent trace: every turn from the same agent (same conversation) shares
+    # one trace id, so an external OTLP backend groups them into a single
+    # independent trace per agent. Span ids are salted with this turn's identity
+    # so they stay globally unique within that shared trace.
+    trace_id = _derive_trace_id(conversation_id, resolved_agent)
+    _turn_salt = f"{trace_id}|{getattr(turn_span, 'start_time', 0)!r}"
+
+    def _mk_span_id() -> str:
+        counter[0] += 1
+        return hashlib.sha1(f"{_turn_salt}|{counter[0]}".encode()).hexdigest()[:16]
 
     def _visit(span: Any, parent_id: str | None) -> str:
         """Recursive visit. Returns the span id we minted for ``span``
         so child spans can reference it as parent."""
-        sid = _new_span_id(counter)
+        sid = _mk_span_id()
         start_ns, end_ns = _wall_time_ns(span)
 
         attrs: list[dict] = []
