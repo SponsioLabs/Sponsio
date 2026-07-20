@@ -189,6 +189,10 @@ class Contract:
     alpha: float = 1.0
     beta: float = 1.0
     activate_at: str | None = None
+    # Provenance tag ("policy" / "trace" / "user" / library tag). Carried from
+    # the YAML constraint entry so runtime tooling can attribute where a rule
+    # came from; no effect on evaluation.
+    source: str | None = None
 
     _VALID_ACTIVATE_AT = (None, "first_match")
 

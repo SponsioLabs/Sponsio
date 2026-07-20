@@ -901,6 +901,7 @@ class BaseGuard:
                     alpha=alpha,
                     beta=beta,
                     activate_at=activate_at,
+                    source=entry.get("source"),
                 )
             )
 

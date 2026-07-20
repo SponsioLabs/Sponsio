@@ -1836,6 +1836,19 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
                 )
             if ce.desc:
                 entry["desc"] = ce.desc
+            g_entries = (
+                ce.guarantee if isinstance(ce.guarantee, list) else [ce.guarantee]
+            )
+            src = next(
+                (
+                    getattr(g, "source", None)
+                    for g in g_entries
+                    if getattr(g, "source", None)
+                ),
+                None,
+            )
+            if src:
+                entry["source"] = src
             # Pass alpha/beta through only if non-default (avoids noise for
             # pure-det contracts; Contract constructor defaults are 1.0/1.0).
             if ce.alpha != 1.0:
