@@ -756,6 +756,11 @@ class RuntimeMonitor:
         collector.add_enforcement(
             strategy=type(strategy).__name__,
             result_action=enf_result.action,
+            redirect_to=(
+                str(enf_result.fallback_action)
+                if enf_result.action == "redirected" and enf_result.fallback_action
+                else None
+            ),
         )
 
         monitor_event = MonitorEvent(
