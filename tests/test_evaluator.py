@@ -1,6 +1,7 @@
 """Unit tests for sponsio/formulas/evaluator.py — finite-trace evaluation."""
 
 import pytest
+from sponsio.formulas._pred_key import pred_key
 from sponsio.formulas.evaluator import evaluate
 from sponsio.formulas.formula import (
     Atom,
@@ -19,6 +20,7 @@ from sponsio.formulas.formula import (
     Eq,
     Var,
     Const,
+    ArgValue,
 )
 
 
@@ -257,6 +259,19 @@ def test_var_missing_defaults_zero():
     # Missing var defaults to 0
     trace = [{}]
     assert evaluate(Le(Var("count", "x"), Const(0)), trace) is True
+
+
+@pytest.mark.parametrize("comparison", [Le, Lt, Ge, Gt])
+def test_ordered_comparison_mismatched_types_false(comparison):
+    value = ArgValue("pay", "amount")
+    trace = [{pred_key("arg_value", "pay", "amount"): "2"}]
+    assert evaluate(comparison(value, Const(10)), trace) is False
+
+
+def test_ordered_comparison_bool_and_number_uses_numeric_semantics():
+    value = ArgValue("pay", "amount")
+    trace = [{pred_key("arg_value", "pay", "amount"): True}]
+    assert evaluate(Lt(value, Const(2)), trace) is True
 
 
 # ---------------------------------------------------------------------------

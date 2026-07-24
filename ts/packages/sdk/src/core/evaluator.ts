@@ -128,6 +128,12 @@ function valuesEqual(a: unknown, b: unknown): boolean {
 function safeCompare(op: string, left: unknown, right: unknown): boolean {
   if (left === undefined || left === null) return false;
   if (right === undefined || right === null) return false;
+  const leftType = typeof left;
+  const rightType = typeof right;
+  const numericPair =
+    (leftType === "number" || leftType === "boolean") &&
+    (rightType === "number" || rightType === "boolean");
+  if (op !== "eq" && leftType !== rightType && !numericPair) return false;
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const l = left as any;

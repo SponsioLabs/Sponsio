@@ -13,10 +13,13 @@
 import {
   Sponsio,
   evaluate,
-  Atom, G, Implies, X, F, And,
+  Atom, G, Implies, X, F, And, Not,
   type Valuation,
 } from "../index.js";
-import { Eq, ArgValue, CtxValue, Const, predKey } from "../core/formula.js";
+import {
+  Eq, Le, Lt, Ge, Gt,
+  ArgValue, CtxValue, Const, predKey,
+} from "../core/formula.js";
 import {
   deadline,
   requiredStepsCompletion,
@@ -399,6 +402,55 @@ function testEqValueEquality() {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Ordered-comparison parity for mixed operand types
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Python raises TypeError for ordered string/number comparisons, which
+// _safe_compare maps to False. JavaScript instead coerces the string unless
+// safeCompare rejects the incompatible pair first.
+function testOrderedComparisonTypeParity() {
+  console.log("\n[ordered-comparison type parity]");
+
+  const key = predKey("arg_value", "pay", "amount");
+  const amount = new ArgValue("pay", "amount");
+  const stringTrace = [{ [key]: "2" }] as unknown as Valuation[];
+
+  for (const [name, formula] of [
+    ["Le", new Le(amount, new Const(10))],
+    ["Lt", new Lt(amount, new Const(10))],
+    ["Ge", new Ge(amount, new Const(10))],
+    ["Gt", new Gt(amount, new Const(10))],
+  ] as const) {
+    assert(
+      evaluate(formula, stringTrace) === false,
+      `${name} over string/number operands is False`,
+    );
+  }
+
+  assert(
+    evaluate(
+      new Lt(amount, new Const(10)),
+      [{ [key]: 2 }] as unknown as Valuation[],
+    ) === true,
+    "Lt over numeric operands still works",
+  );
+  assert(
+    evaluate(
+      new Lt(amount, new Const(2)),
+      [{ [key]: true }] as unknown as Valuation[],
+    ) === true,
+    "boolean/number ordering retains Python numeric semantics",
+  );
+  assert(
+    evaluate(
+      new Not(new Gt(amount, new Const(1000))),
+      [{ [key]: "5000" }] as unknown as Valuation[],
+    ) === true,
+    "Not(Gt) over string/number operands matches Python",
+  );
+}
+
 console.log("=== TS↔Python Parity Regression Tests ===\n");
 testBoundedEventuallyDeadline();
 testRequiredStepsCompletion();
@@ -406,6 +458,7 @@ testGuardBeforeRollback();
 testDeadlineNlParity();
 testDegeneratePatternRejection();
 testEqValueEquality();
+testOrderedComparisonTypeParity();
 
 console.log(`\n${"=".repeat(40)}`);
 console.log(`Results: ${passed} passed, ${failed} failed`);
