@@ -14,6 +14,10 @@ broke.
 
 ### Fixed
 
+- **TypeScript ordered comparisons now match Python on mixed operand types.**
+  `Le`, `Lt`, `Ge`, and `Gt` no longer use JavaScript coercion for
+  incompatible values such as a string tool argument and numeric constant;
+  comparisons that Python rejects now evaluate to `false` in both runtimes.
 - **`@sponsio/sdk` is now edge-runtime safe.** Marked the package
   `sideEffects` (narrowed to the CLI entry) so bundlers can tree-shake
   the Node-only YAML/config-loading path out of edge bundles (Cloudflare
