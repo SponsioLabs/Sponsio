@@ -117,6 +117,40 @@ function valuesEqual(a: unknown, b: unknown): boolean {
   return false;
 }
 
+// Plain decimal / float / scientific literal, byte-identical to the Python
+// side (sponsio/formulas/_compare.py). Excludes inf/nan/hex/empty so
+// Number() and Python float() agree exactly on every accepted string.
+const ORDERED_NUMERIC_RE = /^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/;
+
+/** Numeric value of a plain-numeric string, else null. */
+function numericString(v: unknown): number | null {
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (ORDERED_NUMERIC_RE.test(s)) {
+      const n = Number(s);
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether two operands are order-comparable the way Python is: two numbers,
+ * two strings, or bool/number mixes (Python treats bool as int). Anything
+ * else raises TypeError in Python, so we must return False rather than let
+ * JavaScript silently coerce.
+ */
+function orderComparable(l: unknown, r: unknown): boolean {
+  const tl = typeof l;
+  const tr = typeof r;
+  if (tl === "number" && tr === "number") return true;
+  if (tl === "string" && tr === "string") return true;
+  if ((tl === "boolean" || tl === "number") && (tr === "boolean" || tr === "number")) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Compare two resolved values with the canonical "missing" semantics.
  *
@@ -124,21 +158,40 @@ function valuesEqual(a: unknown, b: unknown): boolean {
  * comparison cannot decide). Same for type errors (mismatched types).
  * This is the Hoare-vacuity convention. `eq` uses `valuesEqual` for
  * Python `==` parity on composite values.
+ *
+ * Ordered comparisons coerce a plain-numeric string operand (e.g. a raw
+ * `"5000"` tool argument) to a number when the other operand is numeric, so
+ * a numeric guard compares numerically and fails closed — identically to the
+ * Python runtime. Non-coercible mismatched operands return False (mirroring
+ * Python's TypeError) instead of using JavaScript's implicit coercion.
+ * See issue #108.
  */
 function safeCompare(op: string, left: unknown, right: unknown): boolean {
   if (left === undefined || left === null) return false;
   if (right === undefined || right === null) return false;
+  let l: unknown = left;
+  let r: unknown = right;
+  if (op !== "eq") {
+    if (typeof l === "number" && typeof r === "string") {
+      const n = numericString(r);
+      if (n !== null) r = n;
+    } else if (typeof r === "number" && typeof l === "string") {
+      const n = numericString(l);
+      if (n !== null) l = n;
+    }
+    if (!orderComparable(l, r)) return false;
+  }
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const l = left as any;
+    const la = l as any;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const r = right as any;
+    const ra = r as any;
     switch (op) {
-      case "le": return l <= r;
-      case "lt": return l < r;
-      case "ge": return l >= r;
-      case "gt": return l > r;
-      case "eq": return valuesEqual(l, r);
+      case "le": return la <= ra;
+      case "lt": return la < ra;
+      case "ge": return la >= ra;
+      case "gt": return la > ra;
+      case "eq": return valuesEqual(la, ra);
     }
   } catch {
     return false;

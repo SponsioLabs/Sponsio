@@ -51,6 +51,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Union
 
+from sponsio.formulas._compare import coerce_ordered
 from sponsio.formulas.formula import (
     And,
     Atom,
@@ -117,10 +118,13 @@ def _safe_compare(op: str, left: object, right: object) -> bool:
 
     If either operand is ``None`` (Term resolved to missing), evaluate
     to ``False`` rather than raise. Same for ``TypeError`` from
-    mismatched types. Mirrors ``sponsio.formulas.evaluator._safe_compare``.
+    mismatched types. Mirrors ``sponsio.formulas.evaluator._safe_compare``,
+    including the ordered numeric-string coercion for issue #108.
     """
     if left is None or right is None:
         return False
+    if op in ("le", "lt", "ge", "gt"):
+        left, right = coerce_ordered(left, right)
     try:
         if op == "le":
             return left <= right  # type: ignore[operator]
