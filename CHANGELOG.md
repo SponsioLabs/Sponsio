@@ -14,6 +14,18 @@ broke.
 
 ### Fixed
 
+- **Ordered comparisons now agree across Python and TypeScript on numeric
+  string arguments (#108).** Raw tool arguments are grounded as strings, so
+  a naturally-written numeric guard like `Not(Gt(ArgValue("pay","amount"),
+  Const(1000)))` reached the evaluator as `compare("gt", "5000", 1000)`.
+  Python raised `TypeError` and fell through to `False` (guard held → the
+  `5000` payment was **allowed**) while TypeScript coerced and returned
+  `true` (guard violated → **blocked**) — the same contract failed *open* on
+  one runtime and *closed* on the other. Both runtimes now coerce a
+  plain-numeric string operand to a number for `Lt`/`Le`/`Gt`/`Ge` when the
+  other operand is numeric, so numeric guards compare numerically and fail
+  **closed** identically. Non-numeric strings stay incomparable (`False`),
+  and `Eq` is unchanged.
 - **`@sponsio/sdk` is now edge-runtime safe.** Marked the package
   `sideEffects` (narrowed to the CLI entry) so bundlers can tree-shake
   the Node-only YAML/config-loading path out of edge bundles (Cloudflare

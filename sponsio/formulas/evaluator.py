@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import warnings
 
+from sponsio.formulas._compare import coerce_ordered
 from sponsio.formulas.formula import (
     Atom,
     Not,
@@ -163,9 +164,17 @@ def _safe_compare(op: str, left: object, right: object) -> bool:
     falls through as not-satisfied, and the contract author should
     scope it with ``Implies(scope, comparison)`` to suppress where
     irrelevant.
+
+    Ordered comparisons additionally coerce a plain-numeric string operand
+    (e.g. a raw ``"5000"`` tool argument) to a number when the other operand
+    is numeric, so a numeric guard compares numerically and fails closed —
+    identically to the TypeScript runtime. See issue #108 and
+    ``sponsio.formulas._compare.coerce_ordered``.
     """
     if left is None or right is None:
         return False
+    if op in ("le", "lt", "ge", "gt"):
+        left, right = coerce_ordered(left, right)
     try:
         if op == "le":
             return left <= right  # type: ignore[operator]

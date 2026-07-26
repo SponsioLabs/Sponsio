@@ -1,6 +1,7 @@
 """Unit tests for sponsio/formulas/evaluator.py — finite-trace evaluation."""
 
 import pytest
+from sponsio.formulas._pred_key import pred_key
 from sponsio.formulas.evaluator import evaluate
 from sponsio.formulas.formula import (
     Atom,
@@ -19,6 +20,7 @@ from sponsio.formulas.formula import (
     Eq,
     Var,
     Const,
+    ArgValue,
 )
 
 
@@ -260,6 +262,51 @@ def test_var_missing_defaults_zero():
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Ordered comparison numeric-string coercion — Python/TS parity (issue #108)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "comparison,const,raw,expected",
+    [
+        (Gt, 1000, "5000", True),  # "5000" > 1000
+        (Lt, 10, "2", True),  # "2"    < 10
+        (Ge, 5000, "5000", True),  # "5000" >= 5000
+        (Le, 1, "2", False),  # "2"    <= 1  -> false
+        (Gt, 1000, "2", False),  # "2"    > 1000 -> false
+    ],
+)
+def test_ordered_comparison_numeric_string_coerces(comparison, const, raw, expected):
+    """A raw numeric-string tool arg compares numerically, not as a string."""
+    value = ArgValue("pay", "amount")
+    trace = [{pred_key("arg_value", "pay", "amount"): raw}]
+    assert evaluate(comparison(value, Const(const)), trace) is expected
+
+
+def test_ordered_comparison_numeric_control_matches():
+    """The numeric control agrees with the coerced-string case."""
+    value = ArgValue("pay", "amount")
+    trace = [{pred_key("arg_value", "pay", "amount"): 2}]
+    assert evaluate(Lt(value, Const(10)), trace) is True
+
+
+def test_ordered_comparison_non_numeric_string_fails_safe():
+    """A non-numeric string stays incomparable and falls through to False."""
+    value = ArgValue("pay", "amount")
+    trace = [{pred_key("arg_value", "pay", "amount"): "abc"}]
+    assert evaluate(Gt(value, Const(1000)), trace) is False
+    assert evaluate(Lt(value, Const(1000)), trace) is False
+
+
+def test_safety_guarantee_fails_closed_on_numeric_string():
+    """`Not(Gt(amount, 1000))` with raw "5000" must BLOCK (guarantee violated),
+    the concrete fail-open regression from issue #108."""
+    value = ArgValue("pay", "amount")
+    trace = [{pred_key("arg_value", "pay", "amount"): "5000"}]
+    assert evaluate(Not(Gt(value, Const(1000))), trace) is False
+
+
 # TypeError on unknown node type
 # ---------------------------------------------------------------------------
 

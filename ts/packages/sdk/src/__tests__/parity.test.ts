@@ -13,10 +13,13 @@
 import {
   Sponsio,
   evaluate,
-  Atom, G, Implies, X, F, And,
+  Atom, G, Implies, X, F, And, Not,
   type Valuation,
 } from "../index.js";
-import { Eq, ArgValue, CtxValue, Const, predKey } from "../core/formula.js";
+import {
+  Eq, Le, Lt, Ge, Gt,
+  ArgValue, CtxValue, Const, predKey,
+} from "../core/formula.js";
 import {
   deadline,
   requiredStepsCompletion,
@@ -399,6 +402,40 @@ function testEqValueEquality() {
   );
 }
 
+// Ordered comparison numeric-string coercion — parity with Python (issue #108).
+// A raw string tool arg ("5000") must compare numerically against a numeric
+// Const, so a safety guard fails CLOSED identically on both runtimes.
+function testOrderedComparisonNumericCoercion() {
+  console.log("[Ordered comparison numeric-string coercion parity]");
+  const key = (p: string, ...a: string[]) => predKey(p, ...a);
+  const amount = new ArgValue("pay", "amount");
+  const t = (raw: unknown): Valuation[] =>
+    [{ [key("arg_value", "pay", "amount")]: raw }] as unknown as Valuation[];
+
+  // Numeric-looking strings coerce and compare numerically.
+  assert(evaluate(new Gt(amount, new Const(1000)), t("5000")) === true,
+    '"5000" > 1000 is True');
+  assert(evaluate(new Lt(amount, new Const(10)), t("2")) === true,
+    '"2" < 10 is True');
+  assert(evaluate(new Ge(amount, new Const(5000)), t("5000")) === true,
+    '"5000" >= 5000 is True');
+  assert(evaluate(new Le(amount, new Const(1)), t("2")) === false,
+    '"2" <= 1 is False');
+
+  // Numeric control agrees with the coerced-string case.
+  assert(evaluate(new Lt(amount, new Const(10)), t(2)) === true,
+    "2 < 10 is True (numeric control)");
+
+  // Non-numeric string stays incomparable → False (no JS coercion).
+  assert(evaluate(new Gt(amount, new Const(1000)), t("abc")) === false,
+    '"abc" > 1000 is False (fail-safe)');
+
+  // The concrete issue #108 regression: Not(Gt(amount, 1000)) with "5000"
+  // must BLOCK (guarantee violated) — fails closed, matching Python.
+  assert(evaluate(new Not(new Gt(amount, new Const(1000))), t("5000")) === false,
+    "Not(Gt(amount,1000)) with '5000' fails closed (blocks)");
+}
+
 console.log("=== TS↔Python Parity Regression Tests ===\n");
 testBoundedEventuallyDeadline();
 testRequiredStepsCompletion();
@@ -406,6 +443,7 @@ testGuardBeforeRollback();
 testDeadlineNlParity();
 testDegeneratePatternRejection();
 testEqValueEquality();
+testOrderedComparisonNumericCoercion();
 
 console.log(`\n${"=".repeat(40)}`);
 console.log(`Results: ${passed} passed, ${failed} failed`);
