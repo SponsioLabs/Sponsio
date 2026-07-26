@@ -843,6 +843,7 @@ All frameworks share the same `sponsio.yaml`; only the wiring at the agent entry
 **LangGraph** (Python):
 ```python
 from sponsio.langgraph import Sponsio
+
 guard = Sponsio(agent_id="support_bot", config="sponsio.yaml")
 graph = guard.wrap_graph(graph)
 ```
@@ -850,6 +851,7 @@ graph = guard.wrap_graph(graph)
 **OpenAI Agents SDK** (Python):
 ```python
 from sponsio.openai_agents import Sponsio
+
 guard = Sponsio(agent_id="support_bot", config="sponsio.yaml")
 agent = Agent(tools=guard.wrap(tools))
 ```
@@ -859,9 +861,10 @@ agent = Agent(tools=guard.wrap(tools))
 **No framework** (bare LLM calls):
 ```python
 from sponsio import Sponsio
+
 guard = Sponsio(agent_id="support_bot", config="sponsio.yaml")
-guard.guard_before(tool_name="...", tool_args={...})   # before the call
-guard.guard_after(output="...")                         # after
+guard.guard_before(tool_name="...", tool_args={...})  # before the call
+guard.guard_after(output="...")  # after
 ```
 
 **TypeScript** (`@sponsio/core`):
