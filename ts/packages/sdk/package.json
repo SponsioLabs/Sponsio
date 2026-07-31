@@ -76,7 +76,7 @@
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.5",
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.1.2",
     "esbuild": "^0.28.1",
     "tsx": "^4.23.1",
     "typescript": "^5.5.0"
