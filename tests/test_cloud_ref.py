@@ -111,7 +111,7 @@ def test_network_failure_falls_back_to_cache(tmp_path, capsys):
 
     assert path == cached
     out = capsys.readouterr().out
-    assert "unreachable" in out and "stale" in out
+    assert "unreachable" in out and "last cached copy" in out
 
 
 def test_no_key_uses_local_yaml(tmp_path, capsys):

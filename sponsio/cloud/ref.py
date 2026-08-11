@@ -156,7 +156,9 @@ def resolve_config_ref(
         )
 
     if cached.is_file():
-        _say(f"rulebook ← cache (stale) · {cached}", quiet=quiet)
+        # Not "stale": we have no TTL and no way to know whether the book
+        # moved. Say what is true — this is the last copy we pulled.
+        _say(f"rulebook ← last cached copy · {cached}", quiet=quiet)
         return cached
 
     local = _find_local_fallback(cwd)

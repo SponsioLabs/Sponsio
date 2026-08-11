@@ -66,7 +66,7 @@ def patched(monkeypatch):
 
     written: dict = {}
 
-    def fake_write(key, path=None):
+    def fake_write(key, url=None, path=None):
         written["key"] = key
         return "/tmp/creds"
 

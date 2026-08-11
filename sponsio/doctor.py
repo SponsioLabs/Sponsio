@@ -181,6 +181,34 @@ def check_llm_credentials() -> CheckResult:
     )
 
 
+def _config_mode() -> tuple[str, str] | None:
+    """The mode a config in the cwd would actually produce, and its source.
+
+    Resolved the way ``sponsio.core`` resolves it — ``runtime.mode`` first,
+    then ``defaults.mode`` — rather than by reimplementing part of it here.
+    A partial copy is how this check ended up reporting "observe" with a
+    green tick for a config whose ``runtime.mode: enforce`` was blocking
+    calls at runtime, which is the most dangerous direction to be wrong in.
+    """
+    for name in ("sponsio.yaml", "sponsio.yml"):
+        candidate = Path.cwd() / name
+        if not candidate.is_file():
+            continue
+        try:
+            from sponsio.config import load_config
+
+            parsed = load_config(candidate)
+        except Exception:  # noqa: BLE001 - doctor never fails on a bad file
+            return None
+        if parsed.runtime.mode:
+            return parsed.runtime.mode, "runtime.mode"
+        default_mode = parsed.defaults.get("mode")
+        if isinstance(default_mode, str):
+            return default_mode, "defaults.mode"
+        return None
+    return None
+
+
 def check_mode() -> CheckResult:
     """Report the effective runtime mode.
 
@@ -196,6 +224,22 @@ def check_mode() -> CheckResult:
     """
     mode = os.environ.get("SPONSIO_MODE")
     if mode is None:
+        # The env var is not the only source. A config's ``defaults.mode``
+        # sets the mode too, and reporting "observe" while the yaml on disk
+        # says ``enforce`` tells users they are in shadow mode when they are
+        # not — the most dangerous direction for this line to be wrong in.
+        resolved = _config_mode()
+        if resolved is not None:
+            config_mode, source = resolved
+            if config_mode == "enforce":
+                return CheckResult(
+                    "Runtime mode",
+                    "warn",
+                    f"enforce (from sponsio.yaml `{source}`) → violations will BLOCK the agent",
+                )
+            return CheckResult(
+                "Runtime mode", "ok", f"{config_mode} (from sponsio.yaml `{source}`)"
+            )
         return CheckResult(
             "Runtime mode",
             "ok",

@@ -504,7 +504,17 @@ class BaseGuard:
                 )
             from sponsio.config import config_to_guard_kwargs, load_config
 
-            parsed = load_config(config)
+            try:
+                parsed = load_config(config)
+            except Exception as exc:
+                # A cloud config that cannot resolve fails with a sentence
+                # worth reading; a raw traceback buries it under a stack the
+                # user cannot act on. Re-raise as a clean error.
+                from sponsio.cloud.ref import CloudRefError
+
+                if isinstance(exc, CloudRefError):
+                    raise RuntimeError(str(exc)) from None
+                raise
             # Auto-infer agent_id
             if agent_id == "agent" and agent_id not in parsed.agents:
                 if len(parsed.agents) == 1:

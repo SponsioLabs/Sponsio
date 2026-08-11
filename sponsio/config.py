@@ -329,6 +329,11 @@ class SponsoConfig:
     performance: PerformanceSection = field(default_factory=PerformanceSection)
     runtime: RuntimeSection = field(default_factory=RuntimeSection)
     tool_policy: ToolPolicySection = field(default_factory=ToolPolicySection)
+    top_level_mode: str | None = None
+    """A bare top-level ``mode:``. Documented in
+    docs/reference/config-yaml.md as the global default, so a file written
+    exactly as documented has to work; it is the lowest-precedence yaml
+    source, after ``runtime.mode`` and ``defaults.mode``."""
 
 
 class ConfigError(Exception):
@@ -412,6 +417,22 @@ def _parse_performance_section(raw: Any) -> PerformanceSection:
 
 
 _VALID_RUNTIME_MODES = frozenset({"enforce", "observe"})
+
+
+def _parse_top_level_mode(raw: Any) -> str | None:
+    """A bare ``mode:`` at the document root.
+
+    Same validation as ``runtime.mode``: an unrecognised value is a typo the
+    user wants to hear about, not something to silently ignore — silently
+    ignoring it is exactly how this key spent its life documented and inert.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or raw.strip().lower() not in ("enforce", "observe"):
+        raise ConfigError(
+            f"top-level `mode` must be one of ['enforce', 'observe'], got {raw!r}"
+        )
+    return raw.strip().lower()
 
 
 def _parse_runtime_section(raw: Any) -> RuntimeSection:
@@ -1428,6 +1449,7 @@ def load_config(path: str | Path) -> SponsoConfig:
         performance=_parse_performance_section(raw.get("performance")),
         runtime=_parse_runtime_section(raw.get("runtime")),
         tool_policy=_parse_tool_policy_section(raw.get("tool_policy")),
+        top_level_mode=_parse_top_level_mode(raw.get("mode")),
     )
 
     # Parse tools section

@@ -50,7 +50,7 @@ def login(key: str | None, url: str | None) -> None:
         # into a confusing failure inside an agent run days later.
         raise click.ClickException(f"key not accepted by {client.url}: {exc}") from exc
 
-    path = write_api_key(key)
+    path = write_api_key(key, url=client.url)
     tenant = (identity.get("tenant") or {}).get("name") or "unknown"
     click.echo(f"logged in to {client.url} as {tenant}")
     click.echo(f"key saved to {path} (0600)")
@@ -124,3 +124,33 @@ def push(config_path: str, project: str | None, url: str | None) -> None:
         # start would otherwise look like it keeps changing the book.
         state = "unchanged" if book.get("unchanged") else "new version"
         click.echo(f"  {name}: v{book.get('version')} · {book.get('rules')} rules · {state}")
+
+
+@cli.command()
+@click.option("--url", "url", help="API base URL")
+def projects(url: str | None) -> None:
+    """List the projects this key can reach.
+
+    Without this, ``pull``'s default of ``default`` is undiscoverable: the
+    only way to learn a project name was to already know it.
+    """
+    from sponsio.cloud.client import CloudError
+
+    client = _client(url=url)
+    if not client.configured:
+        raise click.ClickException("no API key: set SPONSIO_API_KEY or run `sponsio login`")
+
+    try:
+        identity = client.whoami()
+    except CloudError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    names = identity.get("projects") or []
+    if not names:
+        click.echo("no projects yet — `sponsio push sponsio.yaml --project <name>` creates one")
+        return
+    for name in names:
+        click.echo(name)
+    agents = identity.get("agents_with_rulebooks") or []
+    if agents:
+        click.echo("\nagents with a published rulebook: " + ", ".join(agents))

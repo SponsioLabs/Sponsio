@@ -29,17 +29,37 @@ DEFAULT_RETRIES = 2
 CREDENTIALS_PATH = Path.home() / ".sponsio" / "credentials"
 
 
-def write_api_key(key: str, *, path: Path | None = None) -> Path:
+def write_api_key(key: str, *, url: str | None = None, path: Path | None = None) -> Path:
     """Persist a key for future runs, readable only by this user.
+
+    The endpoint is stored with it. A key is only valid against the service
+    that issued it, so saving the key alone lets a key verified against a
+    local or staging server be sent to production on the next run.
 
     0600 matters: this file is a bearer credential, and the default umask on
     a shared box would leave it world-readable.
     """
     target = path or CREDENTIALS_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(f"# Sponsio credentials. Keep private.\napi_key={key}\n")
+    lines = ["# Sponsio credentials. Keep private.", f"api_key={key}"]
+    if url:
+        lines.append(f"url={url}")
+    target.write_text("\n".join(lines) + "\n")
     target.chmod(0o600)
     return target
+
+
+def read_saved_url() -> str | None:
+    """The endpoint ``sponsio login`` verified the saved key against."""
+    try:
+        raw = CREDENTIALS_PATH.read_text()
+    except OSError:
+        return None
+    for line in raw.splitlines():
+        name, _, value = line.strip().partition("=")
+        if name.strip() == "url" and value.strip():
+            return value.strip()
+    return None
 
 
 class CloudError(RuntimeError):
@@ -84,7 +104,12 @@ def read_api_key() -> str | None:
 
 
 def base_url() -> str:
-    return os.environ.get("SPONSIO_API_URL", DEFAULT_BASE_URL).rstrip("/")
+    """Env var, then the endpoint login saved, then production."""
+    explicit = os.environ.get("SPONSIO_API_URL", "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    saved = read_saved_url()
+    return (saved or DEFAULT_BASE_URL).rstrip("/")
 
 
 class CloudClient:
