@@ -670,6 +670,59 @@ def _next_step(results: list[CheckResult]) -> str:
     return "Ready.  Try ``sponsio demo`` to see Sponsio in action."
 
 
+def check_cloud() -> CheckResult:
+    """Say what the SDK will do on this machine, before an agent run does it.
+
+    The point of this check is that cloud behaviour is implicit: a guard with
+    ``config="sponsio://..."`` checks out at construction without being asked.
+    A user should be able to find out what that will do from the terminal,
+    not by reading a stack trace later.
+
+    No key is ``skip``, not ``fail``. Running fully local is the default
+    mode, not a broken setup.
+    """
+    from sponsio.cloud.client import CloudClient, CloudError
+
+    client = CloudClient()
+    if not client.configured:
+        return CheckResult(
+            "Cloud",
+            "skip",
+            "no API key — enforcement runs fully local (set SPONSIO_API_KEY "
+            "or run `sponsio login` to use a hosted rulebook)",
+        )
+
+    try:
+        identity = client.whoami()
+    except CloudError as exc:
+        if exc.status in (401, 403):
+            return CheckResult(
+                "Cloud",
+                "fail",
+                f"key rejected by {client.url} — `sponsio://` configs will fall "
+                f"back to a cached or local rulebook",
+            )
+        return CheckResult(
+            "Cloud",
+            "warn",
+            f"{client.url} unreachable ({exc}) — `sponsio://` configs will fall "
+            f"back to a cached or local rulebook",
+        )
+
+    tenant = (identity.get("tenant") or {}).get("name") or "?"
+    projects = identity.get("projects") or []
+    agents = identity.get("agents_with_rulebooks") or []
+    detail = f"{client.url} · {tenant}"
+    if projects:
+        detail += " · projects: " + ", ".join(projects)
+    detail += (
+        " · rulebooks published for: " + ", ".join(agents)
+        if agents
+        else " · no rulebook published yet (a first push will create one)"
+    )
+    return CheckResult("Cloud", "ok", detail)
+
+
 def run_doctor(path: Path, *, with_llm: bool = False) -> tuple[list[CheckResult], int]:
     """Run all checks against ``path`` and return ``(results, exit_code)``.
 
@@ -689,6 +742,7 @@ def run_doctor(path: Path, *, with_llm: bool = False) -> tuple[list[CheckResult]
         lambda: check_sponsio_yaml(path),
         lambda: check_project_scan(path),
         check_guard_smoke,
+        check_cloud,
         # Skill check last: it's informational ("the Agent Skill
         # feature is optional"), so it should never distract from
         # hard failures above.

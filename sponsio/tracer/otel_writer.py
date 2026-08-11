@@ -270,11 +270,26 @@ def _events_to_spans(events: list[Event]) -> list[dict]:
     return spans
 
 
+def _rulebook_stamp() -> str | None:
+    """The rulebook header of the config this process loaded, if any.
+
+    Read from the resolved file rather than threaded through every call
+    site: the stamp is a property of the config that was loaded, and
+    plumbing it through would touch every integration for one string.
+    Returns None when the config was not a cloud checkout.
+    """
+    import os
+
+    stamp = os.environ.get("SPONSIO_RULEBOOK_STAMP", "").strip()
+    return stamp or None
+
+
 def trace_to_otlp(
     trace: Trace,
     *,
     agent_id: str | None = None,
     service_name: str | None = None,
+    rulebook: str | None = None,
 ) -> dict:
     """Convert a Sponsio ``Trace`` to OTLP JSON that round-trips.
 
@@ -299,13 +314,20 @@ def trace_to_otlp(
 
     spans = _events_to_spans(trace.events)
 
+    resource_attrs = [_attr("service.name", resolved_agent)]
+    # Which rulebook this run enforced, e.g. "quant@v7 sha:fee1dc1943d0".
+    # Without it a recorded trace cannot be replayed against the book it
+    # actually ran under, and the console cannot tell a run on a stale
+    # checkout from a run on the current one.
+    resolved_rulebook = rulebook or _rulebook_stamp()
+    if resolved_rulebook:
+        resource_attrs.append(_attr("sponsio.rulebook", resolved_rulebook))
+
     return {
         "resourceSpans": [
             {
                 "resource": {
-                    "attributes": [
-                        _attr("service.name", resolved_agent),
-                    ],
+                    "attributes": resource_attrs,
                 },
                 "scopeSpans": [
                     {

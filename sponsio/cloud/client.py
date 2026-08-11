@@ -29,6 +29,19 @@ DEFAULT_RETRIES = 2
 CREDENTIALS_PATH = Path.home() / ".sponsio" / "credentials"
 
 
+def write_api_key(key: str, *, path: Path | None = None) -> Path:
+    """Persist a key for future runs, readable only by this user.
+
+    0600 matters: this file is a bearer credential, and the default umask on
+    a shared box would leave it world-readable.
+    """
+    target = path or CREDENTIALS_PATH
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(f"# Sponsio credentials. Keep private.\napi_key={key}\n")
+    target.chmod(0o600)
+    return target
+
+
 class CloudError(RuntimeError):
     """A cloud call did not succeed. Callers decide whether that is fatal."""
 
@@ -135,6 +148,25 @@ class CloudClient:
         if isinstance(parsed, dict):
             return str(parsed.get("detail") or parsed.get("error") or fallback)
         return fallback
+
+    # -- identity ----------------------------------------------------------
+
+    def whoami(self) -> dict:
+        """Check a key and report what it reaches.
+
+        Worth a round trip from ``login`` and ``doctor``: a wrong key should
+        fail while the user is looking at the terminal, not two days later
+        inside an agent run.
+        """
+        status, payload, _ = self._request("GET", "/v1/whoami")
+        if status in (401, 403):
+            raise CloudError("key rejected", status=status)
+        if status != 200:
+            raise CloudError(self._detail(payload, f"whoami failed ({status})"), status=status)
+        try:
+            return json.loads(payload.decode())
+        except ValueError as exc:
+            raise CloudError("whoami returned a non-JSON body") from exc
 
     # -- rulebook ----------------------------------------------------------
 

@@ -139,6 +139,13 @@ def resolve_config_ref(
                 scratch.write_text(pulled.yaml_text)
                 return scratch
             stamp = pulled.versions or "?"
+            # Record which book this process is running, so the tracer can
+            # stamp it on every exported trace. A recorded run that does not
+            # name its rulebook cannot be replayed against the book it
+            # actually enforced.
+            os.environ["SPONSIO_RULEBOOK_STAMP"] = (
+                f"{ref.project} {stamp}" + (f" sha:{pulled.sha}" if pulled.sha else "")
+            )
             _say(f"rulebook ← cloud checkout · {ref.project} {stamp}", quiet=quiet)
             return cached
     else:

@@ -172,3 +172,43 @@ def test_load_config_accepts_a_cloud_ref(tmp_path, monkeypatch):
 
     cfg = load_config("sponsio://alpha")
     assert "quant" in cfg.agents
+
+
+# -- rulebook stamp --------------------------------------------------------
+
+
+def test_checkout_records_the_rulebook_stamp(tmp_path, monkeypatch):
+    """A recorded run has to name the book it enforced, or it cannot be
+    replayed against it."""
+    import os
+
+    monkeypatch.delenv("SPONSIO_RULEBOOK_STAMP", raising=False)
+    client = FakeClient(result=PulledRulebook(YAML, versions="quant@v3", sha="abc123abc123"))
+
+    resolve_config_ref("sponsio://alpha", client=client, cwd=tmp_path, quiet=True)
+
+    stamp = os.environ["SPONSIO_RULEBOOK_STAMP"]
+    assert "alpha" in stamp and "quant@v3" in stamp and "sha:abc123abc123" in stamp
+
+
+def test_tracer_stamps_the_rulebook_on_exported_traces(monkeypatch):
+    from sponsio.models.trace import Trace
+    from sponsio.tracer.otel_writer import trace_to_otlp
+
+    monkeypatch.setenv("SPONSIO_RULEBOOK_STAMP", "alpha quant@v3 sha:abc")
+    otlp = trace_to_otlp(Trace(events=[]), agent_id="quant")
+
+    attrs = otlp["resourceSpans"][0]["resource"]["attributes"]
+    by_key = {a["key"]: a["value"]["stringValue"] for a in attrs}
+    assert by_key["sponsio.rulebook"] == "alpha quant@v3 sha:abc"
+
+
+def test_local_runs_carry_no_rulebook_attribute(monkeypatch):
+    from sponsio.models.trace import Trace
+    from sponsio.tracer.otel_writer import trace_to_otlp
+
+    monkeypatch.delenv("SPONSIO_RULEBOOK_STAMP", raising=False)
+    otlp = trace_to_otlp(Trace(events=[]), agent_id="quant")
+
+    keys = {a["key"] for a in otlp["resourceSpans"][0]["resource"]["attributes"]}
+    assert "sponsio.rulebook" not in keys
