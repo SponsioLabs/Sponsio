@@ -1393,6 +1393,15 @@ def load_config(path: str | Path) -> SponsoConfig:
             "Install with: pip install 'sponsio[config]'"
         )
 
+    # ``sponsio://project`` resolves to a local file first: a cloud checkout
+    # if a key is set and the service answers, the last cached copy if not,
+    # a local yaml if we never pulled. Everything below this line stays a
+    # plain file load, and the enforcement path never learns the difference.
+    if isinstance(path, str) and path.startswith("sponsio://"):
+        from sponsio.cloud.ref import resolve_config_ref
+
+        path = resolve_config_ref(path)
+
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
