@@ -18,6 +18,40 @@ from sponsio.bridge.spans import (
 )
 
 
+def _contracts_from_guard(guard: Any) -> list[dict]:
+    """Project the guard's contracts into view-model rows.
+
+    Status comes from each contract's effective mode, so an observing book
+    with one armed rule shows exactly that instead of claiming all or
+    nothing.
+    """
+    rows: list[dict] = []
+    system = getattr(guard, "_system", None)
+    global_mode = getattr(guard, "mode", "observe")
+    for contract in getattr(system, "_contracts", None) or []:
+        for guarantee in getattr(contract, "guarantees", None) or []:
+            label = getattr(guarantee, "desc", None) or getattr(contract, "desc", None)
+            if not label:
+                continue
+            if isinstance(label, list):
+                label = " ".join(str(x) for x in label)
+            mode = getattr(contract, "mode", None) or global_mode
+            row = {
+                "id": slug(str(label)),
+                "label": str(label),
+                "status": "armed" if mode == "enforce" else "watching",
+                "pipeline": "det",
+                "violationCount": 0,
+            }
+            authored = getattr(contract, "desc", None)
+            # The authored sentence and the compiled formula's description
+            # can differ; a violation may arrive under either spelling.
+            if authored and str(authored) != str(label):
+                row["_alt_label"] = str(authored)
+            rows.append(row)
+    return rows
+
+
 def _trace_id(agent: str) -> str:
     """A stable 128-bit id per agent, so each agent's steps group into their
     own trace the way OTEL expects."""
@@ -66,7 +100,10 @@ class BridgeSession:
         self.client = client
 
         self.contracts: dict[str, dict] = {}
-        for raw in contracts or []:
+        # Default to the guard's own book. Without this the console shows a
+        # run with an empty Rulebook, which reads as "nothing was checked"
+        # when in fact everything was.
+        for raw in contracts if contracts is not None else _contracts_from_guard(guard):
             contract = dict(raw)
             contract.setdefault("violationCount", 0)
             contract.setdefault("status", "armed")

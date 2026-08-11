@@ -343,3 +343,67 @@ def test_the_payload_reports_the_mode_the_run_used(tmp_path, mode):
 
     assert client.sent[-1]["vm"]["session"]["mode"] == mode
     _ = run
+
+
+# -- the rulebook the run enforced -----------------------------------------
+
+
+class FakeGuarantee:
+    def __init__(self, desc):
+        self.desc = desc
+
+
+class FakeContract:
+    def __init__(self, desc, mode=None):
+        self.desc = desc
+        self.mode = mode
+        self.guarantees = [FakeGuarantee(desc)]
+
+
+class FakeSystem:
+    def __init__(self, contracts):
+        self._contracts = contracts
+
+
+def test_the_run_carries_the_guards_book_without_being_told(tmp_path):
+    """A console showing a run with an empty Rulebook reads as "nothing was
+    checked" when in fact everything was."""
+    guard, client = FakeGuard(mode="observe"), FakeClient()
+    guard._system = FakeSystem([FakeContract("no rm"), FakeContract("cap notify")])
+
+    run = attach(guard, client=client, runs_dir=tmp_path)
+
+    assert {c["label"] for c in run.contracts.values()} == {"no rm", "cap notify"}
+    assert run.summary()["contractsTotal"] == 2
+
+
+def test_contract_status_reflects_each_rules_own_mode(tmp_path):
+    """An observing book with one armed rule shows exactly that, instead of
+    claiming all or nothing."""
+    guard, client = FakeGuard(mode="observe"), FakeClient()
+    guard._system = FakeSystem(
+        [FakeContract("armed one", mode="enforce"), FakeContract("watched one")]
+    )
+
+    run = attach(guard, client=client, runs_dir=tmp_path)
+    by_label = {c["label"]: c["status"] for c in run.contracts.values()}
+
+    assert by_label == {"armed one": "armed", "watched one": "watching"}
+
+
+def test_an_explicit_contract_list_still_wins(tmp_path):
+    guard, client = FakeGuard(), FakeClient()
+    guard._system = FakeSystem([FakeContract("from the guard")])
+
+    run = attach(
+        guard, client=client, runs_dir=tmp_path,
+        contracts=[{"id": "x", "label": "supplied by the caller"}],
+    )
+
+    assert [c["label"] for c in run.contracts.values()] == ["supplied by the caller"]
+
+
+def test_a_guard_without_a_system_is_not_an_error(tmp_path):
+    guard, client = FakeGuard(), FakeClient()
+    run = attach(guard, client=client, runs_dir=tmp_path)
+    assert run.contracts == {}
