@@ -146,6 +146,14 @@ class ContractEntry:
     desc: str | None = None
     alpha: float = 1.0
     beta: float = 1.0
+    mode: str | None = None
+    """Per-contract enforcement mode: ``enforce`` | ``observe``.
+
+    Overrides the global mode for this contract alone, which is what
+    docs/reference/config-yaml.md has always promised. ``None`` means "no
+    opinion" and the global mode applies — that distinction matters, since
+    defaulting to ``observe`` here would silently downgrade every contract
+    that simply did not mention a mode."""
     activate_at: str | None = None
     """Trigger-then-enforce semantic switch.  See ``Contract.activate_at``
     docstring.  Default ``None`` = global semantics; ``"first_match"`` =
@@ -702,6 +710,15 @@ def _parse_contract_entry(item: Any, agent_id: str) -> ContractEntry:
 
     alpha, beta = _parse_thresholds(item, agent_id)
 
+    mode = item.get("mode")
+    if mode is not None:
+        if not isinstance(mode, str) or mode.strip().lower() not in ("enforce", "observe"):
+            raise ConfigError(
+                f"Agent '{agent_id}': contract `mode` must be one of "
+                f"['enforce', 'observe'], got {mode!r}"
+            )
+        mode = mode.strip().lower()
+
     activate_at = item.get("activate_at")
     if activate_at is not None and activate_at not in ("first_match",):
         raise ConfigError(
@@ -715,6 +732,7 @@ def _parse_contract_entry(item: Any, agent_id: str) -> ContractEntry:
         desc=desc,
         alpha=alpha,
         beta=beta,
+        mode=mode,
         activate_at=activate_at,
     )
 
@@ -1888,6 +1906,8 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
                 entry["beta"] = ce.beta
             if ce.activate_at is not None:
                 entry["activate_at"] = ce.activate_at
+            if ce.mode is not None:
+                entry["mode"] = ce.mode
             contract_dicts.append(entry)
         except ConfigError as exc:
             # In strict mode (enforce default, or SPONSIO_STRICT_COMPILE=1)
@@ -2054,6 +2074,7 @@ def config_to_system(
                     desc=ce.desc,
                     alpha=ce.alpha,
                     beta=ce.beta,
+                    mode=ce.mode,
                 )
             )
 

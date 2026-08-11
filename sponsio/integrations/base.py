@@ -734,6 +734,24 @@ class BaseGuard:
                         attached = getattr(e, "enforcement_strategy", None)
                         self._policy[desc_key] = attached or DetBlock()
 
+        # --- Per-contract modes ---
+        # Keyed exactly like ``self._policy`` (the guarantee's desc), so the
+        # monitor can look up both with the same verdict key. A contract
+        # without its own ``mode:`` stays out of the map and follows the
+        # global mode; putting every contract in here with a default would
+        # make "no opinion" indistinguishable from "explicitly observe".
+        self._contract_modes: dict[str, str] = {}
+        for contract in self._system._contracts:
+            contract_mode = getattr(contract, "mode", None)
+            if not contract_mode:
+                continue
+            for e in contract.guarantees:
+                desc_key = getattr(e, "desc", None)
+                if isinstance(desc_key, list):
+                    desc_key = " ".join(str(x) for x in desc_key)
+                if desc_key:
+                    self._contract_modes[desc_key] = contract_mode
+
         # --- Create monitor ---
         # The monitor is det-only: sto plumbing lives on this BaseGuard
         # (``self._sto_evaluator``) and only fires through the
@@ -744,6 +762,7 @@ class BaseGuard:
             system=self._system,
             policy=self._policy,
             mode=self._mode,
+            contract_modes=self._contract_modes,
         )
         # Stash the (possibly externally-injected) sto evaluator on
         # this guard so ``check_soft`` / ``refine`` can reach it
@@ -890,6 +909,9 @@ class BaseGuard:
             alpha = float(entry.get("alpha", 1.0))
             beta = float(entry.get("beta", 1.0))
             activate_at = entry.get("activate_at")
+            # Per-contract enforcement mode, if the yaml set one. Absent =
+            # no opinion = the global mode applies.
+            contract_mode = entry.get("mode")
 
             parsed_e = self._parse_constraint_field(
                 e_raw, user_formulas, soft_constraints
@@ -910,6 +932,7 @@ class BaseGuard:
                     desc=desc,
                     alpha=alpha,
                     beta=beta,
+                    mode=contract_mode,
                     activate_at=activate_at,
                     source=entry.get("source"),
                 )

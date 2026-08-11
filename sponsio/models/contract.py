@@ -188,6 +188,13 @@ class Contract:
     desc: str | None = None
     alpha: float = 1.0
     beta: float = 1.0
+    mode: str | None = None
+    """Per-contract enforcement mode: ``enforce`` | ``observe`` | ``None``.
+
+    ``None`` means the global mode applies. Set, it wins for this contract
+    alone — a high-confidence rule can block while the rest of the book is
+    still being observed, which is the whole point of tuning a rulebook
+    rule by rule instead of flipping one global switch."""
     activate_at: str | None = None
     # Provenance tag ("policy" / "trace" / "user" / library tag). Carried from
     # the YAML constraint entry so runtime tooling can attribute where a rule
@@ -471,6 +478,8 @@ def make_contracts(
                 desc=desc,
                 alpha=alpha,
                 beta=beta,
+                mode=entry.get("mode"),
+                activate_at=entry.get("activate_at"),
             )
         )
 
