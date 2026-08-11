@@ -127,8 +127,14 @@ def cmd_mode(target_mode: str, config_path: Path):
 
     Prefers to update the ``runtime.mode:`` line (which both the Python
     and TS loaders read), falling back to ``defaults.mode:`` (Python
-    only) or inserting a fresh ``runtime:`` block when neither exists.
-    Comments and surrounding lines survive untouched.
+    only). Comments and surrounding lines survive untouched.
+
+    **This command flips an existing mode line; it does not create one.**
+    ``sponsio mode observe`` will write the block if it is missing, but
+    ``sponsio mode enforce`` refuses to: arming enforcement on a file that
+    never asked for it should be a decision someone makes on purpose, not a
+    side effect of a command that was meant to flip a switch. On a config
+    with no mode line, run ``sponsio mode observe`` first, then flip.
     """
     text = config_path.read_text(encoding="utf-8")
     new_text, action = _patch_mode_in_yaml(text, target_mode)
