@@ -226,6 +226,27 @@ class CloudClient:
             agent=headers.get("x-rulebook-agent"),
         )
 
+    # -- sessions ----------------------------------------------------------
+
+    def ingest_session(self, project: str, payload: dict) -> dict:
+        """Send a run (or an update to one) to the cloud.
+
+        Idempotent on the session key server-side, so a retry after a blip
+        cannot double a run. Callers on the hot path must not block on this:
+        the run-phase rule is outbound-only and best-effort, and losing
+        telemetry must never change what the agent does.
+        """
+        path = "/v1/sessions/ingest" + (f"?project={project}" if project else "")
+        status, body, _ = self._request(
+            "POST", path, body=json.dumps(payload).encode(), content_type="application/json"
+        )
+        if status != 200:
+            raise CloudError(self._detail(body, f"ingest failed ({status})"), status=status)
+        try:
+            return json.loads(body.decode())
+        except ValueError as exc:
+            raise CloudError("ingest returned a non-JSON body") from exc
+
     def push_rulebook(self, project: str, yaml_text: str) -> dict:
         """Publish a local yaml as the next version of each agent's book."""
         path = "/v1/rulebook/push" + (f"?project={project}" if project else "")
