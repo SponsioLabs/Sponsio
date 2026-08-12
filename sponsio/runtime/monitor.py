@@ -122,9 +122,13 @@ class RuntimeMonitor:
         hard_evaluator: DetEvaluator | None = None,
         policy: dict[str, EnforcementStrategy] | None = None,
         mode: str = "enforce",
+        contract_modes: dict[str, str] | None = None,
     ) -> None:
         if mode not in ("enforce", "observe"):
             raise ValueError(f"mode must be 'enforce' or 'observe', got {mode!r}")
+        # Per-contract overrides, keyed the same way as ``policy``. A rule
+        # absent from this map has no opinion and follows the global mode.
+        self._contract_modes = dict(contract_modes or {})
         if hard_evaluator is not None:
             # The previous implementation stored this on ``self`` and
             # never read it. operators believed they had wired custom
@@ -202,7 +206,23 @@ class RuntimeMonitor:
         """Enforcement mode: ``"enforce"`` or ``"observe"`` (shadow)."""
         return self._mode
 
-    def _maybe_downgrade(self, result: EnforcementResult) -> EnforcementResult:
+    def _effective_mode(self, lookup_key: str | None) -> str:
+        """The mode that governs one contract.
+
+        A contract's own ``mode:`` wins over the global one. Without this,
+        a rulebook could only be flipped wholesale, and a per-rule decision
+        was something the config could express and the runtime could not
+        read.
+        """
+        if lookup_key is not None:
+            per_contract = self._contract_modes.get(lookup_key)
+            if per_contract:
+                return per_contract
+        return self._mode
+
+    def _maybe_downgrade(
+        self, result: EnforcementResult, lookup_key: str | None = None
+    ) -> EnforcementResult:
         """In observe mode, downgrade any enforcement action to ``"observed"``.
 
         The original action is preserved in the message so reporters and
@@ -217,7 +237,7 @@ class RuntimeMonitor:
         """
         if self._dry_run_depth > 0:
             return result
-        if self._mode != "observe":
+        if self._effective_mode(lookup_key) != "observe":
             return result
         original = result.action
         # Keep the original action literal intact for anyone sniffing the
@@ -710,7 +730,9 @@ class RuntimeMonitor:
             result_action="escalated",
         )
 
-        enforcement_result = self._maybe_downgrade(strategy.enforce(violation, context))
+        enforcement_result = self._maybe_downgrade(
+            strategy.enforce(violation, context), a_verdict.lookup_key
+        )
         monitor_event = MonitorEvent(
             agent_id=agent_id,
             action=context.action,
@@ -746,7 +768,9 @@ class RuntimeMonitor:
         if strategy is None:
             strategy = DetBlock()
 
-        enf_result = self._maybe_downgrade(strategy.enforce(violation, context))
+        enf_result = self._maybe_downgrade(
+            strategy.enforce(violation, context), e_verdict.lookup_key
+        )
 
         collector.add_violation(
             kind="guarantee",
@@ -756,6 +780,11 @@ class RuntimeMonitor:
         collector.add_enforcement(
             strategy=type(strategy).__name__,
             result_action=enf_result.action,
+            redirect_to=(
+                str(enf_result.fallback_action)
+                if enf_result.action == "redirected" and enf_result.fallback_action
+                else None
+            ),
         )
 
         monitor_event = MonitorEvent(

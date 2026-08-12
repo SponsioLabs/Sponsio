@@ -334,6 +334,42 @@ class TestParenting:
         assert violation["parentSpanId"] == contract["spanId"]
 
 
+def _trace_id_of(otlp: dict) -> str:
+    return otlp["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["traceId"]
+
+
+def _span_ids_of(otlp: dict) -> set:
+    return {s["spanId"] for s in otlp["resourceSpans"][0]["scopeSpans"][0]["spans"]}
+
+
+class TestPerAgentTrace:
+    """Each agent's turns aggregate into one independent trace, so external
+    OTLP backends group them per agent (not per turn)."""
+
+    def test_same_agent_shares_one_trace_id(self):
+        turn = _make_minimal_turn()
+        a = span_tree_to_otlp(turn, agent_id="data_agent", conversation_id="c1")
+        b = span_tree_to_otlp(turn, agent_id="data_agent", conversation_id="c1")
+        assert _trace_id_of(a) == _trace_id_of(b)
+        assert len(_trace_id_of(a)) == 32
+
+    def test_different_agents_get_different_trace_ids(self):
+        turn = _make_minimal_turn()
+        a = span_tree_to_otlp(turn, agent_id="data_agent", conversation_id="c1")
+        b = span_tree_to_otlp(turn, agent_id="quant_dev", conversation_id="c1")
+        assert _trace_id_of(a) != _trace_id_of(b)
+
+    def test_span_ids_unique_across_turns_of_one_trace(self):
+        t1 = _make_minimal_turn(blocked=True)
+        t2 = _make_minimal_turn(blocked=True)
+        t2.start_time = t1.start_time + 1.0  # a later turn on the same agent
+        a = span_tree_to_otlp(t1, agent_id="data_agent", conversation_id="c1")
+        b = span_tree_to_otlp(t2, agent_id="data_agent", conversation_id="c1")
+        # same trace id, but no span-id collisions across the two turns
+        assert _trace_id_of(a) == _trace_id_of(b)
+        assert _span_ids_of(a).isdisjoint(_span_ids_of(b))
+
+
 class TestStatusCode:
     def test_violated_maps_to_otlp_error(self):
         turn = _make_minimal_turn(blocked=True)

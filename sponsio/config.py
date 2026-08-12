@@ -146,6 +146,14 @@ class ContractEntry:
     desc: str | None = None
     alpha: float = 1.0
     beta: float = 1.0
+    mode: str | None = None
+    """Per-contract enforcement mode: ``enforce`` | ``observe``.
+
+    Overrides the global mode for this contract alone, which is what
+    docs/reference/config-yaml.md has always promised. ``None`` means "no
+    opinion" and the global mode applies — that distinction matters, since
+    defaulting to ``observe`` here would silently downgrade every contract
+    that simply did not mention a mode."""
     activate_at: str | None = None
     """Trigger-then-enforce semantic switch.  See ``Contract.activate_at``
     docstring.  Default ``None`` = global semantics; ``"first_match"`` =
@@ -329,6 +337,11 @@ class SponsoConfig:
     performance: PerformanceSection = field(default_factory=PerformanceSection)
     runtime: RuntimeSection = field(default_factory=RuntimeSection)
     tool_policy: ToolPolicySection = field(default_factory=ToolPolicySection)
+    top_level_mode: str | None = None
+    """A bare top-level ``mode:``. Documented in
+    docs/reference/config-yaml.md as the global default, so a file written
+    exactly as documented has to work; it is the lowest-precedence yaml
+    source, after ``runtime.mode`` and ``defaults.mode``."""
 
 
 class ConfigError(Exception):
@@ -412,6 +425,22 @@ def _parse_performance_section(raw: Any) -> PerformanceSection:
 
 
 _VALID_RUNTIME_MODES = frozenset({"enforce", "observe"})
+
+
+def _parse_top_level_mode(raw: Any) -> str | None:
+    """A bare ``mode:`` at the document root.
+
+    Same validation as ``runtime.mode``: an unrecognised value is a typo the
+    user wants to hear about, not something to silently ignore — silently
+    ignoring it is exactly how this key spent its life documented and inert.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or raw.strip().lower() not in ("enforce", "observe"):
+        raise ConfigError(
+            f"top-level `mode` must be one of ['enforce', 'observe'], got {raw!r}"
+        )
+    return raw.strip().lower()
 
 
 def _parse_runtime_section(raw: Any) -> RuntimeSection:
@@ -681,6 +710,15 @@ def _parse_contract_entry(item: Any, agent_id: str) -> ContractEntry:
 
     alpha, beta = _parse_thresholds(item, agent_id)
 
+    mode = item.get("mode")
+    if mode is not None:
+        if not isinstance(mode, str) or mode.strip().lower() not in ("enforce", "observe"):
+            raise ConfigError(
+                f"Agent '{agent_id}': contract `mode` must be one of "
+                f"['enforce', 'observe'], got {mode!r}"
+            )
+        mode = mode.strip().lower()
+
     activate_at = item.get("activate_at")
     if activate_at is not None and activate_at not in ("first_match",):
         raise ConfigError(
@@ -694,6 +732,7 @@ def _parse_contract_entry(item: Any, agent_id: str) -> ContractEntry:
         desc=desc,
         alpha=alpha,
         beta=beta,
+        mode=mode,
         activate_at=activate_at,
     )
 
@@ -1393,6 +1432,15 @@ def load_config(path: str | Path) -> SponsoConfig:
             "Install with: pip install 'sponsio[config]'"
         )
 
+    # ``sponsio://project`` resolves to a local file first: a cloud checkout
+    # if a key is set and the service answers, the last cached copy if not,
+    # a local yaml if we never pulled. Everything below this line stays a
+    # plain file load, and the enforcement path never learns the difference.
+    if isinstance(path, str) and path.startswith("sponsio://"):
+        from sponsio.cloud.ref import resolve_config_ref
+
+        path = resolve_config_ref(path)
+
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
@@ -1419,6 +1467,7 @@ def load_config(path: str | Path) -> SponsoConfig:
         performance=_parse_performance_section(raw.get("performance")),
         runtime=_parse_runtime_section(raw.get("runtime")),
         tool_policy=_parse_tool_policy_section(raw.get("tool_policy")),
+        top_level_mode=_parse_top_level_mode(raw.get("mode")),
     )
 
     # Parse tools section
@@ -1836,6 +1885,19 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
                 )
             if ce.desc:
                 entry["desc"] = ce.desc
+            g_entries = (
+                ce.guarantee if isinstance(ce.guarantee, list) else [ce.guarantee]
+            )
+            src = next(
+                (
+                    getattr(g, "source", None)
+                    for g in g_entries
+                    if getattr(g, "source", None)
+                ),
+                None,
+            )
+            if src:
+                entry["source"] = src
             # Pass alpha/beta through only if non-default (avoids noise for
             # pure-det contracts; Contract constructor defaults are 1.0/1.0).
             if ce.alpha != 1.0:
@@ -1844,6 +1906,8 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
                 entry["beta"] = ce.beta
             if ce.activate_at is not None:
                 entry["activate_at"] = ce.activate_at
+            if ce.mode is not None:
+                entry["mode"] = ce.mode
             contract_dicts.append(entry)
         except ConfigError as exc:
             # In strict mode (enforce default, or SPONSIO_STRICT_COMPILE=1)
@@ -2010,6 +2074,7 @@ def config_to_system(
                     desc=ce.desc,
                     alpha=ce.alpha,
                     beta=ce.beta,
+                    mode=ce.mode,
                 )
             )
 

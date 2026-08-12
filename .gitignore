@@ -63,6 +63,11 @@ web-reference/
 claude_cowork/
 twitter-scout/
 
+# Local-only demo console (agent-trace + contract-violation visualizer).
+# Built to record a demo video; not part of the shipped repo. See
+# console/README.md. Distribution TBD — keep local until decided.
+console/
+
 # Runtime data — entire directory is local-only (scores, WAL, etc.).
 # Only `data/README.md` is tracked so clones know not to commit DB files.
 data/*
@@ -145,3 +150,4 @@ assets/sponsio-comparison-openclaw.png
 assets/sponsio-comparison-temporal.png
 assets/_render_comparison_temporal.py
 
+.gstack/

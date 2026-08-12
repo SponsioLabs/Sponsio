@@ -17,7 +17,14 @@ def patterns():
         click.echo()
         for name, example, meaning in items:
             click.echo(click.style(f"  {name}", fg=color, bold=True))
-            click.echo(f"    Example : {example}")
+            # `yaml:` marks a pattern with no natural-language form yet.
+            # Printing a sentence that `sponsio validate` rejects sends
+            # people to copy something that cannot work; printing the yaml
+            # that does work costs a line and saves the detour.
+            if example.startswith("yaml: "):
+                click.echo(f"    Yaml    : {example[len('yaml: '):]}")
+            else:
+                click.echo(f"    Example : {example}")
             click.echo(click.style(f"    Meaning : {meaning}", dim=True))
             click.echo()
 
@@ -26,42 +33,42 @@ def patterns():
     _section(
         "Core Temporal Patterns (14 det)",
         [
-            ("must_precede", "tool `A` must precede `B`", "A must happen before B"),
+            ("must_precede", "tool `check_policy` must precede `issue_refund`", "A must happen before B"),
             (
                 "always_followed_by",
-                "tool `A` must always be followed by `B`",
+                "tool `start_task` must always be followed by `log_result`",
                 "whenever A, eventually B",
             ),
-            ("no_reversal", "cannot `B` after `A`", "A commits; B forbidden after"),
+            ("no_reversal", "cannot `edit_loan` after `aml_check`", "A commits; B forbidden after"),
             (
                 "requires_permission",
-                "tool `X` requires permission `perm`",
+                "tool `refund` requires permission `finance`",
                 "tool needs authorization",
             ),
-            ("no_data_leak", "no data leak from `src` to `ext`", "data containment"),
+            ("no_data_leak", "no data leak from `read_secrets` to `http_post`", "data containment"),
             (
                 "mutual_exclusion",
-                "`A` and `B` are mutually exclusive",
+                "`grant_access` and `revoke_access` are mutually exclusive",
                 "at most one per session",
             ),
-            ("rate_limit", "tool `X` at most N times", "frequency cap"),
-            ("idempotent", "tool `X` must execute at most once", "single execution"),
+            ("rate_limit", "tool `send_email` at most 3 times", "frequency cap"),
+            ("idempotent", "tool `charge_card` must execute at most once", "single execution"),
             (
                 "deadline",
-                "`action` within N steps of `trigger`",
+                "`notify` within 5 steps of `alert`",
                 "time-bounded obligation",
             ),
-            ("must_confirm", "tool `X` requires confirmation", "human-in-the-loop"),
-            ("cooldown", "N steps between consecutive `X`", "minimum interval"),
+            ("must_confirm", "tool `delete_record` requires confirmation", "human-in-the-loop"),
+            ("cooldown", "yaml: G: {pattern: cooldown, args: [retry_payment, 3]}", "minimum interval"),
             (
                 "segregation_of_duty",
-                "review and approve by different agents",
+                "`review` and `approve` must be called by different agents",
                 "separation of concerns",
             ),
-            ("bounded_retry", "tool `X` limited to N retries", "retry cap"),
+            ("bounded_retry", "yaml: G: {pattern: bounded_retry, args: [fetch_url, 2]}", "retry cap"),
             (
                 "loop_detection",
-                "tool `X` at most N consecutive calls",
+                "yaml: G: {pattern: loop_detection, args: [search, 4]}",
                 "runaway loop prevention",
             ),
         ],
@@ -74,12 +81,12 @@ def patterns():
         [
             (
                 "arg_blacklist",
-                "tool `bash` arg `command` must not match `rm -rf`",
+                "tool `bash` arg `command` must not contain `rm -rf`",
                 "forbid patterns in args",
             ),
             (
                 "arg_allowlist",
-                "tool `send_money` arg `recipient` must be one of `US-internal-001`, `US-internal-002`",
+                "yaml: G: {pattern: arg_allowlist, args: [send_money, recipient, ['^US-internal-00[12]$']]}",
                 "arg must match one of the allowed patterns",
             ),
             (
@@ -89,12 +96,12 @@ def patterns():
             ),
             (
                 "arg_length_limit",
-                "tool `bash` arg `command` max 500 chars",
+                "yaml: G: {pattern: arg_length_limit, args: [bash, command, 500]}",
                 "block code-injection via long args",
             ),
             (
                 "data_intact",
-                "`grep` must use only original data files",
+                "`grep` must not follow `write_file`",
                 "tool must use unmodified data",
             ),
         ],
@@ -107,12 +114,12 @@ def patterns():
         [
             (
                 "destructive_action_gate",
-                "`delete_db` requires approval from `approver`",
+                "`delete_db` requires confirmation",
                 "human approval + role for destructive ops",
             ),
             (
                 "untrusted_source_gate",
-                "after `web_fetch`, `send_email` requires re-confirmation",
+                "never `send_email` after `web_fetch`",
                 "re-confirm after untrusted input (A,E pair)",
             ),
             (
@@ -122,17 +129,17 @@ def patterns():
             ),
             (
                 "tool_allowlist",
-                "only [`read_file`, `write_file`] may be called",
+                "yaml: G: {pattern: tool_allowlist, args: [['read_file', 'write_file']]}",
                 "first-line defense against injected tools",
             ),
             (
                 "dangerous_bash_commands",
-                "ban `rm -rf`, `sudo`, `chmod` in bash",
+                "tool `bash` arg `command` must not contain `rm -rf`",
                 "preset: dangerous shell commands",
             ),
             (
                 "dangerous_sql_verbs",
-                "ban `DROP`, `TRUNCATE` in `execute_sql`",
+                "yaml: G: {pattern: dangerous_sql_verbs, args: [execute_sql, ['DROP', 'TRUNCATE']]}",
                 "preset: dangerous SQL verbs",
             ),
             (
@@ -155,17 +162,17 @@ def patterns():
         [
             (
                 "token_budget",
-                "session total tokens must not exceed 100000",
+                "yaml: G: {pattern: token_budget, args: [100000]}",
                 "limit token consumption",
             ),
             (
                 "arg_value_range",
-                "tool `set_price` field `amount` in [0, 1000]",
+                "yaml: G: {pattern: arg_value_range, args: [set_price, amount, 0, 1000]}",
                 "constrain numeric arguments",
             ),
             (
                 "delegation_depth_limit",
-                "delegation chain max depth 3",
+                "yaml: G: {pattern: delegation_depth_limit, args: [3]}",
                 "limit agent-to-agent delegation",
             ),
         ],

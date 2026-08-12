@@ -447,6 +447,17 @@ class ToolInfo:
         docstring: Extracted docstring (for LLM context).
         params: Parameter names and annotations (for LLM context).
         source: Source code of the function body (for LLM context).
+        is_graph_node: True when this entry came from a LangGraph
+            ``add_node()`` registration rather than a decorated tool /
+            MCP registration / bare tool list. Graph nodes name
+            orchestration *stages*, not necessarily the identifiers an
+            agent's actual guarded tool-call boundary uses (a project
+            can call ``guard.guard_before(tool, args)`` with a
+            different, dynamic ``tool`` value from inside a node
+            function) — so callers that build blanket
+            allowlist/ordering rules over "all discovered tool names"
+            should treat these separately rather than assuming a graph
+            node name is itself a callable tool identifier.
     """
 
     name: str
@@ -456,6 +467,7 @@ class ToolInfo:
     docstring: str = ""
     params: str = ""
     source: str = ""
+    is_graph_node: bool = False
 
 
 class CodeAnalyzer:
@@ -982,6 +994,44 @@ class CodeAnalyzer:
         # Common convention names as fallback
         graph_vars.update({"graph", "builder", "workflow"})
 
+        # `for name, fn in [("a", a), ("b", b)]: g.add_node(name, fn)` is a
+        # common idiomatic way to register several nodes at once. The direct
+        # per-call scan below sees `add_node(name, fn)` with `name` as a bare
+        # loop variable and can't tell what it's bound to — left unhandled,
+        # that reads as a single tool literally named "name". Resolve the
+        # loop's literal (name, fn) pairs first so the real names are used,
+        # and remember which add_node() calls this covered so the scan below
+        # doesn't also emit the bogus loop-variable reading for them.
+        handled_call_ids: set[int] = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.For):
+                continue
+            resolved = self._resolve_for_loop_add_node(node, graph_vars)
+            if resolved is None:
+                continue
+            pairs, add_node_call = resolved
+            handled_call_ids.add(id(add_node_call))
+            for name, fn_ref in pairs:
+                if not name or name in seen_names:
+                    continue
+                seen_names.add(name)
+                tool_info = ToolInfo(
+                    name=name,
+                    filepath=filename,
+                    line=add_node_call.lineno,
+                    is_graph_node=True,
+                )
+                method_name = None
+                if isinstance(fn_ref, ast.Attribute):
+                    method_name = fn_ref.attr
+                elif isinstance(fn_ref, ast.Name):
+                    method_name = fn_ref.id
+                if method_name:
+                    self._resolve_func_body(
+                        tree, method_name, source_lines, tool_info
+                    )
+                tools.append(tool_info)
+
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -990,6 +1040,8 @@ class CodeAnalyzer:
                 continue
             if node.func.attr != "add_node":
                 continue
+            if id(node) in handled_call_ids:
+                continue  # already resolved via the for-loop literal above
             # Check the object is a known graph variable
             if isinstance(node.func.value, ast.Name):
                 if node.func.value.id not in graph_vars:
@@ -1004,6 +1056,7 @@ class CodeAnalyzer:
                         name=name,
                         filepath=filename,
                         line=node.lineno,
+                        is_graph_node=True,
                     )
                     # Resolve method reference: self._node_X → find definition
                     if len(node.args) >= 2:
@@ -1019,6 +1072,52 @@ class CodeAnalyzer:
                             )
                     tools.append(tool_info)
         return tools
+
+    @staticmethod
+    def _resolve_for_loop_add_node(
+        for_node: ast.For, graph_vars: set[str]
+    ) -> tuple[list[tuple[str, ast.expr]], ast.Call] | None:
+        """Recognize `for name, fn in [("a", a), ...]: g.add_node(name, fn)`.
+
+        Returns the literal (name, fn-reference) pairs and the matched
+        add_node() call, or None if the loop doesn't match this exact idiom.
+        """
+        target = for_node.target
+        if not (isinstance(target, ast.Tuple) and len(target.elts) == 2):
+            return None
+        name_var, fn_var = target.elts
+        if not (isinstance(name_var, ast.Name) and isinstance(fn_var, ast.Name)):
+            return None
+
+        iterable = for_node.iter
+        if not isinstance(iterable, (ast.List, ast.Tuple)):
+            return None
+        pairs: list[tuple[str, ast.expr]] = []
+        for elt in iterable.elts:
+            if not (isinstance(elt, ast.Tuple) and len(elt.elts) == 2):
+                return None
+            name_lit, fn_ref = elt.elts
+            if not (isinstance(name_lit, ast.Constant) and isinstance(name_lit.value, str)):
+                return None
+            pairs.append((name_lit.value, fn_ref))
+
+        add_node_call = None
+        for stmt in ast.walk(for_node):
+            if (
+                isinstance(stmt, ast.Call)
+                and isinstance(stmt.func, ast.Attribute)
+                and stmt.func.attr == "add_node"
+                and isinstance(stmt.func.value, ast.Name)
+                and stmt.func.value.id in graph_vars
+                and len(stmt.args) >= 1
+                and isinstance(stmt.args[0], ast.Name)
+                and stmt.args[0].id == name_var.id
+            ):
+                add_node_call = stmt
+                break
+        if add_node_call is None:
+            return None
+        return pairs, add_node_call
 
     def _resolve_func_body(
         self,
@@ -1135,8 +1234,18 @@ class CodeAnalyzer:
     def _gen_call_graph(self, tools: list[ToolInfo]) -> list[ProposedConstraint]:
         results: list[ProposedConstraint] = []
         emitted: set[tuple[str, str]] = set()
+        # Graph-node pairs (LangGraph add_edge, surfaced as a "calls"
+        # edge between two add_node()-registered names) describe
+        # orchestration order, not a guaranteed guarded tool-call
+        # boundary — skip them here rather than emit a must_precede
+        # that's vacuously true whenever neither node name is ever a
+        # real guard_before() argument (harmless but confusing noise
+        # in the proposed contract set).
+        graph_node_names = {t.name for t in tools if t.is_graph_node}
         for tool in tools:
             for callee in tool.calls:
+                if tool.name in graph_node_names or callee in graph_node_names:
+                    continue
                 pair = (callee, tool.name)
                 if pair in emitted:
                     continue
@@ -1695,6 +1804,7 @@ class CodeAnalyzer:
                 "docstring": t.docstring,
                 "params": t.params,
                 "calls": t.calls,
+                "is_graph_node": t.is_graph_node,
             }
             for t in all_tools
         ]

@@ -238,11 +238,16 @@ class EnforcementSpan(Span):
 
     strategy: str = ""
     result_action: str = ""
+    # For ``redirected``: the pre-declared safe tool that executed instead
+    # of the offending call (RedirectToSafe's substitute target).
+    redirect_to: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = super().to_dict()
         d["strategy"] = self.strategy
         d["result_action"] = self.result_action
+        if self.redirect_to:
+            d["redirect_to"] = self.redirect_to
         return d
 
 
@@ -513,13 +518,19 @@ class SpanCollector:
         self.current.children.append(span)
         return span
 
-    def add_enforcement(self, strategy: str, result_action: str) -> EnforcementSpan:
+    def add_enforcement(
+        self,
+        strategy: str,
+        result_action: str,
+        redirect_to: str | None = None,
+    ) -> EnforcementSpan:
         """Add an enforcement span as a child of the current span (no push)."""
         span = EnforcementSpan(
             span_type="sponsio.enforcement",
             start_time=time.monotonic(),
             strategy=strategy,
             result_action=result_action,
+            redirect_to=redirect_to,
         )
         span.finish()
         self.current.children.append(span)

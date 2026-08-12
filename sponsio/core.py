@@ -377,7 +377,14 @@ def Sponsio(  # noqa: N802 (branded factory function)
             )
         from sponsio.config import load_config
 
-        parsed = load_config(config)
+        try:
+            parsed = load_config(config)
+        except Exception as exc:
+            from sponsio.cloud.ref import CloudRefError
+
+            if isinstance(exc, CloudRefError):
+                raise RuntimeError(str(exc)) from None
+            raise
 
     # tool_policy validation now lives in ``BaseGuard.__init__`` so
     # all entry paths (this factory, framework-specific guard classes,
@@ -406,7 +413,17 @@ def Sponsio(  # noqa: N802 (branded factory function)
     # workflow), and users had to learn the undocumented ``runtime:``
     # alternative to make the yaml authoritative.
     if mode is None and parsed is not None and "SPONSIO_MODE" not in os.environ:
-        yaml_mode = parsed.runtime.mode or parsed.defaults.get("mode")
+        # Third source: a bare top-level ``mode:``. docs/reference/config-yaml.md
+        # lists it under "every top-level field" and documents it as the
+        # global default, but only ``runtime.mode`` and ``defaults.mode``
+        # were ever read — so a file written exactly as documented ran in
+        # observe while saying enforce. Same silent downgrade as the other
+        # two branches, and the docs made it the most likely one to hit.
+        yaml_mode = (
+            parsed.runtime.mode
+            or parsed.defaults.get("mode")
+            or parsed.top_level_mode
+        )
         if yaml_mode:
             mode = yaml_mode
 

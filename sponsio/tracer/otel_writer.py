@@ -42,6 +42,7 @@ The semantic-convention key constants live in
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -269,11 +270,26 @@ def _events_to_spans(events: list[Event]) -> list[dict]:
     return spans
 
 
+def _rulebook_stamp() -> str | None:
+    """The rulebook header of the config this process loaded, if any.
+
+    Read from the resolved file rather than threaded through every call
+    site: the stamp is a property of the config that was loaded, and
+    plumbing it through would touch every integration for one string.
+    Returns None when the config was not a cloud checkout.
+    """
+    import os
+
+    stamp = os.environ.get("SPONSIO_RULEBOOK_STAMP", "").strip()
+    return stamp or None
+
+
 def trace_to_otlp(
     trace: Trace,
     *,
     agent_id: str | None = None,
     service_name: str | None = None,
+    rulebook: str | None = None,
 ) -> dict:
     """Convert a Sponsio ``Trace`` to OTLP JSON that round-trips.
 
@@ -298,13 +314,20 @@ def trace_to_otlp(
 
     spans = _events_to_spans(trace.events)
 
+    resource_attrs = [_attr("service.name", resolved_agent)]
+    # Which rulebook this run enforced, e.g. "quant@v7 sha:fee1dc1943d0".
+    # Without it a recorded trace cannot be replayed against the book it
+    # actually ran under, and the console cannot tell a run on a stale
+    # checkout from a run on the current one.
+    resolved_rulebook = rulebook or _rulebook_stamp()
+    if resolved_rulebook:
+        resource_attrs.append(_attr("sponsio.rulebook", resolved_rulebook))
+
     return {
         "resourceSpans": [
             {
                 "resource": {
-                    "attributes": [
-                        _attr("service.name", resolved_agent),
-                    ],
+                    "attributes": resource_attrs,
                 },
                 "scopeSpans": [
                     {
@@ -368,6 +391,19 @@ def _new_span_id(counter: list[int]) -> str:
     nested ``_visit`` recursions without threading a return value."""
     counter[0] += 1
     return f"{counter[0]:016x}"
+
+
+def _derive_trace_id(conversation_id: str | None, agent: str) -> str:
+    """Stable 32-hex OTLP trace id per ``(conversation, agent)``.
+
+    Every turn a given agent runs in the same conversation maps to the SAME
+    trace id, so an external OTLP backend (Datadog / Honeycomb / …) groups that
+    agent's turns into one independent trace — one trace *per agent*. Different
+    agents (or conversations) get different ids. Span ids are salted per turn
+    (see ``span_tree_to_otlp``) so they stay unique within the shared trace.
+    """
+    seed = f"sponsio-trace|{conversation_id or ''}|{agent}"
+    return hashlib.sha1(seed.encode()).hexdigest()[:32]
 
 
 def _wall_time_ns(span: Any) -> tuple[int, int]:
@@ -460,12 +496,22 @@ def span_tree_to_otlp(
     """
     counter: list[int] = [0]
     spans: list[dict] = []
-    trace_id = "0" * 32  # one trace per turn; per-turn isolation is the norm
+    resolved_agent = agent_id or getattr(turn_span, "agent_id", None) or "agent"
+    # Per-agent trace: every turn from the same agent (same conversation) shares
+    # one trace id, so an external OTLP backend groups them into a single
+    # independent trace per agent. Span ids are salted with this turn's identity
+    # so they stay globally unique within that shared trace.
+    trace_id = _derive_trace_id(conversation_id, resolved_agent)
+    _turn_salt = f"{trace_id}|{getattr(turn_span, 'start_time', 0)!r}"
+
+    def _mk_span_id() -> str:
+        counter[0] += 1
+        return hashlib.sha1(f"{_turn_salt}|{counter[0]}".encode()).hexdigest()[:16]
 
     def _visit(span: Any, parent_id: str | None) -> str:
         """Recursive visit. Returns the span id we minted for ``span``
         so child spans can reference it as parent."""
-        sid = _new_span_id(counter)
+        sid = _mk_span_id()
         start_ns, end_ns = _wall_time_ns(span)
 
         attrs: list[dict] = []

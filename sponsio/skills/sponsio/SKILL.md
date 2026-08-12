@@ -23,6 +23,7 @@ Dispatch by what the user is trying to do. Pick ONE workflow and follow it; do n
 | Has Sponsio running in observe mode and wants to review violations, tune thresholds, silence false positives | **W3 — Tune in observe** |
 | Ready to ship — wants to move from observe to enforce, needs regression confidence | **W4 — Flip to enforce** |
 | Sponsio errored, a rule isn't firing when it should, a rule is firing when it shouldn't | **W5 — Troubleshoot** |
+| Just ran their agent and asks "did anything slip through?" / wants NEW contracts proposed from a run's traces ("check my last run", self-evolving rulebook) | **W6 — Discover missing contracts from traces** |
 
 Do NOT trigger for: general LLM-safety discussions not tied to a specific codebase; non-agent code review (linting, correctness).
 
@@ -385,7 +386,7 @@ Sponsio contracts come from four sources, mixable in one yaml:
 | # | Source | What it is | Command |
 |---|---|---|---|
 | 1 | **Shipped packs** | Pre-built, parameterized rule sets (`sponsio:core/universal`, `sponsio:capability/shell`, …) | Hand-add `include: [sponsio:<spec>]` — or W1's `onboard` does it automatically |
-| 2 | **Extraction** | AST + optional LLM inference from your code / policy docs / execution traces | `sponsio scan <paths> [--llm] [--policy <doc>] [-t <trace-glob>]` |
+| 2 | **Extraction** | AST + optional LLM inference from your code / policy docs. For traces: read the trace yourself (session JSONL or an exported trace), propose candidates, and confirm each with `sponsio check --trace` | `sponsio scan <paths> [--llm] [--policy <doc>]`; trace mining is agent-driven + `sponsio check --trace <file> --config <cand.yaml> --agent <id>` |
 | 3 | **User input** | An NL sentence or a structured dict the user writes | Hand-edit `sponsio.yaml`; validate a single NL string with `sponsio validate "<NL>"` |
 | 4 | **Pattern library** | Deterministic parameterized templates (`rate_limit`, `must_precede`, `arg_blacklist`, …) — full list via `sponsio patterns` | `sponsio patterns` to browse; hand-write the YAML entry |
 
@@ -746,6 +747,47 @@ sponsio scan <paths> --agent <id> -o sponsio.yaml
 ```
 
 Then hand-apply the integration snippet for your framework from the "Integration snippets" section below.
+
+---
+
+## W6 — Discover missing contracts from traces
+
+Goal: after a run, mine its trace for risky sequences the current rulebook did
+NOT catch, and propose new contracts. W3 tunes *existing* rules from their
+violations; W6 finds the rules that *don't exist yet*.
+
+### Steps
+
+1. **Get a faithful trace.** Best: an exported trace with tool args —
+   `guard.trace.export(path)` / `guard.export_trace()` in code, or an artifact
+   your integration writes (e.g. `console/runs/<key>.trace.json`). Fallback:
+   the observe-mode session log `~/.sponsio/sessions/<agent>/*.jsonl`
+   (NOTE: session logs omit tool args, so arg-based rules can't be mined
+   from them — only ordering/count rules).
+
+2. **Reconstruct and hunt.** Read the ordered tool sequence (with args when
+   available). Skip anything already in the trace's caught-violation metadata.
+   Look for: sensitive-read → outbound-send (taint), destructive args that went
+   through, actions missing a precondition step, arg values outside the set
+   seen elsewhere, hot loops / repeats.
+
+3. **Vocabulary.** Run `sponsio patterns` for the full pattern list; if nothing
+   fits, use an NL rule that `sponsio validate` accepts, or a raw formula over
+   the grounding atoms (`called`, `arg_has`, `arg_field_has`, `flow`, …).
+
+4. **Confirm every candidate on the trace it came from** — author a minimal
+   candidate yaml and require VIOLATED:
+
+   ```bash
+   sponsio check --trace <trace-file> --config /tmp/candidate.yaml --agent <id>
+   ```
+
+   A candidate that passes on its own source trace is unsupported; drop it.
+
+5. **Propose as a YAML diff** (one contract per finding, `source: discovered`,
+   `rationale:` citing event indices/args). WAIT for user acceptance, merge,
+   `sponsio validate --config <yaml>`, then re-run the flow to show the gap
+   closed.
 
 ---
 
