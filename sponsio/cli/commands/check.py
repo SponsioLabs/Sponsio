@@ -148,8 +148,33 @@ def check(trace_path, contracts, config_path, agent_id, as_json):
         )
         click.echo()
 
+    # Resolve every assumption/guarantee entry up front so content atoms
+    # can be collected across all of them before grounding — arg_has /
+    # arg_field_has / arg_allowlist / arg_blacklist / output_has /
+    # llm_said (and friends) only get populated in the valuation stream
+    # when the caller tells `ground()` which predicate+arg-tuples to
+    # watch for, same as the runtime Verifier does via
+    # `collect_content_atoms()`. Without this, every content-based
+    # guarantee is checked against an atom that's silently always
+    # absent: arg_blacklist rules always "pass" (the banned pattern
+    # never appears to have matched) and arg_allowlist rules always
+    # report VIOLATED (the allowed pattern never appears to have
+    # matched either) — regardless of what the trace actually contains.
+    from sponsio.tracer.grounding import collect_content_atoms
+
+    resolved_assumptions = [_resolve_entry(e) for e in assumptions]
+    resolved_guarantees = [_resolve_entry(e) for e in guarantees]
+    content_atoms = (
+        collect_content_atoms(
+            parsed.hard
+            for _, parsed in resolved_assumptions + resolved_guarantees
+            if parsed and parsed.is_det
+        )
+        or None
+    )
+
     # Ground the trace
-    valuations = ground(trace)
+    valuations = ground(trace, content_atoms=content_atoms)
 
     # Check assumptions
     results = []
@@ -158,8 +183,7 @@ def check(trace_path, contracts, config_path, agent_id, as_json):
     if assumptions:
         if not as_json:
             click.echo(click.style("  Assumptions:", dim=True))
-        for entry in assumptions:
-            nl, parsed = _resolve_entry(entry)
+        for nl, parsed in resolved_assumptions:
             if not parsed or not parsed.is_det:
                 results.append(
                     {
@@ -196,8 +220,7 @@ def check(trace_path, contracts, config_path, agent_id, as_json):
     if guarantees:
         if not as_json:
             click.echo(click.style("  Guarantees:", dim=True))
-        for entry in guarantees:
-            nl, parsed = _resolve_entry(entry)
+        for nl, parsed in resolved_guarantees:
             if not parsed or not parsed.is_det:
                 results.append(
                     {
