@@ -1231,7 +1231,20 @@ def run_onboard(
         # enough, OR the LLM run produced nothing (rare but possible
         # on very small tool sets).  Either way the starter pack adds
         # safety net rules that require only the tool names.
-        tool_names = [t["name"] for t in tool_inventory] if tool_inventory else []
+        # Exclude LangGraph graph-node entries: they name orchestration
+        # stages, not necessarily the identifiers a project's actual
+        # guarded tool-call boundary uses (a project can call
+        # guard.guard_before(tool, args) with a different, dynamic
+        # `tool` value from inside a node function). Feeding node names
+        # into starter_contracts()'s blanket tool_allowlist would match
+        # zero real tool calls and DetBlock every single one once
+        # enforce mode is on — confirmed while testing the quant-agent
+        # demo (a 4-node LangGraph pipeline wired this exact way).
+        tool_names = (
+            [t["name"] for t in tool_inventory if not t.get("is_graph_node")]
+            if tool_inventory
+            else []
+        )
         # Both globals (token_budget + delegation_depth_limit) default
         # to OFF — their hard-coded thresholds (100k tokens, depth 3)
         # are arbitrary and produced one ``# review`` line per onboard
