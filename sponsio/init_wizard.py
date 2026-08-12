@@ -360,6 +360,16 @@ def plan_commands(
     # they're NOT going through ``host install`` (no hooks wanted).
     # Filter to known skill-install targets so a typo doesn't reach
     # the subcommand and turn into a confusing error.
+    #
+    # ``SUPPORTED_SKILL_TARGETS`` uses the same host-id vocabulary as
+    # ``SUPPORTED_HOSTS`` (``"claude-code"``), but ``sponsio skill
+    # install --tool`` accepts a different, narrower vocabulary
+    # (``cursor|claude|codex|both|all|auto`` — no ``claude-code``).
+    # Translate host-id -> skill-install-tool-id here so the generated
+    # command is one `skill.py`'s Choice() actually accepts; passing
+    # ``"claude-code"`` straight through used to fail with
+    # ``Error: Invalid value for '--tool': 'claude-code'``.
+    _skill_tool_id = {"claude-code": "claude", "cursor": "cursor", "codex": "codex"}
     for s in picks.skills:
         if s in SUPPORTED_SKILL_TARGETS:
             # ``--force`` so re-running ``sponsio init`` is idempotent.
@@ -368,7 +378,9 @@ def plan_commands(
             # expected behaviour here, not data loss.  Without it,
             # the second wizard run on a machine that already has
             # the skill bails out mid-dispatch.
-            cmds.append(["sponsio", "skill", "install", "--tool", s, "--force"])
+            cmds.append(
+                ["sponsio", "skill", "install", "--tool", _skill_tool_id[s], "--force"]
+            )
 
     return cmds
 
