@@ -420,9 +420,7 @@ def Sponsio(  # noqa: N802 (branded factory function)
         # observe while saying enforce. Same silent downgrade as the other
         # two branches, and the docs made it the most likely one to hit.
         yaml_mode = (
-            parsed.runtime.mode
-            or parsed.defaults.get("mode")
-            or parsed.top_level_mode
+            parsed.runtime.mode or parsed.defaults.get("mode") or parsed.top_level_mode
         )
         if yaml_mode:
             mode = yaml_mode

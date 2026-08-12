@@ -22,7 +22,7 @@ def patterns():
             # people to copy something that cannot work; printing the yaml
             # that does work costs a line and saves the detour.
             if example.startswith("yaml: "):
-                click.echo(f"    Yaml    : {example[len('yaml: '):]}")
+                click.echo(f"    Yaml    : {example[len('yaml: ') :]}")
             else:
                 click.echo(f"    Example : {example}")
             click.echo(click.style(f"    Meaning : {meaning}", dim=True))
@@ -33,39 +33,67 @@ def patterns():
     _section(
         "Core Temporal Patterns (14 det)",
         [
-            ("must_precede", "tool `check_policy` must precede `issue_refund`", "A must happen before B"),
+            (
+                "must_precede",
+                "tool `check_policy` must precede `issue_refund`",
+                "A must happen before B",
+            ),
             (
                 "always_followed_by",
                 "tool `start_task` must always be followed by `log_result`",
                 "whenever A, eventually B",
             ),
-            ("no_reversal", "cannot `edit_loan` after `aml_check`", "A commits; B forbidden after"),
+            (
+                "no_reversal",
+                "cannot `edit_loan` after `aml_check`",
+                "A commits; B forbidden after",
+            ),
             (
                 "requires_permission",
                 "tool `refund` requires permission `finance`",
                 "tool needs authorization",
             ),
-            ("no_data_leak", "no data leak from `read_secrets` to `http_post`", "data containment"),
+            (
+                "no_data_leak",
+                "no data leak from `read_secrets` to `http_post`",
+                "data containment",
+            ),
             (
                 "mutual_exclusion",
                 "`grant_access` and `revoke_access` are mutually exclusive",
                 "at most one per session",
             ),
             ("rate_limit", "tool `send_email` at most 3 times", "frequency cap"),
-            ("idempotent", "tool `charge_card` must execute at most once", "single execution"),
+            (
+                "idempotent",
+                "tool `charge_card` must execute at most once",
+                "single execution",
+            ),
             (
                 "deadline",
                 "`notify` within 5 steps of `alert`",
                 "time-bounded obligation",
             ),
-            ("must_confirm", "tool `delete_record` requires confirmation", "human-in-the-loop"),
-            ("cooldown", "yaml: G: {pattern: cooldown, args: [retry_payment, 3]}", "minimum interval"),
+            (
+                "must_confirm",
+                "tool `delete_record` requires confirmation",
+                "human-in-the-loop",
+            ),
+            (
+                "cooldown",
+                "yaml: G: {pattern: cooldown, args: [retry_payment, 3]}",
+                "minimum interval",
+            ),
             (
                 "segregation_of_duty",
                 "`review` and `approve` must be called by different agents",
                 "separation of concerns",
             ),
-            ("bounded_retry", "yaml: G: {pattern: bounded_retry, args: [fetch_url, 2]}", "retry cap"),
+            (
+                "bounded_retry",
+                "yaml: G: {pattern: bounded_retry, args: [fetch_url, 2]}",
+                "retry cap",
+            ),
             (
                 "loop_detection",
                 "yaml: G: {pattern: loop_detection, args: [search, 4]}",

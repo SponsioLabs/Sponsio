@@ -1027,9 +1027,7 @@ class CodeAnalyzer:
                 elif isinstance(fn_ref, ast.Name):
                     method_name = fn_ref.id
                 if method_name:
-                    self._resolve_func_body(
-                        tree, method_name, source_lines, tool_info
-                    )
+                    self._resolve_func_body(tree, method_name, source_lines, tool_info)
                 tools.append(tool_info)
 
         for node in ast.walk(tree):
@@ -1097,7 +1095,9 @@ class CodeAnalyzer:
             if not (isinstance(elt, ast.Tuple) and len(elt.elts) == 2):
                 return None
             name_lit, fn_ref = elt.elts
-            if not (isinstance(name_lit, ast.Constant) and isinstance(name_lit.value, str)):
+            if not (
+                isinstance(name_lit, ast.Constant) and isinstance(name_lit.value, str)
+            ):
                 return None
             pairs.append((name_lit.value, fn_ref))
 

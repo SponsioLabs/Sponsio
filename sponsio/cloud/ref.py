@@ -35,7 +35,9 @@ from sponsio.cloud.client import CloudClient, CloudError
 SCHEME = "sponsio://"
 
 # sponsio://project  |  sponsio://project@v7
-_REF_RE = re.compile(r"^sponsio://(?P<project>[A-Za-z0-9][A-Za-z0-9._-]*)(?:@v(?P<version>\d+))?$")
+_REF_RE = re.compile(
+    r"^sponsio://(?P<project>[A-Za-z0-9][A-Za-z0-9._-]*)(?:@v(?P<version>\d+))?$"
+)
 
 # Local fallbacks, in the order a repo usually names them.
 LOCAL_FALLBACKS = ("sponsio.yaml", "sponsio.yml", ".sponsio/sponsio.yaml")
@@ -66,7 +68,9 @@ def parse_ref(value: str) -> CloudRef:
             f"Expected {SCHEME}<project> or {SCHEME}<project>@v<N>"
         )
     version = match.group("version")
-    return CloudRef(project=match.group("project"), version=int(version) if version else None)
+    return CloudRef(
+        project=match.group("project"), version=int(version) if version else None
+    )
 
 
 def cache_dir() -> Path:
@@ -135,7 +139,10 @@ def resolve_config_ref(
                 cached.write_text(pulled.yaml_text)
             except OSError as exc:  # cache is an optimisation, not a requirement
                 _say(f"could not write cache: {exc}", quiet=quiet)
-                scratch = Path(os.environ.get("TMPDIR", "/tmp")) / f"sponsio-{ref.project}.yaml"
+                scratch = (
+                    Path(os.environ.get("TMPDIR", "/tmp"))
+                    / f"sponsio-{ref.project}.yaml"
+                )
                 scratch.write_text(pulled.yaml_text)
                 return scratch
             stamp = pulled.versions or "?"
@@ -143,8 +150,8 @@ def resolve_config_ref(
             # stamp it on every exported trace. A recorded run that does not
             # name its rulebook cannot be replayed against the book it
             # actually enforced.
-            os.environ["SPONSIO_RULEBOOK_STAMP"] = (
-                f"{ref.project} {stamp}" + (f" sha:{pulled.sha}" if pulled.sha else "")
+            os.environ["SPONSIO_RULEBOOK_STAMP"] = f"{ref.project} {stamp}" + (
+                f" sha:{pulled.sha}" if pulled.sha else ""
             )
             _say(f"rulebook ← cloud checkout · {ref.project} {stamp}", quiet=quiet)
             return cached

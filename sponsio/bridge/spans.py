@@ -42,7 +42,9 @@ def args_preview(args: Any, *, limit: int = 160) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def violations_from_turn(turn: dict, by_label: dict[str, dict] | None = None) -> list[dict]:
+def violations_from_turn(
+    turn: dict, by_label: dict[str, dict] | None = None
+) -> list[dict]:
     """The violations recorded under one agent_turn span.
 
     The human rule text lives on the guarantee's ``formula_desc``, which can

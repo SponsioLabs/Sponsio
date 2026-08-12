@@ -26,8 +26,12 @@ def _client(url: str | None = None, api_key: str | None = None):
 
 
 @cli.command()
-@click.option("--key", "key", help="API key. Omitted means read it from stdin or prompt.")
-@click.option("--url", "url", help="API base URL (default: $SPONSIO_API_URL or api.sponsio.dev)")
+@click.option(
+    "--key", "key", help="API key. Omitted means read it from stdin or prompt."
+)
+@click.option(
+    "--url", "url", help="API base URL (default: $SPONSIO_API_URL or api.sponsio.dev)"
+)
 def login(key: str | None, url: str | None) -> None:
     """Save an API key after checking that it works."""
     from sponsio.cloud.client import CloudError, write_api_key
@@ -61,9 +65,13 @@ def login(key: str | None, url: str | None) -> None:
 
 @cli.command()
 @click.argument("project", required=False)
-@click.option("--agent", "agent", help="Pull one agent's book instead of the whole project")
+@click.option(
+    "--agent", "agent", help="Pull one agent's book instead of the whole project"
+)
 @click.option("--version", "version", type=int, help="Pin a version (requires --agent)")
-@click.option("-o", "--output", "output", type=click.Path(), help="Write here instead of stdout")
+@click.option(
+    "-o", "--output", "output", type=click.Path(), help="Write here instead of stdout"
+)
 @click.option("--url", "url", help="API base URL")
 def pull(
     project: str | None,
@@ -88,7 +96,9 @@ def pull(
         raise click.ClickException("--version needs --agent: versions are per agent")
 
     try:
-        pulled = client.pull_rulebook(project or "default", agent=agent, version=version)
+        pulled = client.pull_rulebook(
+            project or "default", agent=agent, version=version
+        )
     except CloudError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -114,7 +124,9 @@ def push(config_path: str, project: str | None, url: str | None) -> None:
         )
 
     try:
-        result = client.push_rulebook(project or "default", Path(config_path).read_text())
+        result = client.push_rulebook(
+            project or "default", Path(config_path).read_text()
+        )
     except CloudError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -123,7 +135,9 @@ def push(config_path: str, project: str | None, url: str | None) -> None:
         # Say plainly when nothing moved. An agent that re-pushes on every
         # start would otherwise look like it keeps changing the book.
         state = "unchanged" if book.get("unchanged") else "new version"
-        click.echo(f"  {name}: v{book.get('version')} · {book.get('rules')} rules · {state}")
+        click.echo(
+            f"  {name}: v{book.get('version')} · {book.get('rules')} rules · {state}"
+        )
 
 
 @cli.command()
@@ -138,7 +152,9 @@ def projects(url: str | None) -> None:
 
     client = _client(url=url)
     if not client.configured:
-        raise click.ClickException("no API key: set SPONSIO_API_KEY or run `sponsio login`")
+        raise click.ClickException(
+            "no API key: set SPONSIO_API_KEY or run `sponsio login`"
+        )
 
     try:
         identity = client.whoami()
@@ -147,7 +163,9 @@ def projects(url: str | None) -> None:
 
     names = identity.get("projects") or []
     if not names:
-        click.echo("no projects yet — `sponsio push sponsio.yaml --project <name>` creates one")
+        click.echo(
+            "no projects yet — `sponsio push sponsio.yaml --project <name>` creates one"
+        )
         return
     for name in names:
         click.echo(name)

@@ -91,7 +91,9 @@ class BridgeSession:
         self.send_failures = 0
         self._last_error: str | None = None
 
-        self._runs_dir = Path(runs_dir) if runs_dir else Path.cwd() / ".sponsio" / "runs"
+        self._runs_dir = (
+            Path(runs_dir) if runs_dir else Path.cwd() / ".sponsio" / "runs"
+        )
 
         if client is None:
             from sponsio.cloud.client import CloudClient
@@ -124,13 +126,17 @@ class BridgeSession:
 
         self.agents: dict[str, dict] = {}
         for agent in agents or []:
-            self._ensure_agent(agent["id"], role=agent.get("role", "agent"),
-                               tools=agent.get("tools", []))
+            self._ensure_agent(
+                agent["id"],
+                role=agent.get("role", "agent"),
+                tools=agent.get("tools", []),
+            )
 
     # -- agents ------------------------------------------------------------
 
-    def _ensure_agent(self, agent_id: str, role: str = "agent",
-                      tools: list | None = None) -> dict:
+    def _ensure_agent(
+        self, agent_id: str, role: str = "agent", tools: list | None = None
+    ) -> dict:
         agent = self.agents.get(agent_id)
         if agent is None:
             agent = {
@@ -146,8 +152,14 @@ class BridgeSession:
 
     # -- recording ---------------------------------------------------------
 
-    def record(self, tool: str, args: Any = None, *, agent: str | None = None,
-               type: str = "tool_call") -> dict:
+    def record(
+        self,
+        tool: str,
+        args: Any = None,
+        *,
+        agent: str | None = None,
+        type: str = "tool_call",
+    ) -> dict:
         """Project the guard's last check into a step and send the run."""
         turn = getattr(self.guard, "last_check_span", None)
         turn = turn.to_dict() if turn is not None else {}
@@ -212,7 +224,9 @@ class BridgeSession:
     def _edge(self, source: str, target: str, kind: str, label: str) -> None:
         self._ensure_agent(source)
         self._ensure_agent(target, role="worker")
-        self.edges.append({"from": source, "to": target, "kind": kind, "ts": len(self.steps)})
+        self.edges.append(
+            {"from": source, "to": target, "kind": kind, "ts": len(self.steps)}
+        )
         self.note(source, label, type="delegation")
 
     def call(self, parent: str, child: str) -> None:
@@ -250,7 +264,8 @@ class BridgeSession:
                 "mode": self.mode,
                 "startedAt": self.started_at,
             },
-            "agents": list(self.agents.values()) or [self._ensure_agent(self.root_agent)],
+            "agents": list(self.agents.values())
+            or [self._ensure_agent(self.root_agent)],
             "edges": list(self.edges),
             "steps": list(self.steps),
             "contracts": list(self.contracts.values()),
@@ -296,7 +311,9 @@ class BridgeSession:
                 trace_path.write_text(json.dumps(exporter(), indent=1, default=str))
                 paths["trace"] = str(trace_path)
             session_path = self._runs_dir / f"{key}.session.json"
-            session_path.write_text(json.dumps(self.view_model(), indent=1, default=str))
+            session_path.write_text(
+                json.dumps(self.view_model(), indent=1, default=str)
+            )
             paths["session"] = str(session_path)
         except OSError as exc:  # noqa: BLE001 - artifacts are a convenience
             self._last_error = str(exc)

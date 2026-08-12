@@ -19,6 +19,7 @@ import pytest
 import sponsio
 from sponsio.config import ConfigError, load_config
 
+
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
     """The suite sets SPONSIO_MODE=enforce by default, and the env var
@@ -69,8 +70,9 @@ def _write(tmp_path, body: str):
 def test_one_rule_can_enforce_inside_an_observing_book(tmp_path):
     """The feature people ask for: arm the rule you trust, keep watching
     the rest."""
-    guard = sponsio.Sponsio(config=str(_write(tmp_path, _two_rules("observe", "enforce"))),
-                            agent_id="a")
+    guard = sponsio.Sponsio(
+        config=str(_write(tmp_path, _two_rules("observe", "enforce"))), agent_id="a"
+    )
 
     assert guard.mode == "observe"
     assert guard.guard_before(*BLOCKED_CALL).allowed is False, (
@@ -84,8 +86,9 @@ def test_one_rule_can_enforce_inside_an_observing_book(tmp_path):
 def test_one_rule_can_observe_inside_an_enforcing_book(tmp_path):
     """The other direction: ship a rule you are unsure about without
     turning the whole book off."""
-    guard = sponsio.Sponsio(config=str(_write(tmp_path, _two_rules("enforce", "observe"))),
-                            agent_id="a")
+    guard = sponsio.Sponsio(
+        config=str(_write(tmp_path, _two_rules("enforce", "observe"))), agent_id="a"
+    )
 
     assert guard.mode == "enforce"
     assert guard.guard_before(*BLOCKED_CALL).allowed is True, (
@@ -100,8 +103,9 @@ def test_no_mode_means_no_opinion(tmp_path):
     """Absent is not the same as ``observe``. Defaulting a silent rule to
     observe would silently downgrade every contract that simply did not
     mention a mode."""
-    guard = sponsio.Sponsio(config=str(_write(tmp_path, _two_rules("enforce", None))),
-                            agent_id="a")
+    guard = sponsio.Sponsio(
+        config=str(_write(tmp_path, _two_rules("enforce", None))), agent_id="a"
+    )
 
     assert guard.guard_before(*BLOCKED_CALL).allowed is False
     assert guard.guard_before(*OTHER_CALL).allowed is False

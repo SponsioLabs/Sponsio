@@ -29,7 +29,9 @@ DEFAULT_RETRIES = 2
 CREDENTIALS_PATH = Path.home() / ".sponsio" / "credentials"
 
 
-def write_api_key(key: str, *, url: str | None = None, path: Path | None = None) -> Path:
+def write_api_key(
+    key: str, *, url: str | None = None, path: Path | None = None
+) -> Path:
     """Persist a key for future runs, readable only by this user.
 
     The endpoint is stored with it. A key is only valid against the service
@@ -136,7 +138,12 @@ class CloudClient:
     # -- transport ---------------------------------------------------------
 
     def _request(
-        self, method: str, path: str, *, body: bytes | None = None, content_type: str | None = None
+        self,
+        method: str,
+        path: str,
+        *,
+        body: bytes | None = None,
+        content_type: str | None = None,
     ) -> tuple[int, bytes, dict[str, str]]:
         if not self.configured:
             raise CloudError("no API key: set SPONSIO_API_KEY or run `sponsio login`")
@@ -151,12 +158,20 @@ class CloudClient:
         for attempt in range(self.retries + 1):
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                    return resp.status, resp.read(), {k.lower(): v for k, v in resp.headers.items()}
+                    return (
+                        resp.status,
+                        resp.read(),
+                        {k.lower(): v for k, v in resp.headers.items()},
+                    )
             except urllib.error.HTTPError as exc:
                 # 4xx is an answer, not a failure to reach us: retrying a 401
                 # or a 404 only makes startup slower.
                 if exc.code < 500:
-                    return exc.code, exc.read(), {k.lower(): v for k, v in exc.headers.items()}
+                    return (
+                        exc.code,
+                        exc.read(),
+                        {k.lower(): v for k, v in exc.headers.items()},
+                    )
                 last = exc
             except (urllib.error.URLError, TimeoutError, OSError) as exc:
                 last = exc
@@ -187,7 +202,9 @@ class CloudClient:
         if status in (401, 403):
             raise CloudError("key rejected", status=status)
         if status != 200:
-            raise CloudError(self._detail(payload, f"whoami failed ({status})"), status=status)
+            raise CloudError(
+                self._detail(payload, f"whoami failed ({status})"), status=status
+            )
         try:
             return json.loads(payload.decode())
         except ValueError as exc:
@@ -195,8 +212,9 @@ class CloudClient:
 
     # -- rulebook ----------------------------------------------------------
 
-    def pull_rulebook(self, project: str, *, agent: str | None = None,
-                      version: int | None = None) -> PulledRulebook:
+    def pull_rulebook(
+        self, project: str, *, agent: str | None = None, version: int | None = None
+    ) -> PulledRulebook:
         """Fetch a project's rulebook.
 
         Without ``agent`` this returns every agent merged into one document —
@@ -218,10 +236,13 @@ class CloudClient:
             # its local yaml instead of treating this as an error.
             raise CloudError(self._detail(payload, "no rulebook published"), status=404)
         if status != 200:
-            raise CloudError(self._detail(payload, f"pull failed ({status})"), status=status)
+            raise CloudError(
+                self._detail(payload, f"pull failed ({status})"), status=status
+            )
         return PulledRulebook(
             yaml_text=payload.decode(),
-            versions=headers.get("x-rulebook-versions") or headers.get("x-rulebook-version"),
+            versions=headers.get("x-rulebook-versions")
+            or headers.get("x-rulebook-version"),
             sha=headers.get("x-rulebook-sha"),
             agent=headers.get("x-rulebook-agent"),
         )
@@ -238,10 +259,15 @@ class CloudClient:
         """
         path = "/v1/sessions/ingest" + (f"?project={project}" if project else "")
         status, body, _ = self._request(
-            "POST", path, body=json.dumps(payload).encode(), content_type="application/json"
+            "POST",
+            path,
+            body=json.dumps(payload).encode(),
+            content_type="application/json",
         )
         if status != 200:
-            raise CloudError(self._detail(body, f"ingest failed ({status})"), status=status)
+            raise CloudError(
+                self._detail(body, f"ingest failed ({status})"), status=status
+            )
         try:
             return json.loads(body.decode())
         except ValueError as exc:
@@ -254,7 +280,9 @@ class CloudClient:
             "POST", path, body=yaml_text.encode(), content_type="application/x-yaml"
         )
         if status != 200:
-            raise CloudError(self._detail(payload, f"push failed ({status})"), status=status)
+            raise CloudError(
+                self._detail(payload, f"push failed ({status})"), status=status
+            )
         try:
             return json.loads(payload.decode())
         except ValueError as exc:

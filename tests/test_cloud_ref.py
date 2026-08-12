@@ -66,7 +66,13 @@ def test_parse_ref_with_and_without_version():
 
 @pytest.mark.parametrize(
     "bad",
-    ["sponsio://", "sponsio://-leading", "sponsio://a b", "sponsio://a@7", "sponsio://a@vx"],
+    [
+        "sponsio://",
+        "sponsio://-leading",
+        "sponsio://a b",
+        "sponsio://a@7",
+        "sponsio://a@vx",
+    ],
 )
 def test_parse_ref_rejects_malformed(bad):
     with pytest.raises(CloudRefError):
@@ -118,7 +124,9 @@ def test_no_key_uses_local_yaml(tmp_path, capsys):
     local = tmp_path / "sponsio.yaml"
     local.write_text(YAML)
 
-    path = resolve_config_ref("sponsio://alpha", client=FakeClient(configured=False), cwd=tmp_path)
+    path = resolve_config_ref(
+        "sponsio://alpha", client=FakeClient(configured=False), cwd=tmp_path
+    )
 
     assert path == local
     out = capsys.readouterr().out
@@ -183,7 +191,9 @@ def test_checkout_records_the_rulebook_stamp(tmp_path, monkeypatch):
     import os
 
     monkeypatch.delenv("SPONSIO_RULEBOOK_STAMP", raising=False)
-    client = FakeClient(result=PulledRulebook(YAML, versions="quant@v3", sha="abc123abc123"))
+    client = FakeClient(
+        result=PulledRulebook(YAML, versions="quant@v3", sha="abc123abc123")
+    )
 
     resolve_config_ref("sponsio://alpha", client=client, cwd=tmp_path, quiet=True)
 

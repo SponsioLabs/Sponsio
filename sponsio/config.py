@@ -712,7 +712,10 @@ def _parse_contract_entry(item: Any, agent_id: str) -> ContractEntry:
 
     mode = item.get("mode")
     if mode is not None:
-        if not isinstance(mode, str) or mode.strip().lower() not in ("enforce", "observe"):
+        if not isinstance(mode, str) or mode.strip().lower() not in (
+            "enforce",
+            "observe",
+        ):
             raise ConfigError(
                 f"Agent '{agent_id}': contract `mode` must be one of "
                 f"['enforce', 'observe'], got {mode!r}"

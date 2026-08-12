@@ -18,10 +18,21 @@ from sponsio.bridge import attach
 from sponsio.bridge.spans import args_preview, step_status, violations_from_turn
 
 
-def _turn(*, blocked=False, checked=1, action="blocked", strategy="DetBlock",
-          label="no destructive shell", redirect=None, agent="quant"):
-    enforcement = {"span_type": "sponsio.enforcement", "strategy": strategy,
-                   "result_action": action}
+def _turn(
+    *,
+    blocked=False,
+    checked=1,
+    action="blocked",
+    strategy="DetBlock",
+    label="no destructive shell",
+    redirect=None,
+    agent="quant",
+):
+    enforcement = {
+        "span_type": "sponsio.enforcement",
+        "strategy": strategy,
+        "result_action": action,
+    }
     if redirect:
         enforcement["redirect_to"] = redirect
     return {
@@ -35,8 +46,12 @@ def _turn(*, blocked=False, checked=1, action="blocked", strategy="DetBlock",
                 "contract_name": "C1",
                 "children": [
                     {"span_type": "sponsio.guarantee", "formula_desc": label},
-                    {"span_type": "sponsio.violation", "kind": "guarantee",
-                     "severity": "HIGH", "evidence": "command=rm -rf /"},
+                    {
+                        "span_type": "sponsio.violation",
+                        "kind": "guarantee",
+                        "severity": "HIGH",
+                        "evidence": "command=rm -rf /",
+                    },
                     enforcement,
                 ],
             }
@@ -45,8 +60,13 @@ def _turn(*, blocked=False, checked=1, action="blocked", strategy="DetBlock",
 
 
 def _clean_turn(agent="quant"):
-    return {"agent_id": agent, "blocked": False, "total_contracts_checked": 2,
-            "duration_ms": 0.4, "children": []}
+    return {
+        "agent_id": agent,
+        "blocked": False,
+        "total_contracts_checked": 2,
+        "duration_ms": 0.4,
+        "children": [],
+    }
 
 
 class FakeSpan:
@@ -179,7 +199,12 @@ def test_multi_agent_steps_keep_their_own_agent(tmp_path):
     run.record("publish", {}, agent="report_agent")
 
     assert {s["agentId"] for s in run.steps} >= {"data_agent", "report_agent"}
-    assert run.edges[0] == {"from": "quant", "to": "report_agent", "kind": "call", "ts": 1}
+    assert run.edges[0] == {
+        "from": "quant",
+        "to": "report_agent",
+        "kind": "call",
+        "ts": 1,
+    }
 
 
 def test_each_agent_gets_its_own_trace_id(tmp_path):
@@ -396,7 +421,9 @@ def test_an_explicit_contract_list_still_wins(tmp_path):
     guard._system = FakeSystem([FakeContract("from the guard")])
 
     run = attach(
-        guard, client=client, runs_dir=tmp_path,
+        guard,
+        client=client,
+        runs_dir=tmp_path,
         contracts=[{"id": "x", "label": "supplied by the caller"}],
     )
 

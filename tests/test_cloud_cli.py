@@ -17,10 +17,15 @@ YAML = "version: '1'\nagents:\n  quant:\n    contracts: []\n"
 
 
 class FakeClient:
-    def __init__(self, *, configured=True, identity=None, pulled=None, pushed=None, error=None):
+    def __init__(
+        self, *, configured=True, identity=None, pulled=None, pushed=None, error=None
+    ):
         self.url = "http://test"
         self.configured = configured
-        self._identity = identity or {"tenant": {"name": "Acme"}, "projects": ["default"]}
+        self._identity = identity or {
+            "tenant": {"name": "Acme"},
+            "projects": ["default"],
+        }
         self._pulled = pulled or PulledRulebook(YAML, versions="quant@v3")
         self._pushed = pushed or {
             "project": "default",

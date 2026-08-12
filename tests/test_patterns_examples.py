@@ -47,7 +47,9 @@ def test_the_command_still_prints_examples(output):
 
 def test_every_printed_example_parses(output):
     """The one that matters. A user copies these."""
-    failures = [line for line in EXAMPLE_RE.findall(output) if not _parses(line.strip())]
+    failures = [
+        line for line in EXAMPLE_RE.findall(output) if not _parses(line.strip())
+    ]
     assert not failures, "examples that do not parse:\n  " + "\n  ".join(failures)
 
 
@@ -59,7 +61,9 @@ def test_no_example_is_a_template(output):
         for line in EXAMPLE_RE.findall(output)
         if re.search(r"`[A-Z]`|\bN\b|`action`|`trigger`|`perm`|`src`|`ext`", line)
     ]
-    assert not placeholders, "examples still using placeholders:\n  " + "\n  ".join(placeholders)
+    assert not placeholders, "examples still using placeholders:\n  " + "\n  ".join(
+        placeholders
+    )
 
 
 def test_patterns_without_a_sentence_show_working_yaml(output):
