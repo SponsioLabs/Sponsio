@@ -36,6 +36,7 @@ import {
   PatternFactoryError,
 } from "./pattern-factory.js";
 import { parseRepr, ParseError } from "./parser.js";
+import { parseNl } from "./nl-parser.js";
 import { And, G, Implies, type Formula } from "./formula.js";
 import { loadPackContracts } from "./pack-loader.js";
 import { dirname, resolve as resolvePath } from "node:path";
@@ -176,7 +177,14 @@ export function loadSponsoConfig(path: string, agentId: string): LoadedConfig {
   const stoSpecs: StoContractSpec[] = [];
 
   const runtime = getObject(parsed["runtime"]);
-  const mode = extractMode(runtime);
+  // Yaml mode precedence mirrors Python: `runtime.mode` >
+  // `defaults.mode` > bare top-level `mode:`. The top-level key is how
+  // docs/reference/config-yaml.md documents the global default, so a
+  // file written exactly as documented has to work here too.
+  const mode =
+    extractModeKey(runtime, "runtime.mode", path) ??
+    extractModeKey(getObject(parsed["defaults"]), "defaults.mode", path) ??
+    parseModeValue(parsed["mode"], "mode", path);
   const dashboard = extractDashboard(runtime);
   const judge = extractJudge(parsed["judge"]);
 
@@ -252,14 +260,32 @@ function extractJudge(raw: unknown): JudgeConfigSpec | undefined {
  * helpers
  * -----------------------------------------------------------------*/
 
-function extractMode(runtime: Record<string, unknown> | null):
-  | "enforce"
-  | "observe"
-  | undefined {
-  if (!runtime) return undefined;
-  const m = runtime["mode"];
-  if (m === "enforce" || m === "observe") return m;
-  return undefined;
+function extractModeKey(
+  block: Record<string, unknown> | null,
+  keyName: string,
+  path: string,
+): "enforce" | "observe" | undefined {
+  if (!block) return undefined;
+  return parseModeValue(block["mode"], keyName, path);
+}
+
+/**
+ * Validate one `mode:` value. An unrecognised value is a typo the user
+ * wants to hear about, not something to silently ignore — silently
+ * ignoring it is exactly how the top-level key spent its life
+ * documented and inert (mirrors Python's `_parse_top_level_mode`).
+ */
+function parseModeValue(
+  raw: unknown,
+  keyName: string,
+  path: string,
+): "enforce" | "observe" | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const norm = typeof raw === "string" ? raw.trim().toLowerCase() : raw;
+  if (norm === "enforce" || norm === "observe") return norm;
+  throw new Error(
+    `[sponsio] ${path}: \`${keyName}\` must be one of ['enforce', 'observe'], got ${JSON.stringify(raw)}`,
+  );
 }
 
 function extractDashboard(
@@ -312,6 +338,28 @@ type Projection =
   | { kind: "skip"; reason: SkippedItem };
 
 function projectContract(entry: unknown): Projection {
+  const projected = projectContractShape(entry);
+  // Per-contract `mode:` — overrides the global mode for this contract
+  // alone (mirrors Python's ContractEntry.mode; absent stays distinct
+  // from `observe`, and an unrecognised value raises rather than being
+  // ignored). NL entries are parsed here so the mode has a formula to
+  // ride on; an unparseable NL contract is inert anyway, so its mode
+  // is moot and the ctor's warning covers it.
+  if (!isObject(entry)) return projected;
+  const cMode = parseModeValue(entry["mode"], "contracts[].mode", "config");
+  if (!cMode) return projected;
+  if (projected.kind === "det") {
+    projected.value.mode = cMode;
+    return projected;
+  }
+  if (projected.kind === "nl") {
+    const parsed = parseNl(projected.value);
+    if (parsed) return { kind: "det", value: { ...parsed, mode: cMode } };
+  }
+  return projected;
+}
+
+function projectContractShape(entry: unknown): Projection {
   // Simplest form: a bare string on the contracts list.
   if (typeof entry === "string") {
     return { kind: "nl", value: entry };

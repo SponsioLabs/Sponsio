@@ -199,7 +199,11 @@ export interface SponsoOptions {
   /**
    * Runtime mode. Precedence (matches the Python SDK):
    *
-   *     SPONSIO_MODE env  >  ctor arg  >  yaml runtime.mode  >  "observe"
+   *     SPONSIO_MODE env  >  ctor arg  >  yaml runtime.mode
+   *       >  yaml defaults.mode  >  yaml top-level mode:  >  "observe"
+   *
+   * A contract may also carry its own `mode:` in yaml, which overrides
+   * whatever the global resolution lands on — for that contract alone.
    *
    * ``observe`` (the default) logs every would-have-blocked decision
    * to ``~/.sponsio/sessions/<agent_id>/*.jsonl`` without actually
@@ -363,6 +367,7 @@ export class Sponsio {
     const violations: string[] = [];
     const violatedDescs: string[] = [];
     const detViolations: DetViolation[] = [];
+    let anyBlocking = false;
     for (const contract of this._contracts) {
       const checkSpan = new ContractCheckSpan(contract.desc, "hard");
       collector.push(checkSpan);
@@ -388,7 +393,11 @@ export class Sponsio {
       const guaranteeSpan = new GuaranteeSpan(contract.desc, result);
       collector.add(guaranteeSpan, result ? "ok" : "violated");
       if (!result) {
-        const verb = this.mode === "observe" ? "WOULD-BLOCK" : "BLOCKED";
+        // Per-contract `mode:` overrides the global mode for this one
+        // verdict — same routing as Python's RuntimeMonitor.
+        const effMode = contract.mode ?? this.mode;
+        if (effMode === "enforce") anyBlocking = true;
+        const verb = effMode === "observe" ? "WOULD-BLOCK" : "BLOCKED";
         const msg = `${verb}: ${this.agentId}.${toolName} — det constraint violated: ${contract.desc}`;
         violations.push(msg);
         violatedDescs.push(contract.desc);
@@ -403,7 +412,7 @@ export class Sponsio {
         });
         // Nest violation + enforcement spans under the failed
         // guarantee so the renderer can pick up the verdict word.
-        const enforce = new EnforcementSpan("DetBlock", this.mode === "enforce" ? "blocked" : "observed");
+        const enforce = new EnforcementSpan("DetBlock", effMode === "enforce" ? "blocked" : "observed");
         guaranteeSpan.children.push(enforce);
         enforce.finish("violated");
       }
@@ -411,7 +420,7 @@ export class Sponsio {
     }
 
     const hasViolations = violations.length > 0;
-    const blocked = hasViolations && this.mode === "enforce";
+    const blocked = anyBlocking;
     this._turnSpans.push(
       collector.finishRoot(blocked, this._contracts.length, violations.length),
     );
@@ -577,10 +586,13 @@ export class Sponsio {
     const violations: string[] = [];
     const violatedDescs: string[] = [];
     const detViolations: DetViolation[] = [];
+    let anyBlocking = false;
     for (const contract of this._contracts) {
       const result = evaluate(contract.formula, this._trace);
       if (!result) {
-        const verb = this.mode === "observe" ? "WOULD-BLOCK" : "BLOCKED";
+        const effMode = contract.mode ?? this.mode;
+        if (effMode === "enforce") anyBlocking = true;
+        const verb = effMode === "observe" ? "WOULD-BLOCK" : "BLOCKED";
         const msg = `${verb}: ${this.agentId}.<llm_response> — det constraint violated: ${contract.desc}`;
         violations.push(msg);
         violatedDescs.push(contract.desc);
@@ -596,7 +608,7 @@ export class Sponsio {
     }
 
     const hasViolations = violations.length > 0;
-    const blocked = hasViolations && this.mode === "enforce";
+    const blocked = anyBlocking;
 
     if (blocked) {
       this._trace.pop();

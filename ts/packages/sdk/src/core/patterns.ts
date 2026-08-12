@@ -29,6 +29,16 @@ export interface DetFormula {
   desc: string;
   patternName: string;
   liveness: boolean;
+  /**
+   * Per-contract enforcement mode: `enforce` | `observe`.
+   *
+   * Overrides the engine's global mode for this contract alone —
+   * mirrors Python's `ContractEntry.mode`. `undefined` means "no
+   * opinion" and the global mode applies; that distinction matters,
+   * since defaulting to `observe` here would silently downgrade every
+   * contract that simply did not mention a mode.
+   */
+  mode?: "enforce" | "observe";
 }
 
 export interface AssumeGuaranteePair {
