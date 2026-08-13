@@ -144,6 +144,7 @@ class CloudClient:
         *,
         body: bytes | None = None,
         content_type: str | None = None,
+        timeout: float | None = None,
     ) -> tuple[int, bytes, dict[str, str]]:
         if not self.configured:
             raise CloudError("no API key: set SPONSIO_API_KEY or run `sponsio login`")
@@ -157,7 +158,7 @@ class CloudClient:
         last: Exception | None = None
         for attempt in range(self.retries + 1):
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
                     return (
                         resp.status,
                         resp.read(),
@@ -296,6 +297,9 @@ class CloudClient:
             path,
             body=json.dumps(body).encode(),
             content_type="application/json",
+            # translation runs on the strong reasoning tier and takes a
+            # minute or two — the 10s default is for CRUD calls
+            timeout=300.0,
         )
         if status != 200:
             raise CloudError(
