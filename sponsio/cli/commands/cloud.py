@@ -30,7 +30,7 @@ def _client(url: str | None = None, api_key: str | None = None):
     "--key", "key", help="API key. Omitted means read it from stdin or prompt."
 )
 @click.option(
-    "--url", "url", help="API base URL (default: $SPONSIO_API_URL or api.sponsio.dev)"
+    "--url", "url", help="API base URL (default: $SPONSIO_API_URL or app.sponsio.dev)"
 )
 def login(key: str | None, url: str | None) -> None:
     """Save an API key after checking that it works."""

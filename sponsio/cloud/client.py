@@ -20,7 +20,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_BASE_URL = "https://api.sponsio.dev"
+DEFAULT_BASE_URL = "https://app.sponsio.dev"
 DEFAULT_TIMEOUT = 10.0
 # Two retries on transport errors and 5xx. Construction is allowed to block,
 # but not for long: a slow cloud must not become a slow agent start.
