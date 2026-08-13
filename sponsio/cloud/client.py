@@ -273,6 +273,39 @@ class CloudClient:
         except ValueError as exc:
             raise CloudError("ingest returned a non-JSON body") from exc
 
+    def extract_rules(
+        self,
+        policy_text: str,
+        *,
+        tools: list[str] | None = None,
+        agent: str | None = None,
+        project: str | None = None,
+    ) -> dict:
+        """Parse a policy document on the cloud's strong-model tier.
+
+        The hosted twin of ``sponsio scan --llm``: the document is sent to
+        the service (explicitly — calling this is the opt-in), the model
+        call runs on the service's key and is metered against the
+        workspace's monthly budget, and only rules the real parser
+        compiles come back. Nothing is armed: review, edit, push.
+        """
+        path = "/v1/rulebook/extract" + (f"?project={project}" if project else "")
+        body = {"policy_text": policy_text, "tools": tools, "agent": agent}
+        status, payload, _ = self._request(
+            "POST",
+            path,
+            body=json.dumps(body).encode(),
+            content_type="application/json",
+        )
+        if status != 200:
+            raise CloudError(
+                self._detail(payload, f"extract failed ({status})"), status=status
+            )
+        try:
+            return json.loads(payload.decode())
+        except ValueError as exc:
+            raise CloudError("extract returned a non-JSON body") from exc
+
     def push_rulebook(self, project: str, yaml_text: str) -> dict:
         """Publish a local yaml as the next version of each agent's book."""
         path = "/v1/rulebook/push" + (f"?project={project}" if project else "")
