@@ -158,7 +158,9 @@ class CloudClient:
         last: Exception | None = None
         for attempt in range(self.retries + 1):
             try:
-                with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
+                with urllib.request.urlopen(
+                    req, timeout=timeout or self.timeout
+                ) as resp:
                     return (
                         resp.status,
                         resp.read(),

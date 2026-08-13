@@ -1,0 +1,113 @@
+{
+ "session": {
+  "id": "run-309aa9ed",
+  "agentId": "qa",
+  "mode": "enforce",
+  "startedAt": 1786567174345
+ },
+ "agents": [
+  {
+   "id": "qa",
+   "serviceName": "qa",
+   "role": "agent",
+   "tools": [],
+   "traceIds": [
+    "d3c583412a36313ab5e24293924c39a3"
+   ],
+   "violationCount": 1
+  }
+ ],
+ "edges": [],
+ "steps": [
+  {
+   "id": "s0",
+   "ts": 0,
+   "agentId": "qa",
+   "serviceName": "qa",
+   "traceId": "d3c583412a36313ab5e24293924c39a3",
+   "spanId": "0000000000000000",
+   "type": "tool_call",
+   "tool": "issue_refund",
+   "argsPreview": "{\"amount\": 10}",
+   "durationMs": 0.17,
+   "status": "blocked",
+   "verdict": {
+    "blocked": true,
+    "contractsChecked": 1,
+    "violations": [
+     {
+      "contractId": "tool-check-policy-must-precede-issue-refund",
+      "contractLabel": "tool `check_policy` must precede `issue_refund`",
+      "category": "Prohibited",
+      "kind": "guarantee",
+      "severity": "HIGH",
+      "pipeline": "det",
+      "enforcement": {
+       "strategy": "DetBlock",
+       "action": "blocked"
+      },
+      "evidence": "Runtime det violation: tool `check_policy` must precede `issue_refund`",
+      "reason": "tool `check_policy` must precede `issue_refund`"
+     }
+    ]
+   }
+  },
+  {
+   "id": "s1",
+   "ts": 1,
+   "agentId": "qa",
+   "serviceName": "qa",
+   "traceId": "d3c583412a36313ab5e24293924c39a3",
+   "spanId": "0000000000000001",
+   "type": "tool_call",
+   "tool": "check_policy",
+   "argsPreview": "{}",
+   "durationMs": 0.15,
+   "status": "ok",
+   "verdict": {
+    "blocked": false,
+    "contractsChecked": 1,
+    "violations": []
+   }
+  },
+  {
+   "id": "s2",
+   "ts": 2,
+   "agentId": "qa",
+   "serviceName": "qa",
+   "traceId": "d3c583412a36313ab5e24293924c39a3",
+   "spanId": "0000000000000002",
+   "type": "tool_call",
+   "tool": "issue_refund",
+   "argsPreview": "{\"amount\": 10}",
+   "durationMs": 0.04,
+   "status": "ok",
+   "verdict": {
+    "blocked": false,
+    "contractsChecked": 1,
+    "violations": []
+   }
+  }
+ ],
+ "contracts": [
+  {
+   "id": "tool-check-policy-must-precede-issue-refund",
+   "label": "tool `check_policy` must precede `issue_refund`",
+   "status": "armed",
+   "pipeline": "det",
+   "violationCount": 1,
+   "source": "policy",
+   "boundAgents": []
+  }
+ ],
+ "summary": {
+  "passRate": 0.6667,
+  "totalSteps": 3,
+  "detBlocks": 1,
+  "stoRetries": 0,
+  "escalations": 0,
+  "contractsArmed": 1,
+  "contractsTotal": 1,
+  "stopped": 1
+ }
+}

@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../Sponsio-cloud"
+		},
+		{
+			"path": "../quant-agent"
+		},
+		{
+			"path": "../sponsio.dev"
+		},
+		{
+			"path": "../Sponsio-internal"
+		}
+	]
+}

@@ -1,0 +1,47 @@
+{
+ "events": [
+  {
+   "ts": 0,
+   "agent": "qa",
+   "type": "tool_call",
+   "tool": "check_policy"
+  },
+  {
+   "ts": 1,
+   "agent": "qa",
+   "type": "data_write",
+   "key": "check_policy",
+   "contains": [
+    "check_policy"
+   ]
+  },
+  {
+   "ts": 2,
+   "agent": "qa",
+   "type": "tool_call",
+   "tool": "issue_refund",
+   "args": {
+    "amount": 10
+   }
+  },
+  {
+   "ts": 3,
+   "agent": "qa",
+   "type": "data_write",
+   "key": "issue_refund",
+   "contains": [
+    "issue_refund"
+   ]
+  }
+ ],
+ "metadata": {
+  "violations": [
+   {
+    "tool": "issue_refund",
+    "constraint": "BLOCKED: qa.issue_refund. det constraint violated: tool `check_policy` must precede `issue_refund`",
+    "action": "BLOCKED"
+   }
+  ],
+  "agent_id": "qa"
+ }
+}
