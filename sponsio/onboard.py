@@ -412,7 +412,7 @@ def detect_provider(
         return ProviderHint(
             provider="anthropic",
             env_var="ANTHROPIC_API_KEY",
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-5",
             evidence="ANTHROPIC_API_KEY set",
         )
 
@@ -420,7 +420,7 @@ def detect_provider(
         return ProviderHint(
             provider="openai",
             env_var="OPENAI_API_KEY",
-            model="gpt-4o-mini",
+            model="gpt-5-mini",
             evidence="OPENAI_API_KEY set",
         )
 
@@ -430,7 +430,7 @@ def detect_provider(
             provider="openai",
             env_var="OPENAI_API_KEY",
             base_url=base_url,
-            model="gpt-4o-mini",
+            model="gpt-5-mini",
             evidence=f"OPENAI_BASE_URL={base_url} (custom endpoint)",
         )
 

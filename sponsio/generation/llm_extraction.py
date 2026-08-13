@@ -850,8 +850,8 @@ class UnifiedExtractor:
       Azure OpenAI — anything that speaks the OpenAI chat API.
 
     Args:
-        model: Provider-specific model name.  Defaults: ``gpt-4o-mini``,
-            ``claude-3-5-sonnet-20241022``, ``gemini-2.0-flash``.
+        model: Provider-specific model name.  Defaults: ``gpt-5-mini``,
+            ``claude-sonnet-5``, ``gemini-2.0-flash``.
         api_key: API key for the chosen provider.  If ``None``, picked
             up from ``OPENAI_API_KEY`` / ``ANTHROPIC_API_KEY`` /
             ``GOOGLE_API_KEY`` / ``GEMINI_API_KEY``.
@@ -914,7 +914,7 @@ class UnifiedExtractor:
             )
             self._client = None  # use google.genai directly
         elif provider == "anthropic":
-            self._model = model or "claude-3-5-sonnet-20241022"
+            self._model = model or "claude-sonnet-5"
             self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
             if client is not None:
                 self._client = client
@@ -929,7 +929,7 @@ class UnifiedExtractor:
                 kwargs = {"api_key": self._api_key} if self._api_key else {}
                 self._client = anthropic.Anthropic(**kwargs)
         else:  # "openai" — also covers OpenAI-compatible base_url providers
-            self._model = model or "gpt-4o-mini"
+            self._model = model or "gpt-5-mini"
             if client is not None:
                 self._client = client
             else:

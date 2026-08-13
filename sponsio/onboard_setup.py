@@ -62,8 +62,8 @@ PROVIDER_CHOICES = (
 # ``sponsio/onboard.py:_detect_provider`` — keep them aligned.
 _DEFAULT_MODEL_BY_PROVIDER = {
     "gemini": "gemini-2.5-flash-lite",
-    "anthropic": "claude-3-5-sonnet-20241022",
-    "openai": "gpt-4o-mini",
+    "anthropic": "claude-sonnet-5",
+    "openai": "gpt-5-mini",
     "ollama": "llama3.1",
     "none": "",
 }

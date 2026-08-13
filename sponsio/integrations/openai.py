@@ -19,7 +19,7 @@ Usage::
     # All tool_calls are now auto-monitored
     client = openai.OpenAI()
     response = client.chat.completions.create(
-        model="gpt-4",
+        model="gpt-5",
         messages=[...],
         tools=[...],
     )

@@ -182,7 +182,7 @@ class ExtractorSection:
 
     Parse-time work is offline and one-shot: latency is irrelevant,
     accuracy matters.  Most users want their best model here (e.g.
-    ``gpt-4o``, ``claude-3-5-sonnet``).  Separate from ``judge``
+    ``gpt-5``, ``claude-sonnet-5``).  Separate from ``judge``
     because the judge is on the agent's hot path and has very
     different requirements.
     """
@@ -199,7 +199,7 @@ class JudgeSection:
 
     Runtime judging happens on every guarded turn: latency, cost,
     and resilience matter.  Most users want a *cheaper, faster* model
-    here (e.g. ``gpt-4o-mini``, ``gemini-2.5-flash``) and care about
+    here (e.g. ``gpt-5-mini``, ``gemini-2.5-flash``) and care about
     the fault-tolerance knobs.
 
     The sto pipeline is an extension point; this build rejects sto

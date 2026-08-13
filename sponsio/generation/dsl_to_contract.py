@@ -260,7 +260,7 @@ class LLMBackend(Protocol):
 class OpenAIBackend:
     """Concrete LLM backend using OpenAI API for NL -> contract translation."""
 
-    def __init__(self, model: str = "gpt-4o-mini", api_key: str | None = None):
+    def __init__(self, model: str = "gpt-5-mini", api_key: str | None = None):
         try:
             import openai
         except ImportError:

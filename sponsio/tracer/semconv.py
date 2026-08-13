@@ -168,7 +168,7 @@ ATTR_CONSTRAINT_THRESHOLD = "sponsio.constraint.threshold"
 ATTR_CONSTRAINT_PASSED = "sponsio.constraint.passed"  # score >= threshold
 ATTR_CONSTRAINT_EVIDENCE = "sponsio.constraint.evidence"  # judge's one-liner
 ATTR_CONSTRAINT_SUGGESTION = "sponsio.constraint.suggestion"  # retry hint
-ATTR_JUDGE_MODEL = "sponsio.judge.model"  # gemini-2.5-flash / gpt-4o-mini
+ATTR_JUDGE_MODEL = "sponsio.judge.model"  # gemini-2.5-flash / gpt-5-mini
 ATTR_JUDGE_LATENCY_MS = "sponsio.judge.latency_ms"
 
 
