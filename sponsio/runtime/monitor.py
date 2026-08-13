@@ -725,13 +725,15 @@ class RuntimeMonitor:
             severity="HIGH",
             evidence=violation.details,
         )
-        collector.add_enforcement(
-            strategy=type(strategy).__name__,
-            result_action="escalated",
-        )
-
         enforcement_result = self._maybe_downgrade(
             strategy.enforce(violation, context), a_verdict.lookup_key
+        )
+        # record what actually happened — in observe mode that is
+        # "observed", and hardcoding "escalated" here painted enforcement
+        # onto shadow-mode traces
+        collector.add_enforcement(
+            strategy=type(strategy).__name__,
+            result_action=enforcement_result.action,
         )
         monitor_event = MonitorEvent(
             agent_id=agent_id,
