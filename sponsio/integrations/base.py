@@ -310,6 +310,16 @@ class CheckResult:
     feedback: str | None = None
     rollback_performed: bool = False
     redirected_to: str | None = None
+    # --- Evidence verification (opt-in; empty/None when unconfigured) ---
+    # ``evidence_claims`` holds VerifiedClaim records (spec + value +
+    # server verdict). ``evidence_stopped`` is the middleware's already-
+    # decided stop (blocked claim, or EvidenceError under on_error=block);
+    # a synthesized ``blocked`` det violation accompanies it so
+    # ``stop_original`` agrees. Clarify verdicts do NOT stop — read them
+    # via ``evidence_clarifications`` to render a question.
+    evidence_claims: list = field(default_factory=list)
+    evidence_error: str | None = None
+    evidence_stopped: bool = False
 
     @property
     def blocked(self) -> bool:
@@ -358,6 +368,11 @@ class CheckResult:
     def needs_retry(self) -> bool:
         """True if any sto violation returned a retry with feedback."""
         return any(r.action == "retrying" for r in self.sto_violations)
+
+    @property
+    def evidence_clarifications(self) -> list:
+        """Evidence claims whose server action is ``clarify`` (non-stopping)."""
+        return [c for c in self.evidence_claims if c.needs_clarification]
 
     @property
     def all_violations(self) -> list[EnforcementResult]:
@@ -491,6 +506,14 @@ class BaseGuard:
             still wins.
         store: Optional PatternStore. If provided, user-written NL
             contracts are automatically registered as ``user_defined``.
+        evidence: Optional cloud claim-verification config (opt-in;
+            no behavior changes when omitted). An
+            :class:`~sponsio.integrations.evidence_middleware.EvidenceConfig`
+            or the equivalent mapping — see that module's docstring for
+            the shape. When set, ``observe_llm_call`` extracts the
+            configured claims from structured assistant output, verifies
+            them server-side, and folds blocking verdicts into the
+            returned :class:`CheckResult`.
     """
 
     def __init__(
@@ -514,6 +537,7 @@ class BaseGuard:
         tag_outputs: bool = True,
         tag_pii: bool = False,
         tool_policy: Any | None = None,
+        evidence: Any | None = None,
     ) -> None:
         # --- Config file support ---
         if config is not None:
@@ -817,6 +841,7 @@ class BaseGuard:
         if init_banner:
             print_banner(contracts_list)
 
+        self._terminal_reporter: TerminalReporter | None = None
         if self._verbose:
             reporter = TerminalReporter(
                 verbosity=self._verbosity,
@@ -827,6 +852,18 @@ class BaseGuard:
             reporter._header_printed = True
             reporter._build_label_map()
             self._monitor.register_callback(reporter)
+            # Kept for evidence verdict lines (report_evidence) — the
+            # middleware itself never prints.
+            self._terminal_reporter = reporter
+
+        # --- Evidence verification config (opt-in) ---
+        # Parsed eagerly so a malformed config fails at construction,
+        # not on the first verified turn.
+        self._evidence_config = None
+        if evidence is not None:
+            from sponsio.integrations.evidence_middleware import EvidenceConfig
+
+            self._evidence_config = EvidenceConfig.from_value(evidence)
 
         # --- Shadow-mode session logger ---
         # Always attach the JSONL logger in observe mode so users have a
@@ -1638,6 +1675,8 @@ class BaseGuard:
         response: str | None = None,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
+        tool_call_args: list[dict] | None = None,
+        session_id: str | None = None,
     ) -> CheckResult:
         """Record an LLM request/response pair in the trace and evaluate
         any contracts that apply to those events.
@@ -1657,12 +1696,27 @@ class BaseGuard:
             response: The LLM's completion text.
             input_tokens: Token count for the prompt.
             output_tokens: Token count for the completion.
+            tool_call_args: Decoded argument dicts of the response's
+                tool calls, if any — an extraction source for evidence
+                claims (structured output only).
+            session_id: Optional session correlation id forwarded to the
+                evidence service for attestations.
 
         Returns:
             CheckResult aggregating violations from both the request-
             and response-side contracts (det violations first, then sto).
             Callers can inspect ``.all_violations`` for the full list
             including confidence / threshold information.
+
+        Evidence (opt-in): when the guard was constructed with an
+        ``evidence=`` config and ``response`` is present, the configured
+        claims are extracted from the structured output, verified
+        server-side in one batch, and folded into the returned
+        CheckResult — a blocking verdict (or an EvidenceError under
+        ``on_error: block``) makes it a stopping result
+        (``stop_original`` True via a synthesized blocked violation).
+        Adapters that hold the response at this point must honor that
+        instead of discarding it.
         """
         total = None
         if input_tokens is not None and output_tokens is not None:
@@ -1716,6 +1770,63 @@ class BaseGuard:
                 elif r.action in ("blocked", "escalated"):
                     det_violations.append(r)
 
+        # --- Evidence verification (opt-in) ------------------------------
+        evidence_claims: list = []
+        evidence_error: str | None = None
+        evidence_stopped = False
+        if self._evidence_config is not None and response:
+            from sponsio.integrations.evidence_middleware import run_evidence
+
+            outcome = run_evidence(
+                self,
+                self._evidence_config,
+                content=response,
+                tool_call_args=tool_call_args,
+                session_id=session_id,
+            )
+            evidence_claims = list(outcome.claims)
+            evidence_error = str(outcome.error) if outcome.error else None
+            evidence_stopped = outcome.stops(self._evidence_config.on_error)
+            if evidence_stopped:
+                # Synthesize a canonical ``blocked`` violation per stop
+                # cause so ``stop_original`` (Phase-1 predicate) agrees
+                # with the middleware's decision.
+                for claim in outcome.blocked_claims:
+                    det_violations.append(
+                        EnforcementResult(
+                            action="blocked",
+                            message=(
+                                f"evidence: claim "
+                                f"{claim.spec.claim_field!r}={claim.value!r} "
+                                f"-> {claim.result.verdict}"
+                            ),
+                            rule_id=f"evidence:{claim.result.predicate}",
+                            agent_msg=(
+                                "The claim did not match authoritative "
+                                "evidence; correct it before releasing."
+                            ),
+                        )
+                    )
+                if outcome.error is not None:
+                    det_violations.append(
+                        EnforcementResult(
+                            action="blocked",
+                            message=(
+                                f"evidence: verification unavailable "
+                                f"({outcome.error}); on_error=block"
+                            ),
+                            rule_id="evidence:error",
+                        )
+                    )
+            # Reporting stays out of the middleware: verdict lines render
+            # through the same reporter det verdicts use.
+            if self._terminal_reporter is not None:
+                for claim in evidence_claims:
+                    try:
+                        self._terminal_reporter.report_evidence(claim.result)
+                    except Exception:  # noqa: BLE001 - display must not break
+                        pass
+
         allowed = len(det_violations) == 0
         feedback = None
         if sto_violations:
@@ -1727,6 +1838,9 @@ class BaseGuard:
             det_violations=det_violations,
             sto_violations=sto_violations,
             feedback=feedback,
+            evidence_claims=evidence_claims,
+            evidence_error=evidence_error,
+            evidence_stopped=evidence_stopped,
         )
 
     def observe_tool_output(self, tool_name: str, output: str) -> None:

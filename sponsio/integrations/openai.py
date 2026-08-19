@@ -181,6 +181,10 @@ class OpenAIGuard(BaseGuard):
             **kwargs,
         )
         self.last_check: CheckResult | None = None
+        # Per-choice ``observe_llm_call`` results of the most recent
+        # ``check_response`` — carries the evidence verdict when the
+        # guard has an ``evidence=`` config.
+        self.last_llm_checks: list[CheckResult] = []
         self.on_violation = on_violation
         # Map of ``tool_call_id`` → ``tool_name`` captured from the
         # assistant response, used so that
@@ -222,27 +226,44 @@ class OpenAIGuard(BaseGuard):
             getattr(usage, "completion_tokens", None) if usage else None
         )
 
+        # Per-choice results of the ``<llm_response>`` observation —
+        # including the evidence verdict when the guard has an
+        # ``evidence=`` config. ``patched_create`` reads this to apply
+        # the block/clarify rewrite while the response is still in hand.
+        self.last_llm_checks = []
+
         for idx, choice in enumerate(response.choices):
             message = choice.message
-
-            # Observe LLM response content (enables llm_said, token_count)
             content = getattr(message, "content", None)
-            self.observe_llm_call(
+
+            # Decode tool_call arguments BEFORE the observation so the
+            # evidence middleware can extract claims from them as well
+            # as from JSON message content.
+            decoded_calls: list[tuple[Any, str, dict]] = []
+            if hasattr(message, "tool_calls") and message.tool_calls:
+                for tc in message.tool_calls:
+                    tool_name = tc.function.name
+                    decoded_calls.append(
+                        (
+                            tc,
+                            tool_name,
+                            _coerce_tool_arguments(
+                                tc.function.arguments, tool_name=tool_name
+                            ),
+                        )
+                    )
+
+            # Observe LLM response content (enables llm_said, token_count;
+            # runs the evidence middleware when configured).
+            llm_check = self.observe_llm_call(
                 response=content or "",
                 input_tokens=prompt_tokens_total if idx == 0 else None,
                 output_tokens=completion_tokens_total if idx == 0 else None,
+                tool_call_args=[args for _, _, args in decoded_calls],
             )
+            self.last_llm_checks.append(llm_check)
 
-            if not hasattr(message, "tool_calls") or not message.tool_calls:
-                continue
-
-            for tc in message.tool_calls:
-                tool_name = tc.function.name
-                args = _coerce_tool_arguments(
-                    tc.function.arguments,
-                    tool_name=tool_name,
-                )
-
+            for tc, tool_name, args in decoded_calls:
                 check = self.guard_before(tool_name, args)
                 results.append(check)
 
@@ -422,6 +443,37 @@ class OpenAIGuard(BaseGuard):
 
         return response
 
+    def _apply_evidence_notices(self, response: Any) -> Any:
+        """Rewrite assistant text per the evidence verdicts, in place.
+
+        Reuses the same in-place mechanism as ``_filter_blocked_calls``:
+        mutate ``message.content`` on the choice whose observation
+        stopped (block notice, with the correction when the server sent
+        one) or produced clarify verdicts (a clarifying question with up
+        to five candidates). No-op — byte-identical response — when the
+        guard has no evidence config or nothing fired. Notice wording
+        lives in ``evidence_middleware`` (module-level templates).
+        """
+        checks = getattr(self, "last_llm_checks", None)
+        if not checks:
+            return response
+        from sponsio.integrations.evidence_middleware import (
+            format_block_notice,
+            format_clarify_notice,
+        )
+
+        for choice, llm_check in zip(response.choices, checks):
+            if llm_check.evidence_stopped:
+                choice.message.content = format_block_notice(
+                    [c for c in llm_check.evidence_claims if c.blocked],
+                    error=llm_check.evidence_error,
+                )
+            elif llm_check.evidence_clarifications:
+                choice.message.content = format_clarify_notice(
+                    llm_check.evidence_clarifications
+                )
+        return response
+
 
 def patch_openai(
     agent_id: str = "agent",
@@ -431,11 +483,20 @@ def patch_openai(
     sto_evaluator: StoEvaluator | None = None,
     sto_judge: Any | None = None,
     on_violation: Any | None = None,
+    evidence: Any | None = None,
 ) -> OpenAIGuard:
     """Monkey-patch the OpenAI SDK to auto-enforce contracts on tool_calls.
 
     After calling this, every ``client.chat.completions.create()`` call
     will automatically check tool_calls against the provided contracts.
+
+    With an ``evidence=`` config (see
+    :mod:`sponsio.integrations.evidence_middleware`), configured claims in
+    the assistant's structured output are verified server-side and a
+    blocking verdict replaces the assistant text with a block notice
+    (clarify verdicts replace it with a clarifying question). Streaming
+    is out of scope for evidence: ``stream=True`` with an evidence config
+    raises ``NotImplementedError`` at call time.
 
     Args:
         agent_id: Logical agent identifier for trace/monitor.
@@ -469,6 +530,7 @@ def patch_openai(
         sto_evaluator=sto_evaluator,
         sto_judge=sto_judge,
         on_violation=on_violation,
+        evidence=evidence,
     )
     # Warn when replacing an in-flight guard — notebooks that re-run a
     # cell, test suites that don't tear down, or apps that swap
@@ -505,26 +567,43 @@ def patch_openai(
         # returning from the previous turn and run them through
         # ``guard_after`` so the trace reflects real execution.  This
         # is the OpenAI equivalent of LangGraph's post-execution hook.
+        # Streaming + evidence is explicitly out of scope: there is no
+        # buffered response object to verify before chunks reach the
+        # caller. Fail loudly at call time instead of silently skipping
+        # verification the config promised.
+        if kwargs.get("stream") and guard._evidence_config is not None:
+            raise NotImplementedError(
+                "evidence verification is not supported with stream=True; "
+                "call without stream or drop the guard's evidence config"
+            )
         guard._auto_observe_tool_messages(kwargs.get("messages"))
         response = _original_create(self_completions, *args, **kwargs)
         results = guard.check_response(response)
         # ``stop_original``: redirected verdicts must also trigger the
         # rewrite — gating on ``.blocked`` alone lets redirects fail open.
         if any(r.stop_original for r in results):
-            return guard._filter_blocked_calls(response, results)
-        return response
+            response = guard._filter_blocked_calls(response, results)
+        # Evidence verdicts rewrite the assistant text while the response
+        # is still in hand (no-op when unconfigured / nothing fired).
+        return guard._apply_evidence_notices(response)
 
     # --- Async wrapper ---
     async def patched_async_create(
         self_completions: Any, *args: Any, **kwargs: Any
     ) -> Any:
+        # Same streaming refusal as the sync twin above.
+        if kwargs.get("stream") and guard._evidence_config is not None:
+            raise NotImplementedError(
+                "evidence verification is not supported with stream=True; "
+                "call without stream or drop the guard's evidence config"
+            )
         guard._auto_observe_tool_messages(kwargs.get("messages"))
         response = await _original_async_create(self_completions, *args, **kwargs)
         results = guard.check_response(response)
         # Same ``stop_original`` gate as the sync twin above.
         if any(r.stop_original for r in results):
-            return guard._filter_blocked_calls(response, results)
-        return response
+            response = guard._filter_blocked_calls(response, results)
+        return guard._apply_evidence_notices(response)
 
     openai.resources.chat.completions.Completions.create = patched_create  # type: ignore[assignment]
     openai.resources.chat.completions.AsyncCompletions.create = patched_async_create  # type: ignore[assignment]
