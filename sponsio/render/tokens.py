@@ -80,6 +80,15 @@ STATUS = {
     "BLOCKED": PALETTE["violation"],
     "WARN": PALETTE["warning"],
     "EXPIRED": PALETTE["metadata"],
+    # Cloud evidence verdicts (sponsio/cloud/evidence.py). Colors reuse
+    # the existing semantics: blocking verdicts render like BLOCKED,
+    # ambiguity/staleness render like WARN — no new hues.
+    "MISMATCH": PALETTE["violation"],
+    "UNDERDETERMINED": PALETTE["warning"],
+    "NO_EVIDENCE": PALETTE["violation"],
+    "STALE": PALETTE["warning"],
+    "SOURCE_UNAVAILABLE": PALETTE["violation"],
+    "EXTRACTION_AMBIGUOUS": PALETTE["violation"],
 }
 
 

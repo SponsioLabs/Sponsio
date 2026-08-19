@@ -142,11 +142,14 @@ class MCPContractProxy:
         # that proxy this to an LLM (Claude Desktop, custom orchestrators)
         # can show the agent-tuned phrasing while keeping the legacy
         # ``violations`` array of log-formatted strings for back-compat.
-        # Treat ``redirected`` the same as ``blocked`` here: this proxy
-        # has no transparent-substitution path, so a ``redirect_to_safe``
-        # redirect must refuse the unsafe call rather than fall through
-        # and execute it (a fail-open hole).
-        stopped = [r for r in results if r.action in ("blocked", "redirected")]
+        # Canonical stopping set (integrations/base.py STOPPING_ACTIONS):
+        # this proxy has no transparent-substitution path, so a
+        # ``redirect_to_safe`` redirect refuses the unsafe call rather
+        # than falling through and executing it. Membership lives in one
+        # place now — this file no longer restates it.
+        from sponsio.integrations.base import is_stopping_action
+
+        stopped = [r for r in results if is_stopping_action(r.action)]
         if stopped:
             return {
                 "error": "Blocked by behavioral contract",

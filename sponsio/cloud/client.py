@@ -135,6 +135,17 @@ class CloudClient:
         """No key means no cloud. Not an error — it is the default mode."""
         return bool(self.api_key)
 
+    @property
+    def evidence(self):
+        """Evidence verification calls — see :mod:`sponsio.cloud.evidence`.
+
+        Lazy import so the base client stays importable without pulling
+        the evidence module into code paths that never verify claims.
+        """
+        from sponsio.cloud.evidence import EvidenceClient
+
+        return EvidenceClient(self)
+
     # -- transport ---------------------------------------------------------
 
     def _request(

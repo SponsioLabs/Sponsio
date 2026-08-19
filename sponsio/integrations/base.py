@@ -262,6 +262,26 @@ def format_sto_retry_message(feedback: str, original: Any) -> str:
 # Check result (returned by guard_before / guard_after)
 # ---------------------------------------------------------------------------
 
+# THE canonical stopping set — the single definition of "this verdict must
+# stop the original action". ``CheckResult.stop_original``, the MCP proxy,
+# and the bridge span projection all consume this; do not restate the
+# membership anywhere else (three copies drifted apart once already).
+#
+# ``redirected`` is stopping because the contract forbade the original
+# call; adapters with a real substitution path branch on ``redirected_to``
+# BEFORE this predicate and run the substitute instead.
+# ``escalated`` is deliberately NOT stopping: the monitor uses
+# ``EscalateToHuman()`` as the default strategy for unfired-assumption
+# verdicts, so an escalated result is routinely vacuous — gating on it
+# would refuse every action while a conditional contract's assumption is
+# simply not yet satisfied (see the long note in ``guard_before``).
+STOPPING_ACTIONS: frozenset[str] = frozenset({"blocked", "redirected"})
+
+
+def is_stopping_action(action: str) -> bool:
+    """True when a det verdict action must stop the original call."""
+    return action in STOPPING_ACTIONS
+
 
 @dataclass
 class CheckResult:
@@ -332,7 +352,7 @@ class CheckResult:
         redirect. ``escalated`` is intentionally excluded — see
         ``guard_before`` for why escalation does not gate execution.
         """
-        return self.blocked or self.redirected
+        return any(is_stopping_action(r.action) for r in self.det_violations)
 
     @property
     def needs_retry(self) -> bool:
@@ -1311,6 +1331,9 @@ class BaseGuard:
             # call from running.
             # Observe mode never rolls back. the whole point is to
             # show users the trace their agent would have produced.
+            # Deliberately NOT ``stop_original``: observe-mode redirects
+            # must keep their event in the trace (the whole point of
+            # shadow mode), so only the enforce-mode redirect rolls back.
             should_rollback = result.blocked or (
                 self._mode != "observe" and result.redirected
             )

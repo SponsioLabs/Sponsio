@@ -254,7 +254,10 @@ class OpenAIGuard(BaseGuard):
                 if tool_call_id:
                     self._pending_tool_calls[tool_call_id] = tool_name
 
-                if check.blocked and self.on_violation:
+                # ``stop_original``: the callback must also fire for
+                # redirected verdicts — this adapter has no substitution
+                # path, so a redirect is a refusal the operator should see.
+                if check.stop_original and self.on_violation:
                     self.on_violation(tool_name, args, check)
 
         self.last_check = results[-1] if results else None
@@ -398,7 +401,10 @@ class OpenAIGuard(BaseGuard):
                 continue
             kept = []
             for tc in message.tool_calls:
-                if tc_idx < len(results) and results[tc_idx].blocked:
+                # ``stop_original`` folds in ``redirected``: no
+                # substitution path here, so a redirected tool_call must
+                # be stripped too (fail closed), not left to execute.
+                if tc_idx < len(results) and results[tc_idx].stop_original:
                     msg = select_agent_message(
                         results[tc_idx].det_violations,
                         fallback="Contract violation",
@@ -502,7 +508,9 @@ def patch_openai(
         guard._auto_observe_tool_messages(kwargs.get("messages"))
         response = _original_create(self_completions, *args, **kwargs)
         results = guard.check_response(response)
-        if any(r.blocked for r in results):
+        # ``stop_original``: redirected verdicts must also trigger the
+        # rewrite — gating on ``.blocked`` alone lets redirects fail open.
+        if any(r.stop_original for r in results):
             return guard._filter_blocked_calls(response, results)
         return response
 
@@ -513,7 +521,8 @@ def patch_openai(
         guard._auto_observe_tool_messages(kwargs.get("messages"))
         response = await _original_async_create(self_completions, *args, **kwargs)
         results = guard.check_response(response)
-        if any(r.blocked for r in results):
+        # Same ``stop_original`` gate as the sync twin above.
+        if any(r.stop_original for r in results):
             return guard._filter_blocked_calls(response, results)
         return response
 

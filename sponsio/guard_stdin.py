@@ -669,7 +669,11 @@ def evaluate_event(event: dict) -> GuardOutcome:
             os.environ.pop("SPONSIO_MODE", None)
         else:
             os.environ["SPONSIO_MODE"] = saved_env
-    if result.allowed:
+    # ``not stop_original`` rather than ``allowed``: ``allowed`` is False
+    # only on ``blocked``, so a redirected verdict fell through here as a
+    # permit — a fail-open hole for a hook adapter with no substitution
+    # path. Redirects must deny.
+    if not result.stop_original:
         # Append the now-permitted event to the trace log so the next
         # PreToolUse subprocess sees it.  Use the ts BaseGuard actually
         # assigned (== ``len(trace.events) - 1`` after the append).  If
@@ -704,9 +708,13 @@ def evaluate_event(event: dict) -> GuardOutcome:
     # compact rule-shaped explanation rather than a stack trace.
     # ``CheckResult.det_violations`` items expose ``.message`` (the
     # rendered "BLOCKED: agent.tool — …" line built by the monitor).
+    from sponsio.integrations.base import is_stopping_action
+
     reasons = []
     for v in result.det_violations:
-        if getattr(v, "action", None) == "blocked":
+        # Canonical stopping set: a redirected verdict denies here too,
+        # so its message must be eligible as the deny reason.
+        if is_stopping_action(getattr(v, "action", "") or ""):
             msg = getattr(v, "message", "") or ""
             # Strip the redundant ``BLOCKED: …`` prefix Claude Code's
             # UI will render the deny separately.

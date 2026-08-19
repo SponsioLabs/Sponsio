@@ -34,6 +34,7 @@ from sponsio.render.monitor import (
     build_label_map,
     render_banner,
     render_event,
+    render_evidence,
 )
 
 if TYPE_CHECKING:
@@ -113,6 +114,20 @@ class TerminalReporter:
         the reporter; the new code does the work in ``__init__`` so this
         is a no-op idempotent re-builder."""
         self._assumption_to_label = build_label_map(self._contracts)
+
+    def report_evidence(self, result) -> None:
+        """Print a cloud evidence verdict in the standard verdict style.
+
+        ``result`` is an :class:`sponsio.cloud.evidence.EvidenceResult`.
+        Follows the same verbosity contract as det lines: at verbosity 0
+        only non-PASS verdicts print (violations only); PASS lines show
+        from verbosity 1 up — evidence checks fire per claim, not per
+        tool call, so they are not the noise the v<2 pass-suppression
+        exists for.
+        """
+        if self.verbosity == 0 and str(result.verdict).upper() == "PASS":
+            return
+        self._console.print(render_evidence(result))
 
 
 def print_banner(contracts: list, colorize: bool | None = None) -> None:

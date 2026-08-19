@@ -2216,3 +2216,83 @@ def approval_active(
         pattern_name="approval_active",
         args=(action, role, max_seconds),
     )
+
+
+# ---------------------------------------------------------------------------
+# Evidence obligations — cloud claim-verification verdicts as trace atoms.
+#
+# These compose the ``claim_emitted`` / ``evidence_verdict`` /
+# ``evidence_action`` atom families grounded from ``evidence`` events
+# (``EvidenceResult.to_event`` in sponsio/cloud/evidence.py). The runtime
+# computes no verdicts — the atoms restate what the cloud service
+# answered, and these patterns make "the answer must be PASS" (or
+# "ambiguity must lead to clarification") checkable like any other
+# contract. Requires a Sponsio Cloud key to produce the events at all.
+# ---------------------------------------------------------------------------
+
+
+def claim_requires_evidence(pred: str, desc: str = "") -> DetFormula:
+    """Every emitted claim of this predicate must verify as PASS.
+
+    Compiles to: ``G(claim_emitted(pred) -> evidence_verdict(pred, PASS))``.
+
+    Both atoms are grounded from the same ``evidence`` event, so the
+    implication is decided at the timestep the verdict lands: a claim
+    whose verdict is anything but PASS (MISMATCH, UNDERDETERMINED,
+    NO_EVIDENCE, STALE, SOURCE_UNAVAILABLE, EXTRACTION_AMBIGUOUS)
+    violates immediately.
+
+    Args:
+        pred: Evidence predicate name (e.g. ``"date_weekday_agreement"``).
+        desc: Optional human-readable description.
+
+    Returns:
+        A ``DetFormula`` encoding the evidence obligation.
+    """
+    _ensure_non_empty(pred, pattern="claim_requires_evidence", arg="pred")
+    formula = G(
+        Implies(
+            Atom("claim_emitted", pred),
+            Atom("evidence_verdict", pred, "PASS"),
+        )
+    )
+    return DetFormula(
+        formula=formula,
+        desc=desc or f"claims of {pred} must verify against evidence (PASS)",
+        pattern_name="claim_requires_evidence",
+        args=(pred,),
+    )
+
+
+def underdetermined_must_clarify(pred: str, desc: str = "") -> DetFormula:
+    """An UNDERDETERMINED verdict must resolve to a clarify action.
+
+    Compiles to: ``G(evidence_verdict(pred, UNDERDETERMINED) ->
+    evidence_action(pred, clarify))``.
+
+    Guards the policy wiring rather than the claim itself: when the
+    evidence was ambiguous (several candidates), the recorded policy
+    action on that same event must be ``clarify`` — a project override
+    that quietly releases or hard-blocks ambiguous claims trips this
+    contract.
+
+    Args:
+        pred: Evidence predicate name.
+        desc: Optional human-readable description.
+
+    Returns:
+        A ``DetFormula`` encoding the clarify obligation.
+    """
+    _ensure_non_empty(pred, pattern="underdetermined_must_clarify", arg="pred")
+    formula = G(
+        Implies(
+            Atom("evidence_verdict", pred, "UNDERDETERMINED"),
+            Atom("evidence_action", pred, "clarify"),
+        )
+    )
+    return DetFormula(
+        formula=formula,
+        desc=desc or f"underdetermined {pred} evidence must trigger clarification",
+        pattern_name="underdetermined_must_clarify",
+        args=(pred,),
+    )
