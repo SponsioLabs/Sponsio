@@ -397,6 +397,33 @@ class EscalateToHuman:
     def enforce(
         self, violation: Violation, context: ActionContext
     ) -> EnforcementResult:
+        # A standing approval is a human answer that outlives its question:
+        # "Always allow" in the console covers this exact (agent, tool,
+        # contract) triple until revoked. Covered calls run, recorded as
+        # ``observed`` with the approval named — re-asking a person a
+        # question they already answered is how approval queues die.
+        # Notifiers deliberately do NOT fire for covered calls: the whole
+        # point of standing is that nobody gets paged.
+        from sponsio.runtime.standing import registry as _standing
+
+        grant = _standing().covers(
+            context.agent_id,
+            context.action,
+            violation.desc,
+            getattr(violation.formula, "desc", None),
+        )
+        if grant is not None:
+            rule = _rule_id_from_violation(violation)
+            when = f" (decided {grant.decided_at[:10]})" if grant.decided_at else ""
+            return EnforcementResult(
+                action="observed",
+                message=(
+                    f"RELEASED by standing approval{when}: "
+                    f"{context.agent_id}.{context.action} — "
+                    f"{violation.desc or violation.kind}. Revocable in the console."
+                ),
+                rule_id=rule,
+            )
         # Fire notifiers *before* returning the outcome so a synchronous
         # webhook (Slack, PagerDuty) lands while the trace is fresh.
         # Failures are isolated per-notifier: one broken hook doesn't

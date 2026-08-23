@@ -497,7 +497,22 @@ def Sponsio(  # noqa: N802 (branded factory function)
         cfg_kwargs["tool_policy"] = parsed.tool_policy
         cfg_kwargs.update(kwargs)
 
-        return guard_cls(**cfg_kwargs)
+        guard = guard_cls(**cfg_kwargs)
+        # A cloud-checked-out book runs in the cloud's trust domain, so the
+        # human decisions recorded there ride along: standing ("Always
+        # allow") approvals load once per construction — same freshness as
+        # the book — and EscalateToHuman honors them. Any failure loads
+        # nothing and every escalation waits on a human as before.
+        # SPONSIO_STANDING=0 opts out without touching code.
+        if (
+            isinstance(config, str)
+            and config.startswith("sponsio://")
+            and os.environ.get("SPONSIO_STANDING", "").strip() != "0"
+        ):
+            from sponsio.runtime.standing import load_from_cloud
+
+            load_from_cloud(quiet=not verbose)
+        return guard
 
     # Inline mode
     # Forward the parsed/typed policy so BaseGuard can synthesize the

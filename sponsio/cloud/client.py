@@ -213,6 +213,30 @@ class CloudClient:
         except ValueError as exc:
             raise CloudError("whoami returned a non-JSON body") from exc
 
+    # -- approvals ---------------------------------------------------------
+
+    def standing_approvals(self, project: str | None = None) -> list[dict]:
+        """The standing ("Always allow") approvals with ongoing effect.
+
+        Consumed at guard construction so ``EscalateToHuman`` can honor a
+        decision a human already made instead of re-asking every run. Any
+        non-200 raises; the caller's failure policy (fail-closed: empty
+        set, everything escalates) lives in ``runtime.standing``.
+        """
+        path = "/v1/approvals/standing" + (f"?project={project}" if project else "")
+        status, payload, _ = self._request("GET", path)
+        if status != 200:
+            raise CloudError(
+                self._detail(payload, f"standing approvals failed ({status})"),
+                status=status,
+            )
+        try:
+            parsed = json.loads(payload.decode())
+        except ValueError as exc:
+            raise CloudError("standing approvals returned a non-JSON body") from exc
+        rows = parsed.get("standing") if isinstance(parsed, dict) else None
+        return rows if isinstance(rows, list) else []
+
     # -- rulebook ----------------------------------------------------------
 
     def pull_rulebook(
