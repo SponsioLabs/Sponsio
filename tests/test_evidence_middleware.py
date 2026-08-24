@@ -286,7 +286,16 @@ class TestObserveLLMCallFolding:
         ]
         assert len(evidence_events) == 1
         assert evidence_events[0].key == "date_weekday_agreement"
-        assert evidence_events[0].args == {"verdict": "MISMATCH", "action": "block"}
+        # The event carries the display enrichment (claim/correction/source/
+        # values) alongside verdict/action; grounding reads only the latter.
+        assert evidence_events[0].args == {
+            "verdict": "MISMATCH",
+            "action": "block",
+            "claim": "Friday",
+            "correction": "saturday",
+            "source": None,
+            "values": [],
+        }
 
     def test_no_claims_means_no_batch_call(self):
         client = FakeEvidenceClient([_pass()])
