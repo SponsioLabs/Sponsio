@@ -339,7 +339,17 @@ def run_evidence(
             event_type="evidence",
             metadata={
                 "key": result.predicate,
-                "args": {"verdict": result.verdict, "action": result.action},
+                # Grounding reads only verdict/action; the rest rides along
+                # for the console's output layer (what the model said, the
+                # authoritative value(s), their source, and the correction).
+                "args": {
+                    "verdict": result.verdict,
+                    "action": result.action,
+                    "claim": claim.value,
+                    "correction": result.correction,
+                    "source": result.source,
+                    "values": list(result.values) if result.values else [],
+                },
             },
         )
     return EvidenceOutcome(claims=tuple(verified))
