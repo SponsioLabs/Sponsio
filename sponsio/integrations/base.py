@@ -1834,15 +1834,28 @@ class BaseGuard:
             )
             evidence_claims = list(outcome.claims)
             evidence_error = str(outcome.error) if outcome.error else None
-            evidence_stopped = outcome.stops(self._evidence_config.on_error)
-            if evidence_stopped:
-                # Synthesize a canonical ``blocked`` violation per stop
-                # cause so ``stop_original`` (Phase-1 predicate) agrees
-                # with the middleware's decision.
+            # Observe mode is a promise the whole product makes: everything
+            # is watched, nothing is withheld. The action lane keeps it by
+            # downgrading its verdicts to ``observed``; the output lane has
+            # to keep it the same way, or a shadow rollout starts rewriting
+            # customer-facing answers on day one.
+            _ev_observe = self._mode == "observe"
+            _ev_action = "observed" if _ev_observe else "blocked"
+            evidence_stopped = outcome.stops(
+                self._evidence_config.on_error
+            ) and not _ev_observe
+            if outcome.blocked_claims or (
+                outcome.error is not None
+                and self._evidence_config.on_error == "block"
+            ):
+                # Synthesize a canonical violation per stop cause so
+                # ``stop_original`` (Phase-1 predicate) agrees with the
+                # middleware's decision. In observe mode the same finding
+                # is recorded as non-stopping.
                 for claim in outcome.blocked_claims:
                     det_violations.append(
                         EnforcementResult(
-                            action="blocked",
+                            action=_ev_action,
                             message=(
                                 f"evidence: claim "
                                 f"{claim.spec.claim_field!r}={claim.value!r} "
@@ -1855,10 +1868,13 @@ class BaseGuard:
                             ),
                         )
                     )
-                if outcome.error is not None:
+                if (
+                    outcome.error is not None
+                    and self._evidence_config.on_error == "block"
+                ):
                     det_violations.append(
                         EnforcementResult(
-                            action="blocked",
+                            action=_ev_action,
                             message=(
                                 f"evidence: verification unavailable "
                                 f"({outcome.error}); on_error=block"
