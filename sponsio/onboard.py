@@ -996,11 +996,14 @@ def _wrap_snippet(framework: str, agent_id: str) -> str:
             f"# add `sponsioMiddleware(guard)` to your generateText middleware"
         ),
         "mcp": (
+            f"from sponsio.config import config_to_system, load_config\n"
             f"from sponsio.mcp import MCPContractProxy\n"
-            f'proxy = MCPContractProxy(config="sponsio.yaml", '
+            f'system = config_to_system(load_config("sponsio.yaml"))\n'
+            f"# wrap the MCP client you already use; call the proxy instead:\n"
+            f"proxy = MCPContractProxy(mcp_client=client, system=system, "
             f'agent_id="{agent_id}")\n'
-            f"# then run the proxy in front of your upstream MCP server:\n"
-            f"#   await proxy.serve_stdio()  # or proxy.serve_sse(host=..., port=...)"
+            f"#   result = await proxy.call_tool(name, arguments)\n"
+            f"# agent_id must name an agent in the rulebook, or nothing is checked"
         ),
         "none": (
             f"import sponsio\n"
