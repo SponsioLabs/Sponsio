@@ -17,6 +17,8 @@ Usage:
 
 from __future__ import annotations
 
+import warnings
+
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
@@ -106,6 +108,27 @@ class MCPContractProxy:
         self._client = mcp_client
         self._monitor = RuntimeMonitor(system=system)
         self._agent_id = agent_id
+        # An agent_id that names nobody in the system binds no contracts, so
+        # every call would sail through checked-by-nothing. Silence there is
+        # the fail-open case this proxy exists to prevent, so say it loudly
+        # once at construction rather than never.
+        try:
+            known = set()
+            for contract in system.contracts or []:
+                bound = getattr(contract, "agent", None)
+                name = getattr(bound, "id", None) or getattr(bound, "agent_id", None)
+                if name:
+                    known.add(str(name))
+        except Exception:  # noqa: BLE001 - a System shape we do not know
+            known = set()
+        if known and agent_id not in known:
+            warnings.warn(
+                f"MCPContractProxy(agent_id={agent_id!r}) matches no agent in "
+                f"this system ({', '.join(sorted(known))}); no contracts are "
+                f"bound and every tool call will pass unchecked.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         # Auto-tagging of tool outputs — same semantics as BaseGuard
         # but inlined here because ``MCPContractProxy`` is a standalone
         # proxy (not a BaseGuard subclass).
