@@ -58,6 +58,36 @@ def _trace_id(agent: str) -> str:
     return hashlib.sha1(agent.encode()).hexdigest()[:32]
 
 
+def _say_of(response: Any) -> str:
+    """The sentence to show for a model turn.
+
+    Structured output is the normal case: prefer a headline/message-ish
+    field, else join its string values, so the console shows words rather
+    than a JSON blob. Falls back to the raw text.
+    """
+    text = response if isinstance(response, str) else ""
+    try:
+        parsed = json.loads(text) if text else response
+    except (ValueError, TypeError):
+        return text
+    if not isinstance(parsed, dict):
+        return text
+    for key in ("message", "headline", "reply", "text", "answer", "summary"):
+        value = parsed.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    joined = " · ".join(str(v) for v in parsed.values() if isinstance(v, str))
+    return joined or text
+
+
+def _claim_span(verified: Any) -> str:
+    """What the model actually said for this claim, as display text."""
+    value = getattr(verified, "value", None)
+    if value not in (None, ""):
+        return str(value)
+    return str(getattr(getattr(verified, "spec", None), "claim_field", "") or "claim")
+
+
 class BridgeSession:
     """One run being streamed to a console.
 
@@ -221,6 +251,73 @@ class BridgeSession:
         self.send()
         return step
 
+    # Console action labels for the server's policy action. The server says
+    # what it decided; the console says what the reader sees happen to the
+    # output. A block that carries a correction is a rewrite; one that does
+    # not is simply a block.
+    _EV_ACTIONS = {"release": "released", "clarify": "clarify"}
+
+    def record_output(self, response: Any, result: Any, *, agent: str | None = None) -> dict | None:
+        """Project one model turn and its claim verdicts into a step.
+
+        The action lane records tool calls; this is the output lane. Without
+        it an ``observe_llm_call`` verdict lives only in the local trace and
+        never reaches the console, so a run looks clean while the model is
+        stating something false. Returns None when the turn carried no
+        verified claims (nothing to show).
+        """
+        claims_in = list(getattr(result, "evidence_claims", None) or [])
+        if not claims_in:
+            return None
+
+        claims: list[dict] = []
+        for vc in claims_in:
+            res = getattr(vc, "result", None)
+            if res is None:
+                continue
+            verdict = str(getattr(res, "verdict", "") or "").upper()
+            correction = getattr(res, "correction", None)
+            values = list(getattr(res, "values", None) or [])
+            action = self._EV_ACTIONS.get(
+                str(getattr(res, "action", "") or "").lower(),
+                "rewritten" if correction not in (None, "") else "blocked",
+            )
+            claims.append(
+                {
+                    "span": _claim_span(vc),
+                    "predicate": str(getattr(getattr(vc, "spec", None), "predicate", "") or ""),
+                    "verdict": verdict,
+                    "source": str(getattr(res, "source", "") or ""),
+                    "freshness": "",
+                    "evidence": ("authoritative: " + ", ".join(str(v) for v in values)) if values else "",
+                    "action": action,
+                    "fix": "" if correction in (None, "") else str(correction),
+                }
+            )
+        if not claims:
+            return None
+
+        agent_id = agent or self.root_agent
+        idx = len(self.steps)
+        step = {
+            "id": f"s{idx}",
+            "ts": idx,
+            "agentId": agent_id,
+            "serviceName": agent_id,
+            "traceId": _trace_id(agent_id),
+            "spanId": f"{idx:016x}",
+            "type": "assistant_output",
+            "tool": "reply",
+            "durationMs": 1.0,
+            "status": "mismatch" if any(c["verdict"] == "MISMATCH" for c in claims) else "ok",
+            "say": _say_of(response),
+            "output": {"checked": len(claims), "claims": claims},
+        }
+        self.steps.append(step)
+        self._ensure_agent(agent_id)
+        self.send()
+        return step
+
     def _edge(self, source: str, target: str, kind: str, label: str) -> None:
         self._ensure_agent(source)
         self._ensure_agent(target, role="worker")
@@ -375,4 +472,24 @@ def attach(
 
     guard.guard_before = wrapped  # type: ignore[method-assign]
     session._original_guard_before = original  # type: ignore[attr-defined]
+
+    # The output lane rides the same switch. A model turn whose claims were
+    # verified becomes a step too, otherwise the verdict never leaves the
+    # process and the console shows a clean run for a false answer.
+    observe = getattr(guard, "observe_llm_call", None)
+    if callable(observe):
+
+        def wrapped_observe(*args: Any, **kwargs: Any):
+            result = observe(*args, **kwargs)
+            try:
+                response = kwargs.get("response")
+                if response is None and len(args) >= 2:
+                    response = args[1]
+                session.record_output(response, result)
+            except Exception:  # noqa: BLE001 - recording must not break a run
+                session.send_failures += 1
+            return result
+
+        guard.observe_llm_call = wrapped_observe  # type: ignore[method-assign]
+        session._original_observe_llm_call = observe  # type: ignore[attr-defined]
     return session
