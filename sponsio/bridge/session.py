@@ -81,6 +81,31 @@ def _say_of(response: Any) -> str:
     return joined or text
 
 
+def _own_book(stamp: str, agent: str) -> str | None:
+    """This agent's ``agent@vN`` out of a checkout stamp.
+
+    A whole-project pull is stamped "<project> a@v3 b@v1 ... sha:..."; a
+    single-agent pull "<project>@vN" with no agent prefix at all.
+    """
+    tokens = [t for t in stamp.split() if "@v" in t]
+    for token in tokens:
+        if token.startswith(f"{agent}@v"):
+            return token
+    if len(tokens) == 1:
+        version = _book_version(tokens[0])
+        if version is not None:
+            return f"{agent}@v{version}"
+    return None
+
+
+def _book_version(book: str | None) -> int | None:
+    if not book or "@v" not in book:
+        return None
+    tail = book.rsplit("@v", 1)[1]
+    digits = "".join(ch for ch in tail if ch.isdigit())
+    return int(digits) if digits else None
+
+
 def _claim_span(verified: Any) -> str:
     """What the model actually said for this claim, as display text."""
     value = getattr(verified, "value", None)
@@ -378,7 +403,18 @@ class BridgeSession:
         # would make a replay claim to reproduce something it cannot.
         stamp = os.environ.get("SPONSIO_RULEBOOK_STAMP", "").strip()
         if stamp:
-            vm["rulebook"] = stamp
+            # The checkout stamp names every agent in the project
+            # ("default a@v3 b@v1 ... sha:..."); a run is ONE agent's, so
+            # it records that agent's book — the form the console links
+            # to and the server keys tests by — and keeps the whole stamp
+            # for provenance. Without this the run named seventeen books
+            # and its version parsed as none.
+            own = _own_book(stamp, self.root_agent)
+            vm["rulebook"] = own or stamp
+            vm["rulebookRef"] = stamp
+            version = _book_version(own)
+            if version is not None:
+                vm["session"]["rulebookVersion"] = version
         return vm
 
     # -- transport ---------------------------------------------------------

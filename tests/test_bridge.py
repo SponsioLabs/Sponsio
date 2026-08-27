@@ -309,8 +309,28 @@ def test_the_rulebook_stamp_rides_along_when_the_config_came_from_the_cloud(
     guard.last_check_span = FakeSpan(_clean_turn())
     guard.guard_before("t", {})
 
-    assert client.sent[-1]["vm"]["rulebook"] == "alpha quant@v7 sha:abc"
+    vm = client.sent[-1]["vm"]
+    # The run names ITS OWN book, in the form the console links to and the
+    # server keys tests by; the whole checkout rides along as provenance.
+    assert vm["rulebook"] == "quant@v7"
+    assert vm["rulebookRef"] == "alpha quant@v7 sha:abc"
+    assert vm["session"]["rulebookVersion"] == 7
     _ = run
+
+
+def test_a_single_agent_checkout_stamp_still_names_this_agents_book(
+    tmp_path, monkeypatch
+):
+    # a single-agent pull is stamped "<project>@vN" with no agent prefix
+    monkeypatch.setenv("SPONSIO_RULEBOOK_STAMP", "alpha@v5 sha:abc")
+    guard, client = FakeGuard(), FakeClient()
+    attach(guard, client=client, runs_dir=tmp_path)
+    guard.last_check_span = FakeSpan(_clean_turn())
+    guard.guard_before("t", {})
+
+    vm = client.sent[-1]["vm"]
+    assert vm["rulebook"] == "quant@v5"
+    assert vm["session"]["rulebookVersion"] == 5
 
 
 def test_a_local_run_claims_no_rulebook_version(tmp_path, monkeypatch):
