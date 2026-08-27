@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import secrets
 import os
 import time
 from pathlib import Path
@@ -109,9 +110,13 @@ class BridgeSession:
     ) -> None:
         self.guard = guard
         self.project = project
-        self.session_id = session_id or (
-            "run-" + hashlib.sha1(f"{id(guard)}{time.time()}".encode()).hexdigest()[:8]
-        )
+        # The server keys a run by this id and upserts, so two runs sharing
+        # one id silently become one: the older is overwritten with no error.
+        # The old id was 32 bits derived from id(guard) and the clock, which
+        # collides around 65k runs by birthday alone — and worse in practice,
+        # since memory addresses get reused and a booting fleet shares the
+        # clock. 64 bits from the system CSPRNG puts a collision out of reach.
+        self.session_id = session_id or ("run-" + secrets.token_hex(8))
         self.mode = getattr(guard, "mode", None) or "observe"
         self.root_agent = getattr(guard, "agent_id", "agent")
         self.started_at = int(time.time() * 1000)
