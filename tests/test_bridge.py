@@ -340,13 +340,33 @@ def test_the_run_key_is_stable_across_frames(tmp_path):
 
 def test_each_frame_carries_the_whole_run_so_far(tmp_path):
     guard, client = FakeGuard(), FakeClient()
-    attach(guard, client=client, runs_dir=tmp_path)
+    run = attach(guard, client=client, runs_dir=tmp_path)
+    # Both knobs off: the floor AND the size-proportional backoff.
+    run.SEND_MIN_INTERVAL_S = 0.0
+    run.SEND_MAX_KB_PER_S = float("inf")
     guard.last_check_span = FakeSpan(_clean_turn())
 
     guard.guard_before("a", {})
     guard.guard_before("b", {})
 
+    # Frames are cumulative snapshots, never deltas.
     assert [len(f["vm"]["steps"]) for f in client.sent] == [1, 2]
+
+
+def test_frames_coalesce_so_a_long_run_does_not_upload_the_run_squared(tmp_path):
+    """Every frame is the whole run, so one frame per step costs O(steps^2)
+    bytes. Steps taken inside the interval share a frame instead."""
+    guard, client = FakeGuard(), FakeClient()
+    run = attach(guard, client=client, runs_dir=tmp_path)
+    guard.last_check_span = FakeSpan(_clean_turn())
+
+    for _ in range(50):
+        guard.guard_before("a", {})
+
+    assert len(client.sent) < 50
+    # ...and the run is still whole once it ends.
+    run.finish()
+    assert len(client.sent[-1]["vm"]["steps"]) == 50
 
 
 def test_live_flips_false_on_finish(tmp_path):

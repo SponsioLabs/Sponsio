@@ -228,7 +228,7 @@ class BridgeSession:
             if contract is not None:
                 contract["violationCount"] = contract.get("violationCount", 0) + 1
 
-        self.send()
+        self._send_soon()
         return step
 
     def note(self, agent: str, text: str, type: str = "message") -> dict:
@@ -248,7 +248,7 @@ class BridgeSession:
         }
         self.steps.append(step)
         self._ensure_agent(agent)
-        self.send()
+        self._send_soon()
         return step
 
     # Console action labels for the server's policy action. The server says
@@ -315,7 +315,7 @@ class BridgeSession:
         }
         self.steps.append(step)
         self._ensure_agent(agent_id)
-        self.send()
+        self._send_soon()
         return step
 
     def _edge(self, source: str, target: str, kind: str, label: str) -> None:
@@ -378,17 +378,59 @@ class BridgeSession:
 
     # -- transport ---------------------------------------------------------
 
+    # A frame carries the WHOLE run, so sending one per step makes a long
+    # agent upload O(steps^2) bytes: measured, 1k steps is 142 MB and 5k is
+    # 3.5 GB, and past ~27k the frame alone exceeds the 8 MB ingest cap and
+    # every later send 413s. Coalescing to at most one frame per interval
+    # keeps the console live to the eye and the traffic linear-ish; finish()
+    # always flushes, so the final state is never the stale one.
+    SEND_MIN_INTERVAL_S = 1.0
+
+    # Frames grow with the run, so a fixed interval still lets a very long
+    # agent climb: the rate, not the count, is what has to stay bounded.
+    # Backing off in proportion to the last frame holds outbound traffic
+    # near this ceiling no matter how big the session gets.
+    SEND_MAX_KB_PER_S = 250.0
+
+    def _send_interval(self) -> float:
+        last_kb = getattr(self, "_last_frame_bytes", 0) / 1024.0
+        return max(self.SEND_MIN_INTERVAL_S, last_kb / self.SEND_MAX_KB_PER_S)
+
+    def _send_soon(self) -> None:
+        """Mark the run changed; send if this frame is not too soon after the last."""
+        now = time.time()
+        if (now - getattr(self, "_last_send_at", 0.0)) < self._send_interval():
+            self._pending = True
+            return
+        self.send()
+
     def send(self) -> bool:
         """Best effort. Never raises, never blocks the agent."""
+        self._pending = False
+        self._last_send_at = time.time()
         if not getattr(self.client, "configured", False):
             return False
         payload = {"key": self.session_id, "live": self.live, "vm": self.view_model()}
+        try:
+            self._last_frame_bytes = len(json.dumps(payload))
+        except Exception:  # noqa: BLE001 - sizing is advisory only
+            self._last_frame_bytes = 0
         try:
             self.client.ingest_session(self.project, payload)
             return True
         except Exception as exc:  # noqa: BLE001 - telemetry must not break a run
             self.send_failures += 1
             self._last_error = str(exc)
+            # Losing telemetry must not change what the agent does, but it
+            # must not be invisible either: a run that silently stopped
+            # reaching the console still looks live and complete on screen.
+            if not getattr(self, "_warned_send", False):
+                self._warned_send = True
+                print(
+                    f"  sponsio: this run is no longer reaching the console "
+                    f"({exc}); the agent is unaffected.",
+                    flush=True,
+                )
             return False
 
     def finish(self) -> dict[str, Any]:
