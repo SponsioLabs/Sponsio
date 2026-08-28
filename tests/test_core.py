@@ -498,3 +498,83 @@ agents:
 
         guard = sponsio.Sponsio(config=str(multi_agent_yaml), agent_id="alice")
         assert guard.agent_id == "alice"
+
+
+# --- cloud checkout must never rebind an explicit agent to a sibling -------
+
+_CLOUD_DOC_WITH_ONLY_THE_SAMPLE = """\
+version: '1'
+agents:
+  support-sample:
+    contracts:
+      - G: {nl: "G( tool `a` must precede `b` )"}
+        desc: sample rule
+"""
+
+_LOCAL_DOC_FOR_ACME = """\
+version: '1'
+agents:
+  acme:
+    contracts:
+      - G: {nl: "G( tool `x` must precede `y` )"}
+        desc: acme rule
+"""
+
+
+def _fake_cloud_checkout(tmp_path, monkeypatch, text):
+    doc = tmp_path / "cloud.yaml"
+    doc.write_text(text)
+    import sponsio.cloud.ref as ref
+
+    monkeypatch.setattr(ref, "resolve_config_ref", lambda value, **kw: doc)
+    return doc
+
+
+def test_cloud_ref_uses_the_local_book_when_the_cloud_has_none_for_this_agent(
+    tmp_path, monkeypatch
+):
+    """A tenant's first real agent starts beside the seeded welcome sample.
+    The project book then has exactly one agent — the sample — and the
+    old single-agent fallback bound the user's agent to it: it ran under
+    the sample's rules and reported as the sample. Under a cloud ref an
+    explicit agent_id is never rebound."""
+    import sponsio
+
+    _fake_cloud_checkout(tmp_path, monkeypatch, _CLOUD_DOC_WITH_ONLY_THE_SAMPLE)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "sponsio.yaml").write_text(_LOCAL_DOC_FOR_ACME)
+
+    guard = sponsio.Sponsio(
+        config="sponsio://proj", agent_id="acme", init_banner=False, verbose=False
+    )
+    assert guard.agent_id == "acme"
+
+
+def test_cloud_ref_without_a_book_for_this_agent_stops_with_the_fix(
+    tmp_path, monkeypatch
+):
+    import sponsio
+
+    _fake_cloud_checkout(tmp_path, monkeypatch, _CLOUD_DOC_WITH_ONLY_THE_SAMPLE)
+    monkeypatch.chdir(tmp_path)  # no local sponsio.yaml here
+
+    with pytest.raises(ValueError, match="no rulebook for agent 'acme'"):
+        sponsio.Sponsio(
+            config="sponsio://proj", agent_id="acme", init_banner=False, verbose=False
+        )
+
+
+def test_a_local_single_agent_file_still_rebinds_a_mismatched_agent_id(
+    tmp_path, monkeypatch
+):
+    """The convenience stays for a local file: one agent block, and a
+    mismatched agent_id (a demo's hardcoded id) picks it, with a warning."""
+    import sponsio
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "sponsio.yaml").write_text(_LOCAL_DOC_FOR_ACME)
+    with pytest.warns(UserWarning):
+        guard = sponsio.Sponsio(
+            config="sponsio.yaml", agent_id="typo", init_banner=False, verbose=False
+        )
+    assert guard.agent_id == "acme"

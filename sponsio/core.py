@@ -451,7 +451,48 @@ def Sponsio(  # noqa: N802 (branded factory function)
         # in sync with the demo's hardcoded id.  Multi-agent configs
         # still require an explicit pick (no good default).
         if agent_id not in parsed.agents:
-            if len(parsed.agents) == 1:
+            # A cloud checkout is a whole project's book: the "only agent"
+            # in it is whichever sibling exists — the seeded welcome sample,
+            # every time a tenant's first real agent starts. Rebinding there
+            # ran the user's agent under the sample's rules and reported it
+            # AS the sample, with nothing but a UserWarning to say so.
+            # Under a cloud ref an explicit agent_id is never rebound: use
+            # the local sponsio.yaml for that agent if there is one (and
+            # say so), else stop with the fix in hand.
+            from sponsio.cloud.ref import is_cloud_ref
+
+            if (
+                agent_id != "agent"
+                and isinstance(config, str)
+                and is_cloud_ref(config)
+            ):
+                from pathlib import Path as _Path
+
+                local_yaml = _Path.cwd() / "sponsio.yaml"
+                local = None
+                if local_yaml.is_file():
+                    try:
+                        local = load_config(str(local_yaml))
+                    except Exception:  # noqa: BLE001 - a broken local file is not our call here
+                        local = None
+                if local is not None and agent_id in local.agents:
+                    print(
+                        f"  sponsio: {config} has no book for agent {agent_id!r} yet "
+                        f"(it has: {', '.join(parsed.agents)}); using ./sponsio.yaml. "
+                        f"Push it to publish: sponsio push sponsio.yaml",
+                        flush=True,
+                    )
+                    parsed = local
+                else:
+                    raise ValueError(
+                        f"{config} has no rulebook for agent {agent_id!r} "
+                        f"(agents with a book there: {', '.join(parsed.agents) or 'none'}), "
+                        f"and no ./sponsio.yaml defines it. Push this agent's book "
+                        f"(sponsio push sponsio.yaml) or pass the agent_id that owns one."
+                    )
+            if agent_id in parsed.agents:
+                pass
+            elif len(parsed.agents) == 1:
                 only_agent = next(iter(parsed.agents))
                 # Surface the fallback when the user actively asked
                 # for a non-default name (likely a typo or a stale
