@@ -554,7 +554,7 @@ def rate_limit(action: str, max_count: int, desc: str = "") -> DetFormula:
     formula = G(Le(_count_var(action), Const(max_count)))
     return DetFormula(
         formula=formula,
-        desc=desc or f"{action} limited to {max_count} invocations",
+        desc=desc or f"{action} limited to {max_count} invocation{'' if max_count == 1 else 's'}",
         pattern_name="rate_limit",
         args=(action, max_count),
     )
@@ -765,7 +765,7 @@ def bounded_retry(action: str, max_retries: int, desc: str = "") -> DetFormula:
     formula = G(Le(_count_var(action), Const(max_retries)))
     return DetFormula(
         formula=formula,
-        desc=desc or f"{action} limited to {max_retries} retries",
+        desc=desc or f"{action} limited to {max_retries} retr{'y' if max_retries == 1 else 'ies'}",
         pattern_name="bounded_retry",
         args=(action, max_retries),
     )
