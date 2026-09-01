@@ -19,6 +19,12 @@ _VALID_EVENT_TYPES: frozenset[str] = frozenset(
         "delegation",
         "llm_response",
         "llm_request",
+        # ``evidence`` carries a cloud claim-verification verdict back
+        # into the trace (``EvidenceResult.to_event``): ``key`` is the
+        # predicate name, ``args`` holds {"verdict", "action"}. Grounds
+        # the ``claim_emitted`` / ``evidence_verdict`` /
+        # ``evidence_action`` atom families.
+        "evidence",
         # ``context_update`` carries user-pushed external facts (caller
         # identity, retrieved-content source, signed-message metadata)
         # via ``guard.observe_context({...})``. The grounding layer

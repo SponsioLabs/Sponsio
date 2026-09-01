@@ -11,13 +11,20 @@ import json
 import re
 from typing import Any
 
+# Actions that actually stopped the call — re-exported (for session.py's
+# step/summary counting) from the canonical definition next to CheckResult
+# so telemetry counts what enforcement actually does.
+# COUNTING CHANGE vs the previous local tuple: ``escalated`` is no longer
+# counted as stopped, because enforcement never stops on it (the monitor's
+# default EscalateToHuman verdict for unfired assumptions is vacuous; see
+# integrations/base.py STOPPING_ACTIONS). Dashboards that summed escalated
+# into detBlocks will show lower, truthful numbers.
+from sponsio.integrations.base import STOPPING_ACTIONS  # noqa: F401
+
 # Enforcement actions the console renders as a step status. Anything else
 # falls back to "blocked" rather than inventing a new status word the
 # frontend has no colour for.
 KNOWN_ACTIONS = ("blocked", "escalated", "redirected", "retrying", "warned", "observed")
-# Actions that actually stopped the call. `observed` is not one of them: in
-# shadow mode the contract fired and the call still ran.
-STOPPING_ACTIONS = ("blocked", "escalated", "redirected")
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 

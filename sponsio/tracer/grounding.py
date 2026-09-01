@@ -616,6 +616,24 @@ def ground_event(
                     continue
                 state.current_ctx[str(k)] = str(val) if val is not None else ""
 
+    # ── evidence ───────────────────────────────────────────────
+    # A cloud claim-verification verdict fed back into the trace
+    # (``EvidenceResult.to_event``). ``key`` is the predicate name;
+    # ``args`` carries the server's verdict and policy action verbatim.
+    # No verdict computation happens here — the atoms only restate what
+    # the service answered, so DFA contracts (``claim_requires_evidence``,
+    # ``underdetermined_must_clarify``) can reference it. Verdict is
+    # normalized to upper-case, action to lower-case, matching the
+    # server's own vocabulary.
+    elif event.event_type == "evidence" and event.key:
+        v[pred_key("claim_emitted", event.key)] = True
+        verdict = str((event.args or {}).get("verdict") or "").upper()
+        if verdict:
+            v[pred_key("evidence_verdict", event.key, verdict)] = True
+        action = str((event.args or {}).get("action") or "").lower()
+        if action:
+            v[pred_key("evidence_action", event.key, action)] = True
+
     # ── permissions (static, from Agent model) ─────────────────
     if agents:
         agent_obj = agents.get(event.agent)

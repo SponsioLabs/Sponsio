@@ -309,8 +309,28 @@ def test_the_rulebook_stamp_rides_along_when_the_config_came_from_the_cloud(
     guard.last_check_span = FakeSpan(_clean_turn())
     guard.guard_before("t", {})
 
-    assert client.sent[-1]["vm"]["rulebook"] == "alpha quant@v7 sha:abc"
+    vm = client.sent[-1]["vm"]
+    # The run names ITS OWN book, in the form the console links to and the
+    # server keys tests by; the whole checkout rides along as provenance.
+    assert vm["rulebook"] == "quant@v7"
+    assert vm["rulebookRef"] == "alpha quant@v7 sha:abc"
+    assert vm["session"]["rulebookVersion"] == 7
     _ = run
+
+
+def test_a_single_agent_checkout_stamp_still_names_this_agents_book(
+    tmp_path, monkeypatch
+):
+    # a single-agent pull is stamped "<project>@vN" with no agent prefix
+    monkeypatch.setenv("SPONSIO_RULEBOOK_STAMP", "alpha@v5 sha:abc")
+    guard, client = FakeGuard(), FakeClient()
+    attach(guard, client=client, runs_dir=tmp_path)
+    guard.last_check_span = FakeSpan(_clean_turn())
+    guard.guard_before("t", {})
+
+    vm = client.sent[-1]["vm"]
+    assert vm["rulebook"] == "quant@v5"
+    assert vm["session"]["rulebookVersion"] == 5
 
 
 def test_a_local_run_claims_no_rulebook_version(tmp_path, monkeypatch):
@@ -340,13 +360,33 @@ def test_the_run_key_is_stable_across_frames(tmp_path):
 
 def test_each_frame_carries_the_whole_run_so_far(tmp_path):
     guard, client = FakeGuard(), FakeClient()
-    attach(guard, client=client, runs_dir=tmp_path)
+    run = attach(guard, client=client, runs_dir=tmp_path)
+    # Both knobs off: the floor AND the size-proportional backoff.
+    run.SEND_MIN_INTERVAL_S = 0.0
+    run.SEND_MAX_KB_PER_S = float("inf")
     guard.last_check_span = FakeSpan(_clean_turn())
 
     guard.guard_before("a", {})
     guard.guard_before("b", {})
 
+    # Frames are cumulative snapshots, never deltas.
     assert [len(f["vm"]["steps"]) for f in client.sent] == [1, 2]
+
+
+def test_frames_coalesce_so_a_long_run_does_not_upload_the_run_squared(tmp_path):
+    """Every frame is the whole run, so one frame per step costs O(steps^2)
+    bytes. Steps taken inside the interval share a frame instead."""
+    guard, client = FakeGuard(), FakeClient()
+    run = attach(guard, client=client, runs_dir=tmp_path)
+    guard.last_check_span = FakeSpan(_clean_turn())
+
+    for _ in range(50):
+        guard.guard_before("a", {})
+
+    assert len(client.sent) < 50
+    # ...and the run is still whole once it ends.
+    run.finish()
+    assert len(client.sent[-1]["vm"]["steps"]) == 50
 
 
 def test_live_flips_false_on_finish(tmp_path):
@@ -434,3 +474,65 @@ def test_a_guard_without_a_system_is_not_an_error(tmp_path):
     guard, client = FakeGuard(), FakeClient()
     run = attach(guard, client=client, runs_dir=tmp_path)
     assert run.contracts == {}
+
+
+class _FakeClaimResult:
+    def __init__(self, verdict, action, correction=None):
+        self.verdict = verdict
+        self.action = action
+        self.correction = correction
+        self.values = []
+
+
+class _FakeClaimSpec:
+    predicate = "date_weekday_agreement"
+    claim_field = "validated_weekday"
+
+
+class _FakeVerifiedClaim:
+    spec = _FakeClaimSpec()
+
+    def __init__(self, verdict="MISMATCH"):
+        self.result = _FakeClaimResult(verdict, "block", correction="tuesday")
+
+
+class _FakeObserveResult:
+    def __init__(self):
+        self.evidence_claims = [_FakeVerifiedClaim()]
+
+
+class _EvidenceGuard(FakeGuard):
+    """A guard whose output lane verifies a claim."""
+
+    def observe_llm_call(self, response=None, **kwargs):
+        return _FakeObserveResult()
+
+
+def test_output_lane_reaches_the_console_in_a_multi_agent_run(tmp_path):
+    """auto=False is about the ACTION lane; claim verdicts must still ship.
+
+    A multi-agent run attributes its own tool steps, which is the only
+    reason to pass auto=False. Taking the output lane with it made those
+    runs render as clean traces while the model stated something false.
+    """
+    guard, client = _EvidenceGuard(), FakeClient()
+    run = attach(guard, client=client, runs_dir=tmp_path, auto=False)
+
+    guard.last_check_span = FakeSpan(_clean_turn(agent="report_agent"))
+    guard.observe_llm_call(response='{"validated_weekday": "Monday"}')
+
+    outputs = [s for s in run.steps if s.get("type") == "assistant_output"]
+    assert outputs, f"no output-lane step recorded; steps={run.steps}"
+    claims = outputs[0]["output"]["claims"]
+    assert claims[0]["predicate"] == "date_weekday_agreement"
+    assert claims[0]["verdict"] == "MISMATCH"
+    assert outputs[0]["agentId"] == "quant"
+
+
+def test_auto_false_still_leaves_guard_before_alone(tmp_path):
+    """The action lane stays hand-driven: attach must not wrap it."""
+    guard, client = _EvidenceGuard(), FakeClient()
+    run = attach(guard, client=client, runs_dir=tmp_path, auto=False)
+
+    guard.guard_before("query_prices", {})
+    assert run.steps == []

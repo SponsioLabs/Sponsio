@@ -67,6 +67,7 @@ from sponsio.patterns.library import (
     arg_value_range,
     audit_after,
     backup_before_destructive,
+    claim_requires_evidence,
     confirm_after_source,
     cooldown,
     ctx_matches_required,
@@ -98,6 +99,7 @@ from sponsio.patterns.library import (
     segregation_of_duty,
     token_budget,
     tool_allowlist,
+    underdetermined_must_clarify,
     untrusted_source_gate,
 )
 
@@ -219,6 +221,10 @@ _PATTERN_REGISTRY: dict[str, Callable[..., DetFormula]] = {
     # workflow_step is bounded (decided at the very next event), F is
     # unbounded (decided at trace end).
     "workflow_step": workflow_step,
+    # Evidence obligations — verdicts come from the cloud verify API
+    # (``evidence`` events); these only reference the grounded atoms.
+    "claim_requires_evidence": claim_requires_evidence,
+    "underdetermined_must_clarify": underdetermined_must_clarify,
 }
 
 

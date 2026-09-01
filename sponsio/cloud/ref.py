@@ -153,7 +153,18 @@ def resolve_config_ref(
             os.environ["SPONSIO_RULEBOOK_STAMP"] = f"{ref.project} {stamp}" + (
                 f" sha:{pulled.sha}" if pulled.sha else ""
             )
-            _say(f"rulebook ← cloud checkout · {ref.project} {stamp}", quiet=quiet)
+            channel = getattr(pulled, "channel", None)
+            # Say which head this is. A book that has never been published
+            # hands out its draft, and a run should know it is enforcing
+            # edits nobody tested or shipped.
+            head = (
+                " · DRAFT (nothing published yet; publish a tested book to pin what runs pull)"
+                if channel == "draft"
+                else (f" · {channel}" if channel and channel != "published" else "")
+            )
+            _say(
+                f"rulebook ← cloud checkout · {ref.project} {stamp}{head}", quiet=quiet
+            )
             return cached
     else:
         _say(

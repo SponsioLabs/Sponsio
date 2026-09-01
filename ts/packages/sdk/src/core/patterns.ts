@@ -341,7 +341,7 @@ export function boundedRetry(action: string, maxRetries: number): DetFormula {
   const f = new G(new Le(countVar(action), new Const(maxRetries)));
   return {
     formula: f,
-    desc: `\`${action}\` limited to ${maxRetries} retries`,
+    desc: `\`${action}\` limited to ${maxRetries} ${maxRetries === 1 ? "retry" : "retries"}`,
     patternName: "bounded_retry",
     liveness: false,
   };

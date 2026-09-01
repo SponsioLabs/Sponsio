@@ -163,7 +163,9 @@ def _run_steps(
 
     for step in steps:
         result = guard.guard_before(step.tool, step.args)
-        if result.blocked:
+        # ``stop_original``: replay renders what enforcement would do, so
+        # a redirected verdict ends the run the same way a block does.
+        if result.stop_original:
             break
 
     # Direct invocation — works in pipes / CI where stderr.isatty() is False.

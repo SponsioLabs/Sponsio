@@ -315,3 +315,67 @@ def _contract_label(c) -> str:
     if guarantees:
         return str(getattr(guarantees[0], "desc", "") or "")
     return getattr(getattr(c, "agent", None), "id", "") or ""
+
+
+# ---------------------------------------------------------------------------
+# Evidence verdicts — cloud claim-verification results
+# (sponsio/cloud/evidence.py), rendered in the det vocabulary.
+# ---------------------------------------------------------------------------
+
+# Verdicts whose line reads as a warning rather than a hard failure.
+_EVIDENCE_WARN_VERDICTS = frozenset({"UNDERDETERMINED", "STALE"})
+
+# How many clarify candidates to show before collapsing to "+N more".
+_EVIDENCE_CANDIDATE_LIMIT = 5
+
+
+def render_evidence(result) -> Text:
+    """One line per server verdict: ``✓/⚠/✗ evidence "pred" → VERDICT``.
+
+    MISMATCH appends the server's correction; UNDERDETERMINED appends up
+    to five clarify candidates then ``+N more``. ``result`` is an
+    :class:`sponsio.cloud.evidence.EvidenceResult` (duck-typed: any
+    object with ``predicate`` / ``verdict`` / ``correction`` /
+    ``clarify_on`` renders).
+    """
+    verdict = str(result.verdict or "").upper()
+    color = STATUS.get(verdict, PALETTE["violation"])
+    if verdict == "PASS":
+        symbol, symbol_style = f"{SYMBOLS['pass']} ", f"bold {PALETTE['success']}"
+    elif verdict in _EVIDENCE_WARN_VERDICTS:
+        symbol, symbol_style = "⚠ ", f"bold {PALETTE['warning']}"
+    else:
+        symbol, symbol_style = f"{SYMBOLS['fail']} ", f"bold {color}"
+
+    parts: list[tuple[str, str]] = [
+        (_LEAD, ""),
+        (symbol, symbol_style),
+        ("evidence ", PALETTE["fg"]),
+        (f'"{result.predicate}"', PALETTE["metadata"]),
+        (" → ", PALETTE["metadata"]),
+        _bold(verdict, color),
+    ]
+
+    if verdict == "MISMATCH" and result.correction is not None:
+        parts.extend(
+            [
+                (" · ", PALETTE["metadata"]),
+                ("correction ", PALETTE["metadata"]),
+                (f'"{result.correction}"', PALETTE["fg"]),
+            ]
+        )
+    elif verdict == "UNDERDETERMINED" and result.clarify_on:
+        candidates = [str(c) for c in result.clarify_on]
+        shown = candidates[:_EVIDENCE_CANDIDATE_LIMIT]
+        parts.extend(
+            [
+                (" · ", PALETTE["metadata"]),
+                ("clarify: ", PALETTE["metadata"]),
+                (", ".join(shown), PALETTE["fg"]),
+            ]
+        )
+        remaining = len(candidates) - len(shown)
+        if remaining > 0:
+            parts.append((f" +{remaining} more", PALETTE["metadata"]))
+
+    return Text.assemble(*parts)

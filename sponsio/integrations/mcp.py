@@ -17,6 +17,8 @@ Usage:
 
 from __future__ import annotations
 
+import warnings
+
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
@@ -106,6 +108,27 @@ class MCPContractProxy:
         self._client = mcp_client
         self._monitor = RuntimeMonitor(system=system)
         self._agent_id = agent_id
+        # An agent_id that names nobody in the system binds no contracts, so
+        # every call would sail through checked-by-nothing. Silence there is
+        # the fail-open case this proxy exists to prevent, so say it loudly
+        # once at construction rather than never.
+        try:
+            known = set()
+            for contract in system.contracts or []:
+                bound = getattr(contract, "agent", None)
+                name = getattr(bound, "id", None) or getattr(bound, "agent_id", None)
+                if name:
+                    known.add(str(name))
+        except Exception:  # noqa: BLE001 - a System shape we do not know
+            known = set()
+        if known and agent_id not in known:
+            warnings.warn(
+                f"MCPContractProxy(agent_id={agent_id!r}) matches no agent in "
+                f"this system ({', '.join(sorted(known))}); no contracts are "
+                f"bound and every tool call will pass unchecked.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         # Auto-tagging of tool outputs — same semantics as BaseGuard
         # but inlined here because ``MCPContractProxy`` is a standalone
         # proxy (not a BaseGuard subclass).
@@ -142,11 +165,14 @@ class MCPContractProxy:
         # that proxy this to an LLM (Claude Desktop, custom orchestrators)
         # can show the agent-tuned phrasing while keeping the legacy
         # ``violations`` array of log-formatted strings for back-compat.
-        # Treat ``redirected`` the same as ``blocked`` here: this proxy
-        # has no transparent-substitution path, so a ``redirect_to_safe``
-        # redirect must refuse the unsafe call rather than fall through
-        # and execute it (a fail-open hole).
-        stopped = [r for r in results if r.action in ("blocked", "redirected")]
+        # Canonical stopping set (integrations/base.py STOPPING_ACTIONS):
+        # this proxy has no transparent-substitution path, so a
+        # ``redirect_to_safe`` redirect refuses the unsafe call rather
+        # than falling through and executing it. Membership lives in one
+        # place now — this file no longer restates it.
+        from sponsio.integrations.base import is_stopping_action
+
+        stopped = [r for r in results if is_stopping_action(r.action)]
         if stopped:
             return {
                 "error": "Blocked by behavioral contract",

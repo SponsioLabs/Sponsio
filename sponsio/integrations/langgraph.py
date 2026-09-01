@@ -175,7 +175,9 @@ class LangGraphGuard(BaseGuard):
     def _guard_check(self, tool_name: str, kwargs: dict):
         """Run guard_before and raise if blocked."""
         check = self.guard_before(tool_name, kwargs)
-        if check.blocked:
+        # ``stop_original``: this helper has no substitution path, so a
+        # redirected verdict must raise too (fail closed).
+        if check.stop_original:
             msg = select_agent_message(
                 check.det_violations, fallback="contract violated"
             )
@@ -240,7 +242,10 @@ class LangGraphGuard(BaseGuard):
                     registry=registry,
                     sync=True,
                 )
-            if check.blocked:
+            # ``stop_original`` after the substitution branch above: it
+            # also catches a redirected verdict with no usable target
+            # (fail closed instead of falling through to execution).
+            if check.stop_original:
                 msg = select_agent_message(
                     check.det_violations, fallback="contract violated"
                 )
@@ -262,7 +267,8 @@ class LangGraphGuard(BaseGuard):
                     registry=registry,
                     sync=False,
                 )
-            if check.blocked:
+            # Same ``stop_original`` gate as the sync twin above.
+            if check.stop_original:
                 msg = select_agent_message(
                     check.det_violations, fallback="contract violated"
                 )
@@ -352,6 +358,9 @@ class LangGraphGuard(BaseGuard):
                 ),
             )
         check = self.guard_before(safe_name, kwargs)
+        # Gating on ``blocked`` alone is correct HERE: the chained-redirect
+        # case is handled explicitly right below, so both stopping actions
+        # are covered without ``stop_original``.
         if check.blocked:
             msg = select_agent_message(
                 check.det_violations, fallback="safe tool also blocked"
@@ -419,7 +428,9 @@ class LangGraphGuard(BaseGuard):
 
         result = self.guard_before(tool_name, {"input": input_str})
 
-        if result.blocked and self._block:
+        # ``stop_original``: the callback handler has no substitution
+        # path, so redirected verdicts raise too (fail closed).
+        if result.stop_original and self._block:
             msg = select_agent_message(
                 result.det_violations, fallback="contract violated"
             )
@@ -727,7 +738,9 @@ def _build_monitored_graph(
             if span:
                 self._push_span(span.to_dict())
 
-            return not result.blocked
+            # ``stop_original``: node-level checks have no substitution
+            # path, so a redirected verdict counts as stopped as well.
+            return not result.stop_original
 
         def invoke(self, state: Any, *, config: Any = None, **kwargs: Any) -> Any:
             """Invoke the graph, enforcing contracts on each node."""

@@ -80,6 +80,11 @@ class PulledRulebook:
     versions: str | None = None
     sha: str | None = None
     agent: str | None = None
+    # "published" when the server handed out the published head, "draft"
+    # when the book has never been published and the latest version was
+    # used instead, "pinned" for an explicit @vN, "mixed" for a whole-
+    # project pull whose agents differ.
+    channel: str | None = None
 
 
 def read_api_key() -> str | None:
@@ -134,6 +139,25 @@ class CloudClient:
     def configured(self) -> bool:
         """No key means no cloud. Not an error — it is the default mode."""
         return bool(self.api_key)
+
+    @property
+    def evidence(self):
+        """Evidence verification calls — see :mod:`sponsio.cloud.evidence`.
+
+        Lazy import so the base client stays importable without pulling
+        the evidence module into code paths that never verify claims.
+        """
+        from sponsio.cloud.evidence import EvidenceClient
+
+        return EvidenceClient(self)
+
+    @property
+    def smt(self):
+        """SMT service calls (prove/translate/policy build) — see
+        :mod:`sponsio.cloud.smt`. Same lazy-import rule as evidence."""
+        from sponsio.cloud.smt import SmtCloudClient
+
+        return SmtCloudClient(self)
 
     # -- transport ---------------------------------------------------------
 
@@ -248,6 +272,7 @@ class CloudClient:
             or headers.get("x-rulebook-version"),
             sha=headers.get("x-rulebook-sha"),
             agent=headers.get("x-rulebook-agent"),
+            channel=headers.get("x-rulebook-channel"),
         )
 
     # -- sessions ----------------------------------------------------------

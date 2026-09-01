@@ -451,7 +451,55 @@ def Sponsio(  # noqa: N802 (branded factory function)
         # in sync with the demo's hardcoded id.  Multi-agent configs
         # still require an explicit pick (no good default).
         if agent_id not in parsed.agents:
-            if len(parsed.agents) == 1:
+            # A cloud checkout is a whole project's book: the "only agent"
+            # in it is whichever sibling exists — the seeded welcome sample,
+            # every time a tenant's first real agent starts. Rebinding there
+            # ran the user's agent under the sample's rules and reported it
+            # AS the sample, with nothing but a UserWarning to say so.
+            # Under a cloud ref an explicit agent_id is never rebound: use
+            # the local sponsio.yaml for that agent if there is one (and
+            # say so), else stop with the fix in hand.
+            from sponsio.cloud.ref import is_cloud_ref
+
+            explicit_agent = agent_id != "agent"
+            from_cloud_ref = isinstance(config, str) and is_cloud_ref(config)
+            local = None
+            local_yaml = None
+            if explicit_agent:
+                from pathlib import Path as _Path
+
+                local_yaml = _Path.cwd() / "sponsio.yaml"
+                if local_yaml.is_file():
+                    try:
+                        local = load_config(str(local_yaml))
+                    except Exception:  # noqa: BLE001 - a broken local file is not our call here
+                        local = None
+            # A checkout that does not carry the agent you named is served
+            # by the local book when there is one.  This is a project's
+            # first EXTRA agent, every time: the whole-project checkout
+            # answers 200 with the siblings' books, so nothing 404s and
+            # nothing gets pushed, and the agent's own rules sit on disk
+            # unused.  It reaches here as a plain file path (the caller
+            # wrote the checkout down before loading it), so keying this
+            # on `sponsio://` alone left that path erroring out.
+            if local is not None and agent_id in local.agents:
+                print(
+                    f"  sponsio: {config} has no book for agent {agent_id!r} yet "
+                    f"(it has: {', '.join(parsed.agents)}); using ./sponsio.yaml. "
+                    f"Push it to publish: sponsio push sponsio.yaml",
+                    flush=True,
+                )
+                parsed = local
+            elif explicit_agent and from_cloud_ref:
+                raise ValueError(
+                    f"{config} has no rulebook for agent {agent_id!r} "
+                    f"(agents with a book there: {', '.join(parsed.agents) or 'none'}), "
+                    f"and no ./sponsio.yaml defines it. Push this agent's book "
+                    f"(sponsio push sponsio.yaml) or pass the agent_id that owns one."
+                )
+            if agent_id in parsed.agents:
+                pass
+            elif len(parsed.agents) == 1:
                 only_agent = next(iter(parsed.agents))
                 # Surface the fallback when the user actively asked
                 # for a non-default name (likely a typo or a stale
@@ -471,6 +519,16 @@ def Sponsio(  # noqa: N802 (branded factory function)
                 agent_id = only_agent
             elif len(parsed.agents) > 1:
                 available = list(parsed.agents.keys())
+                if explicit_agent:
+                    # "specify an agent_id" is useless advice to someone who
+                    # already did; the book is what is missing, not the flag
+                    raise ValueError(
+                        f"agent_id={agent_id!r} has no rulebook in {config} "
+                        f"(agents there: {available}), and no ./sponsio.yaml "
+                        f"defines it either. Add a block for {agent_id!r} to "
+                        f"your rulebook and push it (sponsio push sponsio.yaml), "
+                        f"or pass an agent_id that already has a book."
+                    )
                 raise ValueError(
                     f"agent_id={agent_id!r} not found in config and "
                     f"the config defines multiple agents {available}. "

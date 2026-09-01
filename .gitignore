@@ -84,6 +84,9 @@ LAUNCH_PLAN.md
 docs/demo-video-script.md
 # Full benchmark write-ups / model-by-model tables — private; do not force-add
 docs/benchmark-results.md
+# Integration-internals audit for the evidence work — names unfixed
+# fail-open paths per integration; keep private
+docs/evidence_integration_audit.md
 examples/scan_test_agent_run_debug.py
 sponsio-code-review.md
 

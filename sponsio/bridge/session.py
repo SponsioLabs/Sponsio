@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import secrets
 import os
 import time
 from pathlib import Path
@@ -58,6 +59,61 @@ def _trace_id(agent: str) -> str:
     return hashlib.sha1(agent.encode()).hexdigest()[:32]
 
 
+def _say_of(response: Any) -> str:
+    """The sentence to show for a model turn.
+
+    Structured output is the normal case: prefer a headline/message-ish
+    field, else join its string values, so the console shows words rather
+    than a JSON blob. Falls back to the raw text.
+    """
+    text = response if isinstance(response, str) else ""
+    try:
+        parsed = json.loads(text) if text else response
+    except (ValueError, TypeError):
+        return text
+    if not isinstance(parsed, dict):
+        return text
+    for key in ("message", "headline", "reply", "text", "answer", "summary"):
+        value = parsed.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    joined = " · ".join(str(v) for v in parsed.values() if isinstance(v, str))
+    return joined or text
+
+
+def _own_book(stamp: str, agent: str) -> str | None:
+    """This agent's ``agent@vN`` out of a checkout stamp.
+
+    A whole-project pull is stamped "<project> a@v3 b@v1 ... sha:..."; a
+    single-agent pull "<project>@vN" with no agent prefix at all.
+    """
+    tokens = [t for t in stamp.split() if "@v" in t]
+    for token in tokens:
+        if token.startswith(f"{agent}@v"):
+            return token
+    if len(tokens) == 1:
+        version = _book_version(tokens[0])
+        if version is not None:
+            return f"{agent}@v{version}"
+    return None
+
+
+def _book_version(book: str | None) -> int | None:
+    if not book or "@v" not in book:
+        return None
+    tail = book.rsplit("@v", 1)[1]
+    digits = "".join(ch for ch in tail if ch.isdigit())
+    return int(digits) if digits else None
+
+
+def _claim_span(verified: Any) -> str:
+    """What the model actually said for this claim, as display text."""
+    value = getattr(verified, "value", None)
+    if value not in (None, ""):
+        return str(value)
+    return str(getattr(getattr(verified, "spec", None), "claim_field", "") or "claim")
+
+
 class BridgeSession:
     """One run being streamed to a console.
 
@@ -79,9 +135,13 @@ class BridgeSession:
     ) -> None:
         self.guard = guard
         self.project = project
-        self.session_id = session_id or (
-            "run-" + hashlib.sha1(f"{id(guard)}{time.time()}".encode()).hexdigest()[:8]
-        )
+        # The server keys a run by this id and upserts, so two runs sharing
+        # one id silently become one: the older is overwritten with no error.
+        # The old id was 32 bits derived from id(guard) and the clock, which
+        # collides around 65k runs by birthday alone — and worse in practice,
+        # since memory addresses get reused and a booting fleet shares the
+        # clock. 64 bits from the system CSPRNG puts a collision out of reach.
+        self.session_id = session_id or ("run-" + secrets.token_hex(8))
         self.mode = getattr(guard, "mode", None) or "observe"
         self.root_agent = getattr(guard, "agent_id", "agent")
         self.started_at = int(time.time() * 1000)
@@ -198,7 +258,7 @@ class BridgeSession:
             if contract is not None:
                 contract["violationCount"] = contract.get("violationCount", 0) + 1
 
-        self.send()
+        self._send_soon()
         return step
 
     def note(self, agent: str, text: str, type: str = "message") -> dict:
@@ -218,7 +278,82 @@ class BridgeSession:
         }
         self.steps.append(step)
         self._ensure_agent(agent)
-        self.send()
+        self._send_soon()
+        return step
+
+    # Console action labels for the server's policy action. The server says
+    # what it decided; the console says what the reader sees happen to the
+    # output. A block that carries a correction is a rewrite; one that does
+    # not is simply a block.
+    _EV_ACTIONS = {"release": "released", "clarify": "clarify"}
+
+    def record_output(
+        self, response: Any, result: Any, *, agent: str | None = None
+    ) -> dict | None:
+        """Project one model turn and its claim verdicts into a step.
+
+        The action lane records tool calls; this is the output lane. Without
+        it an ``observe_llm_call`` verdict lives only in the local trace and
+        never reaches the console, so a run looks clean while the model is
+        stating something false. Returns None when the turn carried no
+        verified claims (nothing to show).
+        """
+        claims_in = list(getattr(result, "evidence_claims", None) or [])
+        if not claims_in:
+            return None
+
+        claims: list[dict] = []
+        for vc in claims_in:
+            res = getattr(vc, "result", None)
+            if res is None:
+                continue
+            verdict = str(getattr(res, "verdict", "") or "").upper()
+            correction = getattr(res, "correction", None)
+            values = list(getattr(res, "values", None) or [])
+            action = self._EV_ACTIONS.get(
+                str(getattr(res, "action", "") or "").lower(),
+                "rewritten" if correction not in (None, "") else "blocked",
+            )
+            claims.append(
+                {
+                    "span": _claim_span(vc),
+                    "predicate": str(
+                        getattr(getattr(vc, "spec", None), "predicate", "") or ""
+                    ),
+                    "verdict": verdict,
+                    "source": str(getattr(res, "source", "") or ""),
+                    "freshness": "",
+                    "evidence": ("authoritative: " + ", ".join(str(v) for v in values))
+                    if values
+                    else "",
+                    "action": action,
+                    "fix": "" if correction in (None, "") else str(correction),
+                }
+            )
+        if not claims:
+            return None
+
+        agent_id = agent or self.root_agent
+        idx = len(self.steps)
+        step = {
+            "id": f"s{idx}",
+            "ts": idx,
+            "agentId": agent_id,
+            "serviceName": agent_id,
+            "traceId": _trace_id(agent_id),
+            "spanId": f"{idx:016x}",
+            "type": "assistant_output",
+            "tool": "reply",
+            "durationMs": 1.0,
+            "status": "mismatch"
+            if any(c["verdict"] == "MISMATCH" for c in claims)
+            else "ok",
+            "say": _say_of(response),
+            "output": {"checked": len(claims), "claims": claims},
+        }
+        self.steps.append(step)
+        self._ensure_agent(agent_id)
+        self._send_soon()
         return step
 
     def _edge(self, source: str, target: str, kind: str, label: str) -> None:
@@ -276,22 +411,75 @@ class BridgeSession:
         # would make a replay claim to reproduce something it cannot.
         stamp = os.environ.get("SPONSIO_RULEBOOK_STAMP", "").strip()
         if stamp:
-            vm["rulebook"] = stamp
+            # The checkout stamp names every agent in the project
+            # ("default a@v3 b@v1 ... sha:..."); a run is ONE agent's, so
+            # it records that agent's book — the form the console links
+            # to and the server keys tests by — and keeps the whole stamp
+            # for provenance. Without this the run named seventeen books
+            # and its version parsed as none.
+            own = _own_book(stamp, self.root_agent)
+            vm["rulebook"] = own or stamp
+            vm["rulebookRef"] = stamp
+            version = _book_version(own)
+            if version is not None:
+                vm["session"]["rulebookVersion"] = version
         return vm
 
     # -- transport ---------------------------------------------------------
 
+    # A frame carries the WHOLE run, so sending one per step makes a long
+    # agent upload O(steps^2) bytes: measured, 1k steps is 142 MB and 5k is
+    # 3.5 GB, and past ~27k the frame alone exceeds the 8 MB ingest cap and
+    # every later send 413s. Coalescing to at most one frame per interval
+    # keeps the console live to the eye and the traffic linear-ish; finish()
+    # always flushes, so the final state is never the stale one.
+    SEND_MIN_INTERVAL_S = 1.0
+
+    # Frames grow with the run, so a fixed interval still lets a very long
+    # agent climb: the rate, not the count, is what has to stay bounded.
+    # Backing off in proportion to the last frame holds outbound traffic
+    # near this ceiling no matter how big the session gets.
+    SEND_MAX_KB_PER_S = 250.0
+
+    def _send_interval(self) -> float:
+        last_kb = getattr(self, "_last_frame_bytes", 0) / 1024.0
+        return max(self.SEND_MIN_INTERVAL_S, last_kb / self.SEND_MAX_KB_PER_S)
+
+    def _send_soon(self) -> None:
+        """Mark the run changed; send if this frame is not too soon after the last."""
+        now = time.time()
+        if (now - getattr(self, "_last_send_at", 0.0)) < self._send_interval():
+            self._pending = True
+            return
+        self.send()
+
     def send(self) -> bool:
         """Best effort. Never raises, never blocks the agent."""
+        self._pending = False
+        self._last_send_at = time.time()
         if not getattr(self.client, "configured", False):
             return False
         payload = {"key": self.session_id, "live": self.live, "vm": self.view_model()}
+        try:
+            self._last_frame_bytes = len(json.dumps(payload))
+        except Exception:  # noqa: BLE001 - sizing is advisory only
+            self._last_frame_bytes = 0
         try:
             self.client.ingest_session(self.project, payload)
             return True
         except Exception as exc:  # noqa: BLE001 - telemetry must not break a run
             self.send_failures += 1
             self._last_error = str(exc)
+            # Losing telemetry must not change what the agent does, but it
+            # must not be invisible either: a run that silently stopped
+            # reaching the console still looks live and complete on screen.
+            if not getattr(self, "_warned_send", False):
+                self._warned_send = True
+                print(
+                    f"  sponsio: this run is no longer reaching the console "
+                    f"({exc}); the agent is unaffected.",
+                    flush=True,
+                )
             return False
 
     def finish(self) -> dict[str, Any]:
@@ -360,19 +548,40 @@ def attach(
         agents=agents,
         runs_dir=runs_dir,
     )
-    if not auto:
-        return session
+    if auto:
+        original = guard.guard_before
 
-    original = guard.guard_before
+        def wrapped(tool: str, args: Any = None, *rest: Any, **kwargs: Any):
+            result = original(tool, args, *rest, **kwargs)
+            try:
+                session.record(tool, args)
+            except Exception:  # noqa: BLE001 - recording must not break a run
+                session.send_failures += 1
+            return result
 
-    def wrapped(tool: str, args: Any = None, *rest: Any, **kwargs: Any):
-        result = original(tool, args, *rest, **kwargs)
-        try:
-            session.record(tool, args)
-        except Exception:  # noqa: BLE001 - recording must not break a run
-            session.send_failures += 1
-        return result
+        guard.guard_before = wrapped  # type: ignore[method-assign]
+        session._original_guard_before = original  # type: ignore[attr-defined]
 
-    guard.guard_before = wrapped  # type: ignore[method-assign]
-    session._original_guard_before = original  # type: ignore[attr-defined]
+    # The output lane does NOT ride the auto switch. `auto=False` says "I
+    # attribute my own tool steps per agent", which is a statement about the
+    # ACTION lane; it never meant "drop my claim verdicts". Returning early
+    # on it took the output lane with it, so every multi-agent run — the
+    # only reason to pass auto=False — showed a clean trace while the model
+    # was stating something false.
+    observe = getattr(guard, "observe_llm_call", None)
+    if callable(observe):
+
+        def wrapped_observe(*args: Any, **kwargs: Any):
+            result = observe(*args, **kwargs)
+            try:
+                response = kwargs.get("response")
+                if response is None and len(args) >= 2:
+                    response = args[1]
+                session.record_output(response, result)
+            except Exception:  # noqa: BLE001 - recording must not break a run
+                session.send_failures += 1
+            return result
+
+        guard.observe_llm_call = wrapped_observe  # type: ignore[method-assign]
+        session._original_observe_llm_call = observe  # type: ignore[attr-defined]
     return session
