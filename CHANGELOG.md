@@ -12,7 +12,62 @@ broke.
 
 ## [Unreleased]
 
+---
+
+## [0.2.0a8]: 2026-09-01
+
+The output lane ships. Alongside the action lane — every tool call
+checked before it executes — a run's *claims* are now checked too: typed
+assertions compared against an authority by deterministic comparators,
+with no LLM anywhere in the hot path.
+
+Two of the fixes below were found by running a real multi-agent app
+against a console that already had other agents in it, which is the
+configuration that broke.
+
+### Added
+
+- **Evidence middleware.** `observe_llm_call` extracts the typed claims a
+  model turn makes, checks each against its authority, and folds the
+  verdict into the trace beside the tool calls. Deterministic
+  comparators; a claim whose source cannot answer is reported as such
+  rather than guessed at.
+
 ### Fixed
+
+- **A project's second agent could not run.** A cloud checkout carries
+  the whole project, so when a new agent joined a project that already
+  had books, the checkout answered `200` with the *siblings'* books —
+  nothing 404'd, nothing got pushed, and the agent's own rules sat on
+  disk unused while the run died on "agent not found". The local
+  `sponsio.yaml` fallback now applies whenever that file defines the
+  agent, not only when the config was a `sponsio://` ref. The
+  multi-agent error also stopped telling a caller who passed an
+  `agent_id` to pass an `agent_id`.
+- **Multi-agent runs lost their claim verdicts.** `attach(auto=False)`
+  returned before wiring the output lane. `auto` says who attributes the
+  tool steps — a statement about the *action* lane — and never meant
+  "drop my evidence", but a multi-agent run (the only reason to pass it)
+  rendered as a clean trace while the model stated something false.
+- **A cloud checkout never rebinds an explicit agent to a sibling.**
+  Running under another agent's rules and reporting *as* that agent had
+  been a `UserWarning`; it is now an error with the fix in hand.
+- **A 32-bit run id silently merged two runs.** Bridge run ids are
+  64-bit.
+- **A long run uploaded the run squared, then went silent.** The bridge
+  coalesces sends under an interval and a byte-rate ceiling.
+- **A run names its own book**, not the whole project's checkout stamp.
+- Singular/plural agreement in `rate_limit` and `bounded_retry` labels
+  ("limited to 1 invocation"), Python and TypeScript in step.
+
+### Changed
+
+- Enforcement routes through a canonical stopping set behind
+  `stop_original`, so blocks, redirects and escalations answer one
+  question the same way.
+- Shadow-mode assumption spans record what actually happened.
+
+### Fixed (carried from `0.2.0a3`)
 
 - **Ordered comparisons now agree across Python and TypeScript on numeric
   string arguments (#108).** Raw tool arguments are grounded as strings, so
