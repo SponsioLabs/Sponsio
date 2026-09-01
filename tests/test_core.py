@@ -487,11 +487,13 @@ agents:
     def test_multi_agent_mismatch_still_errors(self, multi_agent_yaml):
         # Multi-agent: there's no unambiguous fallback, raise so the
         # user fixes the call site.  Error message lists the
-        # available agents so they don't have to grep the yaml.
+        # available agents so they don't have to grep the yaml, and
+        # never tells someone who named an agent to name one.
         import sponsio
 
-        with pytest.raises(ValueError, match=r"multiple agents.*alice.*bob"):
+        with pytest.raises(ValueError, match=r"no rulebook in.*alice.*bob") as exc:
             sponsio.Sponsio(config=str(multi_agent_yaml), agent_id="not_alice_or_bob")
+        assert "specify a valid agent_id" not in str(exc.value)
 
     def test_multi_agent_explicit_match_works(self, multi_agent_yaml):
         import sponsio

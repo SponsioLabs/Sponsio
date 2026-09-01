@@ -474,3 +474,65 @@ def test_a_guard_without_a_system_is_not_an_error(tmp_path):
     guard, client = FakeGuard(), FakeClient()
     run = attach(guard, client=client, runs_dir=tmp_path)
     assert run.contracts == {}
+
+
+class _FakeClaimResult:
+    def __init__(self, verdict, action, correction=None):
+        self.verdict = verdict
+        self.action = action
+        self.correction = correction
+        self.values = []
+
+
+class _FakeClaimSpec:
+    predicate = "date_weekday_agreement"
+    claim_field = "validated_weekday"
+
+
+class _FakeVerifiedClaim:
+    spec = _FakeClaimSpec()
+
+    def __init__(self, verdict="MISMATCH"):
+        self.result = _FakeClaimResult(verdict, "block", correction="tuesday")
+
+
+class _FakeObserveResult:
+    def __init__(self):
+        self.evidence_claims = [_FakeVerifiedClaim()]
+
+
+class _EvidenceGuard(FakeGuard):
+    """A guard whose output lane verifies a claim."""
+
+    def observe_llm_call(self, response=None, **kwargs):
+        return _FakeObserveResult()
+
+
+def test_output_lane_reaches_the_console_in_a_multi_agent_run(tmp_path):
+    """auto=False is about the ACTION lane; claim verdicts must still ship.
+
+    A multi-agent run attributes its own tool steps, which is the only
+    reason to pass auto=False. Taking the output lane with it made those
+    runs render as clean traces while the model stated something false.
+    """
+    guard, client = _EvidenceGuard(), FakeClient()
+    run = attach(guard, client=client, runs_dir=tmp_path, auto=False)
+
+    guard.last_check_span = FakeSpan(_clean_turn(agent="report_agent"))
+    guard.observe_llm_call(response='{"validated_weekday": "Monday"}')
+
+    outputs = [s for s in run.steps if s.get("type") == "assistant_output"]
+    assert outputs, f"no output-lane step recorded; steps={run.steps}"
+    claims = outputs[0]["output"]["claims"]
+    assert claims[0]["predicate"] == "date_weekday_agreement"
+    assert claims[0]["verdict"] == "MISMATCH"
+    assert outputs[0]["agentId"] == "quant"
+
+
+def test_auto_false_still_leaves_guard_before_alone(tmp_path):
+    """The action lane stays hand-driven: attach must not wrap it."""
+    guard, client = _EvidenceGuard(), FakeClient()
+    run = attach(guard, client=client, runs_dir=tmp_path, auto=False)
+
+    guard.guard_before("query_prices", {})
+    assert run.steps == []

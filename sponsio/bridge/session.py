@@ -540,25 +540,26 @@ def attach(
         agents=agents,
         runs_dir=runs_dir,
     )
-    if not auto:
-        return session
+    if auto:
+        original = guard.guard_before
 
-    original = guard.guard_before
+        def wrapped(tool: str, args: Any = None, *rest: Any, **kwargs: Any):
+            result = original(tool, args, *rest, **kwargs)
+            try:
+                session.record(tool, args)
+            except Exception:  # noqa: BLE001 - recording must not break a run
+                session.send_failures += 1
+            return result
 
-    def wrapped(tool: str, args: Any = None, *rest: Any, **kwargs: Any):
-        result = original(tool, args, *rest, **kwargs)
-        try:
-            session.record(tool, args)
-        except Exception:  # noqa: BLE001 - recording must not break a run
-            session.send_failures += 1
-        return result
+        guard.guard_before = wrapped  # type: ignore[method-assign]
+        session._original_guard_before = original  # type: ignore[attr-defined]
 
-    guard.guard_before = wrapped  # type: ignore[method-assign]
-    session._original_guard_before = original  # type: ignore[attr-defined]
-
-    # The output lane rides the same switch. A model turn whose claims were
-    # verified becomes a step too, otherwise the verdict never leaves the
-    # process and the console shows a clean run for a false answer.
+    # The output lane does NOT ride the auto switch. `auto=False` says "I
+    # attribute my own tool steps per agent", which is a statement about the
+    # ACTION lane; it never meant "drop my claim verdicts". Returning early
+    # on it took the output lane with it, so every multi-agent run — the
+    # only reason to pass auto=False — showed a clean trace while the model
+    # was stating something false.
     observe = getattr(guard, "observe_llm_call", None)
     if callable(observe):
 
