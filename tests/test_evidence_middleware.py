@@ -413,7 +413,7 @@ class TestOpenAIEnforcement:
             fake_async_create,
         )
 
-        guard = openai_integration.patch_openai(
+        openai_integration.patch_openai(
             contracts=[],
             evidence=make_config(FakeEvidenceClient([_mismatch(), _mismatch()])),
         )
@@ -443,7 +443,7 @@ class TestOpenAIEnforcement:
             "create",
             lambda self, *a, **k: _mock_response("{}"),
         )
-        guard = openai_integration.patch_openai(
+        openai_integration.patch_openai(
             contracts=[], evidence=make_config(FakeEvidenceClient())
         )
         try:
