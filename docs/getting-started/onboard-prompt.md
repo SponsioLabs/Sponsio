@@ -18,12 +18,12 @@ steps.
 
 ══════════════ Step 0: install the Sponsio CLI ══════════════
 
-  command -v sponsio >/dev/null 2>&1 || pip install sponsio
+  command -v sponsio >/dev/null 2>&1 || pip install --pre sponsio
 
 Quiet check first.  Re-running ``pip install`` against an already-
 present version is fine but noisy in IDE-agent transcripts.  Use
-``pipx install sponsio`` instead if the user lives in a
-pipx-managed shell, or ``uv pip install sponsio`` for uv users;
+``pipx install --pip-args=--pre sponsio`` instead if the user lives in a
+pipx-managed shell, or ``uv pip install --pre sponsio`` for uv users;
 defer to whatever Python install convention the project's README
 shows.
 

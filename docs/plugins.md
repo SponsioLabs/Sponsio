@@ -48,7 +48,7 @@ The guard exits 0 in every code path. If Sponsio crashes, the tool call still go
 ## Setup (both hosts)
 
 ```bash
-pip install sponsio
+pip install --pre sponsio
 sponsio plugin init                    # writes ~/.sponsio/plugins/_host/sponsio.yaml
 sponsio plugin install --list          # see bundled libraries
 sponsio plugin install github filesystem playwright
@@ -132,7 +132,7 @@ Override targets: `desc`, `pack_source`, `pattern`.
 | Who runs the agent | Someone else (the host) | You |
 | What's gated | Every tool call in the host session | Tool calls inside your framework integration |
 | What you write | YAML libraries under `~/.sponsio/plugins/` | `sponsio.yaml` in your project plus a 2-line agent-entry patch |
-| Install command | `pip install sponsio` plus `sponsio plugin init` | `pip install sponsio` plus `sponsio init .` |
+| Install command | `pip install --pre sponsio` plus `sponsio plugin init` | `pip install --pre sponsio` plus `sponsio init .` |
 
 Both modes share the same engine, contract library format, and `SPONSIO_MODE` enforce / observe dial. A project that owns its agent code and runs it inside Claude Code can use both.
 

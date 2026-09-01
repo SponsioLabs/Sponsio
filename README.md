@@ -28,7 +28,7 @@ Sponsio provides deterministic contracts for agent procedures over time, enforce
 
 > An **agent contract** is a runtime rule that is checked at every agent action, [backed by formal methods](docs/concepts/formal-methods.md).
 
-> **v0.2.0a3 alpha is out.** `pip install --pre sponsio==0.2.0a3`. Closes a `redirect_to_safe` fail-open bug in non-LangGraph adapters (the unsafe call was running anyway), brings TS `Eq` semantics to Python parity for composite values, and adds Cloudflare Workers compatibility. **Upgrade recommended if you are on 0.2.0a2.** See the [v0.2.0a3 release notes](docs/release-notes/v0.2.0a3.md).
+> **v0.2.0a8 alpha is out.** `pip install --pre sponsio`. The output lane ships: alongside every tool call checked before it executes, a run's typed claims are now checked against an authority by deterministic comparators — no LLM in the hot path. Also fixes two bugs that only appear once a project has more than one agent: the second agent could not run at all, and multi-agent runs lost their claim verdicts on the way to the console. See the [v0.2.0a8 release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a8).
 
 ---
 
@@ -61,7 +61,7 @@ A single prompt or a 2-line CLI command gets you onboarded.
 **Or run the CLI yourself**:
 
 ```bash
-pip install sponsio        # or: npm install -D @sponsio/sdk
+pip install --pre sponsio        # or: npm install -D @sponsio/sdk
 sponsio init .             # interactive wizard: detects framework, IDE hosts, observe vs enforce
 ```
 

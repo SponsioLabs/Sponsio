@@ -14,7 +14,7 @@ Prereqs: Python 3.10+ and an agent framework. We use LangGraph in the examples b
 ## 1. Install
 
 ```bash
-pip install "sponsio[langgraph]"
+pip install --pre "sponsio[langgraph]"
 ```
 
 ## 2. A minimal agent

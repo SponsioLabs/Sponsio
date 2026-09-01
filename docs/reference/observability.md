@@ -21,7 +21,7 @@ ls ~/.sponsio/sessions/support_bot/
 ## OpenTelemetry
 
 ```bash
-pip install "sponsio[otel]"
+pip install --pre "sponsio[otel]"
 ```
 
 Sponsio respects standard OTEL env vars:

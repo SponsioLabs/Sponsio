@@ -5,13 +5,13 @@ Get Sponsio blocking an unsafe tool call in under a minute. No API key, no frame
 ## 1. Install
 
 ```bash
-pip install sponsio
+pip install --pre sponsio
 ```
 
 Optional extras (all pure Python):
 
 ```bash
-pip install "sponsio[all]"     # yaml + llm + otel
+pip install --pre "sponsio[all]"     # yaml + llm + otel
 ```
 
 ## 2. See a contract fire

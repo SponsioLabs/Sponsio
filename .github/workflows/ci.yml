@@ -152,11 +152,11 @@ jobs:
           # install + entry point; QUICKSTART.md (the full walkthrough)
           # additionally covers report and the observe→enforce flip.
           readme_required=(
-            "pip install sponsio"
+            "pip install --pre sponsio"
             "sponsio init"
           )
           quickstart_required=(
-            "pip install sponsio"
+            "pip install --pre sponsio"
             "sponsio init"
             "sponsio report"
             "SPONSIO_MODE=enforce"

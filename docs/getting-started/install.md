@@ -8,8 +8,12 @@ description: Install Sponsio, pick the right extras for your stack, and verify t
 Sponsio is a pure-Python package with zero required dependencies. The core engine installs in seconds.
 
 ```bash
-pip install sponsio
+pip install --pre sponsio
 ```
+
+`--pre` is required: the `0.2` line is a pre-release, and plain
+`pip install sponsio` resolves to the last stable (`0.1.1`), which
+predates the cloud console, the evidence lane, and the current CLI.
 
 Verify:
 
@@ -39,7 +43,7 @@ Extras are optional dependency bundles. Pick what matches your stack; none of th
 | `sponsio[all]` | everything above | Kitchen-sink install |
 
 ```bash
-pip install "sponsio[all]"
+pip install --pre "sponsio[all]"
 ```
 
 ---

@@ -29,7 +29,7 @@ Sponsio 为 Agent 在时间维度上展开的过程提供确定性合约，强�
 
 > **Agent 合约**是一条运行时规则，在每一次 Agent 操作时检查，[由形式化方法支撑](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a3 alpha 已发布。** `pip install --pre sponsio==0.2.0a3`。修复非 LangGraph adapter 在 `redirect_to_safe` 触发时 fail-open 的漏洞（原 unsafe 工具仍会被调用）；TS `Eq` 在复合值上对齐 Python 的值相等语义；新增 Cloudflare Workers 兼容性。**0.2.0a2 用户建议升级。** 详见 [v0.2.0a3 release notes](docs/release-notes/v0.2.0a3.md)。
+> **v0.2.0a8 alpha 已发布。** `pip install --pre sponsio`。输出通道上线：除了每次工具调用在执行前被检查之外,一次运行所声明的结构化断言现在也会由确定性比较器对照权威来源核验——热路径上没有 LLM。同时修复两个只在项目里有多个 agent 时才会出现的问题:第二个 agent 根本跑不起来,以及多 agent 运行的断言判定送不到控制台。见 [v0.2.0a8 发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a8)。
 
 ---
 
@@ -62,7 +62,7 @@ Sponsio 为 Agent 在时间维度上展开的过程提供确定性合约，强�
 **或自行运行 CLI：**
 
 ```bash
-pip install sponsio        # 或 npm install -D @sponsio/sdk
+pip install --pre sponsio        # 或 npm install -D @sponsio/sdk
 sponsio init .             # 交互式向导：检测框架、选择 IDE host、observe vs enforce
 ```
 

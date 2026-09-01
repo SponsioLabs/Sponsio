@@ -41,7 +41,7 @@ Sponsio provides deterministic contracts for agent procedures over time, enforce
 
 > An **agent contract** is a runtime rule that is checked at every agent action, [backed by formal methods](docs/concepts/formal-methods.md).
 
-> **v0.2.0a3 alpha is out.** `pip install --pre sponsio==0.2.0a3`. Closes a `redirect_to_safe` fail-open bug in non-LangGraph adapters (the unsafe call was running anyway), brings TS `Eq` semantics to Python parity for composite values, and adds Cloudflare Workers compatibility. **Upgrade recommended if you are on 0.2.0a2.** See the [v0.2.0a3 release notes](docs/release-notes/v0.2.0a3.md).
+> **v0.2.0a8 alpha is out.** `pip install --pre sponsio`. The output lane ships: alongside every tool call checked before it executes, a run's typed claims are now checked against an authority by deterministic comparators — no LLM in the hot path. Also fixes two bugs that only appear once a project has more than one agent: the second agent could not run at all, and multi-agent runs lost their claim verdicts on the way to the console. See the [v0.2.0a8 release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a8).
 
 ---
 
@@ -51,9 +51,9 @@ Sponsio provides deterministic contracts for agent procedures over time, enforce
   <img src="https://raw.githubusercontent.com/SponsioLabs/Sponsio/main/assets/sponsio-architecture.png" alt="Sponsio architecture: Agent Flow + (Natural Language + Pattern Library) compile into Contracts (Assumption → Enforcement), enforced by a Fuzzy LTL Monitor (deterministic + stochastic) that decides Pass / Block · Warn · Escalate / Redirect for every function call, with full audit trail logs feeding back to the agent." width="900">
 </p>
 
-On [ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench) (12 frontier LLMs × 80 trajectories), unguarded models cheat in 11.5%–66.7% of runs. **With Sponsio, 95.6% of misalignment is avoided on average; 24/36 high-risk scenarios at 100%.** On the `Financial-Audit-Fraud-Finding` scenario, frontier models commit fraud in 16/24 trials; **Sponsio blocks 18/19**. On RedCode-Exec (1,410 cases), Sponsio reaches **92% combined** (bash 95% · python 90%) across a 60-file clean-code audit.
+On [ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench) (12 frontier LLMs × 80 trajectories), unguarded models cheat in 11.5%–66.7% of runs. **With Sponsio, 95.6% of misalignment is avoided on average; 24/36 high-risk scenarios at 100%.** On the `Financial-Audit-Fraud-Finding` scenario, frontier models commit fraud in 16/24 trials; **Sponsio blocks 18/19**. On RedCode-Exec (1,410 cases), Sponsio reaches **98.9% combined** (bash 98.3% · python 99.4%, lifted from 92.4% by a 4-iteration self-improvement loop), with 0 false positives on a 60-file clean-code audit. These are the open-core numbers; the Cloud version's LLM-judge layer takes ODCV-Bench to **~99%** and RedCode-Exec to **99.4%**. [Book a demo](https://calendar.app.google/ZZmthdxsDXCsHbJk9) for the Cloud and Enterprise versions.
 
-The logic checker takes p50 **0.139 ms** per contract, **5,000×–60,000× faster than any LLM-as-judge guardrail** (50–800 ms per check), with zero LLM cost in the hot path. p99 stays under 1.04 ms across every measured workload.
+The logic checker runs at p50 **0.0052 ms** on the single-contract hot path and **0.139 ms** on the heaviest ODCV workload (19 contracts per call), **5,000×–60,000× faster than any LLM-as-judge guardrail** (50–800 ms per check), with zero LLM cost in the hot path. p99 stays at ~1 ms across every measured workload.
 
 See the [full benchmark methodology and per-model breakdown](docs/reference/benchmarks.md), [how Sponsio compares against prompt filters, output validators, LLM-as-judge, and sandboxing](docs/why.md), or dive into the [architecture](docs/concepts/architecture.md) and [formal methods primer](docs/concepts/formal-methods.md).
 
@@ -74,7 +74,7 @@ A single prompt or a 2-line CLI command gets you onboarded.
 **Or run the CLI yourself**:
 
 ```bash
-pip install sponsio        # or: npm install -D @sponsio/sdk
+pip install --pre sponsio        # or: npm install -D @sponsio/sdk
 sponsio init .             # interactive wizard: detects framework, IDE hosts, observe vs enforce
 ```
 
@@ -127,13 +127,13 @@ Get Sponsio blocking an unsafe tool call in under a minute. No API key, no frame
 ## 1. Install
 
 ```bash
-pip install sponsio
+pip install --pre sponsio
 ```
 
 Optional extras (all pure Python):
 
 ```bash
-pip install "sponsio[all]"     # yaml + llm + otel
+pip install --pre "sponsio[all]"     # yaml + llm + otel
 ```
 
 ## 2. See a contract fire
@@ -270,7 +270,7 @@ Sponsio is a runtime contract layer for LLM agents. It sits at the action bounda
 If you have never run Sponsio before, start here:
 
 ```bash
-pip install sponsio
+pip install --pre sponsio
 sponsio init .
 ```
 
@@ -302,8 +302,12 @@ description: Install Sponsio, pick the right extras for your stack, and verify t
 Sponsio is a pure-Python package with zero required dependencies. The core engine installs in seconds.
 
 ```bash
-pip install sponsio
+pip install --pre sponsio
 ```
+
+`--pre` is required: the `0.2` line is a pre-release, and plain
+`pip install sponsio` resolves to the last stable (`0.1.1`), which
+predates the cloud console, the evidence lane, and the current CLI.
 
 Verify:
 
@@ -333,7 +337,7 @@ Extras are optional dependency bundles. Pick what matches your stack; none of th
 | `sponsio[all]` | everything above | Kitchen-sink install |
 
 ```bash
-pip install "sponsio[all]"
+pip install --pre "sponsio[all]"
 ```
 
 ---
@@ -411,7 +415,7 @@ Prereqs: Python 3.10+ and an agent framework. We use LangGraph in the examples b
 ## 1. Install
 
 ```bash
-pip install "sponsio[langgraph]"
+pip install --pre "sponsio[langgraph]"
 ```
 
 ## 2. A minimal agent
@@ -626,7 +630,7 @@ Sponsio's deterministic contracts apply when a property is **structurally observ
 
 | | Deterministic contract |
 |---|---|
-| **Ships in** | `pip install sponsio` |
+| **Ships in** | `pip install --pre sponsio` |
 | **Use when** | Property is structurally observable (counter, regex, path, ordering) |
 | **Examples** | Tool ordering, rate limits, retries, loop detection, destructive gates, irreversible-once, path / argument blacklists, scope and length limits, exact-regex PII, format checks, permissions, allowlists, segregation of duty |
 | **Cost** | Microseconds, zero LLM calls |
@@ -944,7 +948,7 @@ description: Use `sponsio init` to wire framework, host hooks, skill, and mode i
 `sponsio init` is the 4-axis setup wizard. One run covers every decision that matters on first install. Three surfaces (interactive TTY, `--plan` dry-run, `--apply` non-interactive) share the same dispatch table, so an IDE-agent's preview matches what `--apply` actually runs (they call into the same code path).
 
 ```bash
-pip install sponsio
+pip install --pre sponsio
 sponsio init
 ```
 
@@ -1269,7 +1273,7 @@ ls ~/.sponsio/sessions/support_bot/
 ## OpenTelemetry
 
 ```bash
-pip install "sponsio[otel]"
+pip install --pre "sponsio[otel]"
 ```
 
 Sponsio respects standard OTEL env vars:
@@ -2400,7 +2404,7 @@ Tool inventory:   [check_policy, issue_refund, notify_customer]
 Constraint:       must_precede(check_policy, issue_refund)
 ```
 
-Supported document formats: `.md`, `.txt`, `.pdf` (`pip install sponsio[pdf]`).
+Supported document formats: `.md`, `.txt`, `.pdf` (`pip install --pre sponsio[pdf]`).
 
 ### Source 3: hand-written
 
@@ -3434,15 +3438,82 @@ broke.
 
 ## [Unreleased]
 
+---
+
+## [0.2.0a8]: 2026-09-01
+
+The output lane ships. Alongside the action lane — every tool call
+checked before it executes — a run's *claims* are now checked too: typed
+assertions compared against an authority by deterministic comparators,
+with no LLM anywhere in the hot path.
+
+Two of the fixes below were found by running a real multi-agent app
+against a console that already had other agents in it, which is the
+configuration that broke.
+
+### Added
+
+- **Evidence middleware.** `observe_llm_call` extracts the typed claims a
+  model turn makes, checks each against its authority, and folds the
+  verdict into the trace beside the tool calls. Deterministic
+  comparators; a claim whose source cannot answer is reported as such
+  rather than guessed at.
+
 ### Fixed
 
+- **A project's second agent could not run.** A cloud checkout carries
+  the whole project, so when a new agent joined a project that already
+  had books, the checkout answered `200` with the *siblings'* books —
+  nothing 404'd, nothing got pushed, and the agent's own rules sat on
+  disk unused while the run died on "agent not found". The local
+  `sponsio.yaml` fallback now applies whenever that file defines the
+  agent, not only when the config was a `sponsio://` ref. The
+  multi-agent error also stopped telling a caller who passed an
+  `agent_id` to pass an `agent_id`.
+- **Multi-agent runs lost their claim verdicts.** `attach(auto=False)`
+  returned before wiring the output lane. `auto` says who attributes the
+  tool steps — a statement about the *action* lane — and never meant
+  "drop my evidence", but a multi-agent run (the only reason to pass it)
+  rendered as a clean trace while the model stated something false.
+- **A cloud checkout never rebinds an explicit agent to a sibling.**
+  Running under another agent's rules and reporting *as* that agent had
+  been a `UserWarning`; it is now an error with the fix in hand.
+- **A 32-bit run id silently merged two runs.** Bridge run ids are
+  64-bit.
+- **A long run uploaded the run squared, then went silent.** The bridge
+  coalesces sends under an interval and a byte-rate ceiling.
+- **A run names its own book**, not the whole project's checkout stamp.
+- Singular/plural agreement in `rate_limit` and `bounded_retry` labels
+  ("limited to 1 invocation"), Python and TypeScript in step.
+
+### Changed
+
+- Enforcement routes through a canonical stopping set behind
+  `stop_original`, so blocks, redirects and escalations answer one
+  question the same way.
+- Shadow-mode assumption spans record what actually happened.
+
+### Fixed (carried from `0.2.0a3`)
+
+- **Ordered comparisons now agree across Python and TypeScript on numeric
+  string arguments (#108).** Raw tool arguments are grounded as strings, so
+  a naturally-written numeric guard like `Not(Gt(ArgValue("pay","amount"),
+  Const(1000)))` reached the evaluator as `compare("gt", "5000", 1000)`.
+  Python raised `TypeError` and fell through to `False` (guard held → the
+  `5000` payment was **allowed**) while TypeScript coerced and returned
+  `true` (guard violated → **blocked**) — the same contract failed *open* on
+  one runtime and *closed* on the other. Both runtimes now coerce a
+  plain-numeric string operand to a number for `Lt`/`Le`/`Gt`/`Ge` when the
+  other operand is numeric, so numeric guards compare numerically and fail
+  **closed** identically. Non-numeric strings stay incomparable (`False`),
+  and `Eq` is unchanged.
 - **`@sponsio/sdk` is now edge-runtime safe.** Marked the package
   `sideEffects` (narrowed to the CLI entry) so bundlers can tree-shake
   the Node-only YAML/config-loading path out of edge bundles (Cloudflare
   Workers), complementing the `createRequire` deferral in `0.2.0a3`.
 - **Trace mining fails open when its extension isn't bundled.**
-  `CodeAnalyzer` imported `TraceMiner` unguarded, crashing
-  `sponsio scan --trace` with `ModuleNotFoundError` in builds without the
+  `CodeAnalyzer` imported `TraceMiner` unguarded, crashing the
+  trace-mining path with `ModuleNotFoundError` in builds without the
   optional `trace_mining` extension; it now degrades to "no contracts
   mined", matching the other call sites.
 
@@ -3451,6 +3522,11 @@ broke.
 - Added an explicit `[tool.ruff]` config to `pyproject.toml` so local
   lint matches CI, and synced `docs/reference/cli.md` with the real CLI
   surface (`onboard`/`serve`/`daemon`/`cursor` now documented).
+- The CLI now centers on code and policy scanning. `sponsio scan` reads
+  source code and policy docs; `sponsio check --trace` and `sponsio eval`
+  still replay traces. Trace-derived contract mining (the `sponsio
+  refresh` command and `sponsio scan --trace`) is no longer part of this
+  distribution.
 
 ---
 

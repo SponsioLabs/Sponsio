@@ -92,7 +92,7 @@ Sponsio's deterministic contracts apply when a property is **structurally observ
 
 | | Deterministic contract |
 |---|---|
-| **Ships in** | `pip install sponsio` |
+| **Ships in** | `pip install --pre sponsio` |
 | **Use when** | Property is structurally observable (counter, regex, path, ordering) |
 | **Examples** | Tool ordering, rate limits, retries, loop detection, destructive gates, irreversible-once, path / argument blacklists, scope and length limits, exact-regex PII, format checks, permissions, allowlists, segregation of duty |
 | **Cost** | Microseconds, zero LLM calls |

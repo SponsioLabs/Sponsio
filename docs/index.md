@@ -10,7 +10,7 @@ Sponsio is a runtime contract layer for LLM agents. It sits at the action bounda
 If you have never run Sponsio before, start here:
 
 ```bash
-pip install sponsio
+pip install --pre sponsio
 sponsio init .
 ```
 

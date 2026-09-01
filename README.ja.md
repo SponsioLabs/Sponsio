@@ -29,7 +29,7 @@ Sponsio は時間軸に沿って展開されるエージェントの手続きに
 
 > **エージェント契約** とは、エージェントのすべてのアクションでチェックされるランタイムルールであり、[形式手法に裏打ちされています](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a3 alpha リリース。** `pip install --pre sponsio==0.2.0a3`。非 LangGraph アダプタで `redirect_to_safe` 発火時に fail-open になるバグを修正（元の unsafe ツールが実行されていた）。TS `Eq` を複合値で Python の値等価セマンティクスに揃え、Cloudflare Workers 互換性を追加。**0.2.0a2 利用者はアップグレード推奨。** 詳細は [v0.2.0a3 リリースノート](docs/release-notes/v0.2.0a3.md)。
+> **v0.2.0a8 alpha リリース。** `pip install --pre sponsio`。出力レーンが登場しました。実行前に検査されるすべてのツール呼び出しに加えて、実行が主張する型付きクレームも決定的な比較器で権威ソースと照合されます——ホットパスに LLM はありません。プロジェクトに複数の agent がある場合にのみ現れる 2 つのバグも修正:2 番目の agent がそもそも起動できない問題と、マルチ agent 実行のクレーム判定がコンソールに届かない問題。[v0.2.0a8 リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a8)を参照。
 
 ---
 
@@ -62,7 +62,7 @@ Sponsio は時間軸に沿って展開されるエージェントの手続きに
 **または CLI を自分で実行:**
 
 ```bash
-pip install sponsio        # または: npm install -D @sponsio/sdk
+pip install --pre sponsio        # または: npm install -D @sponsio/sdk
 sponsio init .             # 対話型ウィザード: フレームワーク・IDE ホスト・observe vs enforce を検出
 ```
 

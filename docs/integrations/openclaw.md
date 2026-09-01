@@ -14,7 +14,7 @@ Use the standard Python onboarding path. Paste the [Python one-shot prompt](../g
 Or run the CLI yourself:
 
 ```bash
-pip install sponsio
+pip install --pre sponsio
 sponsio init .
 # When prompted for IDE hosts, choose openclaw=full
 ```
