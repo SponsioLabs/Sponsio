@@ -580,3 +580,103 @@ def test_a_local_single_agent_file_still_rebinds_a_mismatched_agent_id(
             config="sponsio.yaml", agent_id="typo", init_banner=False, verbose=False
         )
     assert guard.agent_id == "acme"
+
+
+class TestAutoPushFirstBook:
+    """A project's second agent gets its book into the cloud by running.
+
+    Nothing in the SDK pushed before: the checkout only pulls, and an app's
+    own push fires on a 404 that stops happening once the project holds any
+    sibling's book. The agent then ran on rules the console had never seen.
+    """
+
+    @pytest.fixture
+    def local_two_agents(self, tmp_path, monkeypatch):
+        p = tmp_path / "sponsio.yaml"
+        p.write_text(
+            "version: '1'\n"
+            "agents:\n"
+            "  mine:\n"
+            "    contracts:\n"
+            "      - tool `a` must precede `b`\n"
+            "  sibling:\n"
+            "    contracts:\n"
+            "      - tool `c` must precede `d`\n"
+        )
+        monkeypatch.chdir(tmp_path)
+        return p
+
+    def _fake_client(self, monkeypatch, sent, *, configured=True, boom=False):
+        class FakeClient:
+            def __init__(self, *a, **k):
+                self.configured = configured
+
+            def push_rulebook(self, project, yaml_text):
+                if boom:
+                    raise RuntimeError("network down")
+                sent.append(yaml_text)
+                return {"agents": {"mine": {"version": 1, "unchanged": False}}}
+
+        import sponsio.cloud.client as cc
+
+        monkeypatch.setattr(cc, "CloudClient", FakeClient)
+        return FakeClient
+
+    def test_only_this_agents_block_is_sent(self, local_two_agents, monkeypatch):
+        import yaml
+
+        from sponsio.core import _autopush_agent_book
+
+        sent: list[str] = []
+        self._fake_client(monkeypatch, sent)
+        note = _autopush_agent_book(local_two_agents, "mine", ["other"])
+
+        assert len(sent) == 1
+        body = yaml.safe_load(sent[0])
+        # a sibling's book must never be rewritten from a stale local file
+        assert list(body["agents"]) == ["mine"]
+        assert "draft v1" in note
+
+    def test_an_identical_book_is_not_re_uploaded(self, local_two_agents, monkeypatch):
+        from sponsio.core import _autopush_agent_book
+
+        class FakeClient:
+            configured = True
+
+            def __init__(self, *a, **k):
+                pass
+
+            def push_rulebook(self, project, yaml_text):
+                return {"agents": {"mine": {"version": 3, "unchanged": True}}}
+
+        import sponsio.cloud.client as cc
+
+        monkeypatch.setattr(cc, "CloudClient", FakeClient)
+        note = _autopush_agent_book(local_two_agents, "mine", [])
+        assert "already in the cloud" in note
+
+    def test_the_opt_out_stops_it(self, local_two_agents, monkeypatch):
+        from sponsio.core import _autopush_agent_book
+
+        sent: list[str] = []
+        self._fake_client(monkeypatch, sent)
+        monkeypatch.setenv("SPONSIO_NO_AUTO_PUSH", "1")
+        note = _autopush_agent_book(local_two_agents, "mine", [])
+        assert sent == []
+        assert "Auto-push is off" in note
+
+    def test_a_failed_upload_never_stops_the_run(self, local_two_agents, monkeypatch):
+        from sponsio.core import _autopush_agent_book
+
+        self._fake_client(monkeypatch, [], boom=True)
+        note = _autopush_agent_book(local_two_agents, "mine", [])
+        assert "sponsio push" in note  # falls back to telling the user
+
+    def test_no_cloud_configured_means_no_push(self, local_two_agents, monkeypatch):
+        from sponsio.core import _autopush_agent_book
+
+        sent: list[str] = []
+        self._fake_client(monkeypatch, sent, configured=False)
+        note = _autopush_agent_book(local_two_agents, "mine", [])
+        assert sent == []
+        assert "sponsio push" in note

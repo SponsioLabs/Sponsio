@@ -63,6 +63,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -270,6 +271,58 @@ def _start_dashboard() -> str:
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
+
+
+def _autopush_agent_book(
+    local_yaml: "Path", agent_id: str, cloud_agents: "Iterable[str]"
+) -> str:
+    """Put THIS agent's local book in the cloud, once, as a draft.
+
+    Nothing in the SDK pushes: the cloud checkout only ever pulls, and the
+    one push an app tends to own fires on a 404 — which stops happening the
+    moment the project holds any sibling's book. So a project's second agent
+    onward runs on rules the console has never seen, which makes it invisible
+    to every screen that exists to show what governs it.
+
+    Scope is deliberately narrow. Only this agent's block goes up, so a
+    sibling's book is never rewritten from a stale local file. It lands as a
+    DRAFT: nothing an agent pulls changes until a human publishes it. A
+    content-identical push is a server-side no-op, and the next run pulls
+    what this one pushed, so this path fires once per agent, not per run.
+
+    Returns a short note for the caller's line, or "" when nothing was sent.
+    Never raises: a book that could not be uploaded must not stop a run.
+    """
+    if os.environ.get("SPONSIO_NO_AUTO_PUSH", "").strip():
+        return " Auto-push is off; run: sponsio push sponsio.yaml"
+    try:
+        import yaml
+
+        from sponsio.cloud.client import CloudClient
+
+        client = CloudClient()
+        if not client.configured:
+            return " Push it to publish: sponsio push sponsio.yaml"
+
+        with open(local_yaml, encoding="utf-8") as fh:
+            raw = yaml.safe_load(fh) or {}
+        agents = raw.get("agents")
+        if not isinstance(agents, dict) or agent_id not in agents:
+            return " Push it to publish: sponsio push sponsio.yaml"
+        one = {k: v for k, v in raw.items() if k != "agents"}
+        one["agents"] = {agent_id: agents[agent_id]}
+
+        result = client.push_rulebook("", yaml.safe_dump(one, sort_keys=False))
+        info = (result or {}).get("agents", {}).get(agent_id) or {}
+        version = info.get("version")
+        if info.get("unchanged"):
+            return f" Its book is already in the cloud (v{version}), unpublished."
+        return (
+            f" Sent it to the cloud as draft v{version} — publish it in the"
+            " console when you want runs to pull it."
+        )
+    except Exception:  # noqa: BLE001 - a failed upload must not stop the run
+        return " Push it to publish: sponsio push sponsio.yaml"
 
 
 def Sponsio(  # noqa: N802 (branded factory function)
@@ -483,10 +536,11 @@ def Sponsio(  # noqa: N802 (branded factory function)
             # wrote the checkout down before loading it), so keying this
             # on `sponsio://` alone left that path erroring out.
             if local is not None and agent_id in local.agents:
+                pushed_note = _autopush_agent_book(local_yaml, agent_id, parsed.agents)
                 print(
                     f"  sponsio: {config} has no book for agent {agent_id!r} yet "
-                    f"(it has: {', '.join(parsed.agents)}); using ./sponsio.yaml. "
-                    f"Push it to publish: sponsio push sponsio.yaml",
+                    f"(it has: {', '.join(parsed.agents)}); using ./sponsio.yaml."
+                    f"{pushed_note}",
                     flush=True,
                 )
                 parsed = local
