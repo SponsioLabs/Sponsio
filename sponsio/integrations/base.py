@@ -1841,12 +1841,11 @@ class BaseGuard:
             # customer-facing answers on day one.
             _ev_observe = self._mode == "observe"
             _ev_action = "observed" if _ev_observe else "blocked"
-            evidence_stopped = outcome.stops(
-                self._evidence_config.on_error
-            ) and not _ev_observe
+            evidence_stopped = (
+                outcome.stops(self._evidence_config.on_error) and not _ev_observe
+            )
             if outcome.blocked_claims or (
-                outcome.error is not None
-                and self._evidence_config.on_error == "block"
+                outcome.error is not None and self._evidence_config.on_error == "block"
             ):
                 # Synthesize a canonical violation per stop cause so
                 # ``stop_original`` (Phase-1 predicate) agrees with the

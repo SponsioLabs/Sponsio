@@ -287,7 +287,9 @@ class BridgeSession:
     # not is simply a block.
     _EV_ACTIONS = {"release": "released", "clarify": "clarify"}
 
-    def record_output(self, response: Any, result: Any, *, agent: str | None = None) -> dict | None:
+    def record_output(
+        self, response: Any, result: Any, *, agent: str | None = None
+    ) -> dict | None:
         """Project one model turn and its claim verdicts into a step.
 
         The action lane records tool calls; this is the output lane. Without
@@ -315,11 +317,15 @@ class BridgeSession:
             claims.append(
                 {
                     "span": _claim_span(vc),
-                    "predicate": str(getattr(getattr(vc, "spec", None), "predicate", "") or ""),
+                    "predicate": str(
+                        getattr(getattr(vc, "spec", None), "predicate", "") or ""
+                    ),
                     "verdict": verdict,
                     "source": str(getattr(res, "source", "") or ""),
                     "freshness": "",
-                    "evidence": ("authoritative: " + ", ".join(str(v) for v in values)) if values else "",
+                    "evidence": ("authoritative: " + ", ".join(str(v) for v in values))
+                    if values
+                    else "",
                     "action": action,
                     "fix": "" if correction in (None, "") else str(correction),
                 }
@@ -339,7 +345,9 @@ class BridgeSession:
             "type": "assistant_output",
             "tool": "reply",
             "durationMs": 1.0,
-            "status": "mismatch" if any(c["verdict"] == "MISMATCH" for c in claims) else "ok",
+            "status": "mismatch"
+            if any(c["verdict"] == "MISMATCH" for c in claims)
+            else "ok",
             "say": _say_of(response),
             "output": {"checked": len(claims), "claims": claims},
         }

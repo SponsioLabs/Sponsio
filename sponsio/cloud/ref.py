@@ -162,7 +162,9 @@ def resolve_config_ref(
                 if channel == "draft"
                 else (f" · {channel}" if channel and channel != "published" else "")
             )
-            _say(f"rulebook ← cloud checkout · {ref.project} {stamp}{head}", quiet=quiet)
+            _say(
+                f"rulebook ← cloud checkout · {ref.project} {stamp}{head}", quiet=quiet
+            )
             return cached
     else:
         _say(
