@@ -518,6 +518,7 @@ def Sponsio(  # noqa: N802 (branded factory function)
             from_cloud_ref = isinstance(config, str) and is_cloud_ref(config)
             local = None
             local_yaml = None
+            local_err = ""
             if explicit_agent:
                 from pathlib import Path as _Path
 
@@ -525,8 +526,13 @@ def Sponsio(  # noqa: N802 (branded factory function)
                 if local_yaml.is_file():
                     try:
                         local = load_config(str(local_yaml))
-                    except Exception:  # noqa: BLE001 - a broken local file is not our call here
+                    except Exception as exc:  # noqa: BLE001
+                        # Swallowing this sent the user hunting for a file
+                        # that is sitting right there defining the agent:
+                        # the fallback said "no ./sponsio.yaml defines it"
+                        # when the truth was "yours does not parse".
                         local = None
+                        local_err = f"{type(exc).__name__}: {exc}"
             # A checkout that does not carry the agent you named is served
             # by the local book when there is one.  This is a project's
             # first EXTRA agent, every time: the whole-project checkout
@@ -548,8 +554,14 @@ def Sponsio(  # noqa: N802 (branded factory function)
                 raise ValueError(
                     f"{config} has no rulebook for agent {agent_id!r} "
                     f"(agents with a book there: {', '.join(parsed.agents) or 'none'}), "
-                    f"and no ./sponsio.yaml defines it. Push this agent's book "
-                    f"(sponsio push sponsio.yaml) or pass the agent_id that owns one."
+                    + (
+                        f"and ./sponsio.yaml could not be read — {local_err}. "
+                        f"Fix that file and run again."
+                        if local_err
+                        else "and no ./sponsio.yaml defines it. Push this agent's "
+                        "book (sponsio push sponsio.yaml) or pass the agent_id "
+                        "that owns one."
+                    )
                 )
             if agent_id in parsed.agents:
                 pass
@@ -576,6 +588,13 @@ def Sponsio(  # noqa: N802 (branded factory function)
                 if explicit_agent:
                     # "specify an agent_id" is useless advice to someone who
                     # already did; the book is what is missing, not the flag
+                    if local_err:
+                        raise ValueError(
+                            f"agent_id={agent_id!r} has no rulebook in {config} "
+                            f"(agents there: {available}), and ./sponsio.yaml "
+                            f"could not be read — {local_err}. Fix that file "
+                            f"and run again."
+                        )
                     raise ValueError(
                         f"agent_id={agent_id!r} has no rulebook in {config} "
                         f"(agents there: {available}), and no ./sponsio.yaml "

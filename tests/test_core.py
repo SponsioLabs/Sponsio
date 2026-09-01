@@ -680,3 +680,44 @@ class TestAutoPushFirstBook:
         note = _autopush_agent_book(local_two_agents, "mine", [])
         assert sent == []
         assert "sponsio push" in note
+
+
+def test_a_broken_local_yaml_is_named_not_hidden(tmp_path, monkeypatch):
+    """ "No ./sponsio.yaml defines it" sent users hunting for a present file.
+
+    The fallback swallowed the parse error, so a typo in sponsio.yaml
+    surfaced as the file being absent or silent about the agent — while it
+    sat in the working directory defining exactly that agent.
+    """
+    import sponsio
+
+    (tmp_path / "sponsio.yaml").write_text(
+        "version: '1'\nagents:\n  mine:\n    contracts:\n      - 'not a mapping'\n"
+    )
+    monkeypatch.chdir(tmp_path)
+
+    cloud = tmp_path / "checkout.yaml"
+    cloud.write_text(
+        "version: '1'\n"
+        "agents:\n"
+        "  someone-else:\n"
+        "    contracts:\n"
+        "    - G:\n"
+        "        pattern: must_precede\n"
+        "        args: [a, b]\n"
+        "      desc: a before b\n"
+        "  third:\n"
+        "    contracts:\n"
+        "    - G:\n"
+        "        pattern: must_precede\n"
+        "        args: [c, d]\n"
+        "      desc: c before d\n"
+    )
+
+    with pytest.raises(ValueError) as exc:
+        sponsio.Sponsio(config=str(cloud), agent_id="mine")
+
+    msg = str(exc.value)
+    assert "could not be read" in msg
+    assert "ConfigError" in msg
+    assert "no ./sponsio.yaml defines it" not in msg
