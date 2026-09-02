@@ -14,6 +14,44 @@ broke.
 
 ---
 
+## [0.2.0a9]: 2026-09-02
+
+Follow-up to `0.2.0a8`, all of it found by running a real multi-agent app
+against a console that already held other agents' books.
+
+### Added
+
+- **An agent's first run puts its book in the cloud.** Nothing pushed
+  before: the checkout only pulls, and the one push an app tends to own
+  fires on a 404 — which stops happening the moment the project holds any
+  sibling's book. A project's second agent onward ran on rules the console
+  had never seen, so every screen built to show what governs an agent had
+  nothing to show. When the checkout does not carry the agent you named
+  and `./sponsio.yaml` does, that book now goes up: **only that agent's
+  block**, as a **draft**, once — the next checkout carries it, and an
+  identical push is a server-side no-op. `SPONSIO_NO_AUTO_PUSH=1` turns it
+  off; a failed upload prints the manual command and never stops the run.
+
+### Fixed
+
+- **A broken `./sponsio.yaml` says so.** The fallback swallowed the load
+  error, so a typo surfaced as "no ./sponsio.yaml defines it" — sending
+  the user to look for a file sitting in the working directory defining
+  exactly that agent. Both error paths now quote the parse failure.
+
+### Changed
+
+- **`docs/reference/config-yaml.md` names all five places the mode comes
+  from and which one wins.** A contract's own `mode:` beats the mode your
+  code passes, so a rule armed in the console stops calls inside a run
+  started with `mode="observe"`. `@sponsio/sdk` reads `runtime.mode` only,
+  so `defaults.mode` governs the Python runtime and not the TypeScript one.
+- Every install line in the READMEs, QUICKSTART and `docs/` passes
+  `--pre`. Without it pip resolves to `0.1.1`, the last stable — a build
+  that predates the cloud console, the evidence lane and the current CLI.
+
+---
+
 ## [0.2.0a8]: 2026-09-01
 
 The output lane ships. Alongside the action lane — every tool call
