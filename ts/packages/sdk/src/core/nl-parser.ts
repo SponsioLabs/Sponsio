@@ -23,6 +23,8 @@ import {
   noPii,
   noKeywords,
   scopeLimit,
+  requiresPermission,
+  segregationOfDuty,
 } from "./patterns.js";
 import { Atom } from "./formula.js";
 
@@ -114,6 +116,41 @@ const KEYWORD_RULES: KeywordRule[] = [
     ],
     patternName: "scope_limit",
     minArgs: 1,
+  },
+  // Argument blacklist — a shape that must never be sent. Phrasings
+  // copied from the Python parser so one rulebook reads the same in both.
+  {
+    patterns: [
+      /arg(?:ument)?s?\s+(?:must\s+)?not\s+contain/,
+      /(?:command|input|param|query|body)\s+must\s+not\s+contain/,
+      /blacklist/,
+      /ban\s+(?:patterns?|commands?)\s+in/,
+    ],
+    patternName: "arg_blacklist",
+    minArgs: 2,
+  },
+  // Requires permission
+  {
+    patterns: [
+      /requires?\s+(?:\w+\s+)?permission/,
+      /needs?\s+permission/,
+      /must\s+have\s+permission/,
+      /requires?\s+admin\b/,
+    ],
+    patternName: "requires_permission",
+    minArgs: 2,
+  },
+  // Segregation of duty
+  {
+    patterns: [
+      /segregation of dut/,
+      /separation of dut/,
+      /different agent/,
+      /must be (?:done|performed) by different/,
+      /same agent.*cannot.*both/,
+    ],
+    patternName: "segregation_of_duty",
+    minArgs: 2,
   },
   // Must precede (last — most general, requires backtick context)
   {
@@ -268,6 +305,21 @@ export function parseNl(text: string): DetFormula | null {
         return idempotent(tools[0]);
       case "mutual_exclusion":
         return mutualExclusion(tools[0], tools[1]);
+      case "arg_blacklist": {
+        // "tool `bash` command must not contain `rm -rf`" — the first
+        // backticked name is the tool, the rest are the banned shapes.
+        // The field comes from the cue word when there is one, since a
+        // blacklist on the wrong field silently checks nothing.
+        const field =
+          (text.match(/\b(command|query|input|param|body|path|url|text)\b/) || [])[1] ??
+          "*";
+        if (tools.length < 2) continue;
+        return argBlacklist(tools[0], field, tools.slice(1));
+      }
+      case "requires_permission":
+        return requiresPermission(tools[0], tools[1]);
+      case "segregation_of_duty":
+        return segregationOfDuty(tools[0], tools[1]);
       case "scope_limit": {
         // The roots are the path-shaped arguments; the tool is whatever
         // else was named. "restrict file access to `/workspace`" names no

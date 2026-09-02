@@ -281,17 +281,40 @@ export class Sponsio {
     this.mode = resolveMode(options.mode, yamlMode);
 
     // ── Parse NL strings into det formulas ───────────────────────────
+    // A contract that does not parse is a rule that is not there. In
+    // observe mode that is a warning, because the point of observe is to
+    // keep running and surface what would fire. In enforce it is fatal:
+    // the alternative is an agent that reports success while enforcing a
+    // book with holes in it, and the operator has no way to know which
+    // holes. Python raises here; TypeScript logged one line and ran on.
+    const unparsed: string[] = [];
     for (const c of sources) {
       if (typeof c === "string") {
         const parsed = parseNl(c);
         if (parsed) {
           this._contracts.push(parsed);
         } else {
-          console.warn(`[sponsio] Could not parse: "${c}"`);
+          unparsed.push(c);
         }
       } else {
         this._contracts.push(c);
       }
+    }
+    if (unparsed.length > 0) {
+      const listed = unparsed.map((c) => `  - ${c}`).join("\n");
+      if (this.mode === "enforce") {
+        throw new Error(
+          `sponsio: ${unparsed.length} contract(s) could not be parsed, and ` +
+            `this guard is in enforce mode. THESE RULES ARE NOT ARMED. Fix ` +
+            `them, or write them as structured \`pattern:\` blocks in a ` +
+            `sponsio.yaml, which covers every pattern the library has.\n` +
+            listed,
+        );
+      }
+      console.warn(
+        `[sponsio] ${unparsed.length} contract(s) could not be parsed and ` +
+          `are NOT armed (observe mode, so the run continues):\n${listed}`,
+      );
     }
 
     // ── Sto pipeline is not part of this build ──────────────────────
