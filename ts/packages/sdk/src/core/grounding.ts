@@ -171,6 +171,42 @@ function escapeRegexLiteral(literal: string): string {
  * Ctx atoms (``ctx(k, v)``), accumulator snapshots, and ``time_since``
  * fire on every event regardless of type (matching Python parity).
  */
+/**
+ * Is `path` inside `prefix`, as directories rather than as text?
+ *
+ * A plain `startsWith` answered two different questions wrong. It let
+ * `/safe/../etc/passwd` through, because the string does begin with
+ * `/safe` — the oldest escape there is, against a rule whose whole
+ * purpose is confinement. And it counted `/safeguard/evil.txt` as inside
+ * `/safe`, because a prefix of the text is not a prefix of the path.
+ *
+ * Parity with Python's `_path_within` in `sponsio/tracer/grounding.py`.
+ */
+function normalizePosix(input: string): string {
+  const text = input.replace(/\\/g, "/");
+  const absolute = text.startsWith("/");
+  const out: string[] = [];
+  for (const segment of text.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") {
+      if (out.length && out[out.length - 1] !== "..") out.pop();
+      else if (!absolute) out.push("..");
+      continue;
+    }
+    out.push(segment);
+  }
+  const joined = out.join("/");
+  if (absolute) return "/" + joined;
+  return joined || ".";
+}
+
+export function pathWithin(path: string, prefix: string): boolean {
+  const normalized = normalizePosix(path);
+  const root = normalizePosix(prefix);
+  if (root === "/") return normalized.startsWith("/");
+  return normalized === root || normalized.startsWith(root + "/");
+}
+
 export function groundEvent(
   event: ToolEvent,
   state: GroundingState,
@@ -359,7 +395,7 @@ export function groundEvent(
             if (targetTool === tool) {
               const paths = argsStr.match(/(\/[^\s;|&>"']+)/g) ?? [];
               const allWithin = paths.length === 0 ||
-                paths.every((p) => prefixes.some((pre) => p.startsWith(pre)));
+                paths.every((p) => prefixes.some((pre) => pathWithin(p, pre)));
               v[predKey("arg_paths_within", targetTool, ...prefixes)] = allWithin;
             }
           }

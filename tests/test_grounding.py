@@ -283,3 +283,60 @@ def test_count_propagates_to_non_call_events():
     vals = ground(trace)
     # count should still be visible at step 1
     assert vals[1].get("count(issue_refund)") == 1
+
+
+# ---------------------------------------------------------------------------
+# arg_paths_within — confinement, not string prefixes
+# ---------------------------------------------------------------------------
+
+
+def _within(path: str, *prefixes: str) -> bool:
+    """Ground one write and read back whether it stayed inside."""
+    from sponsio.formulas._pred_key import pred_key
+
+    trace = make_trace(
+        Event(
+            ts=1,
+            agent="a",
+            event_type="tool_call",
+            tool="write_file",
+            args={"path": path},
+        )
+    )
+    v = ground(
+        trace,
+        content_atoms={"arg_paths_within": [("write_file", *prefixes)]},
+    )[0]
+    return v[pred_key("arg_paths_within", "write_file", *prefixes)]
+
+
+def test_a_path_that_climbs_out_is_not_within():
+    """`/safe/../etc/passwd` begins with `/safe` and is not inside it.
+
+    The check was a string prefix, so the oldest escape there is walked
+    straight through a rule whose whole purpose is confinement.
+    """
+    assert _within("/safe/../etc/passwd", "/safe") is False
+    assert _within("/safe/../../root/.ssh/id_rsa", "/safe") is False
+    assert _within("/safe/sub/../../etc/shadow", "/safe") is False
+    assert _within("/safe//../etc/passwd", "/safe") is False
+
+
+def test_a_sibling_that_shares_a_prefix_is_not_within():
+    """`/safeguard` is not under `/safe`: a prefix of the text is not a
+    prefix of the path."""
+    assert _within("/safeguard/evil.txt", "/safe") is False
+    assert _within("/safety-report/leak.txt", "/safe") is False
+
+
+def test_paths_actually_inside_are_still_allowed():
+    assert _within("/safe/ok.txt", "/safe") is True
+    assert _within("/safe/deep/nested/f.txt", "/safe") is True
+    assert _within("/safe", "/safe") is True
+    assert _within("/safe/a", "/safe/") is True
+    assert _within("/research/draft/x.parquet", "/research/draft") is True
+
+
+def test_any_of_several_roots_will_do():
+    assert _within("/tmp/scratch", "/safe", "/tmp") is True
+    assert _within("/etc/passwd", "/safe", "/tmp") is False

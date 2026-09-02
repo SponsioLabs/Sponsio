@@ -175,6 +175,38 @@
           "reason": "`after restore_backup` makes restore the commitment, whichever order the sentence names them in"
         }
       ]
+    },
+    {
+      "name": "scope_limit_is_confinement_not_a_string_prefix",
+      "contracts": [
+        "tool `write_file` restricted to `/safe`"
+      ],
+      "steps": [
+        {
+          "tool": "write_file",
+          "args": {
+            "path": "/safe/ok.txt"
+          },
+          "expect_blocked": false,
+          "reason": "genuinely inside"
+        },
+        {
+          "tool": "write_file",
+          "args": {
+            "path": "/safe/../etc/passwd"
+          },
+          "expect_blocked": true,
+          "reason": "climbs out of /safe with .."
+        },
+        {
+          "tool": "write_file",
+          "args": {
+            "path": "/safeguard/evil.txt"
+          },
+          "expect_blocked": true,
+          "reason": "shares the text prefix, is not under the directory"
+        }
+      ]
     }
   ]
 }

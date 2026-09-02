@@ -22,6 +22,7 @@ import {
   maxLength,
   noPii,
   noKeywords,
+  scopeLimit,
 } from "./patterns.js";
 import { Atom } from "./formula.js";
 
@@ -98,6 +99,20 @@ const KEYWORD_RULES: KeywordRule[] = [
   {
     patterns: [/cooldown/, /minimum\s+\d+\s+steps?\s+between/],
     patternName: "cooldown",
+    minArgs: 1,
+  },
+  // Scope limit — confinement to a path root. Python's NL parser has had
+  // this since the pattern shipped; TypeScript did not, so a shared
+  // rulebook that wrote it in English enforced in one runtime and, with
+  // one console line, nowhere in the other.
+  {
+    patterns: [
+      /restricted?\s+to\s+(?:paths?|`?\/)/,
+      /restrict\s+file\s+access\s+to/,
+      /confined?\s+to\s+(?:paths?|`?\/)/,
+      /must\s+(?:stay|remain)\s+(?:with)?in\s+`?\//,
+    ],
+    patternName: "scope_limit",
     minArgs: 1,
   },
   // Must precede (last — most general, requires backtick context)
@@ -253,6 +268,19 @@ export function parseNl(text: string): DetFormula | null {
         return idempotent(tools[0]);
       case "mutual_exclusion":
         return mutualExclusion(tools[0], tools[1]);
+      case "scope_limit": {
+        // The roots are the path-shaped arguments; the tool is whatever
+        // else was named. "restrict file access to `/workspace`" names no
+        // tool, so the rule applies to any call carrying a path.
+        const roots = tools.filter((t) => t.startsWith("/"));
+        const named = tools.filter((t) => !t.startsWith("/"));
+        const bare = text.match(/(?:^|\s)(\/[^\s`'",;]+)/g) ?? [];
+        const paths = roots.length
+          ? roots
+          : bare.map((b) => b.trim()).filter(Boolean);
+        if (!paths.length) continue;
+        return scopeLimit(named[0] ?? ".*", paths);
+      }
       case "no_reversal": {
         // ``noReversal(commitment, contradiction)`` takes the committing
         // action first, and English puts it last whenever the sentence
