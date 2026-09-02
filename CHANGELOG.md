@@ -14,6 +14,90 @@ broke.
 
 ---
 
+## [0.2.0a10]: 2026-09-02
+
+Found by running seven agent applications against the stack — a support
+desk, an ops bot, a load harness, one that passes hostile arguments, a
+TypeScript agent — rather than by adding tests to code already believed
+correct. Three of these are the same shape: a rule that loads, arms,
+shows in the console, and does not do what it says.
+
+### Fixed
+
+- **`scope_limit` was a string prefix, not confinement.** A rule reading
+  "writes stay under `/safe`" allowed `/safe/../../root/.ssh/id_rsa`,
+  because the check was `path.startswith(prefix)` — the oldest escape
+  there is, against a rule whose entire purpose is confinement. The same
+  line also counted `/safeguard/evil.txt` as inside `/safe`: a prefix of
+  the text is not a prefix of the path. Paths are normalised now and
+  containment requires a segment boundary. Identical fix in TypeScript,
+  which had the identical line.
+
+- **`never call A after B` compiled the opposite rule.**
+  `no_reversal(commitment, contradiction)` takes the committing action
+  first, and English puts it last whenever the sentence opens with the
+  prohibition. The contract appeared in the console carrying the user's
+  own sentence while checking the reverse, and passed on exactly the
+  sequence it was written to stop. Word order decides by position now,
+  not by a list of fixed phrases. TypeScript had the same inversion with
+  no swap at all.
+
+- **`drop table users` walked past `dangerous_sql_verbs`.** The preset
+  matched its verbs case-sensitively, and SQL keywords do not have a
+  case. Word boundaries went on at the same time, so `DELETE` no longer
+  matches the word "deleted" in a comment or a column named `drop_date`.
+
+- **An enforcing run could start with a rule missing.** Strict compile
+  read `defaults.mode` and nothing else, so a project that said enforce
+  in any of the four other places the runtime honors dropped the broken
+  contract, printed one `UserWarning`, and enforced the rest. Strictness
+  follows the effective mode now, and a contract carrying its own
+  `mode: enforce` raises either way.
+
+- **`sponsio doctor` green-ticked a config that cannot load**, because it
+  validated the schema and never compiled the contracts. It compiles them
+  now and grades by the project's mode. Its `Runtime mode` line also read
+  two of the three places a yaml can say `enforce`, so a blocking project
+  was reported as `observe (shadow — safe default)`.
+
+- **`sponsio doctor` failed on a minimal install.** `find_spec` on a
+  dotted name imports the parent package and raises when it is absent, so
+  the check whose only job is to report what is missing crashed on a
+  machine with no `google` — which is what `pip install sponsio` gives
+  you. Doctor opened with a red mark on a healthy install.
+
+- **A pattern given the wrong number of arguments** raised a bare
+  `TypeError` from inside the compiler, naming the factory's missing
+  parameter and nothing about the contract. Errors now name the agent,
+  the contract's own description, what it passed, and the signature.
+
+- **`attach(guard, agents=["name"])`** — the obvious reading of the
+  parameter — raised `string indices must be integers` from inside the
+  bridge. A bare name is the shorthand now.
+
+### Changed
+
+- A contract row sent to a console carries the `pattern` and `args` it
+  was built from, so a run whose agent has no published book is no longer
+  offered the rules it was just checked against.
+- `tool_allowlist` reads the same in both runtimes; TypeScript's NL
+  parser understands `scope_limit`, which it did not before.
+- CI runs the TypeScript half of `tests/cross_language/scenarios.json`.
+  The step was named "Run cross-language tests" and ran the unit tests,
+  so the shared file gated Python alone — which is how two of the
+  inversions above survived.
+
+### Removed
+
+- The SMT hooks. `base.py` accepted an `smt=` config and imported
+  `sponsio.integrations.smt_middleware`; `CloudClient.smt` imported
+  `sponsio.cloud.smt`. Neither module is in this build, so opting in
+  raised `ModuleNotFoundError` at construction while the public docstring
+  documented the feature. They return with the modules that make them
+  work.
+
+---
+
 ## [0.2.0a9]: 2026-09-02
 
 Follow-up to `0.2.0a8`, all of it found by running a real multi-agent app

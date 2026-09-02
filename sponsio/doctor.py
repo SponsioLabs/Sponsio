@@ -122,11 +122,18 @@ def check_optional_sdks() -> CheckResult:
     present = []
     missing = []
     for mod in watch:
-        if importlib.util.find_spec(mod) is not None:
-            # Prefer the user-facing name
-            present.append(mod.split(".")[0].replace("_", "-"))
-        else:
-            missing.append(mod.split(".")[0].replace("_", "-"))
+        # ``find_spec`` on a dotted name imports the PARENT package first,
+        # and raises when the parent is absent rather than returning None.
+        # So on a minimal install — no ``google`` at all, which is exactly
+        # what someone gets from ``pip install sponsio`` — the check whose
+        # only job is to report what is missing crashed instead, and
+        # doctor opened with a red ✗ on a healthy machine.
+        try:
+            found = importlib.util.find_spec(mod) is not None
+        except (ImportError, ValueError):
+            found = False
+        # Prefer the user-facing name
+        (present if found else missing).append(mod.split(".")[0].replace("_", "-"))
 
     present = sorted(set(present))
     missing = sorted(set(missing))

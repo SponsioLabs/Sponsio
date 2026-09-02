@@ -723,3 +723,35 @@ class TestCheckSkillInstalled:
         results, _code = run_doctor(tmp_path)
         names = [r.name for r in results]
         assert "Agent Skill" in names, names
+
+
+class TestOptionalSdksOnAMinimalInstall:
+    def test_a_dotted_name_whose_parent_is_absent_is_just_missing(self, monkeypatch):
+        """``find_spec`` on a dotted name imports the parent package first
+        and RAISES when it is absent, rather than returning None.
+
+        On a minimal install — no ``google`` at all, which is what
+        ``pip install sponsio`` gives you — the check whose only job is to
+        report what is missing crashed instead, and doctor opened with a
+        red ✗ on a healthy machine.
+        """
+        import importlib.util
+
+        real = importlib.util.find_spec
+
+        def raising(name, *a, **kw):
+            if name.startswith("google"):
+                raise ModuleNotFoundError("No module named 'google'")
+            return real(name, *a, **kw)
+
+        monkeypatch.setattr(importlib.util, "find_spec", raising)
+        r = check_optional_sdks()
+
+        # The point is that it answers at all rather than raising.
+        assert r.status in ("ok", "skip")
+        # ...and that the absent one is not counted as present. The detail
+        # truncates the missing list, so read the half before the
+        # parenthetical rather than asserting on a display string whose
+        # contents depend on what else the test machine happens to have.
+        present_part = r.detail.split("(not installed:")[0]
+        assert "google" not in present_part
