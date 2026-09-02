@@ -135,6 +135,32 @@ class TestCheckMode:
         r = check_mode()
         assert r.status == "fail"
 
+    @pytest.mark.parametrize(
+        "yaml_body",
+        [
+            "runtime:\n  mode: enforce\n",
+            "defaults:\n  mode: enforce\n",
+            "mode: enforce\n",
+        ],
+    )
+    def test_a_yaml_that_enforces_is_reported_as_enforcing(
+        self, tmp_path, monkeypatch, yaml_body
+    ):
+        """All three yaml spellings of enforce reach the runtime, so all
+        three must reach this report. Saying "observe — safe default" over
+        a config that blocks is the one direction that gets someone hurt.
+        """
+        monkeypatch.delenv("SPONSIO_MODE", raising=False)
+        (tmp_path / "sponsio.yaml").write_text(
+            'version: "1"\n' + yaml_body + "agents:\n  bot:\n    contracts:\n"
+            '      - G: "tool `x` at most 0 times"\n'
+        )
+        monkeypatch.chdir(tmp_path)
+        r = check_mode()
+        assert r.status == "warn"
+        assert "enforce" in r.detail
+        assert "BLOCK" in r.detail
+
 
 class TestCheckProjectScan:
     def test_missing_path_is_skip(self, tmp_path):
@@ -257,6 +283,39 @@ class TestCheckSponsioYaml:
         r = check_sponsio_yaml(tmp_path)
         assert r.status == "fail"
         assert "sponsio.yaml" in r.detail
+
+    _UNCOMPILABLE = (
+        "agents:\n"
+        "  bot:\n"
+        "    contracts:\n"
+        "      - G:\n"
+        "          pattern: arg_blacklist\n"
+        "          args: [lookup_customer, [ssn]]\n"
+        "        desc: Lookups must never carry an SSN.\n"
+    )
+
+    def test_uncompilable_contract_fails_an_enforcing_project(self, tmp_path):
+        """Schema-valid but uncompilable is the failure doctor exists to
+        catch: this yaml loads fine and then aborts the moment
+        ``Sponsio(config=...)`` touches it."""
+        (tmp_path / "sponsio.yaml").write_text(
+            "version: 1\nmode: enforce\n" + self._UNCOMPILABLE
+        )
+        r = check_sponsio_yaml(tmp_path)
+        assert r.status == "fail"
+        assert "arg_blacklist" in r.detail
+        assert "will not start" in r.detail
+
+    def test_uncompilable_contract_warns_an_observing_project(self, tmp_path):
+        """Observe keeps running without the rule rather than aborting,
+        so it is a warning — but the operator still has a rule they
+        believe is armed and is not."""
+        (tmp_path / "sponsio.yaml").write_text(
+            "version: 1\nmode: observe\n" + self._UNCOMPILABLE
+        )
+        r = check_sponsio_yaml(tmp_path)
+        assert r.status == "warn"
+        assert "not be armed" in r.detail
 
     def test_unset_env_var_is_warned(self, tmp_path, monkeypatch):
         """The loader silently expands missing ``${VAR}`` to ``""``

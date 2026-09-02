@@ -610,7 +610,13 @@ def Sponsio(  # noqa: N802 (branded factory function)
 
         from sponsio.config import config_to_guard_kwargs
 
-        cfg_kwargs = config_to_guard_kwargs(parsed, agent_id)
+        # ``mode`` is fully resolved by here (ctor arg > SPONSIO_MODE >
+        # yaml). Hand it over: the compiler decides from it whether a
+        # contract that fails to compile is fatal or merely skipped, and
+        # a run that enforces must never start with a rule missing.
+        cfg_kwargs = config_to_guard_kwargs(
+            parsed, agent_id, mode=mode or os.environ.get("SPONSIO_MODE")
+        )
         cfg_kwargs["verbose"] = verbose
         cfg_kwargs["verbosity"] = verbosity
         if dashboard_url is not None:

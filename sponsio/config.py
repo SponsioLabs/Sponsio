@@ -1619,7 +1619,26 @@ def _compile_structured(entry: ConstraintEntry) -> Any:
             coerced_args.append(int(a))
         else:
             coerced_args.append(a)
-    compiled = fn(*coerced_args)
+    try:
+        compiled = fn(*coerced_args)
+    except TypeError as e:
+        # Wrong arity in the YAML: the raw TypeError names the factory's
+        # missing parameter but nothing about the contract the user wrote,
+        # so the traceback lands them in config.py with no way back to the
+        # offending block. Say which contract, what it passed, and what the
+        # pattern actually takes.
+        import inspect
+
+        try:
+            sig = f"{entry.pattern}{inspect.signature(fn)}"
+        except (TypeError, ValueError):  # pragma: no cover — builtins only
+            sig = entry.pattern
+        label = f" ({entry.desc})" if entry.desc else ""
+        raise ConfigError(
+            f"Pattern '{entry.pattern}'{label} was given "
+            f"{len(coerced_args)} argument(s): {coerced_args!r}. "
+            f"It takes: {sig}. ({e})"
+        ) from e
     # ``desc:`` from the YAML overrides the pattern factory's default
     # desc. useful when one contract has multiple structured clauses
     # that should share a clearer per-clause label, or when the
@@ -1770,8 +1789,15 @@ def _resolve_strict_compile(mode: str | None) -> bool:
 
     1. ``SPONSIO_STRICT_COMPILE`` env (``1`` / ``true`` / ``yes`` → strict;
        ``0`` / ``false`` / ``no`` → non-strict).  User has the final say.
-    2. ``defaults.mode`` from yaml: ``enforce`` → strict, anything else
+    2. The run's effective mode: ``enforce`` → strict, anything else
        (``observe`` / unset) → non-strict.
+
+    ``mode`` must be the *effective* mode, resolved the same way the
+    runtime resolves it — the ctor argument and ``SPONSIO_MODE``
+    included. Reading one yaml field instead meant a project that said
+    enforce anywhere else (``Sponsio(mode="enforce")``, a bare top-level
+    ``mode:``, ``runtime.mode``) loaded non-strict and dropped a broken
+    rule with only a warning, while believing it was enforcing.
 
     The intent: enforce mode defaults to strict because a silently-skipped
     contract becomes a security gap in production; observe mode defaults
@@ -1837,7 +1863,9 @@ def _synthesize_tool_policy_contract(
     return {"guarantee": formula, "desc": desc}
 
 
-def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any]:
+def config_to_guard_kwargs(
+    config: SponsoConfig, agent_id: str, mode: str | None = None
+) -> dict[str, Any]:
     """Extract BaseGuard constructor kwargs for a specific agent.
 
     Returns a dict with a ``contracts`` kwarg shaped like the Python
@@ -1848,6 +1876,11 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
     Args:
         config: Parsed SponsoConfig.
         agent_id: Which agent's contracts to extract.
+        mode: The already-resolved effective mode, when the caller knows
+            it. It decides whether a contract that fails to compile is a
+            hard error or a skipped-with-warning. Callers who only have
+            the yaml (doctor, ``sponsio explain``) leave it None and the
+            yaml's own mode fields answer.
 
     Returns:
         Dict with keys: agent_id, contracts, plus defaults.
@@ -1871,7 +1904,12 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
         else None
     )
 
-    strict = _resolve_strict_compile(config.defaults.get("mode"))
+    strict = _resolve_strict_compile(
+        mode
+        or config.runtime.mode
+        or config.defaults.get("mode")
+        or config.top_level_mode
+    )
 
     contract_dicts: list[dict] = []
     skipped: list[tuple[str, str]] = []
@@ -1913,15 +1951,27 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
                 entry["mode"] = ce.mode
             contract_dicts.append(entry)
         except ConfigError as exc:
-            # In strict mode (enforce default, or SPONSIO_STRICT_COMPILE=1)
-            # any compile failure aborts loading. silently shipping a
-            # broken enforcement rule in production is worse than the
-            # crash.  In non-strict mode (observe default) skip the bad
-            # contract and surface a single batched warning so the rest of
-            # the yaml stays usable while reviewing.
-            if strict:
-                raise
+            # In strict mode (enforce, or SPONSIO_STRICT_COMPILE=1) any
+            # compile failure aborts loading. silently shipping a broken
+            # enforcement rule in production is worse than the crash.  In
+            # non-strict mode (observe) skip the bad contract and surface
+            # a single batched warning so the rest of the yaml stays
+            # usable while reviewing.
+            #
+            # A contract carrying its own ``mode: enforce`` raises either
+            # way: per-contract mode outranks the run's mode at check
+            # time, so this one rule was written to block regardless of
+            # how the run is configured. Dropping it quietly would be the
+            # same security gap strict mode exists to prevent.
             label = ce.desc or _short_constraint_label(ce.guarantee)
+            if strict or (ce.mode or "").strip().lower() == "enforce":
+                # Re-raise carrying the contract's own label. The compiler
+                # only ever sees one constraint entry, so without this the
+                # message describes the broken formula and never says which
+                # of the agent's contracts it belongs to.
+                raise ConfigError(
+                    f"Agent {agent_id!r}, contract {label!r}: {exc}"
+                ) from exc
             skipped.append((label, str(exc)))
 
     if skipped:
@@ -1930,9 +1980,10 @@ def config_to_guard_kwargs(config: SponsoConfig, agent_id: str) -> dict[str, Any
         bullet = "\n  - ".join(f"{label}: {err}" for label, err in skipped)
         warnings.warn(
             f"sponsio: skipped {len(skipped)} contract(s) for agent "
-            f"{agent_id!r} (observe mode, non-strict compile). "
-            f"Set SPONSIO_STRICT_COMPILE=1 or `defaults.mode: enforce` "
-            f"to escalate to ConfigError.\n  - " + bullet,
+            f"{agent_id!r} — they did not compile, and this run is in "
+            f"observe mode, where one bad rule does not take the rest "
+            f"down with it. THESE RULES ARE NOT ARMED. Fix them, or set "
+            f"SPONSIO_STRICT_COMPILE=1 to make this a hard error.\n  - " + bullet,
             UserWarning,
             stacklevel=2,
         )
