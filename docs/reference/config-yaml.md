@@ -85,7 +85,7 @@ Tool inventory:   [check_policy, issue_refund, notify_customer]
 Constraint:       must_precede(check_policy, issue_refund)
 ```
 
-Supported document formats: `.md`, `.txt`, `.pdf` (`pip install --pre sponsio[pdf]`).
+Supported document formats: `.md`, `.txt`, `.pdf` (`pip install sponsio[pdf]`).
 
 ### Source 3: hand-written
 
@@ -133,11 +133,43 @@ agents:
         strategy: block
 ```
 
+### Where the mode comes from
+
+Five places can set it. The engine resolves them in this order, and the
+first one that has an opinion wins:
+
+| # | Source | Written by |
+|---|---|---|
+| 1 | a contract's own `mode:` | the console's off/flag/enforce switch, or by hand |
+| 2 | `Sponsio(mode=...)` | your code |
+| 3 | `runtime.mode` | your yaml — what `sponsio mode` writes |
+| 4 | `defaults.mode` | your yaml |
+| 5 | a bare top-level `mode:` | your yaml |
+
+Two consequences worth knowing before you rely on the run-level setting:
+
+**A contract's own mode beats your code.** Set a rule to *enforce* in the
+console and it stops calls inside a run your code started with
+`mode="observe"` — a dry run that is not one. Set it to *flag* and it
+records without stopping inside `mode="enforce"`. The console's mode
+badge says `Observe · 2 rules override` when this is happening; the yaml
+says nothing, so read the book, not just your call site.
+
+**Pulling a rulebook does not silently change your mode.** The cloud
+writes `mode:` onto a rule only when someone actually decided that rule.
+A rule nobody has touched comes back without the field and keeps
+following your code — behaviour that would otherwise change with network
+reachability.
+
+**TypeScript reads fewer of them.** `@sponsio/sdk` reads `runtime.mode`
+only: rows 4 and 5 are Python-only. Write `runtime.mode` (or let
+`sponsio mode` write it) if the same file feeds both runtimes.
+
 ### Top-level fields
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `mode` | `observe` \| `enforce` | `observe` | Global default; per-contract `mode:` overrides. |
+| `mode` | `observe` \| `enforce` | `observe` | The lowest-precedence way to set the mode. See [Where the mode comes from](#where-the-mode-comes-from). |
 | `framework` | string | auto-detect | `langgraph`, `claude_agent`, `openai`, `openai_agents`, `crewai`, `google_adk`, `vercel_ai`, `mcp`, or omitted. |
 | `sessions_dir` | path | `~/.sponsio/sessions/` | Set to `null` to disable local session logging. |
 | `tools` | map | `{}` | Optional tool metadata; scan populates automatically. |
