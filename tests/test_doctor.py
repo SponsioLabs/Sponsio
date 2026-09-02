@@ -746,5 +746,12 @@ class TestOptionalSdksOnAMinimalInstall:
 
         monkeypatch.setattr(importlib.util, "find_spec", raising)
         r = check_optional_sdks()
+
+        # The point is that it answers at all rather than raising.
         assert r.status in ("ok", "skip")
-        assert "google" in r.detail
+        # ...and that the absent one is not counted as present. The detail
+        # truncates the missing list, so read the half before the
+        # parenthetical rather than asserting on a display string whose
+        # contents depend on what else the test machine happens to have.
+        present_part = r.detail.split("(not installed:")[0]
+        assert "google" not in present_part
