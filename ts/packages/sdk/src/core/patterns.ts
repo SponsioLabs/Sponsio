@@ -629,7 +629,7 @@ export function toolAllowlist(allowedTools: string[]): DetFormula {
   const formula = new G(new Implies(new Atom("called_any"), disjunction));
   return {
     formula,
-    desc: `only allowed tools: ${allowedTools.join(", ")}`,
+    desc: `only [${allowedTools.join(", ")}] may be called`,
     patternName: "tool_allowlist",
     liveness: false,
   };
