@@ -536,3 +536,41 @@ def test_auto_false_still_leaves_guard_before_alone(tmp_path):
 
     guard.guard_before("query_prices", {})
     assert run.steps == []
+
+
+# -- the agents argument ----------------------------------------------------
+
+
+def test_agents_accepts_bare_names(tmp_path):
+    """``agents=["planner", "writer"]`` is what the parameter's name
+    suggests, and what a single-role run wants to write.
+
+    It used to reach ``agent["id"]`` and raise ``string indices must be
+    integers`` from inside the bridge — a message about neither the
+    argument nor the call.
+    """
+    guard, client = FakeGuard(), FakeClient()
+    run = attach(
+        guard,
+        client=client,
+        runs_dir=tmp_path,
+        agents=["planner", "writer"],
+    )
+    assert sorted(run.agents) == ["planner", "writer"]
+
+
+def test_agents_still_accepts_the_full_dict(tmp_path):
+    guard, client = FakeGuard(), FakeClient()
+    run = attach(
+        guard,
+        client=client,
+        runs_dir=tmp_path,
+        agents=[{"id": "planner", "role": "lead", "tools": ["search"]}],
+    )
+    assert run.agents["planner"]["role"] == "lead"
+
+
+def test_agents_rejects_anything_else_by_name(tmp_path):
+    guard, client = FakeGuard(), FakeClient()
+    with pytest.raises(TypeError, match="agent id"):
+        attach(guard, client=client, runs_dir=tmp_path, agents=[42])

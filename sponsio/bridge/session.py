@@ -130,7 +130,7 @@ class BridgeSession:
         session_id: str | None = None,
         client: Any = None,
         contracts: list[dict] | None = None,
-        agents: list[dict] | None = None,
+        agents: list[dict | str] | None = None,
         runs_dir: str | Path | None = None,
     ) -> None:
         self.guard = guard
@@ -186,6 +186,20 @@ class BridgeSession:
 
         self.agents: dict[str, dict] = {}
         for agent in agents or []:
+            # A bare name is the shorthand: ``agents=["planner", "writer"]``
+            # is what a single-role run wants to write, and is what the
+            # parameter's name suggests. Without this it reached
+            # ``agent["id"]`` and raised ``string indices must be integers``
+            # from inside the bridge, which says nothing about the call.
+            if isinstance(agent, str):
+                self._ensure_agent(agent)
+                continue
+            if not isinstance(agent, dict) or "id" not in agent:
+                raise TypeError(
+                    "bridge: each entry in `agents` must be an agent id, or "
+                    "a dict with an 'id' key (plus optional 'role' and "
+                    f"'tools'). Got {agent!r}."
+                )
             self._ensure_agent(
                 agent["id"],
                 role=agent.get("role", "agent"),
@@ -530,7 +544,7 @@ def attach(
     session_id: str | None = None,
     client: Any = None,
     contracts: list[dict] | None = None,
-    agents: list[dict] | None = None,
+    agents: list[dict | str] | None = None,
     runs_dir: str | Path | None = None,
 ) -> BridgeSession:
     """Stream ``guard``'s run to a console.
