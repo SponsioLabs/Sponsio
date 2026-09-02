@@ -14,6 +14,56 @@ broke.
 
 ---
 
+## [0.2.0a11]: 2026-09-02
+
+Two more rules that looked armed and were not, and the answer to the one
+question an audit trail exists for.
+
+### Fixed
+
+- **A run records which rulebook version it enforced.** Every ingested
+  run showed no book at all, so the console could not say which rules
+  were in force when it ran; replays showed a version because the server
+  assigns theirs. The mechanism was already complete and read one
+  source: the env var set while resolving `config="sponsio://project"`.
+  An app that pulls the rulebook itself and hands `Sponsio()` the
+  resulting file — the shape the console's own wiring instructions
+  produce — never went through it. The stamp is the checkout's first
+  line, which the YAML parse drops as a comment; `load_config` keeps it
+  now and the bridge sends it. A hand-written yaml still records
+  nothing, which is honest.
+
+- **The last agent in a checkout list lost its version.** The list is
+  bracketed, so `_own_book` returned `zulu@v9]`, which parses as no
+  version — a book nobody published. It only bit the agent that sorted
+  last.
+
+- **`tool `bash` command must not contain `rm -rf`` never fired.** The
+  NL parser took the banned shape as the FIELD NAME, building
+  `arg_field_has('bash', 'rm -rf', 'rm -rf')` — a rule asking whether an
+  argument *named* `rm -rf` contains `rm -rf`. No such argument exists.
+  The field is read from the sentence's cue word now. `query` was also
+  missing from the cue list, so `` tool `run_sql` query must not contain
+  `DROP` `` did not parse at all.
+
+### Changed
+
+- **TypeScript refuses to enforce a book it could not parse.** A
+  contract that does not parse is a rule that is not there. Python
+  raises; TypeScript logged one line and ran on, so a TS agent enforced
+  a book with holes in it and reported success. Enforce mode throws now,
+  naming every contract it could not read. Observe still runs, and says
+  the rules are NOT armed.
+
+- **`arg_blacklist`, `requires_permission` and `segregation_of_duty`
+  parse in TypeScript**, using Python's own phrasings. Measured over
+  fifteen realistic sentences TypeScript went from 11 to 13, level with
+  Python. Note that TypeScript already supported the structured
+  `pattern:` form for the whole library — the gap was only in NL
+  strings.
+
+---
+
 ## [0.2.0a10]: 2026-09-02
 
 Found by running seven agent applications against the stack — a support

@@ -44,7 +44,7 @@ Direct guard import (advanced)::
 # shipped a wheel that introduced itself as a3 because only pyproject was
 # bumped. (Deriving this from importlib.metadata at import time costs a
 # metadata scan on every import; a two-line lockstep comment is cheaper.)
-__version__ = "0.2.0a10"
+__version__ = "0.2.0a11"
 
 # --- Main entry point ---
 from sponsio.core import Sponsio
