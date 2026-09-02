@@ -442,3 +442,120 @@ agents:
     assert len(kw["contracts"]) == 1
     skip_warns = [w for w in caught if "skipped" in str(w.message)]
     assert skip_warns == []
+
+
+# ---------------------------------------------------------------------------
+# Strictness follows the *effective* mode, not one yaml field
+# ---------------------------------------------------------------------------
+
+
+def _bad_regex_yaml_at(placement: str) -> str:
+    """The same two contracts, with ``enforce`` written in one of the
+    three places a yaml can say it."""
+    header = {
+        "defaults": "defaults:\n  mode: enforce",
+        "runtime": "runtime:\n  mode: enforce",
+        "top_level": "mode: enforce",
+        "none": "",
+    }[placement]
+    return f"""
+version: "1"
+{header}
+agents:
+  bot:
+    contracts:
+      - G:
+          ltl: "G(!(arg_field_has('Bash', 'command', 'rm\\\\s+.*\\\\.env')))"
+      - G:
+          ltl: "{_BAD_REGEX_LTL}"
+"""
+
+
+@pytest.mark.parametrize("placement", ["defaults", "runtime", "top_level"])
+def test_enforce_is_strict_wherever_the_yaml_says_it(tmp_path, monkeypatch, placement):
+    """A yaml that says enforce anywhere loads strictly.
+
+    Only ``defaults.mode`` used to be consulted, so a project written
+    with ``runtime.mode`` or a bare top-level ``mode:`` — both of which
+    the runtime honors — dropped a broken rule with a warning while
+    enforcing everything else. That is a rule the operator believes is
+    armed and is not.
+    """
+    monkeypatch.delenv("SPONSIO_STRICT_COMPILE", raising=False)
+
+    f = tmp_path / "sponsio.yaml"
+    f.write_text(_bad_regex_yaml_at(placement))
+    cfg = load_config(str(f))
+
+    with pytest.raises(ConfigError, match="Invalid regex"):
+        config_to_guard_kwargs(cfg, "bot")
+
+
+def test_mode_argument_makes_a_silent_yaml_strict(tmp_path, monkeypatch):
+    """``Sponsio(mode="enforce")`` over a yaml that names no mode is
+    still an enforcing run, so it compiles strictly."""
+    monkeypatch.delenv("SPONSIO_STRICT_COMPILE", raising=False)
+
+    f = tmp_path / "sponsio.yaml"
+    f.write_text(_bad_regex_yaml_at("none"))
+    cfg = load_config(str(f))
+
+    # Without the caller's mode, the yaml alone says nothing → observe.
+    with pytest.warns(UserWarning, match="skipped 1 contract"):
+        config_to_guard_kwargs(cfg, "bot")
+
+    with pytest.raises(ConfigError, match="Invalid regex"):
+        config_to_guard_kwargs(cfg, "bot", mode="enforce")
+
+
+def test_a_rule_that_enforces_on_its_own_never_gets_skipped(tmp_path, monkeypatch):
+    """Per-contract ``mode: enforce`` outranks the run's mode at check
+    time, so a broken one aborts the load even in an observe run."""
+    monkeypatch.delenv("SPONSIO_STRICT_COMPILE", raising=False)
+
+    y = f"""
+version: "1"
+defaults:
+  mode: observe
+agents:
+  bot:
+    contracts:
+      - G:
+          ltl: "{_BAD_REGEX_LTL}"
+        mode: enforce
+"""
+    f = tmp_path / "sponsio.yaml"
+    f.write_text(y)
+    cfg = load_config(str(f))
+
+    with pytest.raises(ConfigError, match="Invalid regex"):
+        config_to_guard_kwargs(cfg, "bot")
+
+
+def test_wrong_arity_names_the_contract_and_the_signature(tmp_path):
+    """A pattern given the wrong number of args used to raise a bare
+    TypeError from inside the compiler, naming neither the contract the
+    user wrote nor what the pattern takes."""
+    y = """
+version: "1"
+defaults:
+  mode: enforce
+agents:
+  bot:
+    contracts:
+      - G:
+          pattern: arg_blacklist
+          args: [lookup_customer, [ssn]]
+        desc: Lookups must never carry an SSN.
+"""
+    f = tmp_path / "sponsio.yaml"
+    f.write_text(y)
+    cfg = load_config(str(f))
+
+    with pytest.raises(ConfigError) as exc:
+        config_to_guard_kwargs(cfg, "bot")
+
+    msg = str(exc.value)
+    assert "Lookups must never carry an SSN." in msg  # which contract
+    assert "arg_blacklist(tool" in msg  # what it takes
+    assert "'lookup_customer'" in msg  # what was passed

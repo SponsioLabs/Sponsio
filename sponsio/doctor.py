@@ -184,11 +184,12 @@ def check_llm_credentials() -> CheckResult:
 def _config_mode() -> tuple[str, str] | None:
     """The mode a config in the cwd would actually produce, and its source.
 
-    Resolved the way ``sponsio.core`` resolves it — ``runtime.mode`` first,
-    then ``defaults.mode`` — rather than by reimplementing part of it here.
-    A partial copy is how this check ended up reporting "observe" with a
-    green tick for a config whose ``runtime.mode: enforce`` was blocking
-    calls at runtime, which is the most dangerous direction to be wrong in.
+    Resolved the way ``sponsio.core`` resolves it — ``runtime.mode``, then
+    ``defaults.mode``, then a bare top-level ``mode:`` — rather than by
+    reimplementing part of it here. A partial copy is how this check ended
+    up reporting "observe" with a green tick for a config that was blocking
+    calls at runtime, which is the most dangerous direction to be wrong in;
+    it happened twice, once per source left out.
     """
     for name in ("sponsio.yaml", "sponsio.yml"):
         candidate = Path.cwd() / name
@@ -205,6 +206,8 @@ def _config_mode() -> tuple[str, str] | None:
         default_mode = parsed.defaults.get("mode")
         if isinstance(default_mode, str):
             return default_mode, "defaults.mode"
+        if parsed.top_level_mode:
+            return parsed.top_level_mode, "mode"
         return None
     return None
 
@@ -403,6 +406,45 @@ def check_sponsio_yaml(path: Path) -> CheckResult:
             "fail",
             f"{yaml_path.name}: {e}",
         )
+
+    # ``load_config`` validates the schema; it does not compile the
+    # contracts. A rulebook with a well-formed block whose pattern args
+    # are wrong parses cleanly here and then either aborts the run
+    # (enforce) or is silently dropped from it (observe) — the doctor is
+    # exactly who should have said so first. Compile every agent, since
+    # each agent's block compiles independently.
+    #
+    # Always compile strictly, whatever the project's mode: strictness
+    # decides what the *runtime* does with a broken rule, and doctor
+    # wants to find it either way. The project's mode then grades it —
+    # an enforcing run will not start at all, an observing run will run
+    # without that rule.
+    try:
+        from sponsio.config import config_to_guard_kwargs
+    except Exception as e:  # pragma: no cover
+        return CheckResult("Config file", "fail", f"compiler import: {e}")
+
+    enforcing = (
+        cfg.runtime.mode
+        or cfg.defaults.get("mode")
+        or cfg.top_level_mode
+        or os.environ.get("SPONSIO_MODE")
+        or ""
+    ).strip().lower() == "enforce"
+    for agent_id in cfg.agents:
+        try:
+            config_to_guard_kwargs(cfg, agent_id, mode="enforce")
+        except Exception as e:
+            consequence = (
+                "this run will not start"
+                if enforcing
+                else "this rule will not be armed"
+            )
+            return CheckResult(
+                "Config file",
+                "fail" if enforcing else "warn",
+                f"{yaml_path.name}: a contract does not compile, {consequence} — {e}",
+            )
 
     # Detect unresolved ``${VAR}`` refs by inspecting the raw bytes —
     # the loader has already done expansion at this point so reaching
