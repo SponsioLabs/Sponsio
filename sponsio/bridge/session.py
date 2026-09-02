@@ -44,6 +44,19 @@ def _contracts_from_guard(guard: Any) -> list[dict]:
                 "pipeline": "det",
                 "violationCount": 0,
             }
+            # The pattern body, not the sentence, is a rule's identity. The
+            # console dedupes mined proposals against the book by exactly
+            # this signature; a run whose agent has no published book yet —
+            # a first run, which is when mining is most useful — had only
+            # the label to go on, so it was offered the rules it had just
+            # been checked against, reworded.
+            pattern_name = getattr(guarantee, "pattern_name", None)
+            if pattern_name:
+                row["pattern"] = str(pattern_name)
+                row["args"] = [
+                    list(a) if isinstance(a, (list, tuple)) else a
+                    for a in (getattr(guarantee, "args", None) or ())
+                ]
             authored = getattr(contract, "desc", None)
             # The authored sentence and the compiled formula's description
             # can differ; a violation may arrive under either spelling.
