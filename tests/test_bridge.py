@@ -604,3 +604,50 @@ def test_contract_rows_carry_the_pattern_body(tmp_path):
     row = next(iter(run.contracts.values()))
     assert row["pattern"] == "must_precede"
     assert row["args"] == ["warmup", "ping"]
+
+
+def test_a_run_records_the_book_it_enforced(tmp_path):
+    """`config="sponsio://project"` sets an env var while resolving, but a
+    checkout written to a file carries the stamp as its first line — the
+    shape the console's own wiring instructions produce.
+
+    Only the env var was read, so those runs recorded no book at all and
+    the console could not say which rules were in force. Replays, stamped
+    server-side, showed a version; real runs showed none.
+    """
+    guard, client = FakeGuard(), FakeClient()
+    guard.rulebook_stamp = "default [other@v3 quant@v46] sha:abc123"
+    guard.agent_id = "quant"
+
+    run = attach(guard, client=client, runs_dir=tmp_path)
+    vm = run.view_model()
+
+    # The checkout names every agent; a run is one agent's.
+    assert vm["rulebook"] == "quant@v46"
+    assert vm["rulebookRef"] == "default [other@v3 quant@v46] sha:abc123"
+    assert vm["session"]["rulebookVersion"] == 46
+
+
+def test_no_stamp_stays_absent(tmp_path):
+    """A hand-written yaml has no checkout. Absent is honest — a
+    fabricated version would make a replay claim to reproduce something
+    it cannot."""
+    guard, client = FakeGuard(), FakeClient()
+    run = attach(guard, client=client, runs_dir=tmp_path)
+    vm = run.view_model()
+    assert "rulebook" not in vm or not vm["rulebook"]
+
+
+def test_the_last_agent_in_the_bracketed_list_keeps_its_version(tmp_path):
+    """The checkout list is bracketed, so its last entry arrives as
+    `b@v1]` and parsed as a version of None — a book nobody published.
+
+    It only bit the agent that sorted last, which is why it survived: in
+    a four-agent project the other three were fine.
+    """
+    guard, client = FakeGuard(agent_id="zulu"), FakeClient()
+    guard.rulebook_stamp = "default [alpha@v3 zulu@v9] sha:abc123"
+    run = attach(guard, client=client, runs_dir=tmp_path)
+    vm = run.view_model()
+    assert vm["rulebook"] == "zulu@v9"
+    assert vm["session"]["rulebookVersion"] == 9

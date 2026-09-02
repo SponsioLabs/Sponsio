@@ -97,10 +97,15 @@ def _say_of(response: Any) -> str:
 def _own_book(stamp: str, agent: str) -> str | None:
     """This agent's ``agent@vN`` out of a checkout stamp.
 
-    A whole-project pull is stamped "<project> a@v3 b@v1 ... sha:..."; a
+    A whole-project pull is stamped "<project> [a@v3 b@v1 ...] sha:..."; a
     single-agent pull "<project>@vN" with no agent prefix at all.
+
+    The list is bracketed, so the last entry arrives as ``b@v1]`` — which
+    parses as a version of None and reads in the console as a book nobody
+    published. It only ever bit the agent that sorted last, which is why
+    it survived: in a four-agent project the other three were fine.
     """
-    tokens = [t for t in stamp.split() if "@v" in t]
+    tokens = [t.strip("[](),") for t in stamp.split() if "@v" in t]
     for token in tokens:
         if token.startswith(f"{agent}@v"):
             return token
@@ -156,6 +161,7 @@ class BridgeSession:
         # clock. 64 bits from the system CSPRNG puts a collision out of reach.
         self.session_id = session_id or ("run-" + secrets.token_hex(8))
         self.mode = getattr(guard, "mode", None) or "observe"
+        self.rulebook_stamp = getattr(guard, "rulebook_stamp", None)
         self.root_agent = getattr(guard, "agent_id", "agent")
         self.started_at = int(time.time() * 1000)
         self.steps: list[dict] = []
@@ -436,7 +442,18 @@ class BridgeSession:
         # Which book this run enforced, when the config came from the cloud.
         # Absent for a local file, and absent is honest: a fabricated version
         # would make a replay claim to reproduce something it cannot.
-        stamp = os.environ.get("SPONSIO_RULEBOOK_STAMP", "").strip()
+        # Two ways a run knows which book it enforced:
+        # `config="sponsio://project"` sets the env var while resolving,
+        # and a checkout written to a file carries the stamp as its first
+        # line, which the loader keeps. Only the first was read, so an app
+        # that pulls the yaml itself — the shape the console's own wiring
+        # instructions produce — recorded no book at all. Every real run
+        # read `book=None` while replays, stamped server-side, showed a
+        # version.
+        stamp = (
+            os.environ.get("SPONSIO_RULEBOOK_STAMP", "").strip()
+            or str(self.rulebook_stamp or "").strip()
+        )
         if stamp:
             # The checkout stamp names every agent in the project
             # ("default a@v3 b@v1 ... sha:..."); a run is ONE agent's, so

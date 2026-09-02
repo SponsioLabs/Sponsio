@@ -619,6 +619,11 @@ def Sponsio(  # noqa: N802 (branded factory function)
         )
         cfg_kwargs["verbose"] = verbose
         cfg_kwargs["verbosity"] = verbosity
+        # Carry the checkout stamp through to the guard so a run can say
+        # which rulebook version it enforced. Set after construction
+        # rather than as a kwarg: every adapter's __init__ would otherwise
+        # have to learn about it, and none of them use it.
+        _stamp = getattr(parsed, "rulebook_stamp", None)
         if dashboard_url is not None:
             cfg_kwargs["dashboard_url"] = dashboard_url
         if otel_exporter is not None:
@@ -634,7 +639,10 @@ def Sponsio(  # noqa: N802 (branded factory function)
         cfg_kwargs["tool_policy"] = parsed.tool_policy
         cfg_kwargs.update(kwargs)
 
-        return guard_cls(**cfg_kwargs)
+        guard = guard_cls(**cfg_kwargs)
+        if _stamp:
+            guard.rulebook_stamp = _stamp
+        return guard
 
     # Inline mode
     # Forward the parsed/typed policy so BaseGuard can synthesize the
