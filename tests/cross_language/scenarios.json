@@ -207,6 +207,70 @@
           "reason": "shares the text prefix, is not under the directory"
         }
       ]
+    },
+    {
+      "name": "arg_blacklist_in_both_runtimes",
+      "contracts": [
+        "tool `bash` command must not contain `rm -rf`"
+      ],
+      "steps": [
+        {
+          "tool": "bash",
+          "args": {
+            "command": "ls -la"
+          },
+          "expect_blocked": false,
+          "reason": "harmless"
+        },
+        {
+          "tool": "bash",
+          "args": {
+            "command": "rm -rf /tmp/x"
+          },
+          "expect_blocked": true,
+          "reason": "the banned shape"
+        }
+      ]
+    },
+    {
+      "name": "requires_permission_in_both_runtimes",
+      "contracts": [
+        "tool `refund` requires permission `manager`"
+      ],
+      "steps": [
+        {
+          "tool": "refund",
+          "args": {
+            "amount": 10
+          },
+          "expect_blocked": true,
+          "reason": "no permission held"
+        }
+      ]
+    },
+    {
+      "name": "segregation_of_duty_in_both_runtimes",
+      "contracts": [
+        "`approve` and `audit` must be performed by different agents"
+      ],
+      "steps": [
+        {
+          "tool": "approve",
+          "args": {
+            "id": 1
+          },
+          "expect_blocked": false,
+          "reason": "first of the pair"
+        },
+        {
+          "tool": "audit",
+          "args": {
+            "id": 1
+          },
+          "expect_blocked": true,
+          "reason": "same agent doing both"
+        }
+      ]
     }
   ]
 }

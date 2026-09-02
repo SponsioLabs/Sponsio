@@ -573,7 +573,7 @@ _KEYWORD_RULES: list[tuple[list[str], str, int]] = [
     (
         [
             r"arg(?:ument)?s?\s+(?:must\s+)?not\s+contain",
-            r"(?:command|input|param)\s+must\s+not\s+contain",
+            r"(?:command|input|param|query|body|text|content|url|path)\s+must\s+not\s+contain",
             r"blacklist",
             r"must\s+not\s+contain\s+(?:.*(?:rm\s*-rf|sudo|DROP|eval))",
             r"forbid.*(?:in\s+(?:arguments?|params?|input))",
@@ -1711,9 +1711,28 @@ def parse_dsl(expr: str) -> ParsedConstraint:
                 "arg_blacklist",
                 "arg_blacklist needs at least 1 tool name",
             )
-        # If 2 actions, second might be a field name; if 1, use "command" default
+        # The field is named by the cue word in the sentence, not by the
+        # second backticked name — in "tool `bash` command must not contain
+        # `rm -rf`" the second name is the BANNED SHAPE, and taking it as
+        # the field produced
+        #   arg_field_has('bash', 'rm -rf', 'rm -rf')
+        # a rule asking whether an argument *named* `rm -rf` contains
+        # `rm -rf`. No such argument exists, so it never fired: parsed,
+        # armed, displayed, and unable to catch the thing it names.
         tool = actions[0]
-        param = actions[1] if len(actions) >= 2 else "command"
+        cue = re.search(
+            r"\b(command|query|input|params?|body|path|url|text|args?|content)\b",
+            text,
+            re.IGNORECASE,
+        )
+        if cue:
+            param = cue.group(1).lower()
+        elif len(actions) >= 2 and actions[1] not in forbidden:
+            # A second name that is not itself one of the banned shapes is
+            # the caller naming the field explicitly.
+            param = actions[1]
+        else:
+            param = "command"
         if not forbidden:
             return _build_error(
                 nl_line,
