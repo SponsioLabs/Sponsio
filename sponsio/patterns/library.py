@@ -1577,10 +1577,25 @@ def dangerous_sql_verbs(
 
     from sponsio.patterns.library import arg_blacklist
 
+    # SQL keywords are case-insensitive by the language's own definition,
+    # and a model — or an ORM, or a formatter — writes them lowercase as
+    # often as not. Matching them case-sensitively meant `drop table users`
+    # walked past the pattern whose entire purpose is to stop it.
+    #
+    # The word boundary goes on at the same time: a bare `DELETE` also
+    # matched the word "deleted" in a comment, and a column named
+    # `drop_date`. Only a plain word is rewritten, so a caller who passes a
+    # real regex (`DROP\s+TABLE`) keeps exactly what they wrote, with case
+    # folding added.
+    guarded = [
+        rf"(?i)\b{verb}\b" if _re.fullmatch(r"[A-Za-z_]+", verb) else f"(?i){verb}"
+        for verb in forbidden
+    ]
+
     base = arg_blacklist(
         tool,
         "query",
-        forbidden,
+        guarded,
         desc=desc or f"{tool} must not use [{', '.join(forbidden)}]",
     )
     # Preserve the caller-facing pattern identity and its args so the
