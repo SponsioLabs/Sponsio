@@ -117,7 +117,12 @@ jobs:
 
       - name: Run cross-language tests
         working-directory: ts/packages/sdk
-        run: node dist/__tests__/core.test.js
+        # The package's own test command, which is the whole compiled
+        # suite. This step ran only ``core.test.js`` — so the TS half of
+        # ``tests/cross_language/scenarios.json`` was never replayed in
+        # CI, and the shared file gated Python alone. A no_reversal
+        # argument inversion in the TS nl-parser lived through that gap.
+        run: npm test
 
   lint:
     name: Lint

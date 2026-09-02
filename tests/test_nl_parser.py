@@ -369,6 +369,38 @@ class TestParseNLRuleBased:
         assert r.args[0] == "approve"
         assert r.args[1] == "reject"
 
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "never call `delete_bucket` after `restore_backup`",
+            "must not call `delete_bucket` after `restore_backup`",
+            "cannot call `delete_bucket` after `restore_backup`",
+            "don't call `delete_bucket` after `restore_backup`",
+            "`delete_bucket` is not allowed after `restore_backup`",
+            "after `restore_backup`, never call `delete_bucket`",
+            "after `restore_backup`, `delete_bucket` must not be called",
+        ],
+    )
+    def test_after_names_the_commitment_whatever_the_word_order(self, text):
+        """``after Y`` makes Y the commitment, wherever it sits.
+
+        ``no_reversal(commitment, contradiction)`` takes the committing
+        action first. Reading the two names in the order they appear
+        compiled the opposite rule — and carried the user's own sentence
+        as its description, so the console showed the right words over a
+        formula checking the reverse.
+        """
+        r = parse_nl_rule_based(text)
+        assert r.ok, r.error
+        assert r.pattern_name == "no_reversal"
+        assert r.args[0] == "restore_backup"  # commits
+        assert r.args[1] == "delete_bucket"  # contradicts
+
+    def test_a_leading_after_is_not_swapped_twice(self):
+        """The commitment already comes first here; swapping would undo it."""
+        r = parse_nl_rule_based("after `approve_refund`, never call `deny_refund`")
+        assert r.args == ("approve_refund", "deny_refund")
+
     # --- Cases that legitimately need LLM (rule-based should fail gracefully) ---
 
     def test_pure_english_fails_gracefully(self):
