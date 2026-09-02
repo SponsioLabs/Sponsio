@@ -338,6 +338,12 @@ class SponsoConfig:
     runtime: RuntimeSection = field(default_factory=RuntimeSection)
     tool_policy: ToolPolicySection = field(default_factory=ToolPolicySection)
     top_level_mode: str | None = None
+    # The checkout this file came from, e.g.
+    # "default [quant@v46 support@v1] sha:4f8379ad9c1e". `sponsio pull` and
+    # the cloud checkout write it as the file's first line; a hand-written
+    # yaml has none. It is what answers "which rules was this run checked
+    # against", which nothing else in the payload can.
+    rulebook_stamp: str | None = None
     """A bare top-level ``mode:``. Documented in
     docs/reference/config-yaml.md as the global default, so a file written
     exactly as documented has to work; it is the lowest-precedence yaml
@@ -1449,10 +1455,18 @@ def load_config(path: str | Path) -> SponsoConfig:
         raise FileNotFoundError(f"Config file not found: {path}")
 
     try:
-        with open(path) as f:
-            raw = yaml.safe_load(f)
+        text = path.read_text()
+        raw = yaml.safe_load(text)
     except yaml.YAMLError as e:
         raise ConfigError(f"Invalid YAML: {e}")
+
+    # The checkout stamp is a comment, so the YAML parse drops it. Read it
+    # off the raw text before it is gone: it is the only record of which
+    # rulebook version the run is about to enforce.
+    stamp = None
+    first = text.lstrip().split("\n", 1)[0].strip() if text.strip() else ""
+    if first.startswith("#") and "rulebook:" in first:
+        stamp = first.split("rulebook:", 1)[1].strip() or None
 
     if not isinstance(raw, dict):
         raise ConfigError("Config must be a YAML mapping (dict)")
@@ -1471,6 +1485,7 @@ def load_config(path: str | Path) -> SponsoConfig:
         runtime=_parse_runtime_section(raw.get("runtime")),
         tool_policy=_parse_tool_policy_section(raw.get("tool_policy")),
         top_level_mode=_parse_top_level_mode(raw.get("mode")),
+        rulebook_stamp=stamp,
     )
 
     # Parse tools section
