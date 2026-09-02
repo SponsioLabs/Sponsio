@@ -151,14 +151,6 @@ class CloudClient:
 
         return EvidenceClient(self)
 
-    @property
-    def smt(self):
-        """SMT service calls (prove/translate/policy build) — see
-        :mod:`sponsio.cloud.smt`. Same lazy-import rule as evidence."""
-        from sponsio.cloud.smt import SmtCloudClient
-
-        return SmtCloudClient(self)
-
     # -- transport ---------------------------------------------------------
 
     def _request(

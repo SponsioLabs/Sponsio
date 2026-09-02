@@ -320,16 +320,6 @@ class CheckResult:
     evidence_claims: list = field(default_factory=list)
     evidence_error: str | None = None
     evidence_stopped: bool = False
-    # --- SMT policy findings (opt-in; empty/None when unconfigured) ---
-    # ``smt_claims`` holds CheckedClaim records (binding + value + local
-    # solver finding). Same stop contract as evidence: ``smt_stopped``
-    # is the middleware's already-decided stop and a synthesized
-    # ``blocked`` det violation accompanies it so ``stop_original``
-    # agrees. SATISFIABLE findings do NOT stop by default — read their
-    # ``claims_false_scenario`` to caveat or rewrite the response.
-    smt_claims: list = field(default_factory=list)
-    smt_error: str | None = None
-    smt_stopped: bool = False
 
     @property
     def blocked(self) -> bool:
@@ -560,7 +550,6 @@ class BaseGuard:
         tag_pii: bool = False,
         tool_policy: Any | None = None,
         evidence: Any | None = None,
-        smt: Any | None = None,
     ) -> None:
         # --- Config file support ---
         if config is not None:
@@ -887,23 +876,6 @@ class BaseGuard:
             from sponsio.integrations.evidence_middleware import EvidenceConfig
 
             self._evidence_config = EvidenceConfig.from_value(evidence)
-
-        # --- SMT policy config (opt-in) ---
-        # Parsed eagerly: this compiles the policy and imports z3, so a
-        # broken rule or a missing solver fails at construction, not
-        # mid-conversation.
-        self._smt_config = None
-        self._smt_session = None
-        if smt is not None:
-            from sponsio.integrations.smt_middleware import (
-                SmtMiddlewareConfig,
-                SmtSession,
-            )
-
-            self._smt_config = SmtMiddlewareConfig.from_value(smt)
-            # Always constructed; only consulted when config.session is
-            # True, so the flag can be flipped without re-plumbing.
-            self._smt_session = SmtSession()
 
         # --- Shadow-mode session logger ---
         # Always attach the JSONL logger in observe mode so users have a
@@ -1757,14 +1729,6 @@ class BaseGuard:
         (``stop_original`` True via a synthesized blocked violation).
         Adapters that hold the response at this point must honor that
         instead of discarding it.
-
-        SMT (opt-in): when the guard was constructed with an ``smt=``
-        config and ``response`` is present, configured claims are
-        extracted from the same structured output and checked locally
-        against the SMT policy (:mod:`sponsio.smt`). INVALID /
-        IMPOSSIBLE findings (and UNKNOWN under ``on_unknown: block``,
-        the default) make the result stopping through the same
-        synthesized-violation contract as evidence.
         """
         total = None
         if input_tokens is not None and output_tokens is not None:
@@ -1890,73 +1854,6 @@ class BaseGuard:
                     except Exception:  # noqa: BLE001 - display must not break
                         pass
 
-        # --- SMT policy findings (opt-in) -------------------------------
-        # Same contract as the evidence block above: findings entered the
-        # trace inside run_smt; a stopping finding (or a checker error
-        # under on_error=block) synthesizes a canonical ``blocked``
-        # violation so ``stop_original`` agrees with the middleware.
-        smt_claims: list = []
-        smt_error: str | None = None
-        smt_stopped = False
-        if self._smt_config is not None and response:
-            from sponsio.integrations.smt_middleware import run_smt
-
-            smt_outcome = run_smt(
-                self,
-                self._smt_config,
-                content=response,
-                tool_call_args=tool_call_args,
-                session=self._smt_session,
-            )
-            smt_claims = list(smt_outcome.claims)
-            smt_error = smt_outcome.error
-            smt_stopped = smt_outcome.stops(self._smt_config)
-            if smt_stopped:
-                policy_name = self._smt_config.checker.policy.name
-                for claim in smt_outcome.blocked_claims(self._smt_config):
-                    agent_msg = (
-                        "The claim is not entailed by the policy; correct "
-                        "it before releasing."
-                    )
-                    if claim.finding.claims_false_scenario:
-                        agent_msg = (
-                            "The claim fails under: "
-                            f"{claim.finding.claims_false_scenario}. "
-                            "Address the missing condition before releasing."
-                        )
-                    det_violations.append(
-                        EnforcementResult(
-                            action="blocked",
-                            message=(
-                                f"smt: claim "
-                                f"{claim.binding.claim_field!r}"
-                                f"={claim.value!r} -> {claim.finding.result} "
-                                f"({policy_name})"
-                            ),
-                            rule_id=f"smt:{claim.binding.variable}",
-                            agent_msg=agent_msg,
-                        )
-                    )
-                if smt_error is not None:
-                    det_violations.append(
-                        EnforcementResult(
-                            action="blocked",
-                            message=(
-                                f"smt: policy check unavailable "
-                                f"({smt_error}); on_error=block"
-                            ),
-                            rule_id="smt:error",
-                        )
-                    )
-            # Reporting stays out of the middleware: finding lines render
-            # through the same reporter det and evidence verdicts use.
-            if self._terminal_reporter is not None:
-                for claim in smt_claims:
-                    try:
-                        self._terminal_reporter.report_smt(claim)
-                    except Exception:  # noqa: BLE001 - display must not break
-                        pass
-
         allowed = len(det_violations) == 0
         feedback = None
         if sto_violations:
@@ -1971,9 +1868,6 @@ class BaseGuard:
             evidence_claims=evidence_claims,
             evidence_error=evidence_error,
             evidence_stopped=evidence_stopped,
-            smt_claims=smt_claims,
-            smt_error=smt_error,
-            smt_stopped=smt_stopped,
         )
 
     def observe_tool_output(self, tool_name: str, output: str) -> None:
