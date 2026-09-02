@@ -652,3 +652,58 @@ class TestDegeneratePatternsRejected:
         deadline("alert", "respond", 3)
         required_steps_completion("open_case", ["triage", "close_case"])
         untrusted_source_gate(["web_fetch"], ["send_email"])
+
+
+# ---------------------------------------------------------------------------
+# dangerous_sql_verbs — SQL keywords do not have a case
+# ---------------------------------------------------------------------------
+
+
+def _sql_blocks(query: str, forbidden=None) -> bool:
+    """Does the preset stop this query?"""
+    import warnings
+
+    from sponsio.integrations.base import BaseGuard
+    from sponsio.patterns.library import dangerous_sql_verbs
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        guard = BaseGuard(
+            agent_id="t",
+            contracts=[{"guarantee": dangerous_sql_verbs("run_sql", forbidden)}],
+            mode="enforce",
+            verbose=False,
+        )
+    return not guard.guard_before("run_sql", {"query": query}).allowed
+
+
+def test_a_lowercase_verb_is_still_destructive():
+    """SQL keywords are case-insensitive by the language's definition, and
+    a model writes them lowercase as often as not. Matching them
+    case-sensitively let `drop table users` past the pattern whose whole
+    purpose is to stop it."""
+    assert _sql_blocks("drop table users")
+    assert _sql_blocks("DrOp TaBlE users")
+    assert _sql_blocks("truncate t")
+    assert _sql_blocks("delete from t")
+
+
+def test_uppercase_still_blocks():
+    assert _sql_blocks("DROP TABLE users")
+    assert _sql_blocks("SELECT 1; DROP TABLE t")
+
+
+def test_a_verb_inside_an_identifier_is_not_a_verb():
+    """A bare `DELETE` also matched the word "deleted" in a comment and a
+    column named `drop_date`, so the word boundary went on at the same
+    time as the case folding."""
+    assert not _sql_blocks("SELECT dropped_at FROM t")
+    assert not _sql_blocks("SELECT * FROM deleted_items")
+    assert not _sql_blocks("SELECT 1")
+
+
+def test_a_caller_regex_keeps_its_own_shape():
+    """Only a plain word is given a boundary; a real regex is left as
+    written, with case folding added."""
+    assert _sql_blocks("drop   table t", forbidden=[r"DROP\s+TABLE"])
+    assert not _sql_blocks("drop column c", forbidden=[r"DROP\s+TABLE"])

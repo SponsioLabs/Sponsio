@@ -22,6 +22,7 @@ import {
   maxLength,
   noPii,
   noKeywords,
+  scopeLimit,
 } from "./patterns.js";
 import { Atom } from "./formula.js";
 
@@ -82,7 +83,15 @@ const KEYWORD_RULES: KeywordRule[] = [
   },
   // No reversal
   {
-    patterns: [/cannot.*after\s+approv/, /no reversal/, /cannot\s+deny\s+after/, /must\s+not.*after/],
+    patterns: [
+      /cannot.*after\s+approv/,
+      /no reversal/,
+      /cannot\s+deny\s+after/,
+      /(?:never|cannot|must\s+not|don'?t|do\s+not)\s+(?:call\s+)?.*after\s+(?:calling\s+)?/,
+      /^\s*after\s+.*\b(?:never|cannot|must\s+not|don'?t|do\s+not)\b/,
+      /must\s+not\s+follow/,
+      /not\s+allowed\s+after/,
+    ],
     patternName: "no_reversal",
     minArgs: 2,
   },
@@ -90,6 +99,20 @@ const KEYWORD_RULES: KeywordRule[] = [
   {
     patterns: [/cooldown/, /minimum\s+\d+\s+steps?\s+between/],
     patternName: "cooldown",
+    minArgs: 1,
+  },
+  // Scope limit — confinement to a path root. Python's NL parser has had
+  // this since the pattern shipped; TypeScript did not, so a shared
+  // rulebook that wrote it in English enforced in one runtime and, with
+  // one console line, nowhere in the other.
+  {
+    patterns: [
+      /restricted?\s+to\s+(?:paths?|`?\/)/,
+      /restrict\s+file\s+access\s+to/,
+      /confined?\s+to\s+(?:paths?|`?\/)/,
+      /must\s+(?:stay|remain)\s+(?:with)?in\s+`?\//,
+    ],
+    patternName: "scope_limit",
     minArgs: 1,
   },
   // Must precede (last — most general, requires backtick context)
@@ -190,6 +213,32 @@ function tryResponseContent(text: string): DetFormula | null {
   return null;
 }
 
+
+const NEGATION_RE = /\b(?:never|cannot|can\s+not|must\s+not|don'?t|do\s+not|no)\b/;
+
+/**
+ * True for "never call A after B", where B is the commitment.
+ *
+ * Decided by position rather than by phrase: the phrase list this
+ * supplements matches "never after" and not "never call `x` after", and
+ * every new way of saying it would need another entry. Parity with
+ * Python's ``_forbidden_action_comes_first``.
+ */
+function forbiddenActionComesFirst(
+  lower: string,
+  first: string,
+  second: string,
+): boolean {
+  const iFirst = lower.indexOf(first.toLowerCase());
+  if (iFirst < 0) return false;
+  const iSecond = lower.indexOf(second.toLowerCase(), iFirst + 1);
+  if (iSecond < 0 || iSecond <= iFirst) return false;
+  // "after" has to sit between the two actions: in "after `b`, never call
+  // `a`" the commitment already comes first and must not be swapped.
+  if (!/\bafter\b/.test(lower.slice(iFirst + first.length, iSecond))) return false;
+  return NEGATION_RE.test(lower.slice(0, iFirst));
+}
+
 export function parseNl(text: string): DetFormula | null {
   // P2 response-content patterns first — keep them ahead of the
   // generic keyword cascade so "response must not contain emails"
@@ -219,8 +268,36 @@ export function parseNl(text: string): DetFormula | null {
         return idempotent(tools[0]);
       case "mutual_exclusion":
         return mutualExclusion(tools[0], tools[1]);
-      case "no_reversal":
-        return noReversal(tools[0], tools[1]);
+      case "scope_limit": {
+        // The roots are the path-shaped arguments; the tool is whatever
+        // else was named. "restrict file access to `/workspace`" names no
+        // tool, so the rule applies to any call carrying a path.
+        const roots = tools.filter((t) => t.startsWith("/"));
+        const named = tools.filter((t) => !t.startsWith("/"));
+        const bare = text.match(/(?:^|\s)(\/[^\s`'",;]+)/g) ?? [];
+        const paths = roots.length
+          ? roots
+          : bare.map((b) => b.trim()).filter(Boolean);
+        if (!paths.length) continue;
+        return scopeLimit(named[0] ?? ".*", paths);
+      }
+      case "no_reversal": {
+        // ``noReversal(commitment, contradiction)`` takes the committing
+        // action first, and English puts it last whenever the sentence
+        // opens with the prohibition: "never call `delete` after
+        // `restore`" means restore commits. Reading the names in the
+        // order they appear built the opposite rule — and this parser
+        // rewrites the desc from the args, so the console showed a rule
+        // the user never wrote. Parity with Python's
+        // ``_forbidden_action_comes_first``.
+        const swap =
+          /must not follow|should not follow|not allowed after|forbidden after|prohibited after|never after/.test(
+            lower,
+          ) || forbiddenActionComesFirst(lower, tools[0], tools[1]);
+        return swap
+          ? noReversal(tools[1], tools[0])
+          : noReversal(tools[0], tools[1]);
+      }
       case "cooldown": {
         const n = extractNumber(text);
         if (n == null) continue;

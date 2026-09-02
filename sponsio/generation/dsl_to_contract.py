@@ -802,7 +802,11 @@ _KEYWORD_RULES: list[tuple[list[str], str, int]] = [
             r"cannot\s+reject\s+after",
             r"cannot\s+contradict",
             r"cannot\s+be\s+reversed",
-            r"(?:never|cannot|must\s+not)\s+(?:call\s+)?.*after\s+(?:calling\s+)?",
+            r"(?:never|cannot|must\s+not|don'?t|do\s+not)\s+(?:call\s+)?.*after\s+(?:calling\s+)?",
+            # "after `approve`, never call `deny`" — the same rule with the
+            # commitment first, which is the order the pattern wants and the
+            # one this list did not recognise at all.
+            r"^\s*after\s+.*\b(?:never|cannot|must\s+not|don'?t|do\s+not)\b",
             r"forbidden\s+after",
             r"prohibited\s+after",
             r"must\s+not\s+follow",
@@ -1175,6 +1179,38 @@ def _is_plausible_tool_name(w: str) -> bool:
     }:
         return False
     return True
+
+
+# Words that mark the action right after them as the forbidden one.
+_NEGATION_RE = re.compile(
+    r"\b(?:never|cannot|can\s+not|must\s+not|don'?t|do\s+not|no)\b"
+)
+
+
+def _forbidden_action_comes_first(lower: str, first: str, second: str) -> bool:
+    """True for "never call A after B", where B is the commitment.
+
+    ``no_reversal(commitment, contradiction)`` takes the committing action
+    first, and English puts it last whenever the sentence opens with the
+    prohibition: "never call `delete_bucket` after `restore_backup`" means
+    restore commits and delete contradicts, not the reverse. Reading the
+    two names in the order they appear compiled the opposite rule, under
+    the user's own sentence as its description — armed, displayed, and
+    checking something else.
+
+    Decided by position rather than by phrase, because the phrase list this
+    supplements matched "never after" and not "never call `x` after", and
+    every new way of saying it would need another entry.
+    """
+    i_first = lower.find(first.lower())
+    i_second = lower.find(second.lower(), i_first + 1 if i_first >= 0 else 0)
+    if i_first < 0 or i_second < 0 or i_second <= i_first:
+        return False
+    # "after" has to sit between the two actions: in "after `b`, never call
+    # `a`" the commitment already comes first and must not be swapped.
+    if not re.search(r"\bafter\b", lower[i_first + len(first) : i_second]):
+        return False
+    return bool(_NEGATION_RE.search(lower[:i_first]))
 
 
 def _try_bare_ordering_patterns(text: str, nl_line: str) -> ParsedConstraint | None:
@@ -1796,7 +1832,7 @@ def parse_dsl(expr: str) -> ParsedConstraint:
         if re.search(
             r"must not follow|should not follow|not allowed after|forbidden after|prohibited after|never after",
             _lower,
-        ):
+        ) or _forbidden_action_comes_first(_lower, actions[0], actions[1]):
             actions = [actions[1], actions[0]] + actions[2:]
 
     # --- Standard 2-argument patterns ---

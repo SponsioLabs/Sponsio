@@ -167,6 +167,31 @@ class GroundingState:
 _NAMESPACED_TOOL_RE = re.compile(r"^[A-Za-z_][\w-]*:[A-Za-z_][\w-]*$")
 
 
+def _path_within(path: str, prefix: str) -> bool:
+    """Is ``path`` inside ``prefix``, as directories rather than as text?
+
+    A plain ``startswith`` answered two different questions wrong. It let
+    ``/safe/../etc/passwd`` through, because the string does begin with
+    ``/safe`` — the oldest escape there is, against a rule whose whole
+    purpose is confinement. And it counted ``/safeguard/evil.txt`` as
+    inside ``/safe``, because a prefix of the text is not a prefix of the
+    path.
+
+    Both segments are normalised, which collapses ``..`` and doubled
+    separators, and containment then requires a segment boundary.
+    Backslashes are read as separators too: on POSIX a literal backslash
+    in a filename is vanishingly rare, and reading one as a separator can
+    only ever refuse a path, never admit one.
+    """
+    import posixpath
+
+    normalized = posixpath.normpath(path.replace("\\", "/"))
+    root = posixpath.normpath(prefix.replace("\\", "/"))
+    if root == "/":
+        return normalized.startswith("/")
+    return normalized == root or normalized.startswith(root + "/")
+
+
 def _tool_matches(target_tool: str, event_tool: str, args_str: str) -> bool:
     """Check if a target tool spec matches the current event.
 
@@ -490,7 +515,7 @@ def ground_event(
                             v[pred_key("arg_paths_within", *args_tuple)] = True
                         else:
                             all_within = all(
-                                any(p.startswith(pfx) for pfx in prefixes)
+                                any(_path_within(p, pfx) for pfx in prefixes)
                                 for p in paths
                             )
                             v[pred_key("arg_paths_within", *args_tuple)] = all_within

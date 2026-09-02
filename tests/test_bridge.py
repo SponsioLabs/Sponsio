@@ -536,3 +536,71 @@ def test_auto_false_still_leaves_guard_before_alone(tmp_path):
 
     guard.guard_before("query_prices", {})
     assert run.steps == []
+
+
+# -- the agents argument ----------------------------------------------------
+
+
+def test_agents_accepts_bare_names(tmp_path):
+    """``agents=["planner", "writer"]`` is what the parameter's name
+    suggests, and what a single-role run wants to write.
+
+    It used to reach ``agent["id"]`` and raise ``string indices must be
+    integers`` from inside the bridge — a message about neither the
+    argument nor the call.
+    """
+    guard, client = FakeGuard(), FakeClient()
+    run = attach(
+        guard,
+        client=client,
+        runs_dir=tmp_path,
+        agents=["planner", "writer"],
+    )
+    assert sorted(run.agents) == ["planner", "writer"]
+
+
+def test_agents_still_accepts_the_full_dict(tmp_path):
+    guard, client = FakeGuard(), FakeClient()
+    run = attach(
+        guard,
+        client=client,
+        runs_dir=tmp_path,
+        agents=[{"id": "planner", "role": "lead", "tools": ["search"]}],
+    )
+    assert run.agents["planner"]["role"] == "lead"
+
+
+def test_agents_rejects_anything_else_by_name(tmp_path):
+    guard, client = FakeGuard(), FakeClient()
+    with pytest.raises(TypeError, match="agent id"):
+        attach(guard, client=client, runs_dir=tmp_path, agents=[42])
+
+
+def test_contract_rows_carry_the_pattern_body(tmp_path):
+    """A rule's identity is its pattern and arguments, not its sentence.
+
+    The console dedupes mined proposals against this signature; without
+    it a run whose agent has no published book yet — a first run — was
+    offered the rules it had just been checked against, reworded.
+    """
+    guard, client = FakeGuard(), FakeClient()
+
+    class _Guarantee:
+        desc = "`warmup` must precede `ping`"
+        pattern_name = "must_precede"
+        args = ("warmup", "ping")
+
+    class _Contract:
+        desc = "warm up first"
+        guarantees = [_Guarantee()]
+        mode = "enforce"
+
+    class _System:
+        _contracts = [_Contract()]
+
+    guard._system = _System()
+    run = attach(guard, client=client, runs_dir=tmp_path)
+
+    row = next(iter(run.contracts.values()))
+    assert row["pattern"] == "must_precede"
+    assert row["args"] == ["warmup", "ping"]
