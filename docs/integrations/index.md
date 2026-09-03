@@ -100,12 +100,19 @@ guard = sponsio.Sponsio(
 while not done:
     tool_name, args = llm_decide_next_action()
     result = guard.guard_before(tool_name, args)
-    if result.blocked:
+    if result.stop_original:      # not result.blocked: see note below
         llm_messages.append(f"Action blocked: {result.det_violations[0].message}")
         continue
     output = execute_tool(tool_name, args)
     guard.guard_after(tool_name, output)
 ```
+
+**Gate on `result.stop_original`, not `result.blocked`.** A `redirect_to_safe`
+violation leaves `blocked` False and `allowed` True, because the agent flow can
+continue down the safe path. A loop that gates on `blocked` falls through and
+runs the exact call the contract forbade. `stop_original` folds hard blocks and
+redirects together, so it fails closed. If you want the substitution itself, see
+[Redirect to safe](#redirect-to-safe-v02).
 
 ## Tool policy: default-deny + proactive filtering (v0.2)
 
@@ -161,7 +168,7 @@ while not done:
     legal_tools = [t for t in ALL_TOOLS if t.name in legal_names]
     tool_name, args = llm_decide_next_action(messages, tools=legal_tools)
     result = guard.guard_before(tool_name, args)
-    if result.blocked:
+    if result.stop_original:      # not result.blocked: see note below
         messages.append(f"Action blocked: {result.det_violations[0].message}")
         continue
     output = execute_tool(tool_name, args)

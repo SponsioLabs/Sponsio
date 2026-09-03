@@ -158,7 +158,7 @@ def test_pull_passes_agent_and_version_through(runner, patched):
 
 
 def test_pull_says_when_it_handed_out_a_draft(runner, patched, tmp_path):
-    """A book nobody published still pulls — as its draft. Writing that into
+    """A book nobody published still pulls, as its draft. Writing that into
     the file a guard loads without a word makes the review step invisible at
     the point it matters."""
     patched["install"](pulled=PulledRulebook(YAML, versions="1", channel="draft"))

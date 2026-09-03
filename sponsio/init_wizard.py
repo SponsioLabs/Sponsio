@@ -535,10 +535,10 @@ def print_next_steps(picks: "InitPicks", *, ts_project: bool = False) -> None:
             click.echo(f"        (it'll invoke the sponsio-{ide}:configure skill).")
     if skill_ides:
         click.echo()
-        click.echo(f"    {', '.join(skill_ides)} — Agent Skill installed.")
+        click.echo(f"    {', '.join(skill_ides)}: Agent Skill installed.")
         click.echo("      Ask the IDE's develop agent: \"set up Sponsio in this")
         click.echo('      project" / "tune contracts from policy.md" / "explain')
-        click.echo('      why C1 fired" — it has the playbook.')
+        click.echo('      why C1 fired". It has the playbook.')
 
     # Mode flip is already an explicit step in the wizard (axis 3,
     # observe vs enforce); echoing "flip when ready" here was just
@@ -771,7 +771,7 @@ def run_interactive(env: Environment) -> InitPicks:
     ide_levels: dict[str, str] = {}
     for h in SUPPORTED_HOSTS:
         if h not in env.ides_installed:
-            click.secho(f"{h} — not installed, skipping", dim=True)
+            click.secho(f"{h}: not installed, skipping", dim=True)
             continue
         level = _select(
             f"Sponsio level for {h}",

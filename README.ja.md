@@ -29,7 +29,7 @@ Sponsio は時間軸に沿って展開されるエージェントの手続きに
 
 > **エージェント契約** とは、エージェントのすべてのアクションでチェックされるランタイムルールであり、[形式手法に裏打ちされています](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a8 alpha リリース。** `pip install --pre sponsio`。出力レーンが登場しました。実行前に検査されるすべてのツール呼び出しに加えて、実行が主張する型付きクレームも決定的な比較器で権威ソースと照合されます——ホットパスに LLM はありません。プロジェクトに複数の agent がある場合にのみ現れる 2 つのバグも修正:2 番目の agent がそもそも起動できない問題と、マルチ agent 実行のクレーム判定がコンソールに届かない問題。[v0.2.0a8 リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a8)を参照。
+> **v0.2.0a11 alpha リリース。** `pip install --pre sponsio`。a8 以降の 3 リリースは、いずれも同じ不具合を修正しています。ルールが読み込まれ、ACTIVE と表示され、それでも一度も発火しない、という不具合です。パス検査が `/safe/../../root/.ssh` を通していました。`never call A after B` が逆のルールにコンパイルされていました。SQL 動詞リストが小文字を取りこぼしていました。さらに、実行はどのバージョンのルールブックを適用したかを記録するようになり、記録された実行を当時実際に有効だったルールで再生できます。[v0.2.0a11 リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a11)を参照。
 
 ---
 
@@ -67,6 +67,18 @@ sponsio init .             # 対話型ウィザード: フレームワーク・I
 ```
 
 ウィザードがフレームワークを自動検出し、対応するラップ スニペットを表示します。手動配線は [docs/integrations/](docs/integrations/index.md) を参照。[OpenClaw ユーザー](docs/integrations/openclaw.md)は ClawHavoc + CVE-2026-25253 のカバレッジを最初から利用できます。設定リファレンス、observe → enforce 切替、CI 配線は[完全ガイド](QUICKSTART.md)を参照。
+
+**実行を見る、ルールブックを共有する。** 強制はローカルで動き、アカウントは不要です。エージェントが何をしたかを見たい場合や、ルールブックを「人がレビューしてから有効になる」場所に置きたい場合は、[app.sponsio.dev](https://app.sponsio.dev) がホスト側です。1 行で実行が画面に出ます:
+
+```python
+import sponsio
+import sponsio.bridge
+
+guard = sponsio.Sponsio(config="sponsio.yaml", agent_id="mailer", mode="enforce")
+run = sponsio.bridge.attach(guard)
+```
+
+`sponsio push sponsio.yaml` がアップロードするのは下書きで、有効にはなりません。コンソールで人が公開し、その後 `sponsio pull` または `config="sponsio://default"` でレビュー済みのバージョンを取り戻します。送信はベストエフォートなので、コンソールが落ちてもエージェントは止まりません。[ホストされたコンソール](docs/getting-started/hosted-console.md)を参照。
 
 **自然言語から契約を下書きする。** `sponsio validate "<平易な文のルール>"` は、自然言語のルールを読み返せる契約に変換します。出力はあくまで下書きとして扱い、enforce する前に自分でレビューして調整してください。決定論的なのは契約がランタイムでどう*強制される*かであって、どう下書きされるかではありません。
 

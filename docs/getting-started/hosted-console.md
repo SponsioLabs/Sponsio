@@ -1,6 +1,6 @@
 ---
 title: The hosted console
-description: Connect an agent to app.sponsio.dev — stream its runs, keep its rulebook in the cloud, and pull the reviewed version back.
+description: Connect an agent to app.sponsio.dev. Stream its runs, keep its rulebook in the cloud, and pull the reviewed version back.
 ---
 
 # The hosted console
@@ -36,7 +36,7 @@ sponsio doctor
 The **Cloud** row names the endpoint, the tenant, and every agent that
 has a rulebook. If it shows a URL you did not expect, a
 previous `sponsio login --url ...` is still stored and outranks the
-default — log in again with the right `--url`.
+default. Log in again with the right `--url`.
 
 Prefer environment variables in CI: `SPONSIO_API_KEY` and
 `SPONSIO_API_URL` are read the same way and need no credentials file.
@@ -135,7 +135,7 @@ List what the key can reach:
 sponsio projects                  # projects, and agents that have a book
 ```
 
-That list does not say which books are published — an agent with nothing
+That list does not say which books are published. An agent with nothing
 but drafts is in it. `sponsio pull --agent <name>` is what tells you which
 head an agent actually has.
 
@@ -147,7 +147,7 @@ sponsio pull --agent mailer -o sponsio.cloud.yaml
 
 `pull` returns the **published** version. A book that has never been
 published has no published head to hand out, so you get its latest draft
-instead — and the output says so:
+instead, and the output says so:
 
 ```
 wrote sponsio.cloud.yaml · 1 · DRAFT (nothing published yet; publish it to pin what pull returns)
@@ -187,7 +187,7 @@ sponsio pull               →  the reviewed version comes back
 
 The console's copilot mines proposals from your runs. A proposal is
 never a rule until someone arms it, and each one states how thin its own
-evidence is — read that number before arming.
+evidence is. Read that number before arming.
 
 ---
 

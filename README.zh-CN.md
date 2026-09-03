@@ -29,7 +29,7 @@ Sponsio 为 Agent 在时间维度上展开的过程提供确定性合约，强�
 
 > **Agent 合约**是一条运行时规则，在每一次 Agent 操作时检查，[由形式化方法支撑](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a8 alpha 已发布。** `pip install --pre sponsio`。输出通道上线：除了每次工具调用在执行前被检查之外,一次运行所声明的结构化断言现在也会由确定性比较器对照权威来源核验——热路径上没有 LLM。同时修复两个只在项目里有多个 agent 时才会出现的问题:第二个 agent 根本跑不起来,以及多 agent 运行的断言判定送不到控制台。见 [v0.2.0a8 发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a8)。
+> **v0.2.0a11 alpha 已发布。** `pip install --pre sponsio`。a8 之后的三个版本修的是同一种问题:规则加载了、显示 ACTIVE、但永远不会触发。路径检查放行了 `/safe/../../root/.ssh`。`never call A after B` 编译成了相反的规则。SQL 动词表漏掉了小写。另外,一次运行现在会记录它执行的是哪个版本的规则书,录下来的运行可以对着当时真正生效的规则重放。见 [v0.2.0a11 发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a11)。
 
 ---
 
@@ -67,6 +67,18 @@ sponsio init .             # 交互式向导：检测框架、选择 IDE host、
 ```
 
 向导会自动检测你的框架并打印对应的接入片段。手动接线见 [docs/integrations/](docs/integrations/index.md)。[OpenClaw 用户](docs/integrations/openclaw.md)开箱即享 ClawHavoc + CVE-2026-25253 覆盖。配置参考、observe → enforce 切换、CI 接线见[完整指引](QUICKSTART.md)。
+
+**看运行,和共享规则书。** 强制执行是本地的,不需要账号。如果你想看你的 agent 到底做了什么,或者想把规则书放在一个"有人审过才生效"的地方,[app.sponsio.dev](https://app.sponsio.dev) 就是托管的那一半。一行代码把一次运行送上屏幕:
+
+```python
+import sponsio
+import sponsio.bridge
+
+guard = sponsio.Sponsio(config="sponsio.yaml", agent_id="mailer", mode="enforce")
+run = sponsio.bridge.attach(guard)
+```
+
+`sponsio push sponsio.yaml` 上传的是草稿,不会生效。由人在控制台发布,之后 `sponsio pull` 或 `config="sponsio://default"` 把审过的版本取回来。发送是尽力而为的,控制台挂了也不会挡住 agent。见[托管控制台](docs/getting-started/hosted-console.md)。
 
 **用自然语言起草合约。** `sponsio validate "<一句话规则>"` 会把一条自然语言规则转成一份你能读回来的合约。把输出当作起点草稿，enforce 之前先自己 review、按需调整。确定性在于合约在运行时如何被*强制执行*，而不在于它如何被起草。
 

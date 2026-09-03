@@ -104,8 +104,8 @@ def pull(
 
     # Say which head this is, the way a ``sponsio://`` checkout does. A book
     # that has never been published hands out its draft, and writing that
-    # into the file a guard loads without a word makes the review step —
-    # push uploads, a human publishes — invisible at exactly the point it
+    # into the file a guard loads without a word hides the review step
+    # (push uploads, a human publishes) at exactly the point it
     # matters. On stdout the notice goes to stderr so `pull > sponsio.yaml`
     # still yields loadable yaml.
     channel = getattr(pulled, "channel", None)
@@ -162,7 +162,7 @@ def push(config_path: str, project: str | None, url: str | None) -> None:
     # version sits unarmed until a human publishes it, and nothing else in
     # the CLI ever says so.
     if any(not book.get("unchanged") for book in agents.values()):
-        click.echo("draft — publish it in the console to arm it")
+        click.echo("draft. publish it in the console to arm it")
 
 
 @cli.command()
@@ -189,7 +189,7 @@ def projects(url: str | None) -> None:
     names = identity.get("projects") or []
     if not names:
         click.echo(
-            "no projects yet — `sponsio push sponsio.yaml --project <name>` creates one"
+            "no projects yet. `sponsio push sponsio.yaml --project <name>` creates one"
         )
         return
     for name in names:
