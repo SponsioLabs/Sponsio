@@ -29,7 +29,7 @@ Sponsio 在 Agent 调用工具之前先检查这次调用。一条规则可以�
 
 > **Agent 合约**是一条运行时规则，在每一次 Agent 操作时检查，[由形式化方法支撑](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a12 alpha 已发布。** `pip install --pre sponsio`。托管控制台第一次有了文档:一行代码把运行送上 [app.sponsio.dev](https://app.sponsio.dev),push、人工审核、pull 这条链保证规则由人来上膛。模式目录里每一条示例现在都能直接复制粘贴,并有测试守着。见[发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a12)。
+> **v0.2.0a13 alpha 已发布。** `pip install --pre sponsio`。原本加载不了的合约包现在能加载了:`include: sponsio:incident/openclaw` 以前直接报错,那 37 条规则一条都上不了膛;另有五个目录里登记过的模式不在配置加载器读的注册表里,导致 `pattern: no_pii` 报错、而同一条规则写成英文句子却能编译。安装徽章漏了 `--pre`,指向的是最后一个稳定版 0.1.1,比这里老得多。见[发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a13)。
 
 ---
 
