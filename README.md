@@ -28,7 +28,7 @@ Sponsio provides deterministic contracts for agent procedures over time, enforce
 
 > An **agent contract** is a runtime rule that is checked at every agent action, [backed by formal methods](docs/concepts/formal-methods.md).
 
-> **v0.2.0a8 alpha is out.** `pip install --pre sponsio`. The output lane ships: alongside every tool call checked before it executes, a run's typed claims are now checked against an authority by deterministic comparators — no LLM in the hot path. Also fixes two bugs that only appear once a project has more than one agent: the second agent could not run at all, and multi-agent runs lost their claim verdicts on the way to the console. See the [v0.2.0a8 release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a8).
+> **v0.2.0a11 alpha is out.** `pip install --pre sponsio`. Three releases since a8, all fixing the same failure: a rule that loaded, showed ACTIVE, and could never fire. A path check let `/safe/../../root/.ssh` through. `never call A after B` compiled into the opposite rule. A SQL verb list missed lowercase. A run now also records which rulebook version it enforced, so a recorded run can be replayed against the rules that were actually in force. See the [v0.2.0a11 release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a11).
 
 ---
 
@@ -66,6 +66,18 @@ sponsio init .             # interactive wizard: detects framework, IDE hosts, o
 ```
 
 The wizard auto-detects your framework and prints the right wrap snippet. For manual wiring, see [all supported integrations](docs/integrations/index.md). [OpenClaw users](docs/integrations/openclaw.md) get bundled ClawHavoc and CVE-2026-25253 coverage out of the box. For config reference, observe → enforce flip, and CI wiring, see the [full walkthrough](QUICKSTART.md).
+
+**Watching runs, and sharing a rulebook.** Enforcement is local and needs no account. If you want to see what your agent did, or keep the rulebook somewhere a person reviews it before it arms, [app.sponsio.dev](https://app.sponsio.dev) is the hosted side. One line puts a run on screen:
+
+```python
+import sponsio
+import sponsio.bridge
+
+guard = sponsio.Sponsio(config="sponsio.yaml", agent_id="mailer", mode="enforce")
+run = sponsio.bridge.attach(guard)
+```
+
+`sponsio push sponsio.yaml` uploads a rulebook as a draft. It does not arm. A person publishes it in the console, and `sponsio pull` or `config="sponsio://default"` brings the reviewed version back. Sending is best effort, so a console that is down never blocks the agent. See [the hosted console](docs/getting-started/hosted-console.md).
 
 **Drafting contracts from natural language.** `sponsio validate "<rule in plain English>"` turns a plain-English rule into a contract you can read back. Treat the output as a starting draft to review and adjust before you enforce. The determinism is in how contracts are *enforced* at runtime, not in how they're drafted.
 

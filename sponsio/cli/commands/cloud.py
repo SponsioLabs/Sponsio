@@ -102,10 +102,24 @@ def pull(
     except CloudError as exc:
         raise click.ClickException(str(exc)) from exc
 
+    # Say which head this is, the way a ``sponsio://`` checkout does. A book
+    # that has never been published hands out its draft, and writing that
+    # into the file a guard loads without a word hides the review step
+    # (push uploads, a human publishes) at exactly the point it
+    # matters. On stdout the notice goes to stderr so `pull > sponsio.yaml`
+    # still yields loadable yaml.
+    channel = getattr(pulled, "channel", None)
+    head = (
+        " · DRAFT (nothing published yet; publish it to pin what pull returns)"
+        if channel == "draft"
+        else (f" · {channel}" if channel and channel != "published" else "")
+    )
     if output:
         Path(output).write_text(pulled.yaml_text)
-        click.echo(f"wrote {output} · {pulled.versions or '?'}")
+        click.echo(f"wrote {output} · {pulled.versions or '?'}{head}")
     else:
+        if head:
+            click.echo(f"# {pulled.versions or '?'}{head}", err=True)
         click.echo(pulled.yaml_text, nl=False)
 
 
@@ -114,7 +128,12 @@ def pull(
 @click.option("--project", "project", help="Project to publish into (created if new)")
 @click.option("--url", "url", help="API base URL")
 def push(config_path: str, project: str | None, url: str | None) -> None:
-    """Publish a local sponsio.yaml as the next version of each agent's book."""
+    """Upload a local sponsio.yaml as the next version of each agent's book.
+
+    The version is a draft: it is not published and does not arm until a
+    human publishes it in the console. An agent that could publish its own
+    enforcement rules is one nobody can be held responsible for.
+    """
     from sponsio.cloud.client import CloudError
 
     client = _client(url=url)
@@ -131,13 +150,19 @@ def push(config_path: str, project: str | None, url: str | None) -> None:
         raise click.ClickException(str(exc)) from exc
 
     click.echo(f"pushed to project '{result.get('project')}'")
-    for name, book in (result.get("agents") or {}).items():
+    agents = result.get("agents") or {}
+    for name, book in agents.items():
         # Say plainly when nothing moved. An agent that re-pushes on every
         # start would otherwise look like it keeps changing the book.
         state = "unchanged" if book.get("unchanged") else "new version"
         click.echo(
             f"  {name}: v{book.get('version')} · {book.get('rules')} rules · {state}"
         )
+    # A push that says only "new version" reads as shipped. It is not: the
+    # version sits unarmed until a human publishes it, and nothing else in
+    # the CLI ever says so.
+    if any(not book.get("unchanged") for book in agents.values()):
+        click.echo("draft. publish it in the console to arm it")
 
 
 @cli.command()
@@ -164,11 +189,15 @@ def projects(url: str | None) -> None:
     names = identity.get("projects") or []
     if not names:
         click.echo(
-            "no projects yet — `sponsio push sponsio.yaml --project <name>` creates one"
+            "no projects yet. `sponsio push sponsio.yaml --project <name>` creates one"
         )
         return
     for name in names:
         click.echo(name)
     agents = identity.get("agents_with_rulebooks") or []
     if agents:
-        click.echo("\nagents with a published rulebook: " + ", ".join(agents))
+        # The field is agents_with_rulebook*s*, and a book with nothing but
+        # drafts is in it. Calling that "published" claims a human reviewed
+        # rules nobody has looked at; `sponsio pull --agent <name>` is what
+        # says which head an agent actually has.
+        click.echo("\nagents with a rulebook: " + ", ".join(agents))

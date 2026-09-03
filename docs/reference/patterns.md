@@ -68,11 +68,29 @@ In **observe mode**, no strategy runs. Violations are logged and surfaced in rep
 
 ## Catalog
 
-Run `sponsio patterns` on the CLI to browse this catalog interactively with NL examples.
+Run `sponsio patterns` on the CLI to browse this catalog interactively.
+
+**Every cell in the "How to write it" column is copy-pasteable and is checked
+by the test suite.** Two forms appear there, because not every pattern has a
+plain-English phrasing the parser accepts:
+
+- A quoted sentence goes straight into a `G:` or `A:` field, or into
+  `sponsio validate "..."`.
+- A `{pattern: ..., args: [...]}` mapping goes into the same field as a
+  structured entry. This form always works and is the only form for the
+  patterns whose arguments a sentence cannot carry.
+
+```yaml
+agents:
+  my_agent:
+    contracts:
+      - G: "tool `check_policy` must precede `issue_refund`"
+      - G: {pattern: token_budget, args: [50000]}
+```
 
 ### Safety
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
 | `must_precede(A, B)` | `"tool `check_policy` must precede `issue_refund`"` | A must have been called before B can execute |
 | `must_confirm(action)` | `"tool `delete_file` requires confirmation"` | A confirmation step must precede the action |
@@ -83,98 +101,98 @@ Run `sponsio patterns` on the CLI to browse this catalog interactively with NL e
 
 ### Compliance
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
-| `no_reversal(A, B)` | `"after `approve`, tool `reject` is forbidden"` | Once A is called, B is permanently forbidden |
+| `no_reversal(A, B)` | `"tool `reject` must not follow `approve`"` | Once A is called, B is permanently forbidden |
 | `segregation_of_duty(A, B)` | `"tools `review` and `approve` must be by different agents"` | Same agent cannot perform both actions |
 | `always_followed_by(A, B)` | `"every `refund` must be followed by `notify`"` | Whenever A happens, B must eventually happen |
 | `required_steps_completion(steps)` | `"`aml_check` must complete before `issue_loan`"` | All steps must have completed before a gate is passed |
 
 ### Operational
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
 | `rate_limit(action, N)` | `"tool `query_db` at most 5 times"` | Action can be called at most N times total |
 | `idempotent(action)` | `"tool `transfer` at most 1 times"` | Action can be called at most once (special case of rate_limit) |
 | `cooldown(action, N)` | `"tool `send_email` cooldown of 3 steps"` | At least N steps between consecutive calls |
 | `deadline(trigger, action, N)` | `"tool `respond` within 3 steps of `receive`"` | Action must happen within N steps of trigger |
 | `bounded_retry(action, N)` | `"tool `deploy` at most 3 retries"` | Action limited to N retries |
-| `loop_detection(action, N)` | `"tool `search` must not loop more than 5 times"` | Detects repeated calls with similar args |
+| `loop_detection(action, N)` | `{pattern: loop_detection, args: ['search', 5]}` | Detects repeated calls with similar args |
 
 ### Exclusion
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
 | `mutual_exclusion(A, B)` | `"tools `approve` and `reject` are mutually exclusive"` | At most one of A or B can ever be called |
-| `tool_allowlist(tools)` | `"agent may only call `search`, `summarize`"` | Only listed tools may be called |
+| `tool_allowlist(tools)` | `{pattern: tool_allowlist, args: [['search', 'summarize']]}` | Only listed tools may be called |
 
 ### Recovery
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
-| `redirect_to_safe(unsafe, safe)` | `"redirect `issue_refund` to `log_refund_request`"` | Substitute a forbidden tool with a pre-approved alternative. Bundled with the `RedirectToSafe` strategy: a violation surfaces as `action="redirected"` with `fallback_action=safe`, the trace records the substitute call. |
+| `redirect_to_safe(unsafe, safe)` | `{pattern: redirect_to_safe, args: ['issue_refund', 'log_refund_request']}` | Substitute a forbidden tool with a pre-approved alternative. Bundled with the `RedirectToSafe` strategy: a violation surfaces as `action="redirected"` with `fallback_action=safe`, the trace records the substitute call. |
 
 ### Argument and path checks
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
 | `arg_blacklist(tool, field, patterns)` | `"bash command must not contain `rm -rf`"` | An arg field must not match forbidden regex patterns |
 | `scope_limit(tool, paths)` | `"bash may only access files under `/workspace`"` | All file paths in tool args must be within allowed prefixes |
-| `arg_length_limit(tool, field, N)` | `"`sql.query` at most 500 chars"` | Argument length cap |
-| `arg_value_range(tool, field, lo, hi)` | `"`transfer.amount` between 0 and 10000"` | Numeric argument range |
+| `arg_length_limit(tool, field, N)` | `{pattern: arg_length_limit, args: ['sql', 'query', 500]}` | Argument length cap |
+| `arg_value_range(tool, field, lo, hi)` | `{pattern: arg_value_range, args: ['transfer', 'amount', 0, 10000]}` | Numeric argument range |
 | `data_intact(tool, field)` | `"`aml_report` must not be edited after `aml_check`"` | Payload field is immutable once written |
 
 ### Agentic security
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
-| `untrusted_source_gate(tool)` | `"content from untrusted sources requires review"` | Data from untrusted origin must pass a gate before use |
+| `untrusted_source_gate(tool)` | `{pattern: untrusted_source_gate, args: [['fetch_url'], ['send_email']]}` | Data from untrusted origin must pass a gate before use |
 | `confirm_after_source(tool)` | `"confirmation required after reading from `web_search`"` | A confirmation step must follow a source-read |
-| `dangerous_bash_commands()` | `"bash must not run `rm -rf /`, `:(){:|:&};:`..."` | Built-in bash command blacklist |
-| `dangerous_sql_verbs()` | `"sql must not issue `DROP`, `TRUNCATE`, `ALTER`"` | Built-in SQL verb blacklist |
+| `dangerous_bash_commands()` | `{pattern: dangerous_bash_commands}` | Built-in bash command blacklist |
+| `dangerous_sql_verbs()` | `{pattern: dangerous_sql_verbs, args: ['execute_sql']}` | Built-in SQL verb blacklist |
 | `irreversible_once(action)` | `"`post_tweet` at most once per session"` | Irreversible actions capped to a single call |
 
 ### Resource
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
-| `token_budget(N)` | `"total LLM tokens under 50000"` | Session-wide token cap |
-| `delegation_depth_limit(N)` | `"sub-agent delegation at most 3 levels"` | Bounds recursive agent delegation |
+| `token_budget(N)` | `{pattern: token_budget, args: [50000]}` | Session-wide token cap |
+| `delegation_depth_limit(N)` | `{pattern: delegation_depth_limit, args: [3]}` | Bounds recursive agent delegation |
 
 ### Approval and audit
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
-| `approval_active(action, role)` | `"`issue_refund` requires active approval from `manager`"` | A specific role must have approved the action recently |
+| `approval_active(action, role)` | `{pattern: approval_active, args: ['issue_refund', 'manager', 3600]}` | A specific role must have approved the action recently |
 | `approval_freshness(approval, action, max_steps)` | `"`approve_pr` valid for 10 steps before `merge_pr`"` | Approval must be within N steps of the gated action |
-| `audit_after(action, audit)` | `"every `delete_user` must log `audit_event`"` | Sensitive action must be followed by an audit-log step |
+| `audit_after(action, audit)` | `"`delete_user` must be audited"` | Sensitive action must be followed by an audit-log step |
 | `backup_before_destructive(backup, action)` | `"`snapshot_db` must precede `drop_table`"` | Backup must run before any destructive action |
 | `dry_run_before_commit(dry_run, commit)` | `"`plan` must precede `apply`"` | Plan / preview step required before commit |
 | `sanitized_before_sink(source, sanitizer, sink)` | `"`untrusted_input` must pass `sanitize` before `db_write`"` | Untrusted input must pass a sanitizer before reaching a sink |
 
 ### Identity and context
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
-| `ctx_required(tool, key, values)` | `"`publish` requires ctx[`msg_verified`]=`true`"` | A `ctx(k, v)` fact must be set before the tool runs |
-| `ctx_matches_required(tool, key, regex)` | `"`issue_refund` requires caller_id matching `^spiffe://prod/finance-`"` | A `ctx(k, v)` value must match a regex |
+| `ctx_required(tool, key, values)` | `{pattern: ctx_required, args: ['publish', 'msg_verified', ['true']]}` | A `ctx(k, v)` fact must be set before the tool runs |
+| `ctx_matches_required(tool, key, regex)` | `{pattern: ctx_matches_required, args: ['issue_refund', 'caller_id', '^spiffe://prod/finance-']}` | A `ctx(k, v)` value must match a regex |
 
 ### Argument allowlist and content
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
-| `arg_allowlist(tool, field, patterns)` | `"`http_post` url must match allowlist"` | Argument must match one of the allowed regex patterns |
-| `duplicate_call_limit(tool, args_pattern, N)` | `"`send_email` to same recipient at most 1 time"` | Cap on repeated calls with similar args |
-| `time_since(predicate_key, max_seconds)` | `"action within 60s of `user_request`"` | Bounded time window since a referenced predicate |
+| `arg_allowlist(tool, field, patterns)` | `"url must be one of `https://api.example.com`, `https://api.internal`"` | Argument must match one of the allowed regex patterns |
+| `duplicate_call_limit(tool, args_pattern, N)` | `"same `send_email` request `recipient` at most 1 time"` | Cap on repeated calls with similar args |
+| `time_since(predicate_key, max_seconds)` | `{pattern: time_since, args: ['user_request', 60]}` | Bounded time window since a referenced predicate |
 
 ### Output checks (deterministic)
 
 These are deterministic atoms that match against `llm_response` events via regex or exact string compare. They are distinct from stochastic atoms (judge-backed, like `tone` or `faithfulness`), which need an LLM judge at runtime and are not part of this OSS release.
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
 | `no_pii(fields)` | `"response must not contain PII"` | Regex-detect SSN, credit card, email, phone in response |
-| `no_keywords(words)` | `"response must not mention competitors"` | Response cannot contain any of the given strings |
+| `no_keywords(words)` | `{pattern: no_keywords, args: [['Acme', 'Globex']]}` | Response cannot contain any of the given strings |
 | `max_length(max_words, max_chars)` | `"response under 200 words"` | Response length cap |
 
 ---
