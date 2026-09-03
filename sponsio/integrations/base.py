@@ -852,6 +852,21 @@ class BaseGuard:
         contracts_list = list(self._system._contracts)
         if init_banner:
             print_banner(contracts_list)
+            # QUICKSTART reads as a continuous rollout — observe, review
+            # the report, flip to enforce — and nothing said the durable
+            # record stops at the flip. `sponsio report`, `replay` and
+            # `export-sessions` all go quiet at the moment an operator
+            # most wants them, and the report used to call that zero
+            # blocks rather than no record.
+            if self._mode != "observe" and self._session_log_dir is None:
+                import sys as _sys
+
+                print(
+                    "  note: enforce mode keeps no session log by default, so "
+                    "`sponsio report` / `replay` / `export-sessions` will have "
+                    "nothing to read.\n        pass session_log_dir= to keep one.",
+                    file=_sys.stderr,
+                )
 
         self._terminal_reporter: TerminalReporter | None = None
         if self._verbose:

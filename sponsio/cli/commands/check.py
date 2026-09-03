@@ -275,3 +275,11 @@ def check(trace_path, contracts, config_path, agent_id, as_json):
                 click.style(f"  \u2717 {fails}/{total} contract(s) VIOLATED", fg="red")
             )
         click.echo()
+
+    # Non-zero on a violation, so a CI job wired the way the docs describe
+    # actually fails. `docs/reference/cli.md` says every command exits 0 on
+    # success and 1 on failure, and lists a violation as failure — this
+    # command printed "✗ 1/1 contract(s) VIOLATED" and exited 0, so the
+    # gate was green no matter what the trace contained.
+    if passed < total:
+        sys.exit(1)
