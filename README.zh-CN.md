@@ -29,7 +29,7 @@ Sponsio 为 Agent 在时间维度上展开的过程提供确定性合约，强�
 
 > **Agent 合约**是一条运行时规则，在每一次 Agent 操作时检查，[由形式化方法支撑](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a11 alpha 已发布。** `pip install --pre sponsio`。a8 之后的三个版本修的是同一种问题:规则加载了、显示 ACTIVE、但永远不会触发。路径检查放行了 `/safe/../../root/.ssh`。`never call A after B` 编译成了相反的规则。SQL 动词表漏掉了小写。另外,一次运行现在会记录它执行的是哪个版本的规则书,录下来的运行可以对着当时真正生效的规则重放。见 [v0.2.0a11 发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a11)。
+> **v0.2.0a12 alpha 已发布。** `pip install --pre sponsio`。托管控制台终于有文档了:一行代码把运行送上 [app.sponsio.dev](https://app.sponsio.dev),以及 push、人工审核、pull 这条链怎么保证规则由人来上膛。写文档的过程翻出四处把未审草稿说成已发布的地方,还有一处集成指南教的判断会放过被改道的调用。模式目录里每一条示例现在都能直接复制粘贴,并有测试守着。见 [v0.2.0a12 发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a12)。
 
 ---
 
