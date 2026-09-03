@@ -573,6 +573,11 @@ _KEYWORD_RULES: list[tuple[list[str], str, int]] = [
     (
         [
             r"arg(?:ument)?s?\s+(?:must\s+)?not\s+contain",
+            # "arg `command` must not contain ..." — the form
+            # `sponsio patterns` advertises, where the field is
+            # quoted between the marker and the verb.
+            r"\b(?:arg|argument|field|param(?:eter)?)s?\s+[`\"']"
+            r"[^`\"']+[`\"']\s+(?:must\s+)?not\s+contain",
             r"(?:command|input|param|query|body|text|content|url|path)\s+must\s+not\s+contain",
             r"blacklist",
             r"must\s+not\s+contain\s+(?:.*(?:rm\s*-rf|sudo|DROP|eval))",
@@ -1720,16 +1725,31 @@ def parse_dsl(expr: str) -> ParsedConstraint:
         # `rm -rf`. No such argument exists, so it never fired: parsed,
         # armed, displayed, and unable to catch the thing it names.
         tool = actions[0]
-        cue = re.search(
-            r"\b(command|query|input|params?|body|path|url|text|args?|content)\b",
+        # Three ways a sentence names the field, in the order they win.
+        #
+        # 1. Marked explicitly — "tool `bash` arg `command` must not ...",
+        #    which is the form `sponsio patterns` advertises. `arg` here
+        #    is a MARKER meaning "the field is next", never the field
+        #    itself; reading it as one produced arg_field_has(bash, 'arg')
+        #    and a rule that watches an argument nobody sends.
+        # 2. A cue word naming a real field — "... command must not ...".
+        # 3. A second backticked name that is not itself one of the banned
+        #    shapes: the caller naming the field without a marker.
+        marked = re.search(
+            r"\b(?:arg|argument|field|param(?:eter)?)s?\s+[`\"']([^`\"']+)[`\"']",
             text,
             re.IGNORECASE,
         )
-        if cue:
+        cue = re.search(
+            r"\b(command|query|input|body|path|url|text|content|param|parameter)\b",
+            text,
+            re.IGNORECASE,
+        )
+        if marked:
+            param = marked.group(1).strip()
+        elif cue:
             param = cue.group(1).lower()
         elif len(actions) >= 2 and actions[1] not in forbidden:
-            # A second name that is not itself one of the banned shapes is
-            # the caller naming the field explicitly.
             param = actions[1]
         else:
             param = "command"
