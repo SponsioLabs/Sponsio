@@ -28,7 +28,7 @@ Sponsio provides deterministic contracts for agent procedures over time, enforce
 
 > An **agent contract** is a runtime rule that is checked at every agent action, [backed by formal methods](docs/concepts/formal-methods.md).
 
-> **v0.2.0a11 alpha is out.** `pip install --pre sponsio`. Three releases since a8, all fixing the same failure: a rule that loaded, showed ACTIVE, and could never fire. A path check let `/safe/../../root/.ssh` through. `never call A after B` compiled into the opposite rule. A SQL verb list missed lowercase. A run now also records which rulebook version it enforced, so a recorded run can be replayed against the rules that were actually in force. See the [v0.2.0a11 release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a11).
+> **v0.2.0a12 alpha is out.** `pip install --pre sponsio`. The hosted console now has documentation: how to stream a run to [app.sponsio.dev](https://app.sponsio.dev) in one line, and how push, review and pull keep a rulebook where a person arms it. Writing it turned up four places where the CLI called an unreviewed draft published, and one where the integration guide taught a gate that lets a redirected call through. Every example in the pattern catalog is now one you can paste, and a test keeps it that way. See the [v0.2.0a12 release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a12).
 
 ---
 
