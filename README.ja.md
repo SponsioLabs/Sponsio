@@ -29,7 +29,7 @@ Sponsio はエージェントがツールを呼ぶ前に、その呼び出しを
 
 > **エージェント契約** とは、エージェントのすべてのアクションでチェックされるランタイムルールであり、[形式手法に裏打ちされています](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a12 alpha リリース。** `pip install --pre sponsio`。ホストされたコンソールに初めてドキュメントができました。1 行で実行を [app.sponsio.dev](https://app.sponsio.dev) に送れます。push、レビュー、pull の流れで、ルールブックは人が有効化する場所に置かれます。パターンカタログの例はすべてそのまま貼り付けて使えるようになり、テストがそれを保ちます。[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a12)を参照。
+> **v0.2.0a13 alpha リリース。** `pip install --pre sponsio`。読み込めなかったバンドルが読み込めるようになりました。`include: sponsio:incident/openclaw` はエラーになり、37 本のルールが 1 本も有効になりませんでした。カタログに載っている 5 つのパターンが設定ローダーの参照するレジストリから漏れていて、`pattern: no_pii` は失敗する一方で同じルールを英文で書くとコンパイルできる状態でした。インストール バッジに `--pre` が抜けていて、最後の安定版 0.1.1 を指していました。ここより遥かに古いものです。[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a13)を参照。
 
 ---
 

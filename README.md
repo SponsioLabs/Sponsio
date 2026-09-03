@@ -28,7 +28,7 @@ Sponsio checks an agent's tool calls before they run. A rule can look at what al
 
 > An **agent contract** is a runtime rule that is checked at every agent action, [backed by formal methods](docs/concepts/formal-methods.md).
 
-> **v0.2.0a12 alpha is out.** `pip install --pre sponsio`. The hosted console is documented for the first time: one line sends a run to [app.sponsio.dev](https://app.sponsio.dev), and push, review, pull keeps the rulebook somewhere a person arms it. Every example in the pattern catalog is now one you can paste, with a test that keeps it that way. See the [release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a12).
+> **v0.2.0a13 alpha is out.** `pip install --pre sponsio`. Bundles that could not load now load: `include: sponsio:incident/openclaw` raised instead of arming its 37 rules, and five patterns the catalog documents were missing from the registry the config loader reads, so `pattern: no_pii` failed while the same rule in English compiled. The install badge left out `--pre`, so it pointed at the last stable release, 0.1.1, which is much older. See the [release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a13).
 
 ---
 
