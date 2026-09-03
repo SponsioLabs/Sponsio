@@ -4,10 +4,37 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 import click
+
+# Atoms whose FIRST argument is a tool name. Reading the compiled formula
+# is what makes this work for every authoring form at once — NL, pattern
+# blocks and raw LTL all end up here.
+_TOOL_ATOMS = (
+    "called",
+    "called_with",
+    "arg_has",
+    "arg_field_has",
+    "arg_paths_within",
+    "arg_length_exceeds",
+    "output_has",
+    "count",
+    "count_with",
+)
+_ATOM_CALL = re.compile(
+    r"\b(?:" + "|".join(_TOOL_ATOMS) + r")\(\s*'([^']+)'", re.IGNORECASE
+)
+
+
+def _tools_in(formula: str) -> set[str]:
+    """Tool names a compiled formula actually watches."""
+    if not formula:
+        return set()
+    return {m.group(1) for m in _ATOM_CALL.finditer(str(formula))}
+
 
 from sponsio.cli._shared import (
     _looks_like_sponsio_config,
@@ -155,12 +182,19 @@ def validate(contracts, config_path, agent_id, as_json, trace_paths):
         from sponsio.config import load_config
 
         config = load_config(config_path)
+        # The declared inventory, if the yaml has one. Empty means "no
+        # inventory declared", not "no tools" — the check below is skipped
+        # rather than firing on everything.
+        declared_tools = {
+            t.name for t in (config.tools or []) if getattr(t, "name", None)
+        }
         agents_to_check = (
             {agent_id: config.agents[agent_id]} if agent_id else config.agents
         )
         for aid, ac in agents_to_check.items():
             agent_contracts[aid] = _flatten(ac)
     else:
+        declared_tools: set[str] = set()
         agent_contracts["(inline)"] = {
             "assumptions": [],
             "guarantees": list(contracts),
@@ -322,6 +356,19 @@ def validate(contracts, config_path, agent_id, as_json, trace_paths):
                 }
                 if replay_summary is not None:
                     entry["replay"] = replay_summary
+                # A contract naming a tool the project does not have is a
+                # rule that can never fire. It parses, it arms, it prints
+                # ACTIVE, and the typo is invisible — which is the whole
+                # failure this command exists to prevent. Only checked when
+                # the yaml declares `tools:`; without a declared inventory
+                # there is nothing to check against and a warning would be
+                # noise.
+                if declared_tools:
+                    unknown = sorted(
+                        t for t in _tools_in(formula) if t not in declared_tools
+                    )
+                    if unknown:
+                        entry["unknown_tools"] = unknown
                 all_results.append(entry)
                 if not ok:
                     all_ok = False
@@ -360,11 +407,59 @@ def validate(contracts, config_path, agent_id, as_json, trace_paths):
                         )
                         click.echo(click.style(replay_line, fg=color, dim=True))
 
+    dead = [r for r in all_results if r.get("unknown_tools")]
+
     if as_json:
-        click.echo(json.dumps({"contracts": all_results, "ok": all_ok}, indent=2))
+        click.echo(
+            json.dumps({"contracts": all_results, "ok": all_ok and not dead}, indent=2)
+        )
     else:
         click.echo()
-        if all_ok:
+        if all_ok and not all_results:
+            # A green tick over nothing is the worst thing this command
+            # can print: the reader came here to be told their rules are
+            # sound, and "All 0 contract(s) validated" reads as yes. A
+            # mistyped `contarcts:` key, or an `include:` that resolves to
+            # an empty pack, both land here — the guard loads, arms
+            # nothing, and blocks nothing.
+            click.echo(
+                click.style(
+                    "  \u2717 no contracts found — nothing here would be enforced",
+                    fg="red",
+                )
+            )
+            click.echo(
+                click.style(
+                    "    check the `contracts:` key is spelled correctly, "
+                    "that the agent name matches, and that any `include:` "
+                    "packs are non-empty (`sponsio packs`).",
+                    dim=True,
+                )
+            )
+        elif dead:
+            click.echo(
+                click.style(
+                    f"  \u2717 {len(dead)} contract(s) name a tool this project "
+                    f"does not declare — they can never fire",
+                    fg="red",
+                )
+            )
+            for entry in dead:
+                click.echo(
+                    click.style(
+                        f"      {', '.join(entry['unknown_tools'])}"
+                        f"   in: {str(entry.get('nl') or '')[:56]}",
+                        dim=True,
+                    )
+                )
+            click.echo(
+                click.style(
+                    "    a typo here is invisible at runtime: the rule arms, "
+                    "prints ACTIVE, and watches a tool nobody calls.",
+                    dim=True,
+                )
+            )
+        elif all_ok:
             click.echo(
                 click.style(
                     f"  \u2713 All {len(all_results)} contract(s) validated", fg="green"
@@ -379,5 +474,5 @@ def validate(contracts, config_path, agent_id, as_json, trace_paths):
 
     # Non-zero exit on any failure so CI / pre-commit hooks catch
     # unparseable contracts instead of silently shipping them.
-    if not all_ok:
+    if not all_ok or not all_results or dead:
         sys.exit(1)
