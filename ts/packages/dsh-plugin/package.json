@@ -1,0 +1,45 @@
+{
+  "name": "dsh-plugin-sponsio",
+  "version": "0.1.0",
+  "description": "Deterministic contract enforcement for DeepSeek Harness. Checks every tool call against a sponsio.yaml before it runs.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "dsh-plugin",
+    "cordis",
+    "ai-agents",
+    "sponsio",
+    "guardrails",
+    "llm-safety"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SponsioLabs/Sponsio.git",
+    "directory": "ts/packages/dsh-plugin"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4",
+    "@deepseek-ai/dsh-tools": ">=0.0.1-rc.1",
+    "@deepseek-ai/schemastery": ">=3"
+  },
+  "dependencies": {
+    "@sponsio/sdk": "^0.2.0-alpha.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4",
+    "@deepseek-ai/dsh-tools": "^0.0.1-rc.1",
+    "@deepseek-ai/schemastery": "^3",
+    "tsx": "^4"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "tsx --test test/*.test.ts",
+    "lint": "tsc --noEmit"
+  }
+}
