@@ -1712,20 +1712,44 @@ def _compile_ltl(entry: ConstraintEntry) -> Any:
     contracts from registered patterns; ``desc`` falls back to the LTL
     text itself when the YAML didn't supply one.
 
+    Two syntaxes are accepted, because the repo ships a parser for each
+    and a user has no way to know which one a given ``ltl:`` string is:
+
+    * infix repr, what ``repr(formula)`` prints and what the config
+      reference documents: ``G((called('a') -> !(called('b'))))``
+    * constructor style, what the AST classes are named after:
+      ``G(Implies(called(a), Not(called(b))))``
+
+    Only the first used to be tried, so four contracts shipped inside
+    ``sponsio/contracts/benchmark/tau2_bench.yaml`` in constructor style
+    could not compile, and ``include: sponsio:benchmark/tau2_bench``
+    raised at guard construction. Infix is tried first because it is the
+    documented form and the one every generated string uses; the error
+    reported on a genuine syntax error is therefore still the infix one.
+
     Raised errors:
-        ConfigError: When the LTL string fails to parse.  We re-raise
+        ConfigError: When the LTL string parses as neither.  We re-raise
             with the original LTL text included so the user can locate
             the offending entry in their YAML; the parse error alone
             (e.g. "Expected ')' at position 12") is unactionable
             without the source line.
     """
-    from sponsio.formulas.parser import ParseError, parse_repr
+    from sponsio.formulas.parser import ParseError, parse_formula, parse_repr
     from sponsio.patterns.library import DetFormula
 
     try:
         formula = parse_repr(entry.ltl)
-    except ParseError as e:
-        raise ConfigError(f"Failed to parse ltl formula {entry.ltl!r}: {e}") from e
+    except ParseError as infix_error:
+        try:
+            formula = parse_formula(entry.ltl)
+        except ParseError:
+            # Report the infix failure, not the constructor one. Infix is
+            # the documented form, so a genuine typo is almost always a
+            # typo in infix, and the constructor parser's complaint about
+            # the same string points at the wrong grammar.
+            raise ConfigError(
+                f"Failed to parse ltl formula {entry.ltl!r}: {infix_error}"
+            ) from infix_error
 
     from sponsio.formulas.regex_check import RegexValidationError, check_regexes
 
