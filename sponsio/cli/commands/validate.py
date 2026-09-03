@@ -10,6 +10,11 @@ from pathlib import Path
 
 import click
 
+from sponsio.cli._shared import (
+    _looks_like_sponsio_config,
+)
+from sponsio.cli.app import cli
+
 # Atoms whose FIRST argument is a tool name. Reading the compiled formula
 # is what makes this work for every authoring form at once — NL, pattern
 # blocks and raw LTL all end up here.
@@ -34,12 +39,6 @@ def _tools_in(formula: str) -> set[str]:
     if not formula:
         return set()
     return {m.group(1) for m in _ATOM_CALL.finditer(str(formula))}
-
-
-from sponsio.cli._shared import (
-    _looks_like_sponsio_config,
-)
-from sponsio.cli.app import cli
 
 
 @cli.command()
