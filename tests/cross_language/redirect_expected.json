@@ -1,0 +1,46 @@
+[
+  {
+    "tool": "rm_rf",
+    "why": "a redirect is not a block: the flow continues down the safe path, and the substitute is named so an adapter can dispatch it. The original call must still not run.",
+    "expect": {
+      "blocked": false,
+      "allowed": true,
+      "redirected": true,
+      "redirectedTo": "trash",
+      "stopOriginal": true
+    }
+  },
+  {
+    "tool": "trash",
+    "why": "the substitute itself is unconstrained",
+    "expect": {
+      "blocked": false,
+      "allowed": true,
+      "redirected": false,
+      "redirectedTo": null,
+      "stopOriginal": false
+    }
+  },
+  {
+    "tool": "issue_refund",
+    "why": "an ordinary block: refused outright, nothing to substitute",
+    "expect": {
+      "blocked": true,
+      "allowed": false,
+      "redirected": false,
+      "redirectedTo": null,
+      "stopOriginal": true
+    }
+  },
+  {
+    "tool": "check_policy",
+    "why": "clean allow",
+    "expect": {
+      "blocked": false,
+      "allowed": true,
+      "redirected": false,
+      "redirectedTo": null,
+      "stopOriginal": false
+    }
+  }
+]

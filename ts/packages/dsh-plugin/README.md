@@ -61,7 +61,7 @@ There is no post-execute half. `guardBefore` both judges the call and appends it
 
 **A malformed rulebook fails at plugin load, not at the first call.** A guard that loads against an unreadable config and then allows everything is the one outcome an enforcement layer must never produce.
 
-**`redirect_to_safe` denies rather than substitutes.** The harness's `PreToolDecision` is `allow | deny | ask` with no rewrite variant, by design: arguments are already logged and presented. So a rule that would swap `rm_rf` for `trash` refuses the call instead, and names the alternative in the reason.
+**`redirect_to_safe` denies rather than substitutes.** The harness's `PreToolDecision` is `allow | deny | ask` with no rewrite variant, by design: arguments are already logged and presented. So a rule that would swap `rm_rf` for `trash` refuses the call and names `trash` in the reason, which the model can act on.
 
 ## Writing rules
 

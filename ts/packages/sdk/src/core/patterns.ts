@@ -39,6 +39,23 @@ export interface DetFormula {
    * contract that simply did not mention a mode.
    */
   mode?: "enforce" | "observe";
+  /**
+   * What the runtime does when this formula is violated, mirroring the
+   * strategy Python bundles onto its own `DetFormula`.
+   *
+   * `undefined` means `block`, which is what every pattern but one
+   * wants. `redirect` names a substitute in `safeName`: the original
+   * call must not run, and an adapter that can dispatch the substitute
+   * should. `escalate` hands the decision to a human.
+   *
+   * The formula alone cannot carry this. `redirect_to_safe` compiles to
+   * `G(!called(unsafe))`, which is indistinguishable from a plain ban,
+   * so a runtime reading only the formula turns every redirect into a
+   * block and loses the substitute.
+   */
+  strategy?: "block" | "redirect" | "escalate";
+  /** The tool to call instead, when `strategy` is `redirect`. */
+  safeName?: string;
 }
 
 export interface AssumeGuaranteePair {
@@ -662,6 +679,8 @@ export function redirectToSafe(unsafe: string, safe: string): DetFormula {
     desc: `redirect \`${unsafe}\` -> \`${safe}\``,
     patternName: "redirect_to_safe",
     liveness: false,
+    strategy: "redirect",
+    safeName: safe,
   };
 }
 
