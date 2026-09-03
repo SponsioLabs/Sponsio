@@ -464,6 +464,16 @@ function projectContractShape(entry: unknown): Projection {
       desc: desc || `${aBuilt.formula.desc} => ${eBuilt.formula.desc}`,
       patternName: `${aBuilt.formula.patternName}__implies__${eBuilt.formula.patternName}`,
       liveness: eBuilt.formula.liveness,
+      // The enforcement side owns the strategy. Rebuilding a contract
+      // field by field is how `redirect_to_safe` lost its substitute:
+      // the formula survived, the strategy did not, and every redirect
+      // came back as a plain block.
+      ...(eBuilt.formula.strategy !== undefined
+        ? { strategy: eBuilt.formula.strategy }
+        : {}),
+      ...(eBuilt.formula.safeName !== undefined
+        ? { safeName: eBuilt.formula.safeName }
+        : {}),
     };
     return { kind: "det", value: composed };
   }
@@ -474,6 +484,12 @@ function projectContractShape(entry: unknown): Projection {
     desc: desc || eBuilt.formula.desc,
     patternName: eBuilt.formula.patternName,
     liveness: eBuilt.formula.liveness,
+    ...(eBuilt.formula.strategy !== undefined
+      ? { strategy: eBuilt.formula.strategy }
+      : {}),
+    ...(eBuilt.formula.safeName !== undefined
+      ? { safeName: eBuilt.formula.safeName }
+      : {}),
   };
   return { kind: "det", value: naked };
 }

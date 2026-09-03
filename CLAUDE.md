@@ -120,8 +120,28 @@ Python and TypeScript share the deterministic core. When changing these Python f
 | `sponsio/tracer/grounding.py` | `core/grounding.ts` |
 | `sponsio/patterns/library.py` | `core/patterns.ts` |
 | `sponsio/generation/dsl_to_contract.py` | `core/nl-parser.ts` |
+| `sponsio/integrations/base.py` (`CheckResult`) | `index.ts` (`CheckResult`) |
 
-Cross-language scenarios live in `tests/cross_language/scenarios.json`.
+The verdict shape is part of the parity surface, not just the formulas.
+Both runtimes derive `blocked` / `escalated` / `redirected` / `redirectedTo`
+/ `stopOriginal` from a per-violation `action`, and both treat
+`{blocked, redirected}` as the stopping set. **`stopOriginal` is the field
+an adapter gates on**: a redirect leaves `blocked` false and `allowed` true
+because the flow continues down the safe path, so a caller reading
+`blocked` runs the exact call the contract forbade.
+
+A pattern whose behaviour depends on a strategy has to carry it on the
+compiled formula (`DetFormula.strategy` / `safeName`). `redirect_to_safe`
+compiles to `G(!called(unsafe))`, which is indistinguishable from a plain
+ban, so a runtime reading only the formula turns every redirect into a
+block. Anything that rebuilds a `DetFormula` field by field has to copy
+those two along.
+
+Cross-language scenarios live in `tests/cross_language/scenarios.json`,
+whose contracts are inline NL strings. A pattern with no plain-English
+form cannot go in there: `redirect_to_safe` has its own rulebook and
+shared answer key (`redirect_parity.yaml`, `redirect_expected.json`) read
+by a test on each side.
 
 The TS SDK covers deterministic runtime enforcement. Python currently has the broader surface: DFA/verifier work, YAML config, discovery, OTEL, and reporting.
 

@@ -109,9 +109,41 @@ export type {
  * - ``alternatives`` is an optional list of suggested replacement
  *   actions for blocked / redirected outcomes.
  */
+/**
+ * What the runtime did about one violation, mirroring Python's
+ * ``DetViolation.action``. Every derived verdict property reads this
+ * rather than a separate boolean, so a new outcome cannot be added
+ * without every consumer seeing it.
+ *
+ * ``blocked`` and ``redirected`` both stop the original call and are the
+ * members of the stopping set; ``escalated`` hands the decision to a
+ * human without stopping, and ``observed`` / ``warned`` record only.
+ */
+export type DetAction =
+  | "blocked"
+  | "redirected"
+  | "escalated"
+  | "observed"
+  | "warned";
+
+/** Actions after which the original tool call must NOT run. */
+export const STOPPING_ACTIONS: ReadonlySet<DetAction> = new Set<DetAction>([
+  "blocked",
+  "redirected",
+]);
+
+/** Parity with Python's ``is_stopping_action``. */
+export function isStoppingAction(action: DetAction): boolean {
+  return STOPPING_ACTIONS.has(action);
+}
+
 export interface DetViolation {
   /** Human-readable contract description (``DetFormula.desc``). */
   desc: string;
+  /** What the runtime did. Absent on rows written before this field existed. */
+  action?: DetAction;
+  /** The tool to call instead, set when ``action`` is ``redirected``. */
+  redirectedTo?: string;
   /** Formatted ``"[WOULD-]BLOCKED: agent.tool — det constraint …"``. */
   message: string;
   /** Stable rule identifier (pattern name / contract id). */
@@ -170,6 +202,74 @@ export interface CheckResult {
    * consistently across both surfaces.
    */
   stoViolations: DetViolation[];
+
+  // -- derived from the violations' actions, parity with Python -------
+  //
+  // These were absent, so the only field a TS caller could read was
+  // `blocked`, and a redirect had to be reported as a block to stay
+  // fail-closed. That kept the runtime safe and lost the substitution:
+  // no adapter could learn which tool to call instead.
+
+  /** True when any violation returned an escalate outcome. */
+  escalated: boolean;
+  /** True when any violation returned a redirect outcome. */
+  redirected: boolean;
+  /** The substitute tool named by the first redirect, if any. */
+  redirectedTo?: string;
+  /**
+   * True when the original tool call must NOT run.
+   *
+   * **This is the gate an adapter branches on, not `blocked`.** A
+   * redirect leaves `blocked` false and `allowed` true, because the
+   * agent flow continues down the safe path; a caller reading `blocked`
+   * would run the exact call the contract forbade. Adapters that can
+   * substitute should branch on `redirected` / `redirectedTo` first and
+   * dispatch the safe tool; those that cannot must gate on this, so a
+   * redirect fails closed.
+   */
+  stopOriginal: boolean;
+  /** Det and sto violations together, in that order. */
+  allViolations: DetViolation[];
+  /**
+   * True if any sto violation asked for a retry. Always false in this
+   * build: the engine is deterministic-only and `stoViolations` is
+   * always empty. Present so an adapter written against one runtime
+   * reads the same on the other.
+   */
+  needsRetry: boolean;
+}
+
+/**
+ * Fill the derived half of a verdict from the violations' actions. One
+ * place, so a new `DetAction` cannot be handled inconsistently across
+ * the several sites that build a `CheckResult`.
+ */
+export function deriveVerdict(
+  detViolations: DetViolation[],
+  stoViolations: DetViolation[] = [],
+): Pick<
+  CheckResult,
+  | "blocked"
+  | "escalated"
+  | "redirected"
+  | "redirectedTo"
+  | "stopOriginal"
+  | "allViolations"
+  | "needsRetry"
+> {
+  const acted = detViolations.filter((v) => v.action !== undefined);
+  const redirect = acted.find((v) => v.action === "redirected");
+  return {
+    blocked: acted.some((v) => v.action === "blocked"),
+    escalated: acted.some((v) => v.action === "escalated"),
+    redirected: redirect !== undefined,
+    ...(redirect?.redirectedTo !== undefined
+      ? { redirectedTo: redirect.redirectedTo }
+      : {}),
+    stopOriginal: acted.some((v) => isStoppingAction(v.action as DetAction)),
+    allViolations: [...detViolations, ...stoViolations],
+    needsRetry: false,
+  };
 }
 
 export type SponsoMode = "enforce" | "observe";
@@ -390,7 +490,7 @@ export class Sponsio {
     const violations: string[] = [];
     const violatedDescs: string[] = [];
     const detViolations: DetViolation[] = [];
-    let anyBlocking = false;
+    let anyStopping = false;
     for (const contract of this._contracts) {
       const checkSpan = new ContractCheckSpan(contract.desc, "hard");
       collector.push(checkSpan);
@@ -419,23 +519,46 @@ export class Sponsio {
         // Per-contract `mode:` overrides the global mode for this one
         // verdict — same routing as Python's RuntimeMonitor.
         const effMode = contract.mode ?? this.mode;
-        if (effMode === "enforce") anyBlocking = true;
+        // The contract's strategy decides which outcome this is, so a
+        // `redirect_to_safe` violation reports `redirected` with its
+        // substitute instead of collapsing into a plain block. Observe
+        // never stops, whatever the strategy says.
+        const action: DetAction =
+          effMode === "observe"
+            ? "observed"
+            : contract.strategy === "redirect"
+              ? "redirected"
+              : contract.strategy === "escalate"
+                ? "escalated"
+                : "blocked";
+        if (isStoppingAction(action)) anyStopping = true;
         const verb = effMode === "observe" ? "WOULD-BLOCK" : "BLOCKED";
         const msg = `${verb}: ${this.agentId}.${toolName} — det constraint violated: ${contract.desc}`;
         violations.push(msg);
         violatedDescs.push(contract.desc);
+        const safe = action === "redirected" ? contract.safeName : undefined;
         detViolations.push({
           desc: contract.desc,
           message: msg,
+          action,
+          ...(safe !== undefined ? { redirectedTo: safe, alternatives: [safe] } : {}),
           ruleId: contract.patternName || contract.desc,
           agentMsg:
             `The action \`${toolName}\` was rejected by policy ` +
             `(${contract.patternName || contract.desc}): ${contract.desc}. ` +
-            `Choose a different approach.`,
+            (safe !== undefined
+              ? `Call \`${safe}\` instead.`
+              : `Choose a different approach.`),
         });
         // Nest violation + enforcement spans under the failed
         // guarantee so the renderer can pick up the verdict word.
-        const enforce = new EnforcementSpan("DetBlock", effMode === "enforce" ? "blocked" : "observed");
+        const strategyName =
+          contract.strategy === "redirect"
+            ? "RedirectToSafe"
+            : contract.strategy === "escalate"
+              ? "EscalateToHuman"
+              : "DetBlock";
+        const enforce = new EnforcementSpan(strategyName, action);
         guaranteeSpan.children.push(enforce);
         enforce.finish("violated");
       }
@@ -443,21 +566,27 @@ export class Sponsio {
     }
 
     const hasViolations = violations.length > 0;
-    const blocked = anyBlocking;
+    const stopping = anyStopping;
     this._turnSpans.push(
-      collector.finishRoot(blocked, this._contracts.length, violations.length),
+      collector.finishRoot(stopping, this._contracts.length, violations.length),
     );
 
-    if (blocked) {
+    if (stopping) {
       this._trace.pop();
       this._state = snapshot;
       this._violations.push(...violations);
 
       this._logViolations(toolName, violations, violatedDescs, "blocked");
 
+      // `allowed` tracks `blocked` alone, not every stopping outcome:
+      // Python computes `not any(action == "blocked")`, so a redirect
+      // stays `allowed: true` because the agent flow continues down the
+      // safe path. `stopOriginal` is the field that says the original
+      // call must not run.
+      const derived = deriveVerdict(detViolations);
       return {
-        blocked: true,
-        allowed: false,
+        ...derived,
+        allowed: !derived.blocked,
         message: violations[0],
         violations,
         detViolations,
@@ -477,7 +606,7 @@ export class Sponsio {
     }
 
     return {
-      blocked: false,
+      ...deriveVerdict(detViolations),
       allowed: true,
       message: "",
       violations: [],
@@ -609,12 +738,21 @@ export class Sponsio {
     const violations: string[] = [];
     const violatedDescs: string[] = [];
     const detViolations: DetViolation[] = [];
-    let anyBlocking = false;
+    let anyStopping = false;
     for (const contract of this._contracts) {
       const result = evaluate(contract.formula, this._trace);
       if (!result) {
         const effMode = contract.mode ?? this.mode;
-        if (effMode === "enforce") anyBlocking = true;
+        // No substitution on the output lane: there is no call to swap,
+        // so a redirect strategy still stops here. `escalate` keeps its
+        // own action, which does not stop.
+        const action: DetAction =
+          effMode === "observe"
+            ? "observed"
+            : contract.strategy === "escalate"
+              ? "escalated"
+              : "blocked";
+        if (isStoppingAction(action)) anyStopping = true;
         const verb = effMode === "observe" ? "WOULD-BLOCK" : "BLOCKED";
         const msg = `${verb}: ${this.agentId}.<llm_response> — det constraint violated: ${contract.desc}`;
         violations.push(msg);
@@ -622,6 +760,7 @@ export class Sponsio {
         detViolations.push({
           desc: contract.desc,
           message: msg,
+          action,
           ruleId: contract.patternName || contract.desc,
           agentMsg:
             `LLM response was rejected by policy ` +
@@ -631,16 +770,22 @@ export class Sponsio {
     }
 
     const hasViolations = violations.length > 0;
-    const blocked = anyBlocking;
+    const stopping = anyStopping;
 
-    if (blocked) {
+    if (stopping) {
       this._trace.pop();
       this._state = snapshot;
       this._violations.push(...violations);
       this._logViolations("<llm_response>", violations, violatedDescs, "blocked");
+      // `allowed` tracks `blocked` alone, not every stopping outcome:
+      // Python computes `not any(action == "blocked")`, so a redirect
+      // stays `allowed: true` because the agent flow continues down the
+      // safe path. `stopOriginal` is the field that says the original
+      // call must not run.
+      const derived = deriveVerdict(detViolations);
       return {
-        blocked: true,
-        allowed: false,
+        ...derived,
+        allowed: !derived.blocked,
         message: violations[0],
         violations,
         detViolations,
@@ -653,7 +798,7 @@ export class Sponsio {
       this._logViolations("<llm_response>", violations, violatedDescs, "observed");
     }
     return {
-      blocked: false,
+      ...deriveVerdict(detViolations),
       allowed: true,
       message: "",
       violations: [],
@@ -818,7 +963,7 @@ let _skippedWarned = false;
 
 function emptyAllow(): CheckResult {
   return {
-    blocked: false,
+    ...deriveVerdict([]),
     allowed: true,
     message: "",
     violations: [],

@@ -1,0 +1,14 @@
+# One rulebook, read by both runtimes, so a verdict difference is a test
+# failure rather than something nobody looks for.
+#
+# `redirect_to_safe` is the pattern the two disagreed on. It has no
+# plain-English form, so it cannot live in scenarios.json, whose contracts
+# are inline strings. It gets its own file and a test on each side.
+version: "1"
+agents:
+  bot:
+    contracts:
+      - desc: redirect rm to trash
+        G: { pattern: redirect_to_safe, args: [rm_rf, trash] }
+      - desc: policy before refund
+        G: "tool `check_policy` must precede `issue_refund`"
