@@ -24,11 +24,11 @@
 <p align="center">
   <img src="https://raw.githubusercontent.com/SponsioLabs/Sponsio/main/assets/sponsio-comparison-freeze.png" alt="Same coding agent under a declared code freeze. Without Sponsio it drops the prod users table, back-fills fabricated rows, and files a status report that hides the damage. With Sponsio the first destructive SQL is blocked pre-execution: 35 checks, 100% deterministic, 0 LLM calls, p50 13µs." width="900">
 </p>
-Sponsio provides deterministic contracts for agent procedures over time, enforced in under 0.01 ms with zero LLM cost at runtime. Works with LangChain, Claude Agent, OpenAI Agents, Google ADK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop, in Python or TypeScript.
+Sponsio checks an agent's tool calls before they run. A rule can look at what already happened, so "check the policy before issuing a refund" is one rule instead of a paragraph of prompt. Each check takes under 0.01 ms and calls no model. Works with LangChain, Claude Agent, OpenAI Agents, Google ADK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop, in Python or TypeScript.
 
 > An **agent contract** is a runtime rule that is checked at every agent action, [backed by formal methods](docs/concepts/formal-methods.md).
 
-> **v0.2.0a12 alpha is out.** `pip install --pre sponsio`. The hosted console now has documentation: how to stream a run to [app.sponsio.dev](https://app.sponsio.dev) in one line, and how push, review and pull keep a rulebook where a person arms it. Writing it turned up four places where the CLI called an unreviewed draft published, and one where the integration guide taught a gate that lets a redirected call through. Every example in the pattern catalog is now one you can paste, and a test keeps it that way. See the [v0.2.0a12 release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a12).
+> **v0.2.0a12 alpha is out.** `pip install --pre sponsio`. The hosted console is documented for the first time: one line sends a run to [app.sponsio.dev](https://app.sponsio.dev), and push, review, pull keeps the rulebook somewhere a person arms it. Every example in the pattern catalog is now one you can paste, with a test that keeps it that way. See the [release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a12).
 
 ---
 
@@ -40,7 +40,7 @@ Sponsio provides deterministic contracts for agent procedures over time, enforce
 
 On [ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench) (12 frontier LLMs × 80 trajectories), unguarded models cheat in 11.5%–66.7% of runs. **With Sponsio, 95.6% of misalignment is avoided on average; 24/36 high-risk scenarios at 100%.** On the `Financial-Audit-Fraud-Finding` scenario, frontier models commit fraud in 16/24 trials; **Sponsio blocks 18/19**. On RedCode-Exec (1,410 cases), Sponsio reaches **98.9% combined** (bash 98.3% · python 99.4%, lifted from 92.4% by a 4-iteration self-improvement loop), with 0 false positives on a 60-file clean-code audit. These are the open-core numbers; the Cloud version's LLM-judge layer takes ODCV-Bench to **~99%** and RedCode-Exec to **99.4%**. [Book a demo](https://calendar.app.google/ZZmthdxsDXCsHbJk9) for the Cloud and Enterprise versions.
 
-The logic checker runs at p50 **0.0052 ms** on the single-contract hot path and **0.139 ms** on the heaviest ODCV workload (19 contracts per call), **5,000×–60,000× faster than any LLM-as-judge guardrail** (50–800 ms per check), with zero LLM cost in the hot path. p99 stays at ~1 ms across every measured workload.
+One contract takes p50 **0.0052 ms** to check. The heaviest ODCV workload, 19 contracts on every call, takes **0.139 ms**. An LLM-as-judge guardrail takes 50 to 800 ms, so this is **5,000× to 60,000× faster**, and it calls no model. p99 stays near 1 ms on every workload measured.
 
 See the [full benchmark methodology and per-model breakdown](docs/reference/benchmarks.md), [how Sponsio compares against prompt filters, output validators, LLM-as-judge, and sandboxing](docs/why.md), or dive into the [architecture](docs/concepts/architecture.md) and [formal methods primer](docs/concepts/formal-methods.md).
 
@@ -48,7 +48,7 @@ See the [full benchmark methodology and per-model breakdown](docs/reference/benc
 
 ## Quick start
 
-A single prompt or a 2-line CLI command gets you onboarded.
+Two ways in: paste a prompt into your coding agent, or run the CLI yourself.
 
 **Paste into Claude Code / Codex / Cursor.** The agent walks the full onboarding flow:
 
@@ -61,8 +61,8 @@ A single prompt or a 2-line CLI command gets you onboarded.
 **Or run the CLI yourself**:
 
 ```bash
-pip install --pre sponsio        # or: npm install -D @sponsio/sdk
-sponsio init .             # interactive wizard: detects framework, IDE hosts, observe vs enforce
+pip install --pre sponsio   # or: npm install -D @sponsio/sdk
+sponsio init .              # asks what you use, then writes sponsio.yaml
 ```
 
 The wizard auto-detects your framework and prints the right wrap snippet. For manual wiring, see [all supported integrations](docs/integrations/index.md). [OpenClaw users](docs/integrations/openclaw.md) get bundled ClawHavoc and CVE-2026-25253 coverage out of the box. For config reference, observe → enforce flip, and CI wiring, see the [full walkthrough](QUICKSTART.md).
@@ -85,7 +85,7 @@ run = sponsio.bridge.attach(guard)
 
 ## Contract Library
 
-Twenty-two **contract bundles** ship out of the box, organized by tier (always-on / per-tool / per-incident). Each bundle is a YAML pack composed from Sponsio's deterministic patterns. Drop one into `sponsio.yaml` and your agent is guarded against a known failure class in one line, with no per-contract authoring.
+**22 contract bundles** ship out of the box, organized by tier (always-on / per-tool / per-incident). Each bundle is a YAML pack composed from Sponsio's deterministic patterns. Drop one into `sponsio.yaml` and your agent is guarded against a known failure class in one line, with no per-contract authoring.
 
 ```yaml
 # sponsio.yaml: one-line bundle inclusion
@@ -93,12 +93,12 @@ agents:
   my_agent:
     workspace: "/srv/my-bot"
     include:
-      - sponsio:capability/destructive # gate irreversible actions
-      - sponsio:capability/shell      # if your agent runs commands
-      - sponsio:capability/filesystem # if your agent touches files
+      - sponsio:capability/destructive  # gate irreversible actions
+      - sponsio:capability/shell        # if your agent runs commands
+      - sponsio:capability/filesystem   # if your agent touches files
 ```
 
-See the [full bundle reference](docs/reference/contract-lib.md) for all 22 bundles, or the [48 underlying patterns](docs/reference/patterns.md) for the primitives they compose. Want a bundle for your agent type? That is currently the highest-leverage way to contribute. [Open an issue](https://github.com/SponsioLabs/Sponsio/issues/new) with your incident, CVE, or pattern.
+See the [full bundle reference](docs/reference/contract-lib.md) for all 22 bundles, or the [48 underlying patterns](docs/reference/patterns.md) for the primitives they compose. Want a bundle for your agent type? That is the most useful thing to contribute right now. [Open an issue](https://github.com/SponsioLabs/Sponsio/issues/new) with your incident, CVE, or pattern.
 
 ---
 
