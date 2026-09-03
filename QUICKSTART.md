@@ -114,7 +114,18 @@ runtime:
   mode: enforce
 ```
 
-Precedence: explicit ctor arg > env var > yaml > default.
+Precedence for `mode`: `SPONSIO_MODE` > ctor arg > yaml > `observe`.
+
+**The env var beats your code, on purpose.** Whoever runs the deployment
+has to be able to flip enforcement without waiting for a release, so
+`SPONSIO_MODE=observe` turns off blocking even where the source says
+`mode="enforce"`, and the reverse holds too. If a rule is not behaving the
+way the code reads, check the environment first: `sponsio doctor` prints
+the mode actually in force.
+
+Every other knob goes the other way. `dashboard`, for instance, is
+`ctor arg > SPONSIO_DASHBOARD > yaml`, because it is set in code at deploy
+time rather than flipped by an operator mid-incident.
 
 ## Troubleshooting
 

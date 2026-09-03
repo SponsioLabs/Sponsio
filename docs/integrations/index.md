@@ -23,7 +23,7 @@ Sponsio works with any agent framework in Python and TypeScript. Each integratio
 | MCP | `from sponsio.mcp import MCPContractProxy` | `proxy.call_tool()` | 3 |
 | No framework | `sponsio.Sponsio(contracts=[...])` | `guard.guard_before()` / `guard_after()` | 3 |
 
-### TypeScript (via Pyodide, same engine, no server)
+### TypeScript (native, same engine, no server)
 
 | Framework | Import | Integration |
 |---|---|---|
