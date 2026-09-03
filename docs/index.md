@@ -14,7 +14,7 @@ pip install --pre sponsio
 sponsio init .
 ```
 
-Then go to the [Quickstart](getting-started/quickstart.md).
+Then go to the [Write your first contract](getting-started/first-contract.md).
 
 ## Sections
 

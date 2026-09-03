@@ -137,6 +137,6 @@ Deterministic formulas are evaluated in microseconds. A violation routes through
 ## Next
 
 - [Architecture](architecture.md): LTL semantics, grounding internals, why the atom vocabulary is the observation boundary.
-- [Deterministic contracts](contracts.md): the pattern library and how each pattern compiles to LTL.
+- [Deterministic contracts](../reference/patterns.md): the pattern library and how each pattern compiles to LTL.
 - [Write your first contract](../getting-started/first-contract.md): hands-on walkthrough.
 - [Integrations](../integrations/index.md): wire it into your framework (LangGraph, Claude Agent SDK, OpenAI, CrewAI, Google ADK, Vercel AI, MCP, or custom).
