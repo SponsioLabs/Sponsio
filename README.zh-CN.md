@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-orange.svg" alt="License"></a>
-  <a href="https://pypi.org/project/sponsio/"><img src="https://img.shields.io/badge/install-pip%20install%20sponsio-blue?logo=python&logoColor=white" alt="Install from PyPI"></a>
+  <a href="https://pypi.org/project/sponsio/"><img src="https://img.shields.io/badge/install-pip%20install%20--pre%20sponsio-blue?logo=python&logoColor=white" alt="Install from PyPI"></a>
   <a href="https://sponsio.dev"><img src="https://img.shields.io/badge/Visit-sponsio.dev-181818?logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjI4MyA3NjMgMzczIDM3MyI%2bPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwyMDQ4KSBzY2FsZSgwLjEsLTAuMSkiIGZpbGw9IiNGRkZGRkYiPjxwYXRoIGQ9Ik01MDEwIDEyNTAxIGMtNTggLTkgLTE4NyAtNDEgLTI2NyAtNjYgLTI2IC05IC05OSAtNDEgLTE2MCAtNzEgLTM1NCAtMTc0IC02MTMgLTQ3NiAtNzM2IC04NTkgLTQzIC0xMzMgLTY0IC0yNTEgLTczIC00MDcgbC03IC0xMTggLTQ2MiAwIC00NjMgMCAtNiAtMjIgYy0zIC0xMyAtMyAtNjYgMCAtMTE4IDE2IC0yODQgMTA2IC01NTYgMjYwIC03ODggMTEzIC0xNjggMzI0IC0zNTYgNTE2IC00NjAgMjcyIC0xNDcgNjM3IC0xOTAgOTY4IC0xMTUgMjM2IDUzIDQ1NiAxNzggNjQwIDM2MyAyNzIgMjczIDQxMyA2MTEgNDIzIDEwMjAgbDMgMTE1IDQ1NSA1IDQ1NCA1IDMgNDUgYzQgNDcgLTEyIDIwNyAtMjkgMzAwIC0xMDcgNTkyIC01MjMgMTAzMSAtMTA5NCAxMTU3IC03OSAxNyAtMzQxIDI2IC00MjUgMTR6IG0zMjAgLTk2MCBjNzMgLTI3IDE2MiAtOTkgMjA1IC0xNjQgNTggLTg3IDEwNCAtMjM5IDEwNSAtMzQ1IGwwIC01MiAtNDU3IDIgLTQ1OCAzIC0zIDQ4IGMtNSA3MyAyNCAyMDQgNjAgMjc3IDYxIDExOSAxOTEgMjI1IDMxMCAyNTAgNjQgMTMgMTc2IDUgMjM4IC0xOXogbS02MTIgLTY0MSBjMTMgLTI5NSAtMTkxIC01MjAgLTQ3MCAtNTIwIC0yMTcgMCAtMzkzIDE0NCAtNDUzIDM3MSAtMTUgNTUgLTIwIDIxMCAtOCAyMjIgMyA0IDIxNCA2IDQ2NyA1IGw0NjEgLTMgMyAtNzV6Ii8%2bPC9nPjwvc3ZnPg==&logoColor=white&labelColor=555555" alt="Visit sponsio.dev"></a>
 </p>
 
@@ -25,11 +25,11 @@
   <img src="https://raw.githubusercontent.com/SponsioLabs/Sponsio/main/assets/sponsio-comparison-freeze.png" alt="同一个 coding agent 在已声明的代码冻结期内运行。没有 Sponsio：删掉生产 users 表、用编造的数据回填，再写一份掩盖破坏的状态报告。接入 Sponsio：第一条破坏性 SQL 在执行前就被拦下：35 次检查、100% 确定性、0 次 LLM 调用、p50 13µs。" width="900">
 </p>
 
-Sponsio 为 Agent 在时间维度上展开的过程提供确定性合约，强制延迟低于 0.01 ms，运行时零 LLM 成本。支持 LangChain、Claude Agent、OpenAI Agents、Google ADK、CrewAI、Vercel AI、MCP，或任何自定义工具调用循环，Python 与 TypeScript 双语言。
+Sponsio 在 Agent 调用工具之前先检查这次调用。一条规则可以看之前发生过什么，所以「退款之前必须先查政策」是一条规则，不是一段提示词。每次检查耗时低于 0.01 ms，不调用任何模型。支持 LangChain、Claude Agent、OpenAI Agents、Google ADK、CrewAI、Vercel AI、MCP，或任何自定义工具调用循环，Python 与 TypeScript 双语言。
 
 > **Agent 合约**是一条运行时规则，在每一次 Agent 操作时检查，[由形式化方法支撑](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a12 alpha 已发布。** `pip install --pre sponsio`。托管控制台终于有文档了:一行代码把运行送上 [app.sponsio.dev](https://app.sponsio.dev),以及 push、人工审核、pull 这条链怎么保证规则由人来上膛。写文档的过程翻出四处把未审草稿说成已发布的地方,还有一处集成指南教的判断会放过被改道的调用。模式目录里每一条示例现在都能直接复制粘贴,并有测试守着。见 [v0.2.0a12 发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a12)。
+> **v0.2.0a12 alpha 已发布。** `pip install --pre sponsio`。托管控制台第一次有了文档:一行代码把运行送上 [app.sponsio.dev](https://app.sponsio.dev),push、人工审核、pull 这条链保证规则由人来上膛。模式目录里每一条示例现在都能直接复制粘贴,并有测试守着。见[发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a12)。
 
 ---
 
@@ -49,7 +49,7 @@ Sponsio 为 Agent 在时间维度上展开的过程提供确定性合约，强�
 
 ## 快速开始
 
-一段 prompt 或两行 CLI 命令即可立即接入。
+两条路:把一段 prompt 贴进你的编程 agent,或者自己跑 CLI。
 
 **粘贴到 Claude Code / Codex / Cursor 中。** Agent 会协助走完完整接入流程：
 
@@ -86,7 +86,7 @@ run = sponsio.bridge.attach(guard)
 
 ## 合约库
 
-开箱即用的 **16 个合约 bundle**，按层级组织（always-on / per-tool / per-incident）。每个 bundle 是一个 YAML 包，由 Sponsio 的确定性模式组合而成。把它放进 `sponsio.yaml`，一行即可让 Agent 防护一类已知失败，无需逐合约编写。
+开箱即用的 **22 个合约 bundle**，按层级组织（always-on / per-tool / per-incident）。每个 bundle 是一个 YAML 包，由 Sponsio 的确定性模式组合而成。把它放进 `sponsio.yaml`，一行即可让 Agent 防护一类已知失败，无需逐合约编写。
 
 ```yaml
 # sponsio.yaml: 一行式 bundle 引入
@@ -94,12 +94,12 @@ agents:
   my_agent:
     workspace: "/srv/my-bot"
     include:
-      - sponsio:core/universal        # always-on
+      - sponsio:capability/destructive # gate irreversible actions
       - sponsio:capability/shell      # 若 Agent 会执行命令
       - sponsio:capability/filesystem # 若 Agent 会读写文件
 ```
 
-查看[完整 bundle 参考](docs/reference/contract-lib.md)（共 16 个 bundle）或[底层 46 个模式](docs/reference/patterns.md)。想要面向你 Agent 类型的 bundle？这是目前杠杆率最高的贡献方式。带上事件 / CVE / 模式[开 issue](https://github.com/SponsioLabs/Sponsio/issues/new)。
+查看[完整 bundle 参考](docs/reference/contract-lib.md)（共 22 个 bundle）或[底层 48 个模式](docs/reference/patterns.md)。想要面向你 Agent 类型的 bundle？这是目前杠杆率最高的贡献方式。带上事件 / CVE / 模式[开 issue](https://github.com/SponsioLabs/Sponsio/issues/new)。
 
 ---
 

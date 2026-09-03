@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-orange.svg" alt="License"></a>
-  <a href="https://pypi.org/project/sponsio/"><img src="https://img.shields.io/badge/install-pip%20install%20sponsio-blue?logo=python&logoColor=white" alt="Install from PyPI"></a>
+  <a href="https://pypi.org/project/sponsio/"><img src="https://img.shields.io/badge/install-pip%20install%20--pre%20sponsio-blue?logo=python&logoColor=white" alt="Install from PyPI"></a>
   <a href="https://sponsio.dev"><img src="https://img.shields.io/badge/Visit-sponsio.dev-181818?logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjI4MyA3NjMgMzczIDM3MyI%2bPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwyMDQ4KSBzY2FsZSgwLjEsLTAuMSkiIGZpbGw9IiNGRkZGRkYiPjxwYXRoIGQ9Ik01MDEwIDEyNTAxIGMtNTggLTkgLTE4NyAtNDEgLTI2NyAtNjYgLTI2IC05IC05OSAtNDEgLTE2MCAtNzEgLTM1NCAtMTc0IC02MTMgLTQ3NiAtNzM2IC04NTkgLTQzIC0xMzMgLTY0IC0yNTEgLTczIC00MDcgbC03IC0xMTggLTQ2MiAwIC00NjMgMCAtNiAtMjIgYy0zIC0xMyAtMyAtNjYgMCAtMTE4IDE2IC0yODQgMTA2IC01NTYgMjYwIC03ODggMTEzIC0xNjggMzI0IC0zNTYgNTE2IC00NjAgMjcyIC0xNDcgNjM3IC0xOTAgOTY4IC0xMTUgMjM2IDUzIDQ1NiAxNzggNjQwIDM2MyAyNzIgMjczIDQxMyA2MTEgNDIzIDEwMjAgbDMgMTE1IDQ1NSA1IDQ1NCA1IDMgNDUgYzQgNDcgLTEyIDIwNyAtMjkgMzAwIC0xMDcgNTkyIC01MjMgMTAzMSAtMTA5NCAxMTU3IC03OSAxNyAtMzQxIDI2IC00MjUgMTR6IG0zMjAgLTk2MCBjNzMgLTI3IDE2MiAtOTkgMjA1IC0xNjQgNTggLTg3IDEwNCAtMjM5IDEwNSAtMzQ1IGwwIC01MiAtNDU3IDIgLTQ1OCAzIC0zIDQ4IGMtNSA3MyAyNCAyMDQgNjAgMjc3IDYxIDExOSAxOTEgMjI1IDMxMCAyNTAgNjQgMTMgMTc2IDUgMjM4IC0xOXogbS02MTIgLTY0MSBjMTMgLTI5NSAtMTkxIC01MjAgLTQ3MCAtNTIwIC0yMTcgMCAtMzkzIDE0NCAtNDUzIDM3MSAtMTUgNTUgLTIwIDIxMCAtOCAyMjIgMyA0IDIxNCA2IDQ2NyA1IGw0NjEgLTMgMyAtNzV6Ii8%2bPC9nPjwvc3ZnPg==&logoColor=white&labelColor=555555" alt="Visit sponsio.dev"></a>
 </p>
 
@@ -25,11 +25,11 @@
   <img src="https://raw.githubusercontent.com/SponsioLabs/Sponsio/main/assets/sponsio-comparison-freeze.png" alt="コードフリーズ宣言下の同一コーディングエージェント。Sponsio なし：本番 users テーブルを削除し、捏造した行で埋め戻し、被害を隠す状態レポートを提出。Sponsio あり：最初の破壊的 SQL を実行前にブロック：35 チェック、100% 決定論的、LLM 呼び出し 0 回、p50 13µs。" width="900">
 </p>
 
-Sponsio は時間軸に沿って展開されるエージェントの手続きに対して決定論的な契約を提供します。強制は 0.01 ms 未満、ランタイムでの LLM コストはゼロ。LangChain、Claude Agent、OpenAI Agents、Google ADK、CrewAI、Vercel AI、MCP、または任意のカスタム ツール呼び出しループに対応（Python / TypeScript）。
+Sponsio はエージェントがツールを呼ぶ前に、その呼び出しを検査します。ルールはそれまでに何が起きたかを見られるので、「返金の前にポリシーを確認する」は 1 本のルールで済み、長いプロンプトは要りません。1 回の検査は 0.01 ms 未満で、モデルは呼びません。LangChain、Claude Agent、OpenAI Agents、Google ADK、CrewAI、Vercel AI、MCP、または任意のカスタム ツール呼び出しループに対応（Python / TypeScript）。
 
 > **エージェント契約** とは、エージェントのすべてのアクションでチェックされるランタイムルールであり、[形式手法に裏打ちされています](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a12 alpha リリース。** `pip install --pre sponsio`。ホストされたコンソールのドキュメントができました。1 行で実行を [app.sponsio.dev](https://app.sponsio.dev) に送る方法と、push、人によるレビュー、pull がルールブックを人が有効化する場所に保つ仕組みです。執筆中に、未レビューの下書きを公開済みと呼んでいた箇所が 4 つ、リダイレクトされた呼び出しを通してしまうゲートを教えていた統合ガイドが 1 つ見つかりました。パターンカタログの例はすべてそのまま貼り付けて使えるようになり、テストがそれを保ちます。[v0.2.0a12 リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a12)を参照。
+> **v0.2.0a12 alpha リリース。** `pip install --pre sponsio`。ホストされたコンソールに初めてドキュメントができました。1 行で実行を [app.sponsio.dev](https://app.sponsio.dev) に送れます。push、レビュー、pull の流れで、ルールブックは人が有効化する場所に置かれます。パターンカタログの例はすべてそのまま貼り付けて使えるようになり、テストがそれを保ちます。[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a12)を参照。
 
 ---
 
@@ -49,7 +49,7 @@ Sponsio は時間軸に沿って展開されるエージェントの手続きに
 
 ## クイックスタート
 
-1 つのプロンプトまたは 2 行の CLI コマンドで即座にオンボーディング。
+入り方は 2 つ。コーディング エージェントにプロンプトを貼るか、自分で CLI を叩くかです。
 
 **Claude Code / Codex / Cursor に貼り付け。** エージェントがオンボーディング全体を支援します：
 
@@ -86,7 +86,7 @@ run = sponsio.bridge.attach(guard)
 
 ## コントラクト ライブラリ
 
-**16 のコントラクト バンドル** が組み込みで提供され、ティア別（always-on / per-tool / per-incident）に整理されています。各バンドルは Sponsio の決定論的パターンから組み合わされた YAML パックです。`sponsio.yaml` に 1 行追加するだけで、エージェントを既知の失敗クラスから守れます。契約を個別に書く必要はありません。
+**22 のコントラクト バンドル** が組み込みで提供され、ティア別（always-on / per-tool / per-incident）に整理されています。各バンドルは Sponsio の決定論的パターンから組み合わされた YAML パックです。`sponsio.yaml` に 1 行追加するだけで、エージェントを既知の失敗クラスから守れます。契約を個別に書く必要はありません。
 
 ```yaml
 # sponsio.yaml: 1 行式バンドル include
@@ -94,12 +94,12 @@ agents:
   my_agent:
     workspace: "/srv/my-bot"
     include:
-      - sponsio:core/universal        # always-on
+      - sponsio:capability/destructive # gate irreversible actions
       - sponsio:capability/shell      # エージェントがコマンドを実行する場合
       - sponsio:capability/filesystem # エージェントがファイルを操作する場合
 ```
 
-[完全なバンドル リファレンス](docs/reference/contract-lib.md)（16 バンドル）または[基盤となる 46 パターン](docs/reference/patterns.md)を参照。あなたのエージェント タイプ向けのバンドルが欲しい場合、これは現時点で最もレバレッジの高い貢献方法です。インシデント / CVE / パターンを添えて [issue を開いてください](https://github.com/SponsioLabs/Sponsio/issues/new)。
+[完全なバンドル リファレンス](docs/reference/contract-lib.md)（22 バンドル）または[基盤となる 48 パターン](docs/reference/patterns.md)を参照。あなたのエージェント タイプ向けのバンドルが欲しい場合、これは現時点で最もレバレッジの高い貢献方法です。インシデント / CVE / パターンを添えて [issue を開いてください](https://github.com/SponsioLabs/Sponsio/issues/new)。
 
 ---
 

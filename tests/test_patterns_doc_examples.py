@@ -19,7 +19,10 @@ from pathlib import Path
 import pytest
 
 from sponsio.formulas.formula import Atom  # noqa: F401  (eval'd by examples)
-from sponsio.generation.dsl_to_contract import parse_contract
+from sponsio.generation.dsl_to_contract import (
+    get_available_patterns,
+    parse_contract,
+)
 from sponsio.patterns import library
 
 DOC = Path(__file__).resolve().parents[1] / "docs" / "reference" / "patterns.md"
@@ -46,9 +49,17 @@ def test_catalog_example_is_usable(pattern: str, cell: str) -> None:
 
     structured = STRUCTURED.match(cell)
     if structured:
-        # `{pattern: X, args: [...]}` goes into a yaml G:/A: field verbatim.
+        # `{pattern: X, args: [...]}` goes into a yaml G:/A: field verbatim,
+        # so it has to survive the CONFIG LOADER, not just the factory. The
+        # loader resolves `pattern:` against `_PATTERN_REGISTRY`, and five
+        # library factories were missing from it: a cell checked against the
+        # factory alone passed while `sponsio.yaml` rejected the same line.
         name, raw_args = structured.group(1), structured.group(2)
         assert name == pattern, f"row {pattern} shows {name}"
+        assert name in get_available_patterns(), (
+            f"{name} exists in the library but not in the registry the yaml "
+            f"loader reads, so `pattern: {name}` cannot be used in a config"
+        )
         args = ast.literal_eval(raw_args) if raw_args else []
         getattr(library, name)(*args)
         return

@@ -85,7 +85,7 @@ Tool inventory:   [check_policy, issue_refund, notify_customer]
 Constraint:       must_precede(check_policy, issue_refund)
 ```
 
-Supported document formats: `.md`, `.txt`, `.pdf` (`pip install sponsio[pdf]`).
+Supported document formats: `.md`, `.txt`, `.pdf` (`pip install --pre 'sponsio[pdf]'`).
 
 ### Source 3: hand-written
 
