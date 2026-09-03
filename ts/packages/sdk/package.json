@@ -63,7 +63,7 @@
   ],
   "scripts": {
     "build": "tsc && tsc -p tsconfig.cli.json && node -e \"require('fs').writeFileSync('dist/cli/package.json', '{\\\"type\\\":\\\"commonjs\\\"}\\n')\"",
-    "test": "node --test dist/__tests__/*.test.js",
+    "test": "node --test dist/",
     "test:cli": "node --test dist/cli/__tests__/*.test.js",
     "test:src": "npx tsx src/__tests__/core.test.ts",
     "test:parity": "npx tsx src/__tests__/parity.test.ts && npx tsx src/__tests__/parity.scenarios.test.ts"

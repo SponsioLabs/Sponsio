@@ -62,7 +62,7 @@ Sponsio はエージェントがツールを呼ぶ前に、その呼び出しを
 **または CLI を自分で実行:**
 
 ```bash
-pip install --pre sponsio        # または: npm install -D @sponsio/sdk
+pip install --pre sponsio        # または: npm install -D @sponsio/sdk@alpha
 sponsio init .             # 対話型ウィザード: フレームワーク・IDE ホスト・observe vs enforce を検出
 ```
 

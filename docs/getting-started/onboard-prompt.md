@@ -132,7 +132,7 @@ project.  Three steps.
 
 ══════════════ Step 0: install the Sponsio CLI ══════════════
 
-  command -v sponsio >/dev/null 2>&1 || npm install -D @sponsio/sdk
+  command -v sponsio >/dev/null 2>&1 || npm install -D @sponsio/sdk@alpha
 
 Quiet check first.  Re-running ``npm install`` against an already-
 present version is fine but noisy in IDE-agent transcripts.  The

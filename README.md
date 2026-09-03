@@ -61,7 +61,7 @@ Two ways in: paste a prompt into your coding agent, or run the CLI yourself.
 **Or run the CLI yourself**:
 
 ```bash
-pip install --pre sponsio   # or: npm install -D @sponsio/sdk
+pip install --pre sponsio   # or: npm install -D @sponsio/sdk@alpha
 sponsio init .              # asks what you use, then writes sponsio.yaml
 ```
 
