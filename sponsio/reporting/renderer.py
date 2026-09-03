@@ -94,7 +94,19 @@ def render_markdown(report: Report) -> str:
     lines.append(f"**Sessions:** {report.total_sessions}")
     lines.append(f"**Events evaluated:** {report.total_events}")
     lines.append(f"**Violations caught:** {report.violations}")
-    lines.append(f"**Actually blocked (enforce mode):** {report.blocked}")
+    # An enforce run writes no session log by default (BaseGuard skips the
+    # JSONL logger outside observe, to avoid surprise writes to $HOME), so
+    # a zero here means "not recorded", not "did not happen" — and this
+    # line said the second. A run that blocked four calls reported
+    # "Actually blocked (enforce mode): 0".
+    if report.blocked:
+        lines.append(f"**Actually blocked (enforce mode):** {report.blocked}")
+    else:
+        lines.append(
+            "**Actually blocked (enforce mode):** not recorded — enforce runs "
+            "are not logged by default; pass `session_log_dir=` to Sponsio() "
+            "to keep them"
+        )
     lines.append(f"**Would-have-blocked (observe mode):** {report.observed}")
     lines.append(f"**Sto retries:** {report.retrying}")
     lines.append(f"**Pass rate:** {report.pass_rate * 100:.1f}%")
