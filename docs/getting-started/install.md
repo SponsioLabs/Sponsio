@@ -57,7 +57,7 @@ Python 3.10 and newer. Older versions are not tested.
 The TypeScript deterministic engine ships separately:
 
 ```bash
-npm install @sponsio/sdk
+npm install @sponsio/sdk@alpha
 ```
 
 See [TypeScript integrations](../integrations/index.md#typescript) for framework bindings. The Python and TS engines share the same LTL core. They produce identical block/allow decisions over the same trace.

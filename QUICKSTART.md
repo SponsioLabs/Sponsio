@@ -81,7 +81,7 @@ Add this to your agent entry point:
 
 Without an LLM key, `init` still ships a name-heuristic starter plus capability packs (shell / filesystem / credentials / …) with deterministic rules — no LLM calls. Run `sponsio packs` for the full list with rule counts.
 
-For TypeScript, install `@sponsio/sdk` and run `npx sponsio init .`. Same yaml output, same `Sponsio({ config: "sponsio.yaml" })` API.
+For TypeScript, `npm install -D @sponsio/sdk@alpha` and run `npx sponsio init .`. Same yaml output, and the same shape of API: `new Sponsio({ config: "sponsio.yaml", agentId: "my_agent" })`.
 
 ## 4. Run and observe
 

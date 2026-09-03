@@ -62,7 +62,7 @@ Sponsio 在 Agent 调用工具之前先检查这次调用。一条规则可以�
 **或自行运行 CLI：**
 
 ```bash
-pip install --pre sponsio        # 或 npm install -D @sponsio/sdk
+pip install --pre sponsio        # 或 npm install -D @sponsio/sdk@alpha
 sponsio init .             # 交互式向导：检测框架、选择 IDE host、observe vs enforce
 ```
 

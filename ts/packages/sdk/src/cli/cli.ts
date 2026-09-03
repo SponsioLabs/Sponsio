@@ -22,7 +22,7 @@
  * need ``--config`` a second time).  CLI flags always win over YAML.
  */
 
-import { promises as fs } from "fs";
+import { promises as fs, existsSync } from "fs";
 import { loadConfig, ConfigError, type SponsioConfig } from "./config";
 import { runOnboardCli } from "./onboard";
 import { runReportCli } from "./report";
@@ -69,6 +69,17 @@ const HELP =
     "",
     "ARGUMENTS:",
     '  <patterns...>       Files or glob patterns to scan (default: "src/**/*.{ts,tsx,js,jsx}")',
+    "",
+    "COMMANDS:",
+    "  init | onboard      Write a sponsio.yaml for this project",
+    "  scan | validate     Mine contracts from code; check a config parses",
+    "  mode | packs        Flip observe/enforce; list the shipped contract packs",
+    "  check | eval        Judge one trace; judge a directory of them",
+    "  report | replay     What would have been blocked; re-run a recorded session",
+    "  patterns | explain  The pattern catalog; why one contract exists",
+    "  doctor | skill      Environment check; install the agent skill",
+    "  prompt | export     Authoring prompts; export a config or sessions",
+    "  demo                Run a packaged scenario",
     "",
     "OPTIONS:",
     "  -o, --out <file>    Write output to <file> instead of stdout",
@@ -326,6 +337,32 @@ async function main() {
       process.exit(1);
     }
     return;
+  }
+
+  // Anything above returned. A first argument that is plainly meant as a
+  // command and matched none of them used to fall through to the scanner,
+  // which found no files, printed `{"tools":[]}` and exited 0. A typo
+  // therefore looked like a success — and the onboarding prompt tells
+  // coding agents to run these commands, so the agent reads the zero exit
+  // and moves on.
+  //
+  // A scan target is a path or a glob. A bare word that is neither, with
+  // no extension and no glob metacharacter and nothing on disk by that
+  // name, is a mistyped command.
+  const first = raw[0];
+  if (
+    first !== undefined &&
+    !first.startsWith("-") &&
+    !/[*?[\]{}]/.test(first) &&
+    !first.includes("/") &&
+    !first.includes(".") &&
+    !existsSync(first)
+  ) {
+    process.stderr.write(
+      `sponsio: unknown command '${first}'\n` +
+        `Run 'sponsio --help' for the list, or pass a path or glob to scan.\n`,
+    );
+    process.exit(2);
   }
 
   const args = parseArgs(raw);

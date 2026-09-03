@@ -1,7 +1,11 @@
-"""`pip install sponsio` resolves to 0.1.1, a different and much older
-release, because 0.2.0a* is a pre-release. Every install instruction we
-ship therefore has to carry `--pre`, including the README badge, which is
-the first thing on the page and the easiest one to forget.
+"""Install lines have to name the pre-release, in both ecosystems.
+
+`pip install sponsio` resolves to 0.1.1 and `npm install @sponsio/sdk`
+resolves to 0.1.0: 0.2.0a* and 0.2.0-alpha.* are pre-releases, so both
+package managers skip them unless asked. Both stable versions are much
+older software. Every install instruction we ship therefore has to carry
+`--pre` or `@alpha`, including the README badge, which is the first thing
+on the page and the easiest one to forget.
 """
 
 from __future__ import annotations
@@ -50,3 +54,22 @@ def test_the_readme_badge_carries_pre() -> None:
         )
         assert badge, f"{name}: install badge missing"
         assert "--pre" in badge.group(1), f"{name}: badge says {badge.group(1)}"
+
+
+# npm's stable tag is 0.1.0; the alpha lives under the `alpha` dist-tag.
+NPM = re.compile(
+    r"(?:npm install|npm i|yarn add|pnpm add)[^\n`]*?@sponsio/sdk(@[a-z0-9.-]+)?"
+)
+
+
+@pytest.mark.parametrize("path", FILES, ids=lambda p: p.name)
+def test_npm_install_instructions_name_the_alpha(path: Path) -> None:
+    if path.name in EXPLAINS_THE_PLAIN_FORM or "release-notes" in path.parts:
+        pytest.skip("documents the plain form deliberately")
+    bad = [
+        ln
+        for ln in path.read_text().splitlines()
+        for m in NPM.finditer(ln)
+        if m.group(1) != "@alpha"
+    ]
+    assert not bad, f"{path.name}: npm install without @alpha:\n" + "\n".join(bad)
