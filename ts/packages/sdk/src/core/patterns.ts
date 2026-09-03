@@ -672,6 +672,61 @@ export function toolAllowlist(allowedTools: string[]): DetFormula {
  * need transparent substitution should stay on the Python SDK
  * (LangGraph adapter) until the TS strategy port lands.
  */
+/**
+ * Every emitted claim of this predicate must verify as PASS.
+ *
+ * Compiles to `G(claim_emitted(pred) -> evidence_verdict(pred, PASS))`.
+ * Both atoms are grounded from the same `evidence` event, so the
+ * implication is decided at the timestep the verdict lands: a claim
+ * whose verdict is anything but PASS (MISMATCH, UNDERDETERMINED,
+ * NO_EVIDENCE, STALE, SOURCE_UNAVAILABLE, EXTRACTION_AMBIGUOUS)
+ * violates immediately.
+ *
+ * Parity with `sponsio.patterns.library.claim_requires_evidence`.
+ */
+export function claimRequiresEvidence(pred: string, desc?: string): DetFormula {
+  ensureNonEmpty(pred, "claimRequiresEvidence", "pred");
+  return {
+    formula: new G(
+      new Implies(
+        new Atom("claim_emitted", [pred]),
+        new Atom("evidence_verdict", [pred, "PASS"]),
+      ),
+    ),
+    desc: desc || `claims of ${pred} must verify against evidence (PASS)`,
+    patternName: "claim_requires_evidence",
+    liveness: false,
+  };
+}
+
+/**
+ * An UNDERDETERMINED verdict must resolve to a clarify action.
+ *
+ * Compiles to `G(evidence_verdict(pred, UNDERDETERMINED) ->
+ * evidence_action(pred, clarify))`.
+ *
+ * Guards the policy wiring rather than the claim itself: when the
+ * evidence was ambiguous, the recorded action on that same event must be
+ * `clarify`. A project override that quietly releases or hard-blocks an
+ * ambiguous claim trips this contract.
+ *
+ * Parity with `sponsio.patterns.library.underdetermined_must_clarify`.
+ */
+export function underdeterminedMustClarify(pred: string, desc?: string): DetFormula {
+  ensureNonEmpty(pred, "underdeterminedMustClarify", "pred");
+  return {
+    formula: new G(
+      new Implies(
+        new Atom("evidence_verdict", [pred, "UNDERDETERMINED"]),
+        new Atom("evidence_action", [pred, "clarify"]),
+      ),
+    ),
+    desc: desc || `ambiguous ${pred} claims must be clarified, not released or blocked`,
+    patternName: "underdetermined_must_clarify",
+    liveness: false,
+  };
+}
+
 export function redirectToSafe(unsafe: string, safe: string): DetFormula {
   ensureDistinct(unsafe, safe, "redirectToSafe", "unsafe", "safe");
   return {

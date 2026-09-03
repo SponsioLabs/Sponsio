@@ -41,6 +41,11 @@ export interface ToolEvent {
   content?: string;
   /** Optional event timestamp; if omitted, the grounding state's monotonic clock advances by 1. */
   ts?: number;
+  /**
+   * Subject of the event, for kinds whose subject is not a tool name.
+   * An ``evidence`` event puts the predicate name here.
+   */
+  key?: string;
 }
 
 export interface GroundingState {
@@ -440,6 +445,19 @@ export function groundEvent(
         state.currentCtx[String(k)] = val == null ? "" : String(val);
       }
     }
+  } else if (eventType === "evidence" && event.key) {
+    // A cloud claim-verification verdict fed back into the trace.
+    // `key` is the predicate name; `args` carries the server's verdict
+    // and policy action verbatim. No verdict computation happens here —
+    // the atoms only restate what the service answered, so contracts
+    // (`claim_requires_evidence`, `underdetermined_must_clarify`) can
+    // reference it. Verdict upper-cased, action lower-cased, matching
+    // the server's own vocabulary and Python's grounding.
+    v[predKey("claim_emitted", event.key)] = true;
+    const verdict = String(event.args?.verdict ?? "").toUpperCase();
+    if (verdict) v[predKey("evidence_verdict", event.key, verdict)] = true;
+    const action = String(event.args?.action ?? "").toLowerCase();
+    if (action) v[predKey("evidence_action", event.key, action)] = true;
   }
 
   // ── ctx(k, v) / ctx_value(k) — emit per current_ctx entry, every event ─

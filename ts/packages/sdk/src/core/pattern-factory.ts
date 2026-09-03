@@ -46,7 +46,9 @@ import {
   destructiveActionGate,
   untrustedSourceGate,
   requiredStepsCompletion,
+  claimRequiresEvidence,
   redirectToSafe,
+  underdeterminedMustClarify,
   toolAllowlist,
   dangerousBashCommands,
   dangerousSqlVerbs,
@@ -282,6 +284,13 @@ export function buildPatternByName(
       );
     case "tool_allowlist":
       return toolAllowlist(asStrList(needArg(args, 0, "allowed_tools"), "allowed_tools"));
+    // Evidence obligations. The verdicts come from the cloud verify API
+    // (`evidence` events); these only reference the grounded atoms.
+    case "claim_requires_evidence":
+      return claimRequiresEvidence(asStr(needArg(args, 0, "pred"), "pred"));
+    case "underdetermined_must_clarify":
+      return underdeterminedMustClarify(asStr(needArg(args, 0, "pred"), "pred"));
+
     case "redirect_to_safe":
       // TS parity: formula side only. The Python runtime bundles a
       // ``RedirectToSafe`` strategy on the resulting DetFormula that
