@@ -808,10 +808,13 @@ def check_cloud() -> CheckResult:
     detail = f"{client.url} · {tenant}"
     if projects:
         detail += " · projects: " + ", ".join(projects)
+    # The field counts books, not published ones: an agent whose every
+    # version is an unreviewed draft is in it. Saying "published" here would
+    # green-tick rules nobody has looked at, and push creates a draft too.
     detail += (
-        " · rulebooks published for: " + ", ".join(agents)
+        " · rulebooks for: " + ", ".join(agents)
         if agents
-        else " · no rulebook published yet (a first push will create one)"
+        else " · no rulebook yet (a first push uploads one as a draft)"
     )
     return CheckResult("Cloud", "ok", detail)
 

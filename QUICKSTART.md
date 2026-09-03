@@ -127,6 +127,7 @@ sponsio check --trace trace.json --config sponsio.yaml --agent agent
 ## Next
 
 - [First contract](docs/getting-started/first-contract.md): write your own rule.
+- [The hosted console](docs/getting-started/hosted-console.md): stream a run to app.sponsio.dev, and keep the rulebook where a human reviews it.
 - [Integrations](docs/integrations/index.md): plug into LangGraph, CrewAI, OpenAI Agents, and others.
 - [Config reference](docs/reference/config-yaml.md): full `sponsio.yaml` schema.
 - [CLI reference](docs/reference/cli.md): every command and flag.

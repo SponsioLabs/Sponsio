@@ -157,6 +157,43 @@ def test_pull_passes_agent_and_version_through(runner, patched):
     assert client.calls[-1] == ("pull", "alpha", "quant", 3)
 
 
+def test_pull_says_when_it_handed_out_a_draft(runner, patched, tmp_path):
+    """A book nobody published still pulls — as its draft. Writing that into
+    the file a guard loads without a word makes the review step invisible at
+    the point it matters."""
+    patched["install"](pulled=PulledRulebook(YAML, versions="1", channel="draft"))
+    out = tmp_path / "sponsio.yaml"
+
+    result = runner.invoke(cli, ["pull", "alpha", "-o", str(out)])
+
+    assert result.exit_code == 0, result.output
+    assert "DRAFT" in result.output
+
+
+def test_pull_is_quiet_about_the_published_head(runner, patched, tmp_path):
+    patched["install"](pulled=PulledRulebook(YAML, versions="3", channel="published"))
+    out = tmp_path / "sponsio.yaml"
+
+    result = runner.invoke(cli, ["pull", "alpha", "-o", str(out)])
+
+    assert "DRAFT" not in result.output and "published" not in result.output
+
+
+def test_pull_keeps_stdout_loadable(runner, patched):
+    """``sponsio pull > sponsio.yaml`` must yield yaml. The draft notice goes
+    to stderr or it corrupts the file it was meant to warn about."""
+    patched["install"](pulled=PulledRulebook(YAML, versions="1", channel="draft"))
+    try:
+        split = CliRunner(mix_stderr=False)  # click < 8.2
+    except TypeError:
+        split = CliRunner()  # 8.2 dropped the flag and splits by default
+    result = split.invoke(cli, ["pull", "alpha"])
+
+    assert result.exit_code == 0, result.stderr
+    assert result.stdout == YAML
+    assert "DRAFT" in result.stderr
+
+
 # -- push ------------------------------------------------------------------
 
 
@@ -186,6 +223,20 @@ def test_push_says_plainly_when_nothing_moved(runner, patched, tmp_path):
     result = runner.invoke(cli, ["push", str(config)])
 
     assert "unchanged" in result.output
+    # Nothing was uploaded, so there is no draft awaiting a human.
+    assert "draft" not in result.output
+
+
+def test_push_says_the_new_version_is_a_draft(runner, patched, tmp_path):
+    """A bare "new version" reads as shipped. It is not: it sits unarmed
+    until a human publishes it, and nothing else in the CLI says so."""
+    patched["install"]()
+    config = tmp_path / "sponsio.yaml"
+    config.write_text(YAML)
+
+    result = runner.invoke(cli, ["push", str(config)])
+
+    assert "draft" in result.output and "publish" in result.output
 
 
 def test_push_without_a_key_is_refused(runner, patched, tmp_path):
