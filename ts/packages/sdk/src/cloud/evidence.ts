@@ -157,11 +157,14 @@ export class EvidenceClient {
 
   constructor(opts: EvidenceClientOptions = {}) {
     this.apiKey = opts.apiKey ?? process.env.SPONSIO_API_KEY ?? undefined;
-    this.url = (
-      opts.url ??
-      process.env.SPONSIO_API_URL ??
-      "https://app.sponsio.dev"
-    ).replace(/\/+$/, "");
+    // Trailing slashes stripped without a regex. `/\/+$/` backtracks
+    // polynomially on a string of many slashes, and the URL comes from
+    // an env var, so it is not ours to trust about its own shape.
+    let base =
+      opts.url ?? process.env.SPONSIO_API_URL ?? "https://app.sponsio.dev";
+    let end = base.length;
+    while (end > 0 && base.charCodeAt(end - 1) === 47) end -= 1;
+    this.url = base.slice(0, end);
     this.timeoutMs = opts.timeoutMs ?? 10_000;
   }
 

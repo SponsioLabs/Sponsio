@@ -143,3 +143,16 @@ test("no key is an error before any request goes out", async () => {
   await assert.rejects(() => client.verify("x"), /SPONSIO_API_KEY/);
   assert.equal(called, false, "a keyless client must not reach the network");
 });
+
+test("a base url with many trailing slashes does not stall", () => {
+  // CodeQL caught `/\/+$/` here: polynomial backtracking on a string of
+  // slashes, and the url comes from an env var, so its shape is not ours
+  // to assume. Stripping is a linear scan now.
+  const started = Date.now();
+  const client = new EvidenceClient({
+    apiKey: "k",
+    url: "https://a.test" + "/".repeat(200_000),
+  });
+  assert.equal(client.url, "https://a.test");
+  assert.ok(Date.now() - started < 1000, "trailing-slash stripping must stay linear");
+});
