@@ -86,7 +86,7 @@ run = sponsio.bridge.attach(guard)
 
 ## コントラクト ライブラリ
 
-**16 のコントラクト バンドル** が組み込みで提供され、ティア別（always-on / per-tool / per-incident）に整理されています。各バンドルは Sponsio の決定論的パターンから組み合わされた YAML パックです。`sponsio.yaml` に 1 行追加するだけで、エージェントを既知の失敗クラスから守れます。契約を個別に書く必要はありません。
+**22 のコントラクト バンドル** が組み込みで提供され、ティア別（always-on / per-tool / per-incident）に整理されています。各バンドルは Sponsio の決定論的パターンから組み合わされた YAML パックです。`sponsio.yaml` に 1 行追加するだけで、エージェントを既知の失敗クラスから守れます。契約を個別に書く必要はありません。
 
 ```yaml
 # sponsio.yaml: 1 行式バンドル include
@@ -94,12 +94,12 @@ agents:
   my_agent:
     workspace: "/srv/my-bot"
     include:
-      - sponsio:core/universal        # always-on
+      - sponsio:capability/destructive # gate irreversible actions
       - sponsio:capability/shell      # エージェントがコマンドを実行する場合
       - sponsio:capability/filesystem # エージェントがファイルを操作する場合
 ```
 
-[完全なバンドル リファレンス](docs/reference/contract-lib.md)（16 バンドル）または[基盤となる 46 パターン](docs/reference/patterns.md)を参照。あなたのエージェント タイプ向けのバンドルが欲しい場合、これは現時点で最もレバレッジの高い貢献方法です。インシデント / CVE / パターンを添えて [issue を開いてください](https://github.com/SponsioLabs/Sponsio/issues/new)。
+[完全なバンドル リファレンス](docs/reference/contract-lib.md)（22 バンドル）または[基盤となる 48 パターン](docs/reference/patterns.md)を参照。あなたのエージェント タイプ向けのバンドルが欲しい場合、これは現時点で最もレバレッジの高い貢献方法です。インシデント / CVE / パターンを添えて [issue を開いてください](https://github.com/SponsioLabs/Sponsio/issues/new)。
 
 ---
 

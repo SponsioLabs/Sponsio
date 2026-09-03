@@ -1954,15 +1954,37 @@ def config_to_guard_kwargs(
     skipped: list[tuple[str, str]] = []
     for ce in ac.contracts:
         try:
-            entry: dict[str, Any] = {
-                "guarantee": _compile_field(
-                    ce.guarantee, tool_inventory=tool_inventory
-                ),
-            }
-            if ce.assumption is not None:
-                entry["assumption"] = _compile_field(
-                    ce.assumption, tool_inventory=tool_inventory
-                )
+            compiled_g = _compile_field(ce.guarantee, tool_inventory=tool_inventory)
+            # A few factories return an ``(assumption, enforcement)`` pair
+            # rather than one formula, because the rule only means anything
+            # as a pair: ``untrusted_source_gate`` gates sinks *after* a
+            # source fired, and its assumption is what makes it a gate
+            # instead of a blanket ban.
+            #
+            # A yaml author writes it as one entry under ``G:``, which is
+            # what the pattern catalog documents and what the shipped
+            # openclaw pack does. The tuple used to be handed downstream
+            # unrecognised, classified as stochastic, and the guard then
+            # died demanding an evaluator this build does not ship. So the
+            # single most differentiating deterministic pattern could not
+            # be used from a config file at all.
+            if isinstance(compiled_g, tuple) and len(compiled_g) == 2:
+                if ce.assumption is not None:
+                    raise ConfigError(
+                        f"contract {ce.desc or '?'!r}: pattern "
+                        f"'untrusted_source_gate'-style factories supply "
+                        f"their own assumption, so `A:` must be omitted"
+                    )
+                entry: dict[str, Any] = {
+                    "assumption": compiled_g[0],
+                    "guarantee": compiled_g[1],
+                }
+            else:
+                entry = {"guarantee": compiled_g}
+                if ce.assumption is not None:
+                    entry["assumption"] = _compile_field(
+                        ce.assumption, tool_inventory=tool_inventory
+                    )
             if ce.desc:
                 entry["desc"] = ce.desc
             g_entries = (

@@ -85,7 +85,7 @@ run = sponsio.bridge.attach(guard)
 
 ## Contract Library
 
-Sixteen **contract bundles** ship out of the box, organized by tier (always-on / per-tool / per-incident). Each bundle is a YAML pack composed from Sponsio's deterministic patterns. Drop one into `sponsio.yaml` and your agent is guarded against a known failure class in one line, with no per-contract authoring.
+Twenty-two **contract bundles** ship out of the box, organized by tier (always-on / per-tool / per-incident). Each bundle is a YAML pack composed from Sponsio's deterministic patterns. Drop one into `sponsio.yaml` and your agent is guarded against a known failure class in one line, with no per-contract authoring.
 
 ```yaml
 # sponsio.yaml: one-line bundle inclusion
@@ -93,12 +93,12 @@ agents:
   my_agent:
     workspace: "/srv/my-bot"
     include:
-      - sponsio:core/universal        # always-on
+      - sponsio:capability/destructive # gate irreversible actions
       - sponsio:capability/shell      # if your agent runs commands
       - sponsio:capability/filesystem # if your agent touches files
 ```
 
-See the [full bundle reference](docs/reference/contract-lib.md) for all 16 bundles, or the [46 underlying patterns](docs/reference/patterns.md) for the primitives they compose. Want a bundle for your agent type? That is currently the highest-leverage way to contribute. [Open an issue](https://github.com/SponsioLabs/Sponsio/issues/new) with your incident, CVE, or pattern.
+See the [full bundle reference](docs/reference/contract-lib.md) for all 22 bundles, or the [48 underlying patterns](docs/reference/patterns.md) for the primitives they compose. Want a bundle for your agent type? That is currently the highest-leverage way to contribute. [Open an issue](https://github.com/SponsioLabs/Sponsio/issues/new) with your incident, CVE, or pattern.
 
 ---
 

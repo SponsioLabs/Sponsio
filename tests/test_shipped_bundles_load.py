@@ -31,28 +31,8 @@ def _bundle_refs() -> list[str]:
     return refs
 
 
-# Two packs reference LLM-judged patterns (injection_free, jailbreak_free,
-# harmful, toxic_free, semantic_pii_free, scope_respect,
-# hallucination_free) that this deterministic-only build does not ship, so
-# `include:` on them raises ConfigError and the user gets NO rules.
-#
-# openclaw.yaml's own header says "det rules in §1-§8 load and enforce as
-# usual either way". They do not: the loader fails the whole config, not
-# the eight offending contracts, so 37 working deterministic rules are
-# lost with them. The README advertises this pack by name.
-#
-# Left failing on purpose rather than papered over. Making it pass is a
-# decision about security content: either the loader learns to skip a
-# contract explicitly marked as needing an evaluator (a typo must still be
-# fatal, so it needs a marker, not a guess), or the OSS copies of these
-# packs drop those contracts.
-CANNOT_LOAD_WITHOUT_AN_EVALUATOR = {"core/llm_safety", "incident/openclaw"}
-
-
 @pytest.mark.parametrize("ref", _bundle_refs())
 def test_a_shipped_bundle_builds_a_guard(ref: str, tmp_path: Path) -> None:
-    if ref in CANNOT_LOAD_WITHOUT_AN_EVALUATOR:
-        pytest.xfail(f"{ref} needs a StoEvaluator this build does not ship")
     config = tmp_path / "sponsio.yaml"
     # `workspace:` is documented as required for the path-scoping bundles
     # and the loader says so by name when it is missing, which is the

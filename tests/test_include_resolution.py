@@ -157,30 +157,27 @@ class TestIncludeIntoAgent:
             agents:
               bot:
                 include:
-                  - sponsio:core/llm_safety
+                  - sponsio:capability/database
             """,
         )
         cfg = load_config(cfg_path)
         ac = cfg.agents["bot"]
-        # llm_safety.yaml ships 5 sto contracts under '*'; the pin
-        # protects against accidental deletions.  The count dropped
-        # from 6 when scope_respect was moved out (generic default
-        # scope string was an irredeemable source of judge noise —
-        # see the pack file's § Scope block for the rationale and
-        # the per-agent recipe).  These five contracts originally
-        # lived in ``core/universal`` but moved here so the universal
-        # pack stops auto-pulling judge-LLM evaluations.
-        assert len(ac.contracts) == 5
+        # database.yaml ships 6 contracts under '*'; the pin protects
+        # against accidental deletions. This used to point at
+        # core/llm_safety, which was removed: all five of its contracts
+        # named LLM-judged patterns no build resolves, so the pack could
+        # not build a guard in enforce mode.
+        assert len(ac.contracts) == 6
         # Every pulled contract must be source-tagged so overrides:
         # has something to address.
-        assert all(c.pack_source == "sponsio:core/llm_safety" for c in ac.contracts)
+        assert all(c.pack_source == "sponsio:capability/database" for c in ac.contracts)
 
     def test_multiple_packs_concat_in_order(self, tmp_path):
         """When two packs are included, contracts from the first appear
         before contracts from the second.  Stable order is part of the
         contract — overrides: target by index in some configurations.
 
-        Uses llm_safety + capability/shell because both packs are
+        Uses capability/database + capability/shell because both packs are
         non-empty (``core/runaway`` and ``core/universal`` are both
         intentionally empty stubs now — they wouldn't contribute any
         contracts to compare ordering against).
@@ -192,7 +189,7 @@ class TestIncludeIntoAgent:
             agents:
               bot:
                 include:
-                  - sponsio:core/llm_safety
+                  - sponsio:capability/database
                   - sponsio:capability/shell
             """,
         )
@@ -200,10 +197,10 @@ class TestIncludeIntoAgent:
         ac = cfg.agents["bot"]
         sources = [c.pack_source for c in ac.contracts]
         first_shell = sources.index("sponsio:capability/shell")
-        last_llm_safety = (
-            len(sources) - 1 - sources[::-1].index("sponsio:core/llm_safety")
+        last_database = (
+            len(sources) - 1 - sources[::-1].index("sponsio:capability/database")
         )
-        assert last_llm_safety < first_shell
+        assert last_database < first_shell
 
     def test_local_contracts_appended_after_includes(self, tmp_path):
         """Hand-written contracts appear AFTER everything pulled from

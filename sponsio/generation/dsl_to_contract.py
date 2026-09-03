@@ -59,6 +59,7 @@ from sponsio.models.contract import Contract
 from sponsio.patterns.library import (
     DetFormula,
     always_followed_by,
+    approval_active,
     approval_freshness,
     arg_allowlist,
     arg_blacklist,
@@ -83,12 +84,15 @@ from sponsio.patterns.library import (
     idempotent,
     irreversible_once,
     loop_detection,
+    max_length,
     must_confirm,
     must_precede,
     workflow_step,
     mutual_exclusion,
     never_together,
     no_data_leak,
+    no_keywords,
+    no_pii,
     no_reversal,
     rate_limit,
     redirect_to_safe,
@@ -98,6 +102,7 @@ from sponsio.patterns.library import (
     scope_limit,
     segregation_of_duty,
     token_budget,
+    time_since,
     tool_allowlist,
     underdetermined_must_clarify,
     untrusted_source_gate,
@@ -225,6 +230,16 @@ _PATTERN_REGISTRY: dict[str, Callable[..., DetFormula]] = {
     # (``evidence`` events); these only reference the grounded atoms.
     "claim_requires_evidence": claim_requires_evidence,
     "underdetermined_must_clarify": underdetermined_must_clarify,
+    # Response content, and the two time-scoped gates. These reached the
+    # NL parser but never this registry, so `pattern: no_pii` in a yaml
+    # file failed with "Unknown pattern" while the same rule written as an
+    # English sentence compiled. One vocabulary, two doors: a pattern the
+    # catalog documents has to work through both.
+    "max_length": max_length,
+    "no_pii": no_pii,
+    "no_keywords": no_keywords,
+    "approval_active": approval_active,
+    "time_since": time_since,
 }
 
 

@@ -160,78 +160,6 @@ class TestBatchApprovalDocumented:
         )
 
 
-# ---------------------------------------------------------------------------
-# G — beta rationale comments in core/llm_safety.yaml
-# ---------------------------------------------------------------------------
-
-
-class TestLlmSafetyBetaRationale:
-    """Every stochastic contract in llm_safety.yaml gets a one-line
-    rationale comment for its beta value.  The test asserts the
-    aggregate (not each line individually) so future re-tuning
-    can change values without rewriting the test, as long as the
-    rationale stays present.
-
-    History: this used to live in ``core/universal.yaml`` but the
-    five sto contracts moved to ``core/llm_safety.yaml`` so the
-    universal pack stops auto-pulling judge-LLM evaluations for
-    tool-call-only agents."""
-
-    def test_each_beta_has_a_neighbouring_comment(self):
-        """Walk the file, every `beta:` line must have a
-        rationale comment within the 10 lines preceding it.  10 lines
-        accommodates the longest contract (scope_respect — 7 lines
-        between rationale and beta thanks to the multi-line `args:`
-        block) while still being tight enough that an unrelated
-        upstream comment can't satisfy the assertion."""
-        lines = _read_pack("core/llm_safety.yaml").splitlines()
-        beta_lines = [
-            i
-            for i, ln in enumerate(lines)
-            if "beta:" in ln and not ln.lstrip().startswith("#")
-        ]
-        assert beta_lines, "expected llm_safety.yaml to have beta: entries"
-
-        for idx in beta_lines:
-            # Look back for a comment line carrying one of the
-            # rationale keywords ("slip-through" / "missed" / "cost" /
-            # "regulatory" / "safety" — the vocabulary the rationale
-            # comments use).
-            window = lines[max(0, idx - 10) : idx]
-            has_rationale = any(
-                ln.lstrip().startswith("#")
-                and any(
-                    kw in ln.lower()
-                    for kw in (
-                        "slip-through",
-                        "missed",
-                        "cost",
-                        "regulatory",
-                        "safety",
-                        "harm",
-                        "fluid",
-                        "judge-defined",
-                    )
-                )
-                for ln in window
-            )
-            assert has_rationale, (
-                f"beta on line {idx + 1} has no nearby rationale comment.  "
-                f"Window:\n" + "\n".join(window)
-            )
-
-    def test_top_level_beta_doc_block_present(self):
-        """One-time prose at the top of the section explaining what
-        beta means.  Without this, the per-rule rationales lack
-        context — readers see "0.95" without knowing that higher =
-        more aggressive."""
-        text = _read_pack("core/llm_safety.yaml")
-        assert "weights the cost" in text or "missed violation" in text, (
-            "llm_safety.yaml § Adversarial missing the prose explaining what "
-            "beta does — the per-rule comments need that context"
-        )
-
-
 class TestUniversalEmpty:
     """``core/universal`` is now an empty stub — see
     ``sponsio/contracts/core/universal.yaml`` for the rationale.  Pin
@@ -251,7 +179,7 @@ class TestUniversalEmpty:
         cfg = load_config(cfg_path)
         assert cfg.agents["bot"].contracts == [], (
             "core/universal.yaml must remain an empty stub — sto contracts "
-            "moved to core/llm_safety.yaml so the pack can be auto-included "
+            "moved out of the universal pack so it can be auto-included "
             "without forcing judge-LLM calls on tool-call-only agents."
         )
 
@@ -277,12 +205,11 @@ class TestPacksStillLoadAfterFixes:
     #   * ``sponsio:core/runaway`` — intentionally empty (old hard-coded
     #     budget defaults were arbitrary).
     #   * ``sponsio:core/universal`` — also intentionally empty after
-    #     the sto contracts moved to ``core/llm_safety``.  Both have
+    #     the sto contracts were removed with core/llm_safety.  Both have
     #     dedicated empty-load tests below.
     @pytest.mark.parametrize(
         "spec,needs_workspace",
         [
-            ("sponsio:core/llm_safety", False),
             ("sponsio:capability/shell", False),
             ("sponsio:capability/filesystem", True),
             ("sponsio:incident/openclaw", True),
@@ -311,7 +238,7 @@ class TestPacksStillLoadAfterFixes:
 
     def test_universal_pack_loads_empty_without_error(self, tmp_path):
         """``core/universal`` is intentionally empty — the sto
-        contracts that used to live here moved to ``core/llm_safety``.
+        contracts that used to live here went with ``core/llm_safety``.
         Existing user configs that ``include: sponsio:core/universal``
         must keep loading (zero contracts contributed), not error out
         on a missing pack."""
@@ -421,28 +348,6 @@ class TestUsabilityTuning:
                 f"openclaw.yaml §8 rule '{desc_frag}' must gate on "
                 '`A: "called `confirm_reconfirmed`"` to avoid day-1 '
                 "false positives."
-            )
-
-    def test_llm_safety_does_not_ship_scope_respect_as_default(self):
-        """``scope_respect`` is opt-in — a generic default scope string is
-        judge-noise.  The pack may mention it in a recipe comment, but
-        must not emit a contract entry using the pattern.
-
-        History: this assertion used to target ``core/universal.yaml``;
-        the sto contracts have since moved to ``core/llm_safety.yaml``
-        and so does this test."""
-        text = _read_pack("core/llm_safety.yaml")
-        # Pattern token must only appear in comment lines (after #) or
-        # in the recipe block.  A real rule would have it on a YAML
-        # data line (no leading #).
-        for line in text.splitlines():
-            stripped = line.lstrip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            assert "pattern: scope_respect" not in stripped, (
-                "core/llm_safety.yaml must not ship scope_respect as a "
-                "default contract — the generic scope string makes it "
-                "noise on day 1.  Keep it in the commented recipe only."
             )
 
     def test_shell_linecont_regex_requires_privileged_cmd(self):

@@ -86,7 +86,7 @@ run = sponsio.bridge.attach(guard)
 
 ## 合约库
 
-开箱即用的 **16 个合约 bundle**，按层级组织（always-on / per-tool / per-incident）。每个 bundle 是一个 YAML 包，由 Sponsio 的确定性模式组合而成。把它放进 `sponsio.yaml`，一行即可让 Agent 防护一类已知失败，无需逐合约编写。
+开箱即用的 **22 个合约 bundle**，按层级组织（always-on / per-tool / per-incident）。每个 bundle 是一个 YAML 包，由 Sponsio 的确定性模式组合而成。把它放进 `sponsio.yaml`，一行即可让 Agent 防护一类已知失败，无需逐合约编写。
 
 ```yaml
 # sponsio.yaml: 一行式 bundle 引入
@@ -94,12 +94,12 @@ agents:
   my_agent:
     workspace: "/srv/my-bot"
     include:
-      - sponsio:core/universal        # always-on
+      - sponsio:capability/destructive # gate irreversible actions
       - sponsio:capability/shell      # 若 Agent 会执行命令
       - sponsio:capability/filesystem # 若 Agent 会读写文件
 ```
 
-查看[完整 bundle 参考](docs/reference/contract-lib.md)（共 16 个 bundle）或[底层 46 个模式](docs/reference/patterns.md)。想要面向你 Agent 类型的 bundle？这是目前杠杆率最高的贡献方式。带上事件 / CVE / 模式[开 issue](https://github.com/SponsioLabs/Sponsio/issues/new)。
+查看[完整 bundle 参考](docs/reference/contract-lib.md)（共 22 个 bundle）或[底层 48 个模式](docs/reference/patterns.md)。想要面向你 Agent 类型的 bundle？这是目前杠杆率最高的贡献方式。带上事件 / CVE / 模式[开 issue](https://github.com/SponsioLabs/Sponsio/issues/new)。
 
 ---
 
