@@ -5,7 +5,7 @@ description: Sponsio's CLI commands, arguments, and options.
 
 # CLI reference
 
-Every `sponsio` command exits 0 on success and 1 on failure (parse error, violation, missing input). For LLM-backed commands, install the LLM extra: `pip install "sponsio[llm]"`. API keys come from environment variables only.
+Every `sponsio` command exits 0 on success and 1 on failure (parse error, violation, missing input). For LLM-backed commands, install the LLM extra: `pip install --pre "sponsio[llm]"`. API keys come from environment variables only.
 
 ## sponsio scan
 
@@ -271,7 +271,7 @@ Install the `sponsio` Agent Skill into the local Claude Code, Cursor, or Codex s
 sponsio skill install [--force] [--link]
 ```
 
-`--link` symlinks instead of copying, so future `pip install -U sponsio` upgrades the skill in place.
+`--link` symlinks instead of copying, so future `pip install -U --pre sponsio` upgrades the skill in place.
 
 ## sponsio mode
 
