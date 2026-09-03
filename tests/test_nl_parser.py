@@ -471,3 +471,61 @@ class TestPatternCoverageViaNL:
         assert result.pattern_name == expected_pattern, (
             f"Expected {expected_pattern}, got {result.pattern_name} for: {nl!r}"
         )
+
+
+class TestArgBlacklistNamesTheRightField:
+    """Every phrasing the docs and the CLI catalog advertise.
+
+    A blacklist aimed at the wrong field is a rule that parses, arms,
+    prints ACTIVE, and can never fire — the worst shape a bug can take
+    in a product whose job is to stop things. Two of these forms shipped
+    broken in different releases, in opposite directions, so they are
+    pinned together.
+    """
+
+    @pytest.mark.parametrize(
+        "text,tool,field",
+        [
+            # `sponsio patterns` prints this one.
+            ("tool `bash` arg `command` must not contain `rm -rf`", "bash", "command"),
+            # docs/reference/patterns.md prints this one.
+            ("tool `bash` command must not contain `rm -rf`", "bash", "command"),
+            ("`run_sql` query must not contain `DROP`", "run_sql", "query"),
+            ("tool `api` argument `url` must not contain `http://`", "api", "url"),
+            ("tool `db` field `sql` must not contain `DROP`", "db", "sql"),
+        ],
+    )
+    def test_the_field_is_the_one_the_sentence_names(self, text, tool, field):
+        r = parse_nl_rule_based(text)
+        assert r.ok, r.error
+        assert r.pattern_name == "arg_blacklist"
+        assert r.args[0] == tool
+        assert r.args[1] == field
+
+    def test_the_marker_word_is_never_the_field(self):
+        """`arg` in "arg `command`" says the field is next; it is not the
+        field. Reading it as one built arg_field_has(bash, 'arg', ...) —
+        a rule watching an argument nobody sends."""
+        r = parse_nl_rule_based("tool `bash` arg `command` must not contain `rm -rf`")
+        assert r.args[1] != "arg"
+
+    def test_it_actually_blocks(self):
+        import warnings
+
+        import sponsio
+
+        for text in (
+            "tool `bash` arg `command` must not contain `rm -rf`",
+            "tool `bash` command must not contain `rm -rf`",
+        ):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                guard = sponsio.Sponsio(
+                    agent_id="t",
+                    contracts=[text],
+                    mode="enforce",
+                    verbose=False,
+                    init_banner=False,
+                )
+            assert not guard.guard_before("bash", {"command": "rm -rf /"}).allowed, text
+            assert guard.guard_before("bash", {"command": "ls -la"}).allowed, text
