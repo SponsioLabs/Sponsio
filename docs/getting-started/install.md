@@ -96,6 +96,6 @@ Replays a packaged unsafe-agent trajectory locally, no API key, no framework SDK
 
 ## Next
 
-- [Quickstart](quickstart.md): block an unsafe tool call in 60 seconds.
+- [Write your first contract](first-contract.md): block an unsafe tool call in 60 seconds.
 - [First contract](first-contract.md): write a custom contract against your own agent.
 - [Integrations](../integrations/index.md): plug Sponsio into your framework.

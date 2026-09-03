@@ -82,7 +82,7 @@ sponsio init . --apply "framework=langgraph;ides=claude-code:full;mode=observe" 
 sponsio init . --plan "framework=crewai;ides=cursor:skill"                  # dry-run preview
 ```
 
-See [getting-started/quickstart.md](../getting-started/quickstart.md) for the typical interactive flow.
+See [getting-started/first-contract.md](../getting-started/first-contract.md) for the typical interactive flow.
 
 ## sponsio onboard
 

@@ -72,4 +72,4 @@ Each contract carries an `applicability` tag. Treat it as a hint about how much 
 
 - Sponsio's pattern factories: [`sponsio/patterns/library.py`](../../sponsio/patterns/library.py) (`arg_blacklist`, `must_precede`, `rate_limit`, `loop_detection`, `arg_length_limit`, etc.).
 - Capability packs auto-loaded by onboard: [`docs/reference/contract-lib.md`](contract-lib.md).
-- The `sponsio scan` CLI: [`sponsio/cli.py`](../../sponsio/cli.py).
+- The `sponsio scan` CLI: [`sponsio/cli/`](../../sponsio/cli/__init__.py).

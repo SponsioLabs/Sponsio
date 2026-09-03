@@ -149,6 +149,12 @@ jobs:
       - name: Check linting
         run: ruff check sponsio/ tests/ scripts/
 
+      - name: Check documentation links
+        # Two files were renamed and ten references were not, including
+        # the one on the docs home page that is its primary call to
+        # action. Nothing in the build noticed.
+        run: python scripts/check_doc_links.py
+
       - name: Check README/QUICKSTART command sync
         run: |
           # Canonical user-journey commands that must appear in user-facing

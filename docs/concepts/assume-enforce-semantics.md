@@ -151,4 +151,4 @@ The runtime never blocks an agent action for failing to satisfy an assumption; i
 
 ---
 
-**Related:** [Contracts](contracts.md) · [Architecture](architecture.md) · [Formal methods](formal-methods.md) · [Pattern catalog](../reference/patterns.md)
+**Related:** [Pattern catalog](../reference/patterns.md) · [Architecture](architecture.md) · [Formal methods](formal-methods.md) · [Pattern catalog](../reference/patterns.md)

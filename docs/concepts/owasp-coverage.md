@@ -261,5 +261,5 @@ Four mechanisms apply across all ten risks.
 - [OWASP Top 10 for Agentic Applications (2026)](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)
 - [Agentic AI Threats and Mitigations (T01-T17)](https://genai.owasp.org/resource/agentic-ai-threats-and-mitigations/)
 - Pattern catalog: [Patterns](../reference/patterns.md)
-- Contract DSL: [Contracts](contracts.md)
+- Contract DSL: [Pattern catalog](../reference/patterns.md)
 - Contract bundles: [Contract library](../reference/contract-lib.md)

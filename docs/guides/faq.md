@@ -103,7 +103,7 @@ Yes. The eval script is `ODCV-Bench/eval_sponsio.py`; scenarios and replay tooli
 
 ## Reading order
 
-- **New here?** → [README](../../README.md) for the pitch, then [Quickstart](../getting-started/quickstart.md).
+- **New here?** → [README](../../README.md) for the pitch, then [Write your first contract](../getting-started/first-contract.md).
 - **Writing your first contract?** → [First contract](../getting-started/first-contract.md).
 - **Adopting in an existing repo?** → [Onboarding](onboarding.md).
 - **Shipping to production?** → [Observe vs. enforce](observe-vs-enforce.md).

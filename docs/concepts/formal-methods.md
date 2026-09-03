@@ -66,8 +66,8 @@ Formal methods do not magic away every failure mode:
 - Pnueli, *The temporal logic of programs* (1977). Original LTL paper, very readable.
 - Baier & Katoen, *Principles of Model Checking* (2008). Chapters 5–7 cover LTL → automata in depth.
 - [Architecture](architecture.md). How Sponsio's grounding, monitor, and verifier components fit together.
-- [Contracts](contracts.md). The actual atom vocabulary and contract DSL syntax.
+- [Pattern catalog](../reference/patterns.md). The actual atom vocabulary and contract DSL syntax.
 
 ---
 
-**Related:** [Quickstart](../getting-started/quickstart.md) · [Contracts](contracts.md) · [CLI reference](../reference/cli.md) · [Integrations](../integrations/index.md) · [Architecture](architecture.md) · [OWASP coverage](owasp-coverage.md)
+**Related:** [Write your first contract](../getting-started/first-contract.md) · [Pattern catalog](../reference/patterns.md) · [CLI reference](../reference/cli.md) · [Integrations](../integrations/index.md) · [Architecture](architecture.md) · [OWASP coverage](owasp-coverage.md)

@@ -370,7 +370,7 @@ path. We'll acknowledge within 72 hours and coordinate disclosure.
 
 ## What belongs in this repo (and what doesn't)
 
-**Ship with open source:** user-facing guides, contract and architecture reference, and design notes (e.g. [`docs/cost-based-thresholds.md`](docs/cost-based-thresholds.md)).
+**Ship with open source:** user-facing guides, contract and architecture reference, and design notes (e.g. [`docs/concepts/assume-enforce-semantics.md`](docs/concepts/assume-enforce-semantics.md)).
 
 **Keep out of the public tree** (or redact before publishing):
 
