@@ -107,18 +107,30 @@ class EvidenceResult:
 def _normalize_inputs(inputs: Mapping[str, Any] | None) -> dict[str, dict[str, Any]]:
     """Ergonomic input forms -> the wire's tagged shape.
 
-    Accepted per input: ``(value, source)`` tuple/list, or an already
-    wire-shaped ``{"value": ..., "source": ...}`` mapping. Anything
-    without a source tag is rejected here — the server would refuse it
-    anyway (taint rule), and a local error names the input.
+    Accepted per input: ``(value, source)`` tuple/list where ``source``
+    is a string, or an already wire-shaped
+    ``{"value": ..., "source": ...}`` mapping. Anything without a source
+    tag is rejected here — the server would refuse it anyway (taint
+    rule), and a local error names the input.
+
+    The source must be a string for the pair form to apply. Without that
+    check, a two-element list of data was read as a pair:
+    ``{"items": [40, 60]}`` became ``value=40, source="60"``, and the
+    server then refused source ``"60"`` as untrusted — an error naming
+    nothing the caller had written. A list value now needs the explicit
+    form, ``([40, 60], "submitted_output")``.
     """
     wire: dict[str, dict[str, Any]] = {}
     for name, spec in (inputs or {}).items():
         if isinstance(spec, Mapping) and "source" in spec:
             wire[name] = {"value": spec.get("value"), "source": str(spec["source"])}
-        elif isinstance(spec, (tuple, list)) and len(spec) == 2:
+        elif (
+            isinstance(spec, (tuple, list))
+            and len(spec) == 2
+            and isinstance(spec[1], str)
+        ):
             value, source = spec
-            wire[name] = {"value": value, "source": str(source)}
+            wire[name] = {"value": value, "source": source}
         else:
             raise ValueError(
                 f"input {name!r} needs a source tag: pass (value, source) "

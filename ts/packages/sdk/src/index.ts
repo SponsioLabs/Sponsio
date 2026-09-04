@@ -722,15 +722,52 @@ export class Sponsio {
    * violations the same way they branch on ``guardBefore``. In
    * enforce mode, ``blocked: true`` rolls back the synthetic event.
    */
+  /**
+   * Record a claim-verification verdict in the trace and check the
+   * contracts that reference it.
+   *
+   * Grounds `claim_emitted(pred)`, `evidence_verdict(pred, V)` and
+   * `evidence_action(pred, a)` at one timestep, so contracts built from
+   * `claimRequiresEvidence` / `underdeterminedMustClarify` can decide.
+   * No verdict is computed here: the atoms restate what
+   * `/v1/evidence/verify` answered.
+   *
+   * Parity with feeding `EvidenceResult.to_event()` through Python's
+   * trace path.
+   */
+  observeEvidence(
+    predicate: string,
+    verdict: string,
+    action: string,
+  ): CheckResult {
+    return this._checkSynthetic({
+      tool: "",
+      event_type: "evidence",
+      key: predicate,
+      args: { verdict, action },
+    }, `<evidence:${predicate}>`);
+  }
+
   observeResponse(content: string, opts: { segment?: string } = {}): CheckResult {
     const args: Record<string, unknown> = {};
     if (opts.segment) args.segment = opts.segment;
-    const event: ToolEvent = {
-      tool: "",
-      event_type: "llm_response",
-      content,
-      args,
-    };
+    return this._checkSynthetic(
+      { tool: "", event_type: "llm_response", content, args },
+      "<llm_response>",
+    );
+  }
+
+  /**
+   * Check one synthetic (non-tool-call) event against every contract.
+   *
+   * The output lane and the evidence lane both push an event that is not
+   * a tool call and then judge the trace. Sharing the body keeps their
+   * verdicts identical: a second copy is how one lane ends up with a
+   * rollback the other lacks.
+   *
+   * `label` names the subject in violation messages and session logs.
+   */
+  private _checkSynthetic(event: ToolEvent, label: string): CheckResult {
     const snapshot = this._snapshotState();
     const valuation = groundEvent(event, this._state, this._contentAtoms);
     this._trace.push(valuation);
@@ -754,7 +791,7 @@ export class Sponsio {
               : "blocked";
         if (isStoppingAction(action)) anyStopping = true;
         const verb = effMode === "observe" ? "WOULD-BLOCK" : "BLOCKED";
-        const msg = `${verb}: ${this.agentId}.<llm_response> — det constraint violated: ${contract.desc}`;
+        const msg = `${verb}: ${this.agentId}.${label} — det constraint violated: ${contract.desc}`;
         violations.push(msg);
         violatedDescs.push(contract.desc);
         detViolations.push({
@@ -776,7 +813,7 @@ export class Sponsio {
       this._trace.pop();
       this._state = snapshot;
       this._violations.push(...violations);
-      this._logViolations("<llm_response>", violations, violatedDescs, "blocked");
+      this._logViolations(label, violations, violatedDescs, "blocked");
       // `allowed` tracks `blocked` alone, not every stopping outcome:
       // Python computes `not any(action == "blocked")`, so a redirect
       // stays `allowed: true` because the agent flow continues down the
@@ -795,7 +832,7 @@ export class Sponsio {
 
     if (hasViolations) {
       this._violations.push(...violations);
-      this._logViolations("<llm_response>", violations, violatedDescs, "observed");
+      this._logViolations(label, violations, violatedDescs, "observed");
     }
     return {
       ...deriveVerdict(detViolations),
