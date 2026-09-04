@@ -29,7 +29,7 @@ Sponsio 在 Agent 调用工具之前先检查这次调用。一条规则可以�
 
 > **Agent 合约**是一条运行时规则，在每一次 Agent 操作时检查，[由形式化方法支撑](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a13 alpha 已发布。** `pip install --pre sponsio`。原本加载不了的合约包现在能加载了:`include: sponsio:incident/openclaw` 以前直接报错,那 37 条规则一条都上不了膛;另有五个目录里登记过的模式不在配置加载器读的注册表里,导致 `pattern: no_pii` 报错、而同一条规则写成英文句子却能编译。安装徽章漏了 `--pre`,指向的是最后一个稳定版 0.1.1,比这里老得多。见[发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a13)。
+> **v0.2.0a14 alpha 已发布。** `pip install --pre sponsio`,或 `npm install -D @sponsio/sdk@alpha`。这一版是给 TypeScript 的。安装命令以前漏了 `alpha` 标签,装到的是 0.1.0 这个老得多的版本;QUICKSTART 教的 API 会抛异常;打错命令会以 0 退出;`redirect_to_safe` 的判定回来是普通拦截,任何适配器都无从知道该改调哪个工具。证据链(核验 agent 说了什么,而不是做了什么)现在 TypeScript 也能用了。见[发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a14)。
 
 ---
 
