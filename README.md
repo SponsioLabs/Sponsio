@@ -28,7 +28,7 @@ Sponsio checks an agent's tool calls before they run. A rule can look at what al
 
 > An **agent contract** is a runtime rule that is checked at every agent action, [backed by formal methods](docs/concepts/formal-methods.md).
 
-> **v0.2.0a13 alpha is out.** `pip install --pre sponsio`. Bundles that could not load now load: `include: sponsio:incident/openclaw` raised instead of arming its 37 rules, and five patterns the catalog documents were missing from the registry the config loader reads, so `pattern: no_pii` failed while the same rule in English compiled. The install badge left out `--pre`, so it pointed at the last stable release, 0.1.1, which is much older. See the [release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a13).
+> **v0.2.0a14 alpha is out.** `pip install --pre sponsio`, or `npm install -D @sponsio/sdk@alpha`. This one is for TypeScript. the install line used to leave out the `alpha` tag, so it resolved to 0.1.0, a much older release; QUICKSTART taught an API that threw; a mistyped command exited 0; and a `redirect_to_safe` verdict came back as a plain block, so no adapter could learn which tool to call instead. The evidence lane, which checks what an agent says rather than what it does, now works from TypeScript too. See the [release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a14).
 
 ---
 

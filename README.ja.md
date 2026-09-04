@@ -29,7 +29,7 @@ Sponsio はエージェントがツールを呼ぶ前に、その呼び出しを
 
 > **エージェント契約** とは、エージェントのすべてのアクションでチェックされるランタイムルールであり、[形式手法に裏打ちされています](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a13 alpha リリース。** `pip install --pre sponsio`。読み込めなかったバンドルが読み込めるようになりました。`include: sponsio:incident/openclaw` はエラーになり、37 本のルールが 1 本も有効になりませんでした。カタログに載っている 5 つのパターンが設定ローダーの参照するレジストリから漏れていて、`pattern: no_pii` は失敗する一方で同じルールを英文で書くとコンパイルできる状態でした。インストール バッジに `--pre` が抜けていて、最後の安定版 0.1.1 を指していました。ここより遥かに古いものです。[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a13)を参照。
+> **v0.2.0a14 alpha リリース。** `pip install --pre sponsio`、または `npm install -D @sponsio/sdk@alpha`。今回は TypeScript 向けです。インストール行に `alpha` タグが抜けていて、遥かに古い 0.1.0 を取得していました。QUICKSTART が教える API は例外を投げ、コマンドを打ち間違えても終了コードは 0 で、`redirect_to_safe` の判定は単なるブロックとして返るため、どのツールを代わりに呼ぶかをアダプタが知る術がありませんでした。エージェントの「言ったこと」を検証するエビデンス レーンも TypeScript から使えるようになりました。[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a14)を参照。
 
 ---
 

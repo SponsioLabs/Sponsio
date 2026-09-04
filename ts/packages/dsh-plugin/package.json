@@ -29,7 +29,7 @@
     "@deepseek-ai/schemastery": ">=3"
   },
   "dependencies": {
-    "@sponsio/sdk": "^0.2.0-alpha.4"
+    "@sponsio/sdk": "^0.2.0-alpha.5"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4",
