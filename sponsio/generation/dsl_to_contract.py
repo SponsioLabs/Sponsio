@@ -1884,7 +1884,16 @@ def parse_dsl(expr: str) -> ParsedConstraint:
     if pattern_name == "no_reversal" and len(actions) >= 2:
         _lower = text.lower()
         if re.search(
-            r"must not follow|should not follow|not allowed after|forbidden after|prohibited after|never after",
+            r"must not follow|should not follow|not allowed after|forbidden after"
+            r"|prohibited after|never after"
+            # "never `A` after `B`" and its two siblings put the
+            # contradiction first as well, and matched none of the
+            # spellings above because the negation word is separated from
+            # "after" by the action itself. Without them the rule compiled
+            # to its own mirror image: "never `export_phi` after
+            # `share_record`" permitted exactly the order it names and
+            # blocked the harmless one, while the console reported ARMED.
+            r"|^(?:never|cannot|can\s*not|must\s+not)\b(?=.*\bafter\b)",
             _lower,
         ) or _forbidden_action_comes_first(_lower, actions[0], actions[1]):
             actions = [actions[1], actions[0]] + actions[2:]

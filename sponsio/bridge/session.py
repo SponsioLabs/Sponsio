@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from sponsio.bridge import privacy as _privacy
 from sponsio.bridge.spans import (
     STOPPING_ACTIONS,
     args_preview,
@@ -150,9 +151,14 @@ class BridgeSession:
         contracts: list[dict] | None = None,
         agents: list[dict | str] | None = None,
         runs_dir: str | Path | None = None,
+        privacy: str | None = None,
     ) -> None:
         self.guard = guard
         self.project = project
+        # What may leave this machine. Enforcement already happened here,
+        # so this only ever narrows what the console can show, never what
+        # the runtime can check.
+        self.privacy = _privacy.resolve(privacy)
         # The server keys a run by this id and upserts, so two runs sharing
         # one id silently become one: the older is overwritten with no error.
         # The old id was 32 bits derived from id(guard) and the clock, which
@@ -271,7 +277,9 @@ class BridgeSession:
             "spanId": f"{idx:016x}",
             "type": type,
             "tool": tool,
-            "argsPreview": args_preview(args),
+            "argsPreview": _privacy.preview(
+                args, self.privacy, full_preview=args_preview(args)
+            ),
             "durationMs": round(float(turn.get("duration_ms", 0.0) or 0.0), 2),
             "status": status,
         }
@@ -296,6 +304,11 @@ class BridgeSession:
 
     def note(self, agent: str, text: str, type: str = "message") -> dict:
         idx = len(self.steps)
+        if not _privacy.keeps_step(type, self.privacy):
+            # The action lane only: the delegation edge itself is still
+            # drawn (see _edge), but its label is a sentence and stays.
+            self._ensure_agent(agent)
+            return {"type": type, "agentId": agent, "dropped": self.privacy}
         step = {
             "id": f"s{idx}",
             "ts": idx,
@@ -305,7 +318,7 @@ class BridgeSession:
             "spanId": f"{idx:016x}",
             "type": type,
             "tool": text.split(":")[0].strip() or type,
-            "argsPreview": text,
+            "argsPreview": _privacy.say(text, self.privacy),
             "durationMs": 1.0,
             "status": "ok",
         }
@@ -333,6 +346,8 @@ class BridgeSession:
         """
         claims_in = list(getattr(result, "evidence_claims", None) or [])
         if not claims_in:
+            return None
+        if not _privacy.keeps_step("assistant_output", self.privacy):
             return None
 
         claims: list[dict] = []
@@ -381,8 +396,11 @@ class BridgeSession:
             "status": "mismatch"
             if any(c["verdict"] == "MISMATCH" for c in claims)
             else "ok",
-            "say": _say_of(response),
-            "output": {"checked": len(claims), "claims": claims},
+            "say": _privacy.say(_say_of(response), self.privacy),
+            "output": {
+                "checked": len(claims),
+                "claims": _privacy.claims(claims, self.privacy),
+            },
         }
         self.steps.append(step)
         self._ensure_agent(agent_id)
@@ -438,6 +456,9 @@ class BridgeSession:
             "steps": list(self.steps),
             "contracts": list(self.contracts.values()),
             "summary": self.summary(),
+            # So a reader can tell "the agent passed no arguments" from
+            # "this deployment does not send them".
+            "privacy": _privacy.describe(self.privacy),
         }
         # Which book this run enforced, when the config came from the cloud.
         # Absent for a local file, and absent is honest: a fabricated version
@@ -576,6 +597,7 @@ def attach(
     contracts: list[dict] | None = None,
     agents: list[dict | str] | None = None,
     runs_dir: str | Path | None = None,
+    privacy: str | None = None,
 ) -> BridgeSession:
     """Stream ``guard``'s run to a console.
 
@@ -591,7 +613,9 @@ def attach(
         contracts=contracts,
         agents=agents,
         runs_dir=runs_dir,
+        privacy=privacy,
     )
+    _privacy.refuse_evidence_under_tool_calls(guard, session.privacy)
     if auto:
         original = guard.guard_before
 

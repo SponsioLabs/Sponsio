@@ -97,6 +97,11 @@ def violations_from_turn(
             "evidence": violation.get("evidence", ""),
             "reason": meta.get("reason", label),
         }
+        # Carried from the contract row so a violation is identified by the
+        # pattern that fired, not only by the sentence someone wrote.
+        if meta.get("pattern"):
+            entry["pattern"] = meta["pattern"]
+            entry["args"] = meta.get("args", [])
         # The safe tool that ran instead — only when there was one.
         if enforcement.get("redirect_to"):
             entry["enforcement"]["redirectTo"] = enforcement["redirect_to"]
