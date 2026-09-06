@@ -18,13 +18,25 @@ crosses the boundary:
               arguments still look the same, which is what duplicate and
               loop detection read, while the arguments themselves do not
               leave
-``metadata``  no arguments at all, and no model output text
+``metadata``  no arguments at all, and no model output text: the model
+              turn is still recorded, with its claim verdicts, but the
+              values those claims were checked against and any corrected
+              wording stay behind
+``tool_calls`` the action lane only. Tool name, order and verdict. No
+              model turns, no claim verdicts, no delegation notes. This is
+              the level a customer means by "only send us the tool calls"
 
 A platform whose customers are in healthcare or finance can run
-``metadata`` and still get every finding the cloud derives, because a
-deterministic finding is a statement about which tools ran in which
-order, and none of the four levels changes that. The cost is evidence
+``metadata`` or ``tool_calls`` and still get every deterministic finding
+the cloud derives, because such a finding is a statement about which
+tools ran in which order, and no level changes that. The cost is evidence
 detail in the dashboard, and nothing else.
+
+One thing no level can do is make cloud claim verification content-free:
+verifying a claim means sending the claim. ``tool_calls`` therefore
+refuses to coexist with an evidence configuration, at guard construction
+and again at attach, rather than quietly uploading through a side door
+the bridge does not own.
 
 Set it with ``SPONSIO_PRIVACY`` or ``bridge.attach(..., privacy="shape")``.
 The environment variable wins, so an operator can tighten a deployment
@@ -38,7 +50,8 @@ import json
 import os
 from typing import Any
 
-LEVELS = ("full", "shape", "hashed", "metadata")
+LEVELS = ("full", "shape", "hashed", "metadata", "tool_calls")
+STRICTEST = LEVELS[-1]
 DEFAULT = "full"
 
 
@@ -54,8 +67,8 @@ def resolve(explicit: str | None = None) -> str:
     if env:
         # An unrecognised value is far more likely to be a typo in a
         # deployment that meant to tighten than a request to loosen, so
-        # it fails closed rather than silently sending everything.
-        return "metadata"
+        # it fails closed, to the strictest level there is.
+        return STRICTEST
     if explicit in LEVELS:
         return explicit
     return DEFAULT
@@ -132,9 +145,40 @@ def say(text: str, level: str) -> str:
     is what it was. A response is the most content-bearing field in the
     payload, so it moves one level earlier than arguments do.
     """
-    if level == "metadata":
+    if level in ("metadata", "tool_calls"):
         return ""
     return text
+
+
+def keeps_step(step_type: str, level: str) -> bool:
+    """Whether a step of this type is recorded at all at ``level``.
+
+    Only ``tool_calls`` drops whole steps. Every other level keeps the
+    shape of the run and empties fields; this one keeps only the action
+    lane, because that is what the customer asked for by name.
+    """
+    if level == "tool_calls":
+        return step_type == "tool_call"
+    return True
+
+
+def claims(rows: list, level: str) -> list:
+    """Claim verdicts as ``level`` allows them to leave.
+
+    A verdict (MISMATCH, VERIFIED) is metadata. The authoritative value
+    the claim was checked against and the corrected sentence are content,
+    and at ``metadata`` they go the same way arguments do. ``tool_calls``
+    never reaches here: the whole output step is dropped first.
+    """
+    if level in ("full", "shape", "hashed"):
+        return rows
+    out = []
+    for row in rows:
+        kept = dict(row)
+        kept["evidence"] = ""
+        kept["fix"] = ""
+        out.append(kept)
+    return out
 
 
 def describe(level: str) -> dict[str, Any]:
@@ -149,5 +193,33 @@ def describe(level: str) -> dict[str, Any]:
         "level": level,
         "sendsArguments": level == "full",
         "sendsArgumentShapes": level in ("full", "shape"),
-        "sendsOutputText": level != "metadata",
+        "sendsOutputText": level in ("full", "shape", "hashed"),
+        "sendsClaimValues": level in ("full", "shape", "hashed"),
+        "sendsOutputLane": level != "tool_calls",
     }
+
+
+class PrivacyConflict(ValueError):
+    """A configuration that cannot keep the promise its privacy level makes."""
+
+
+def refuse_evidence_under_tool_calls(guard: Any, level: str) -> None:
+    """``tool_calls`` and cloud claim verification cannot both be true.
+
+    Verification sends the claim's value and text to the cloud; that is
+    what verifying means. A deployment that asked for tool calls only and
+    also configured evidence has asked for two incompatible things, and
+    the right answer is to say so before the first run, not to honour one
+    silently. Called at guard construction (environment level) and at
+    attach (resolved level), so neither path can slip past the other.
+    """
+    if level != "tool_calls":
+        return
+    if getattr(guard, "_evidence_config", None) is None:
+        return
+    raise PrivacyConflict(
+        "SPONSIO_PRIVACY=tool_calls sends only tool calls, but this guard has "
+        "an evidence configuration, and verifying a claim means sending its "
+        "value to the cloud. Remove the evidence section or choose "
+        "SPONSIO_PRIVACY=metadata."
+    )

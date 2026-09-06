@@ -34,7 +34,9 @@ SPELLINGS = [
 
 
 def _stops(rule: str, script: list[str]) -> list[bool]:
-    guard = sponsio.Sponsio(agent_id="t", contracts=[rule], mode="enforce", verbose=False)
+    guard = sponsio.Sponsio(
+        agent_id="t", contracts=[rule], mode="enforce", verbose=False
+    )
     return [not guard.guard_before(tool, {}).allowed for tool in script]
 
 

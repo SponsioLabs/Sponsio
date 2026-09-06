@@ -304,6 +304,11 @@ class BridgeSession:
 
     def note(self, agent: str, text: str, type: str = "message") -> dict:
         idx = len(self.steps)
+        if not _privacy.keeps_step(type, self.privacy):
+            # The action lane only: the delegation edge itself is still
+            # drawn (see _edge), but its label is a sentence and stays.
+            self._ensure_agent(agent)
+            return {"type": type, "agentId": agent, "dropped": self.privacy}
         step = {
             "id": f"s{idx}",
             "ts": idx,
@@ -341,6 +346,8 @@ class BridgeSession:
         """
         claims_in = list(getattr(result, "evidence_claims", None) or [])
         if not claims_in:
+            return None
+        if not _privacy.keeps_step("assistant_output", self.privacy):
             return None
 
         claims: list[dict] = []
@@ -390,7 +397,10 @@ class BridgeSession:
             if any(c["verdict"] == "MISMATCH" for c in claims)
             else "ok",
             "say": _privacy.say(_say_of(response), self.privacy),
-            "output": {"checked": len(claims), "claims": claims},
+            "output": {
+                "checked": len(claims),
+                "claims": _privacy.claims(claims, self.privacy),
+            },
         }
         self.steps.append(step)
         self._ensure_agent(agent_id)
@@ -605,6 +615,7 @@ def attach(
         runs_dir=runs_dir,
         privacy=privacy,
     )
+    _privacy.refuse_evidence_under_tool_calls(guard, session.privacy)
     if auto:
         original = guard.guard_before
 

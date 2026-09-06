@@ -891,6 +891,13 @@ class BaseGuard:
             from sponsio.integrations.evidence_middleware import EvidenceConfig
 
             self._evidence_config = EvidenceConfig.from_value(evidence)
+            # A deployment that asked for tool calls only cannot also
+            # verify claims in the cloud: the check happens here, once,
+            # against the operator's environment, so the contradiction
+            # surfaces at construction and not on the first model turn.
+            from sponsio.bridge import privacy as _privacy
+
+            _privacy.refuse_evidence_under_tool_calls(self, _privacy.resolve(None))
 
         # --- Shadow-mode session logger ---
         # Always attach the JSONL logger in observe mode so users have a

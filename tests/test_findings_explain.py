@@ -46,7 +46,9 @@ def test_the_table_invents_no_patterns():
 def test_forthcoming_entries_are_still_forthcoming():
     """Once the library has the pattern, the allowance above is stale."""
     landed = sorted(FORTHCOMING & library_patterns())
-    assert not landed, f"drop these from FORTHCOMING, the library has them now: {landed}"
+    assert not landed, (
+        f"drop these from FORTHCOMING, the library has them now: {landed}"
+    )
 
 
 def test_an_unknown_pattern_still_explains_itself():
