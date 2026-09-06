@@ -29,7 +29,7 @@ Sponsio はエージェントがツールを呼ぶ前に、その呼び出しを
 
 > **エージェント契約** とは、エージェントのすべてのアクションでチェックされるランタイムルールであり、[形式手法に裏打ちされています](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a14 alpha リリース。** `pip install --pre sponsio`、または `npm install -D @sponsio/sdk@alpha`。今回は TypeScript 向けです。インストール行に `alpha` タグが抜けていて、遥かに古い 0.1.0 を取得していました。QUICKSTART が教える API は例外を投げ、コマンドを打ち間違えても終了コードは 0 で、`redirect_to_safe` の判定は単なるブロックとして返るため、どのツールを代わりに呼ぶかをアダプタが知る術がありませんでした。エージェントの「言ったこと」を検証するエビデンス レーンも TypeScript から使えるようになりました。[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a14)を参照。
+> **v0.2.0a15 alpha リリース。** `pip install --pre sponsio`。`SPONSIO_PRIVACY=tool_calls` はツール呼び出しだけを送ります。名前、順序、判定のみで、引数もモデル出力もクレーム内容も含みません。`full` との間にはさらに 4 段階あり、判定はどの段階でも同一です(実行はマシンから出ていないため)。violation は発火した pattern を持つようになり、すべての pattern がルールを書いていない人向けに平易な言葉で自身を説明できます。挙動が変わる修正が 1 件:`` never `A` after `B` ``(および `cannot` / `must not` の書き方)は鏡像にコンパイルされていましたが、書かれた通りの順序を禁止するようになりました。[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a15)を参照。
 
 ---
 

@@ -29,7 +29,7 @@ Sponsio 在 Agent 调用工具之前先检查这次调用。一条规则可以�
 
 > **Agent 合约**是一条运行时规则，在每一次 Agent 操作时检查，[由形式化方法支撑](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a14 alpha 已发布。** `pip install --pre sponsio`,或 `npm install -D @sponsio/sdk@alpha`。这一版是给 TypeScript 的。安装命令以前漏了 `alpha` 标签,装到的是 0.1.0 这个老得多的版本;QUICKSTART 教的 API 会抛异常;打错命令会以 0 退出;`redirect_to_safe` 的判定回来是普通拦截,任何适配器都无从知道该改调哪个工具。证据链(核验 agent 说了什么,而不是做了什么)现在 TypeScript 也能用了。见[发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a14)。
+> **v0.2.0a15 alpha 已发布。** `pip install --pre sponsio`。`SPONSIO_PRIVACY=tool_calls` 只上传 tool call:名字、顺序和判定,不带参数、不带模型输出、不带 claim 内容;它和 `full` 之间还有四档,而且每一档的判定结果完全一样,因为执行本来就没离开过机器。violation 现在带着触发它的 pattern,每个 pattern 都能用一句人话解释自己,给没写过这条规则的人看。一处修复会改变行为:`` never `A` after `B` ``(以及 `cannot` / `must not` 写法)以前编译成了自己的镜像,现在禁止的是它字面说的那个顺序。见[发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a15)。
 
 ---
 
