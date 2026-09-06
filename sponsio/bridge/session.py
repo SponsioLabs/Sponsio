@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from sponsio.bridge import privacy as _privacy
 from sponsio.bridge.spans import (
     STOPPING_ACTIONS,
     args_preview,
@@ -150,9 +151,14 @@ class BridgeSession:
         contracts: list[dict] | None = None,
         agents: list[dict | str] | None = None,
         runs_dir: str | Path | None = None,
+        privacy: str | None = None,
     ) -> None:
         self.guard = guard
         self.project = project
+        # What may leave this machine. Enforcement already happened here,
+        # so this only ever narrows what the console can show, never what
+        # the runtime can check.
+        self.privacy = _privacy.resolve(privacy)
         # The server keys a run by this id and upserts, so two runs sharing
         # one id silently become one: the older is overwritten with no error.
         # The old id was 32 bits derived from id(guard) and the clock, which
@@ -271,7 +277,9 @@ class BridgeSession:
             "spanId": f"{idx:016x}",
             "type": type,
             "tool": tool,
-            "argsPreview": args_preview(args),
+            "argsPreview": _privacy.preview(
+                args, self.privacy, full_preview=args_preview(args)
+            ),
             "durationMs": round(float(turn.get("duration_ms", 0.0) or 0.0), 2),
             "status": status,
         }
@@ -305,7 +313,7 @@ class BridgeSession:
             "spanId": f"{idx:016x}",
             "type": type,
             "tool": text.split(":")[0].strip() or type,
-            "argsPreview": text,
+            "argsPreview": _privacy.say(text, self.privacy),
             "durationMs": 1.0,
             "status": "ok",
         }
@@ -381,7 +389,7 @@ class BridgeSession:
             "status": "mismatch"
             if any(c["verdict"] == "MISMATCH" for c in claims)
             else "ok",
-            "say": _say_of(response),
+            "say": _privacy.say(_say_of(response), self.privacy),
             "output": {"checked": len(claims), "claims": claims},
         }
         self.steps.append(step)
@@ -438,6 +446,9 @@ class BridgeSession:
             "steps": list(self.steps),
             "contracts": list(self.contracts.values()),
             "summary": self.summary(),
+            # So a reader can tell "the agent passed no arguments" from
+            # "this deployment does not send them".
+            "privacy": _privacy.describe(self.privacy),
         }
         # Which book this run enforced, when the config came from the cloud.
         # Absent for a local file, and absent is honest: a fabricated version
@@ -576,6 +587,7 @@ def attach(
     contracts: list[dict] | None = None,
     agents: list[dict | str] | None = None,
     runs_dir: str | Path | None = None,
+    privacy: str | None = None,
 ) -> BridgeSession:
     """Stream ``guard``'s run to a console.
 
@@ -591,6 +603,7 @@ def attach(
         contracts=contracts,
         agents=agents,
         runs_dir=runs_dir,
+        privacy=privacy,
     )
     if auto:
         original = guard.guard_before
