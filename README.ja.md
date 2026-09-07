@@ -29,7 +29,7 @@ Sponsio はエージェントがツールを呼ぶ前に、その呼び出しを
 
 > **エージェント契約** とは、エージェントのすべてのアクションでチェックされるランタイムルールであり、[形式手法に裏打ちされています](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a15 alpha リリース。** `pip install --pre sponsio`。`SPONSIO_PRIVACY=tool_calls` はツール呼び出しだけを送ります。名前、順序、判定のみで、引数もモデル出力もクレーム内容も含みません。`full` との間にはさらに 4 段階あり、判定はどの段階でも同一です(実行はマシンから出ていないため)。violation は発火した pattern を持つようになり、すべての pattern がルールを書いていない人向けに平易な言葉で自身を説明できます。挙動が変わる修正が 1 件:`` never `A` after `B` ``(および `cannot` / `must not` の書き方)は鏡像にコンパイルされていましたが、書かれた通りの順序を禁止するようになりました。[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a15)を参照。
+> **v0.2.0a16 alpha リリース。** `pip install --pre sponsio`。今回は自社の顧客向けにエージェントを運用するプラットフォーム向けです。`SPONSIO_PROJECT` が実行の帰属先の顧客を示すため、顧客ごとの鍵はコード変更なしで動き、顧客を取り違えることもありません。これまでは `attach()` が常に `default` を名乗り、単一顧客に限定した鍵は拒否されたため、正しく配線した環境からも実行が届きませんでした。OTLP エクスポータも `SPONSIO_PRIVACY` に従うようになり、どちらの経路でも設定した水準がそのまま機外に出る水準になります。[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a16)。
 
 ---
 

@@ -29,7 +29,7 @@ Sponsio 在 Agent 调用工具之前先检查这次调用。一条规则可以�
 
 > **Agent 合约**是一条运行时规则，在每一次 Agent 操作时检查，[由形式化方法支撑](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a15 alpha 已发布。** `pip install --pre sponsio`。`SPONSIO_PRIVACY=tool_calls` 只上传 tool call:名字、顺序和判定,不带参数、不带模型输出、不带 claim 内容;它和 `full` 之间还有四档,而且每一档的判定结果完全一样,因为执行本来就没离开过机器。violation 现在带着触发它的 pattern,每个 pattern 都能用一句人话解释自己,给没写过这条规则的人看。一处修复会改变行为:`` never `A` after `B` ``(以及 `cannot` / `must not` 写法)以前编译成了自己的镜像,现在禁止的是它字面说的那个顺序。见[发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a15)。
+> **v0.2.0a16 alpha 已发布。** `pip install --pre sponsio`。这一版是给「替自己的客户跑 agent」的平台用的。`SPONSIO_PROJECT` 指明一次 run 属于哪个客户,所以按客户发的 key 不需要改代码,也不会指错客户:在这之前 `attach()` 一律声称 `default`,而锁定单个客户的 key 会被拒,结果是接线完全正确的部署一条 run 都传不上来。OTLP 导出器现在也遵守 `SPONSIO_PRIVACY`,两条通路上你设的级别就是真正离开这台机器的级别。详见[发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a16)。
 
 ---
 
