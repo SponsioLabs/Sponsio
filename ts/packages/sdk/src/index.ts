@@ -44,6 +44,13 @@ import {
   SpanCollector,
 } from "./core/spans.js";
 import { renderSession } from "./render/session-view.js";
+import { CloudClient, readProject } from "./cloud/client.js";
+import * as privacy from "./cloud/privacy.js";
+import {
+  buildViewModel,
+  newSessionId,
+  type RunSpan,
+} from "./cloud/view-model.js";
 import type { DetFormula } from "./core/patterns.js";
 import type {
   JudgeClient,
@@ -74,6 +81,18 @@ export type {
 } from "./core/session-log.js";
 export { contract, ContractBuilder } from "./contract.js";
 export { parseScore, CloudFeatureError } from "./core/sto.js";
+export {
+  CloudClient,
+  CloudError,
+  readApiKey,
+  readProject,
+  baseUrl,
+} from "./cloud/client.js";
+export type { PulledRulebook, CloudClientOptions } from "./cloud/client.js";
+export { LEVELS as PRIVACY_LEVELS } from "./cloud/privacy.js";
+export type { PrivacyLevel } from "./cloud/privacy.js";
+export { buildViewModel, newSessionId } from "./cloud/view-model.js";
+export type { RunSpan, ViewModelInput } from "./cloud/view-model.js";
 export type {
   StoEvaluator,
   StoContract,
@@ -350,6 +369,14 @@ export class Sponsio {
   private _violations: string[];
   private _logger: SessionLogger | null;
   private _turnSpans: AgentTurnSpan[] = [];
+  // The same turns with the violations they produced, which the span
+  // tree does not carry in a form the cloud can read: it records that a
+  // contract was violated, not which pattern and arguments, and the
+  // cloud groups findings by exactly those.
+  private _runSpans: RunSpan[] = [];
+  private _sessionId = newSessionId();
+  private _startedAt = Date.now();
+  private _rulebookStamp: string | undefined;
 
   constructor(options: SponsoOptions = {}) {
     this.agentId = options.agentId ?? "agent";
@@ -567,9 +594,13 @@ export class Sponsio {
 
     const hasViolations = violations.length > 0;
     const stopping = anyStopping;
-    this._turnSpans.push(
-      collector.finishRoot(stopping, this._contracts.length, violations.length),
+    const turn = collector.finishRoot(
+      stopping,
+      this._contracts.length,
+      violations.length,
     );
+    this._turnSpans.push(turn);
+    this._runSpans.push({ span: turn, violations: [...detViolations] });
 
     if (stopping) {
       this._trace.pop();
@@ -629,6 +660,65 @@ export class Sponsio {
   /** Drop accumulated turn spans (used between sessions in tests). */
   resetSession(): void {
     this._turnSpans = [];
+    this._runSpans = [];
+    this._sessionId = newSessionId();
+    this._startedAt = Date.now();
+  }
+
+  /**
+   * This run, in the shape the cloud stores.
+   *
+   * Exposed so a caller can see exactly what would be uploaded before
+   * uploading anything, which is the question a customer under a data
+   * agreement asks first.
+   */
+  viewModel(): Record<string, unknown> {
+    return buildViewModel({
+      agentId: this.agentId,
+      mode: this.mode,
+      sessionId: this._sessionId,
+      startedAt: this._startedAt,
+      contracts: this._contracts,
+      spans: this._runSpans,
+      privacyLevel: privacy.resolve(),
+      ...(this._rulebookStamp === undefined
+        ? {}
+        : { rulebookStamp: this._rulebookStamp }),
+    });
+  }
+
+  /**
+   * Upload this run.
+   *
+   * Best-effort by construction: it resolves false rather than throwing,
+   * because losing telemetry must never change what an agent does, and a
+   * rejected upload at the end of a run is not a reason to fail the run.
+   * Silent only about the network; a misconfiguration is worth saying
+   * once, since the symptom otherwise is a customer with no runs and no
+   * explanation.
+   */
+  async uploadSession(
+    opts: { project?: string | null; client?: CloudClient } = {},
+  ): Promise<boolean> {
+    const client = opts.client ?? new CloudClient();
+    if (!client.configured) return false;
+    // A per-customer key resolves to its own project and must not name
+    // another, so passing nothing is both correct and safest here.
+    const project = opts.project === undefined ? readProject() : opts.project;
+    try {
+      await client.ingestSession(project ?? null, {
+        key: this._sessionId,
+        live: false,
+        vm: this.viewModel(),
+      });
+      return true;
+    } catch (err) {
+      if ((process.env.SPONSIO_QUIET ?? "") !== "1") {
+        const msg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`sponsio: run not uploaded (${msg})\n`);
+      }
+      return false;
+    }
   }
 
   /**
@@ -808,6 +898,22 @@ export class Sponsio {
 
     const hasViolations = violations.length > 0;
     const stopping = anyStopping;
+
+    // The output lane builds no span tree, so without this a rule that
+    // fires on what the model said was enforced locally and never
+    // uploaded: at `full` a TypeScript run showed half the run a Python
+    // one showed. A bare turn is enough for the cloud, which reads the
+    // step's type, tool and verdict and not the tree under it.
+    const outTurn = new AgentTurnSpan(this.agentId, label);
+    outTurn.totalContractsChecked = this._contracts.length;
+    outTurn.detViolations = violations.length;
+    outTurn.blocked = stopping;
+    outTurn.finish(hasViolations ? "violated" : "ok");
+    this._runSpans.push({
+      span: outTurn,
+      violations: [...detViolations],
+      type: "output",
+    });
 
     if (stopping) {
       this._trace.pop();
