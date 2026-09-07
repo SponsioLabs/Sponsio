@@ -1,0 +1,65 @@
+name: Publish @sponsio/sdk to npm
+
+# The Python SDK has published itself since 0.1.0 and the TypeScript one
+# never has: every release was a person remembering to run `npm publish`
+# from a laptop, and 0.2.0-alpha.5 shows what that costs — bumped in the
+# repo, named in the release notes, never actually published, so `npm
+# install @sponsio/sdk@alpha` kept serving alpha.4 for two releases.
+#
+# Trigger it by hand. The TypeScript SDK does not move in lockstep with
+# the Python one, so tying this to the Python release tag would publish
+# an unchanged package most of the time.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "npm dist-tag (alpha for a prerelease, latest for a stable)"
+        required: true
+        default: "alpha"
+        type: choice
+        options: ["alpha", "latest"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Build, test and publish
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      # Provenance: npm records which workflow, commit and repository
+      # produced the tarball, so an install can be traced to a build.
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install + build
+        working-directory: ts
+        run: npm install && npm run build
+
+      # Publishing an SDK whose own suite is red is how a broken parser
+      # reaches somebody's agent.
+      - name: Test
+        working-directory: ts/packages/sdk
+        run: npm test
+
+      - name: Check the NL parser against Python's
+        run: |
+          python -m pip install -e . --quiet
+          node scripts/check_nl_parity.mjs
+
+      - name: Publish
+        working-directory: ts/packages/sdk
+        run: npm publish --provenance --access public --tag "${{ inputs.tag }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
