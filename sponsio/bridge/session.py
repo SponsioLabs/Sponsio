@@ -590,7 +590,7 @@ class BridgeSession:
 def attach(
     guard: Any,
     *,
-    project: str = "default",
+    project: str | None = None,
     auto: bool = True,
     session_id: str | None = None,
     client: Any = None,
@@ -601,10 +601,22 @@ def attach(
 ) -> BridgeSession:
     """Stream ``guard``'s run to a console.
 
+    ``project`` is which space the run belongs to. Left out, it comes from
+    ``SPONSIO_PROJECT``, then falls back to ``default`` — so a platform
+    running the same agent for many customers ships one image and varies
+    only the environment.
+
     With ``auto=True`` every ``guard_before`` becomes a step. Turn it off for
     multi-agent runs where each step needs attributing to an agent and the
     delegation edges have to be drawn by hand.
     """
+    # An explicit argument wins; otherwise SPONSIO_PROJECT, so the same
+    # image can be deployed per customer with only the environment
+    # differing; otherwise the single-workspace default.
+    if project is None:
+        from sponsio.cloud.client import read_project
+
+        project = read_project() or "default"
     session = BridgeSession(
         guard,
         project=project,

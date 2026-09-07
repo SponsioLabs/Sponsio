@@ -97,9 +97,61 @@ def _span_time_ns(event: Event) -> int:
     return base + event.ts * step
 
 
+_DROP = object()
+
+
+def _privacy_shape(value: Any) -> str:
+    from sponsio.bridge.privacy import shape
+
+    return shape(value)
+
+
+def _privacy_digest(value: Any) -> str:
+    from sponsio.bridge.privacy import digest
+
+    return digest(value)
+
+
+def _privacy_keeps_step(step_type: str, level: str) -> bool:
+    from sponsio.bridge.privacy import keeps_step
+
+    # The writer's event types are the trace's, not the view-model's;
+    # only the tool lane is named the same in both, which is all this
+    # question needs.
+    return keeps_step("tool_call" if step_type == "tool_call" else step_type, level)
+
+
+def _at_level(value: Any, level: str) -> Any:
+    """One attribute value as ``level`` permits it, or :data:`_DROP`.
+
+    The exporter used to put every tool argument and the whole prompt and
+    completion into span attributes, and read no privacy setting at all.
+    An operator who set SPONSIO_PRIVACY=tool_calls and exported OTLP sent
+    everything anyway: the server's own floor caught it at the far end,
+    but the point of the setting is that it does not leave the machine.
+
+    ``full`` returns the value untouched, so nothing changes for anyone
+    who has not asked for it.
+    """
+    if level == "full":
+        return value
+    if level == "shape":
+        return _privacy_shape({"_": value})
+    if level == "hashed":
+        return _privacy_digest(value)
+    return _DROP
+
+
+def _add_content(attrs: list[dict], key: str, content: Any, level: str) -> None:
+    kept = _at_level(content, level)
+    if kept is not _DROP:
+        attrs.append(_attr(key, kept))
+
+
 def _build_llm_span(
     req: Event | None,
     resp: Event | None,
+    level: str = "full",
 ) -> dict:
     """Emit ONE OTLP span for an LLM call, optionally carrying both
     the prompt (from ``req``) and completion (from ``resp``).
@@ -133,9 +185,9 @@ def _build_llm_span(
     ]
 
     if req is not None and req.content:
-        attrs.append(_attr(_LLM_REQUEST_PROMPT_KEY, req.content))
+        _add_content(attrs, _LLM_REQUEST_PROMPT_KEY, req.content, level)
     if resp is not None and resp.content:
-        attrs.append(_attr(_LLM_RESPONSE_COMPLETION_KEY, resp.content))
+        _add_content(attrs, _LLM_RESPONSE_COMPLETION_KEY, resp.content, level)
 
     # Token counts — pull from whichever event provided them.
     # Consumer will sum input+output into total_tokens on replay.
@@ -161,7 +213,7 @@ def _build_llm_span(
     }
 
 
-def _build_tool_span(event: Event) -> dict:
+def _build_tool_span(event: Event, level: str = "full") -> dict:
     """One OTLP span per tool_call event.  Straightforward; no pairing."""
     start_ns = _span_time_ns(event)
     end_ns = start_ns + 500_000_000
@@ -169,10 +221,17 @@ def _build_tool_span(event: Event) -> dict:
     for k, v in (event.args or {}).items():
         # ``args.<k>`` is one of the three prefixes the consumer's
         # ``_parse_tool_args`` recognises — keep the key unchanged
-        # so round-trip preserves the arg name verbatim.
-        attrs.append(_attr(f"args.{k}", v))
+        # so round-trip preserves the arg name verbatim. The VALUE is
+        # what the privacy level speaks about, so the keys survive at
+        # every level that keeps arguments at all.
+        kept = _at_level(v, level)
+        if kept is _DROP:
+            continue
+        attrs.append(_attr(f"args.{k}", kept))
     if event.content is not None:
-        attrs.append(_attr("tool.output", event.content))
+        kept = _at_level(event.content, level)
+        if kept is not _DROP:
+            attrs.append(_attr("tool.output", kept))
 
     span: dict = {
         "traceId": "0" * 32,
@@ -226,7 +285,7 @@ def _build_fallback_span(event: Event) -> dict:
     return span
 
 
-def _events_to_spans(events: list[Event]) -> list[dict]:
+def _events_to_spans(events: list[Event], level: str = "full") -> list[dict]:
     """Walk events and emit one span per logical call.
 
     The non-trivial bit is LLM pairing: when we see an
@@ -240,6 +299,11 @@ def _events_to_spans(events: list[Event]) -> list[dict]:
     i = 0
     while i < len(events):
         ev = events[i]
+        # tool_calls means the action lane and nothing else, the same
+        # sentence the run upload obeys.
+        if not _privacy_keeps_step(ev.event_type or "tool_call", level):
+            i += 1
+            continue
         if ev.event_type == "llm_request":
             # Look ahead for a matching llm_response.  "Matching"
             # means same agent and no interleaving events between
@@ -251,18 +315,18 @@ def _events_to_spans(events: list[Event]) -> list[dict]:
                 and nxt.event_type == "llm_response"
                 and nxt.agent == ev.agent
             ):
-                spans.append(_build_llm_span(ev, nxt))
+                spans.append(_build_llm_span(ev, nxt, level))
                 i += 2
                 continue
-            spans.append(_build_llm_span(ev, None))
+            spans.append(_build_llm_span(ev, None, level))
             i += 1
             continue
         if ev.event_type == "llm_response":
-            spans.append(_build_llm_span(None, ev))
+            spans.append(_build_llm_span(None, ev, level))
             i += 1
             continue
         if ev.event_type == "tool_call":
-            spans.append(_build_tool_span(ev))
+            spans.append(_build_tool_span(ev, level))
             i += 1
             continue
         spans.append(_build_fallback_span(ev))
@@ -290,6 +354,7 @@ def trace_to_otlp(
     agent_id: str | None = None,
     service_name: str | None = None,
     rulebook: str | None = None,
+    privacy: str | None = None,
 ) -> dict:
     """Convert a Sponsio ``Trace`` to OTLP JSON that round-trips.
 
@@ -312,7 +377,12 @@ def trace_to_otlp(
         service_name or agent_id or (trace.events[0].agent if trace.events else "agent")
     )
 
-    spans = _events_to_spans(trace.events)
+    # The operator of the machine decides what leaves it, so the
+    # environment beats the argument, the same as everywhere else.
+    from sponsio.bridge.privacy import resolve as _resolve_privacy
+
+    level = _resolve_privacy(privacy)
+    spans = _events_to_spans(trace.events, level)
 
     resource_attrs = [_attr("service.name", resolved_agent)]
     # Which rulebook this run enforced, e.g. "quant@v7 sha:fee1dc1943d0".

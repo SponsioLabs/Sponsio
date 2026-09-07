@@ -110,6 +110,19 @@ def read_api_key() -> str | None:
     return None
 
 
+def read_project() -> str | None:
+    """``SPONSIO_PROJECT``, or None.
+
+    Which space a run belongs to is deployment configuration, not code. A
+    platform that runs the same agent for forty customers ships one image
+    and varies the environment; without this, the customer's name had to
+    be passed in the call, so the image differed per customer or the
+    caller wrote the plumbing themselves.
+    """
+    value = os.environ.get("SPONSIO_PROJECT", "").strip()
+    return value or None
+
+
 def base_url() -> str:
     """Env var, then the endpoint login saved, then production."""
     explicit = os.environ.get("SPONSIO_API_URL", "").strip()

@@ -28,7 +28,7 @@ Sponsio checks an agent's tool calls before they run. A rule can look at what al
 
 > An **agent contract** is a runtime rule that is checked at every agent action, [backed by formal methods](docs/concepts/formal-methods.md).
 
-> **v0.2.0a15 alpha is out.** `pip install --pre sponsio`. `SPONSIO_PRIVACY=tool_calls` sends only the tool calls: names, order and verdicts, with no arguments, no model output and no claim content; four gentler levels sit between it and `full`, and the verdict is identical at every one because enforcement never left the machine. Violations now carry the pattern that fired, and every pattern can explain itself in plain language for a reader who did not write the rule. One fix changes behaviour: `` never `A` after `B` `` (and its `cannot` / `must not` spellings) compiled to its own mirror image and now forbids what it says. See the [release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a15).
+> **v0.2.0a16 alpha is out.** `pip install --pre sponsio`. This one is for platforms running agents for their own customers. `SPONSIO_PROJECT` names the customer a run belongs to, so a per-customer key needs no code change and cannot get the customer wrong: before this, `attach()` always claimed `default`, and a key scoped to one customer was refused, which meant runs from a correctly wired deployment never arrived. The OTLP exporter now obeys `SPONSIO_PRIVACY` too, so the level you set is the level that leaves the machine on either path. See the [release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a16).
 
 ---
 
