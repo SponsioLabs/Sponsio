@@ -1,6 +1,6 @@
 {
   "name": "@sponsio/sdk",
-  "version": "0.2.0-alpha.5",
+  "version": "0.2.0-alpha.6",
   "description": "Runtime contract enforcement for LLM agents \u2014 native TypeScript",
   "license": "Apache-2.0",
   "repository": {
