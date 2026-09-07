@@ -15,6 +15,21 @@ import sponsio
 from sponsio.formulas.formula import Atom, G
 
 
+@pytest.fixture(autouse=True)
+def no_evaluator_installed(monkeypatch):
+    """Assert the contract, not the contents of site-packages.
+
+    These tests say "this build ships no StoEvaluator", but what they
+    checked was that nothing in the environment registers one on the
+    ``sponsio.evaluators`` entry point. Anyone with sponsio-cloud
+    installed — which is everyone working on both halves — saw two red
+    tests that were telling them about their venv.
+    """
+    from sponsio.integrations import base
+
+    monkeypatch.setattr(base, "_discover_sto_evaluator", lambda: None)
+
+
 def test_sto_atom_in_python_api_raises_without_evaluator():
     """A contract built via the Python API with a sto Atom must fail
     loudly when no StoEvaluator is wired up, not silently no-op.

@@ -215,11 +215,19 @@ class TestJudgeSection:
         with pytest.raises(ConfigError, match="fallback_mode"):
             load_config(path)
 
-    def test_build_sto_evaluator_requires_cloud(self):
-        """This build ships no StoEvaluator implementation;
-        ``build_sto_evaluator`` must surface a ConfigError instead of
-        silently returning some no-op stub."""
+    def test_build_sto_evaluator_requires_cloud(self, monkeypatch):
+        """With no StoEvaluator discovered, ``build_sto_evaluator`` must
+        surface a ConfigError instead of silently returning some no-op
+        stub.
+
+        Discovery is patched rather than assumed: the assertion is about
+        what this function does when it finds nothing, not about whether
+        anything happens to be installed beside it.
+        """
         from sponsio.config import ConfigError
+        from sponsio.integrations import base
+
+        monkeypatch.setattr(base, "_discover_sto_evaluator", lambda: None)
 
         section = JudgeSection(
             fallback_mode="deny",
