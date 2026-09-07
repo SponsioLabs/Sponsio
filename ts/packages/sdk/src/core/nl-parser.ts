@@ -379,6 +379,7 @@ const KEYWORD_RULES: KeywordRule[] = [
   {
     patterns: [
       /never together/,
+      /never\s+(?:call(?:ing)?\s+)?[^,]*\band\b[^,]*\btogether\b/,
       /never both/,
       /not at the same time/,
       /never co-occur/,
@@ -638,7 +639,23 @@ function forbiddenActionComesFirst(
   return NEGATION_RE.test(lower.slice(0, iFirst));
 }
 
-export function parseNl(text: string): DetFormula | null {
+/**
+ * The longest rule sentence this will look at, matching Python's
+ * ``_MAX_NL_LINE_LEN``.
+ *
+ * Several of the regexes below are quadratic on adversarial input: a
+ * long run of digits before ``\s*steps?`` makes the engine retry from
+ * every position. Python has always truncated and this side never did,
+ * so the same rulebook that cost Python milliseconds could hang a
+ * TypeScript agent — and on a platform whose customers supply their own
+ * overlay rules, that string is not fully trusted.
+ *
+ * A sentence longer than this is not a rule anybody wrote.
+ */
+const MAX_RULE_CHARS = 10_000;
+
+export function parseNl(input: string): DetFormula | null {
+  const text = input.length > MAX_RULE_CHARS ? input.slice(0, MAX_RULE_CHARS) : input;
   // P2 response-content patterns first — keep them ahead of the
   // generic keyword cascade so "response must not contain emails"
   // doesn't get swallowed by something more general.

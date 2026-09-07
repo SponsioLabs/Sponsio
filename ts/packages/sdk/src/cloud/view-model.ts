@@ -8,6 +8,8 @@
  * as a run with no arguments and no rules.
  */
 
+import { randomBytes } from "node:crypto";
+
 import type { DetFormula } from "../core/patterns.js";
 import type { AgentTurnSpan, SpanLike } from "../core/spans.js";
 import type { DetViolation } from "../index.js";
@@ -47,10 +49,18 @@ function stepStatus(span: AgentTurnSpan, violations: DetViolation[]): string {
   return span.blocked ? "blocked" : "observed";
 }
 
-function hex(n: number): string {
-  let out = "";
-  for (let i = 0; i < n; i++) out += Math.floor(Math.random() * 16).toString(16);
-  return out;
+/**
+ * Hex from the system CSPRNG, as Python's ``secrets.token_hex`` does.
+ *
+ * ``Math.random()`` is not one, and this is the one place where that
+ * matters: the server keys a run by its id and upserts, so two runs
+ * sharing an id silently become one and the older is overwritten with no
+ * error. A booting fleet seeds ``Math.random`` from a clock they share.
+ */
+function hex(chars: number): string {
+  return randomBytes(Math.ceil(chars / 2))
+    .toString("hex")
+    .slice(0, chars);
 }
 
 /** A run id with enough entropy that two runs cannot silently become one. */

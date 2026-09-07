@@ -124,6 +124,18 @@ jobs:
         # argument inversion in the TS nl-parser lived through that gap.
         run: npm test
 
+      - name: Differential fuzz against the Python runtime
+        # scenarios.json holds nine hand-written cases. Nine catches a
+        # rewrite and not a drift: the no_reversal argument inversion
+        # lived through that file for months. This generates rulebooks
+        # and traces and asks both runtimes, step by step, whether the
+        # call is allowed. A fixed seed so a red build is reproducible;
+        # the sweep across many seeds is a local command.
+        working-directory: .
+        run: |
+          pip install -e . --quiet
+          python scripts/fuzz_cross_language.py --cases 400 --seed 20260907
+
       - name: Check the NL parser against Python's
         # scenarios.json covers the runtime; this covers the parser that
         # decides what the runtime is given. The two drifted a long way

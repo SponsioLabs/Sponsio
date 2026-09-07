@@ -747,6 +747,13 @@ _KEYWORD_RULES: list[tuple[list[str], str, int]] = [
     (
         [
             r"never together",
+            # "never call `A` and `B` together" — the spelling this
+            # module's own docstring advertises, and the one that matched
+            # nothing: every entry here expects the negation next to
+            # "together", and this shape puts both actions in between. It
+            # parsed as no pattern at all, so a rulebook containing the
+            # documented phrasing refused to arm.
+            r"never\s+(?:call(?:ing)?\s+)?[^,]*\band\b[^,]*\btogether\b",
             r"never both",
             r"not at the same time",
             r"never co-occur",

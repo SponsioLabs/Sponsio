@@ -64,9 +64,21 @@ export function readProject(): string | null {
   return (process.env.SPONSIO_PROJECT ?? "").trim() || null;
 }
 
+/**
+ * Strip trailing slashes without a regex.
+ *
+ * ``/\/+$/`` is quadratic on a string that is mostly slashes, and the
+ * base URL comes from the environment on a machine we do not run.
+ */
+function trimSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url.charCodeAt(end - 1) === 47) end--;
+  return url.slice(0, end);
+}
+
 export function baseUrl(): string {
   const explicit = (process.env.SPONSIO_API_URL ?? "").trim();
-  return (explicit || DEFAULT_BASE_URL).replace(/\/+$/, "");
+  return trimSlashes(explicit || DEFAULT_BASE_URL);
 }
 
 export interface PulledRulebook {
@@ -91,7 +103,7 @@ export class CloudClient {
 
   constructor(opts: CloudClientOptions = {}) {
     this.apiKey = opts.apiKey === undefined ? readApiKey() : opts.apiKey;
-    this.base = (opts.baseUrl ?? baseUrl()).replace(/\/+$/, "");
+    this.base = trimSlashes(opts.baseUrl ?? baseUrl());
     this.timeoutMs = opts.timeoutMs ?? 10_000;
   }
 

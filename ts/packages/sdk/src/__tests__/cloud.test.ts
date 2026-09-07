@@ -13,7 +13,14 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
 import * as privacy from "../cloud/privacy.js";
-import { argsPreview, slug, buildViewModel } from "../cloud/view-model.js";
+import {
+  argsPreview,
+  slug,
+  buildViewModel,
+  newSessionId,
+} from "../cloud/view-model.js";
+import { CloudClient } from "../cloud/client.js";
+import { parseNl } from "../core/nl-parser.js";
 import { Sponsio } from "../index.js";
 
 const PHI = { mrn: "MRN-88213", name: "Dana Whitfield" };
@@ -184,5 +191,37 @@ describe("the run the cloud stores", () => {
     }) as any;
     assert.equal(vm.summary.totalSteps, 0);
     assert.equal(vm.summary.passRate, 1);
+  });
+});
+
+describe("what an untrusted rule string cannot do", () => {
+  test("a very long sentence is truncated, not chewed on", () => {
+    // Several keyword regexes are quadratic on adversarial input, and on
+    // a platform whose customers supply their own overlay rules that
+    // string is not fully trusted. Python has always truncated at 10k;
+    // this side did not, so the same rulebook that cost Python
+    // milliseconds could hang a TypeScript agent.
+    const nasty = "1".repeat(200_000) + " steps";
+    const started = Date.now();
+    parseNl(nasty);
+    assert.ok(
+      Date.now() - started < 2_000,
+      "parsing a 200k-character 'rule' should not take seconds",
+    );
+  });
+
+  test("a base url of slashes does not go quadratic", () => {
+    const started = Date.now();
+    new CloudClient({ apiKey: "x", baseUrl: "https://x" + "/".repeat(100_000) });
+    assert.ok(Date.now() - started < 1_000);
+  });
+
+  test("run ids come from the CSPRNG", () => {
+    // The server upserts by this id, so a collision silently merges two
+    // runs. Math.random is seeded from a clock a booting fleet shares.
+    const seen = new Set<string>();
+    for (let i = 0; i < 5_000; i++) seen.add(newSessionId());
+    assert.equal(seen.size, 5_000);
+    assert.match(newSessionId(), /^run-[0-9a-f]{16}$/);
   });
 });
