@@ -124,6 +124,17 @@ jobs:
         # argument inversion in the TS nl-parser lived through that gap.
         run: npm test
 
+      - name: Check the NL parser against Python's
+        # scenarios.json covers the runtime; this covers the parser that
+        # decides what the runtime is given. The two drifted a long way
+        # apart unnoticed — Python at 24 keyword rules and 155 regexes,
+        # TypeScript at 12 and 46 — because a TypeScript parser that
+        # cannot read a rule returns null rather than failing, so a
+        # rulebook armed 23 patterns in one runtime and 12 in the other
+        # and neither said anything.
+        working-directory: .
+        run: node scripts/check_nl_parity.mjs
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
