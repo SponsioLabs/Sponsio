@@ -28,6 +28,22 @@ export interface DetFormula {
   formula: Formula;
   desc: string;
   patternName: string;
+  /**
+   * What this rule was built from, mirroring Python's ``DetFormula.args``.
+   *
+   * The name alone does not identify a rule: two customers can both hold
+   * `rate_limit` and mean different limits on different tools. The cloud
+   * groups findings by (pattern, args) and derives a stable finding id
+   * from them, so a violation uploaded without these carries only its
+   * English sentence — and a rule reworded loses its own history.
+   * Undefined only on formulas built by hand rather than by a factory.
+   *
+   * ``Atom`` is in the union because ``workflowStep`` takes two of them,
+   * as it does in Python. That one is not reachable from the DSL and its
+   * args do not serialise to anything a reader wants; every other factory
+   * stores the strings and numbers it was called with.
+   */
+  args?: (string | number | string[] | Atom | undefined)[];
   liveness: boolean;
   /**
    * Per-contract enforcement mode: `enforce` | `observe`.
@@ -180,6 +196,7 @@ export function mustPrecede(before: string, after: string): DetFormula {
     formula: f,
     desc: `tool \`${before}\` must precede \`${after}\``,
     patternName: "must_precede",
+    args: [before, after],
     liveness: false,
   };
 }
@@ -191,6 +208,7 @@ export function alwaysFollowedBy(trigger: string, response: string): DetFormula 
     formula: f,
     desc: `\`${trigger}\` must always be followed by \`${response}\``,
     patternName: "always_followed_by",
+    args: [trigger, response],
     liveness: true,
   };
 }
@@ -224,6 +242,7 @@ export function workflowStep(
     desc:
       desc ?? `after ${triggerStr} the next event must satisfy ${nextStr}`,
     patternName: "workflow_step",
+    args: [trigger, nextAction],
     liveness: false,
   };
 }
@@ -235,6 +254,7 @@ export function noReversal(commitment: string, contradiction: string): DetFormul
     formula: f,
     desc: `cannot call \`${contradiction}\` after \`${commitment}\``,
     patternName: "no_reversal",
+    args: [commitment, contradiction],
     liveness: false,
   };
 }
@@ -245,6 +265,7 @@ export function requiresPermission(tool: string, permission: string): DetFormula
     formula: f,
     desc: `\`${tool}\` requires permission \`${permission}\``,
     patternName: "requires_permission",
+    args: [tool, permission],
     liveness: false,
   };
 }
@@ -259,6 +280,7 @@ export function noDataLeak(source: string, external: string): DetFormula {
     formula: f,
     desc: `no data leak from \`${source}\` to \`${external}\``,
     patternName: "no_data_leak",
+    args: [source, external],
     liveness: false,
   };
 }
@@ -273,6 +295,7 @@ export function mutualExclusion(a: string, b: string): DetFormula {
     formula: f,
     desc: `tools \`${a}\` and \`${b}\` are mutually exclusive`,
     patternName: "mutual_exclusion",
+    args: [a, b],
     liveness: false,
   };
 }
@@ -283,12 +306,21 @@ export function rateLimit(tool: string, maxCalls: number): DetFormula {
     formula: f,
     desc: `tool \`${tool}\` at most ${maxCalls} times`,
     patternName: "rate_limit",
+    args: [tool, maxCalls],
     liveness: false,
   };
 }
 
 export function idempotent(tool: string): DetFormula {
-  return { ...rateLimit(tool, 1), patternName: "idempotent", desc: `\`${tool}\` at most once` };
+  // The spread would otherwise carry rate_limit's own args (tool, 1) into
+  // a rule whose identity is one tool, and the cloud groups findings by
+  // (patternName, args).
+  return {
+    ...rateLimit(tool, 1),
+    patternName: "idempotent",
+    args: [tool],
+    desc: `\`${tool}\` at most once`,
+  };
 }
 
 export function deadline(trigger: string, action: string, steps: number): DetFormula {
@@ -307,6 +339,7 @@ export function deadline(trigger: string, action: string, steps: number): DetFor
     formula: f,
     desc: `\`${action}\` must occur within ${steps} steps of \`${trigger}\``,
     patternName: "deadline",
+    args: [trigger, action, steps],
     // Bounded-window liveness: ``X(boundedEventually(action, steps))``
     // is decidable on a bounded prefix (steps + 1 events past the
     // trigger), so it CAN fire mid-session — runtime parity with
@@ -325,6 +358,7 @@ export function mustConfirm(action: string): DetFormula {
     formula: f,
     desc: `\`${action}\` requires confirmation (\`${confirm}\`)`,
     patternName: "must_confirm",
+    args: [action],
     liveness: false,
   };
 }
@@ -338,6 +372,7 @@ export function cooldown(action: string, steps: number): DetFormula {
     formula: f,
     desc: `\`${action}\` has a cooldown of ${steps} steps`,
     patternName: "cooldown",
+    args: [action, steps],
     liveness: false,
   };
 }
@@ -350,6 +385,7 @@ export function segregationOfDuty(a: string, b: string): DetFormula {
   return {
     ...me,
     patternName: "segregation_of_duty",
+    args: [a, b],
     desc: `\`${a}\` and \`${b}\` must be performed by different agents`,
   };
 }
@@ -360,6 +396,7 @@ export function boundedRetry(action: string, maxRetries: number): DetFormula {
     formula: f,
     desc: `\`${action}\` limited to ${maxRetries} ${maxRetries === 1 ? "retry" : "retries"}`,
     patternName: "bounded_retry",
+    args: [action, maxRetries],
     liveness: false,
   };
 }
@@ -371,6 +408,7 @@ export function loopDetection(action: string, maxConsecutive: number): DetFormul
     formula: f,
     desc: `\`${action}\` max ${maxConsecutive} consecutive calls`,
     patternName: "loop_detection",
+    args: [action, maxConsecutive],
     liveness: false,
   };
 }
@@ -383,6 +421,7 @@ export function dryRunBeforeCommit(dryRun: string, commit: string): DetFormula {
     ...base,
     desc: `\`${dryRun}\` dry-run must precede \`${commit}\``,
     patternName: "dry_run_before_commit",
+    args: [dryRun, commit],
   };
 }
 
@@ -392,6 +431,7 @@ export function backupBeforeDestructive(backup: string, action: string): DetForm
     ...base,
     desc: `\`${backup}\` backup must precede destructive action \`${action}\``,
     patternName: "backup_before_destructive",
+    args: [backup, action],
   };
 }
 
@@ -401,6 +441,7 @@ export function auditAfter(action: string, audit: string): DetFormula {
     ...base,
     desc: `\`${action}\` must be followed by audit step \`${audit}\``,
     patternName: "audit_after",
+    args: [action, audit],
     liveness: true,
   };
 }
@@ -423,6 +464,7 @@ export function approvalFreshness(approval: string, action: string, steps: numbe
     formula: f,
     desc: `\`${action}\` requires approval \`${approval}\` within ${steps} steps`,
     patternName: "approval_freshness",
+    args: [approval, action, steps],
     liveness: false,
   };
 }
@@ -443,6 +485,7 @@ export function sanitizedBeforeSink(
     formula: f,
     desc: `after \`${source}\`, \`${sanitizer}\` must precede \`${sink}\``,
     patternName: "sanitized_before_sink",
+    args: [source, sanitizer, sink],
     liveness: false,
   };
 }
@@ -464,6 +507,7 @@ export function duplicateCallLimit(
     formula: f,
     desc: `\`${tool}\` calls matching ${JSON.stringify(argsPattern)} at most ${maxCount} times`,
     patternName: "duplicate_call_limit",
+    args: [tool, argsPattern, maxCount],
     liveness: false,
   };
 }
@@ -481,6 +525,7 @@ export function argBlacklist(tool: string, field: string, patterns: string[]): D
     formula: f,
     desc: `\`${tool}\`.${field} must not match ${JSON.stringify(patterns)}`,
     patternName: "arg_blacklist",
+    args: [tool, field, patterns],
     liveness: false,
   };
 }
@@ -503,6 +548,7 @@ export function argAllowlist(tool: string, field: string, patterns: string[]): D
     formula: f,
     desc: `\`${tool}\`.${field} must match one of ${JSON.stringify(patterns)}`,
     patternName: "arg_allowlist",
+    args: [tool, field, patterns],
     liveness: false,
   };
 }
@@ -517,6 +563,7 @@ export function scopeLimit(tool: string, allowedPaths: string[]): DetFormula {
     formula: f,
     desc: `\`${tool}\` restricted to paths: ${allowedPaths.join(", ")}`,
     patternName: "scope_limit",
+    args: [tool, allowedPaths],
     liveness: false,
   };
 }
@@ -531,6 +578,7 @@ export function argLengthLimit(tool: string, param: string, maxChars: number): D
     formula: f,
     desc: `\`${tool}\`.${param} must not exceed ${maxChars} characters`,
     patternName: "arg_length_limit",
+    args: [tool, param, maxChars],
     liveness: false,
   };
 }
@@ -544,6 +592,7 @@ export function dataIntact(boundTool: string, originalPaths: string[]): DetFormu
     formula: f,
     desc: `\`${boundTool}\` must use only original data from ${originalPaths.join(", ")}`,
     patternName: "data_intact",
+    args: [boundTool, originalPaths],
     liveness: false,
   };
 }
@@ -564,6 +613,7 @@ export function destructiveActionGate(tool: string, approverRole: string = "appr
     formula: f,
     desc: `\`${tool}\` is destructive and requires \`${approverRole}\` approval`,
     patternName: "destructive_action_gate",
+    args: [tool, approverRole],
     liveness: false,
   };
 }
@@ -626,6 +676,7 @@ export function requiredStepsCompletion(trigger: string, steps: string[]): DetFo
     formula: f,
     desc: `after \`${trigger}\`, all steps must complete: ${steps.join(", ")}`,
     patternName: "required_steps_completion",
+    args: [trigger, steps],
     liveness: true,
   };
 }
@@ -648,6 +699,7 @@ export function toolAllowlist(allowedTools: string[]): DetFormula {
     formula,
     desc: `only [${allowedTools.join(", ")}] may be called`,
     patternName: "tool_allowlist",
+    args: [allowedTools],
     liveness: false,
   };
 }
@@ -695,6 +747,7 @@ export function claimRequiresEvidence(pred: string, desc?: string): DetFormula {
     ),
     desc: desc || `claims of ${pred} must verify against evidence (PASS)`,
     patternName: "claim_requires_evidence",
+    args: [pred],
     liveness: false,
   };
 }
@@ -723,6 +776,7 @@ export function underdeterminedMustClarify(pred: string, desc?: string): DetForm
     ),
     desc: desc || `ambiguous ${pred} claims must be clarified, not released or blocked`,
     patternName: "underdetermined_must_clarify",
+    args: [pred],
     liveness: false,
   };
 }
@@ -733,6 +787,7 @@ export function redirectToSafe(unsafe: string, safe: string): DetFormula {
     formula: new G(new Not(called(unsafe))),
     desc: `redirect \`${unsafe}\` -> \`${safe}\``,
     patternName: "redirect_to_safe",
+    args: [unsafe, safe],
     liveness: false,
     strategy: "redirect",
     safeName: safe,
@@ -755,6 +810,7 @@ export function dangerousBashCommands(forbidden?: string[]): DetFormula {
     formula: f,
     desc: `bash commands [${cmds.join(", ")}] are banned`,
     patternName: "dangerous_bash_commands",
+    args: [cmds],
     liveness: false,
   };
 }
@@ -800,6 +856,7 @@ export function dangerousSqlVerbs(tool: string = "execute_sql", forbidden?: stri
     formula: f,
     desc: `\`${tool}\` must not use SQL verbs [${verbs.join(", ")}]`,
     patternName: "dangerous_sql_verbs",
+    args: [tool, verbs],
     liveness: false,
   };
 }
@@ -810,6 +867,7 @@ export function irreversibleOnce(action: string): DetFormula {
     formula: f,
     desc: `\`${action}\` is irreversible and may be called at most once`,
     patternName: "irreversible_once",
+    args: [action],
     liveness: false,
   };
 }
@@ -822,6 +880,7 @@ export function confirmAfterSource(source: string, action: string): AssumeGuaran
       formula: called(source),
       desc: `\`${source}\` has been called`,
       patternName: "confirm_after_source_assumption",
+      args: [source, action],
       liveness: false,
     },
     guarantee: mustPrecede(confirm, action),
@@ -836,6 +895,7 @@ export function tokenBudget(maxTokens: number, scope: string = "total"): DetForm
     formula: f,
     desc: `session ${scope} tokens must not exceed ${maxTokens}`,
     patternName: "token_budget",
+    args: [maxTokens, scope],
     liveness: false,
   };
 }
@@ -870,6 +930,7 @@ export function argValueRange(
     formula: f,
     desc: `\`${tool}\`.${field} must be in range ${rangeStr}`,
     patternName: "arg_value_range",
+    args: [tool, field, minVal, maxVal],
     liveness: false,
   };
 }
@@ -880,6 +941,7 @@ export function delegationDepthLimit(maxDepth: number): DetFormula {
     formula: f,
     desc: `delegation chain must not exceed depth ${maxDepth}`,
     patternName: "delegation_depth_limit",
+    args: [maxDepth],
     liveness: false,
   };
 }
@@ -954,6 +1016,7 @@ export function noPii(fields?: string[]): DetFormula {
     formula: f,
     desc: `response must not contain PII (${selected.join(", ")})`,
     patternName: "no_pii",
+    args: [selected],
     liveness: false,
   };
 }
@@ -977,6 +1040,7 @@ export function noKeywords(words: string[]): DetFormula {
     formula: f,
     desc: `response must not contain keywords: ${JSON.stringify(words)}`,
     patternName: "no_keywords",
+    args: [words],
     liveness: false,
   };
 }
@@ -1012,6 +1076,7 @@ export function ctxRequired(
     formula: f,
     desc: `${tool} requires ctx[${key}] ∈ [${cleanValues.join(", ")}]`,
     patternName: "ctx_required",
+    args: [tool, key, cleanValues],
     liveness: false,
   };
 }
@@ -1034,6 +1099,7 @@ export function ctxMatchesRequired(
     formula: f,
     desc: `${tool} requires ctx[${key}] to match /${pattern}/`,
     patternName: "ctx_matches_required",
+    args: [tool, key, pattern],
     liveness: false,
   };
 }
@@ -1058,6 +1124,7 @@ export function timeSince(predicateKey: string, maxSeconds: number): DetFormula 
     formula: f,
     desc: `${predicateKey} must have occurred within last ${maxSeconds}s`,
     patternName: "time_since",
+    args: [predicateKey, maxSeconds],
     liveness: false,
   };
 }
@@ -1105,6 +1172,7 @@ export function approvalActive(
     formula: f,
     desc: `${action} requires active ${role} approval (≤${maxSeconds}s old)`,
     patternName: "approval_active",
+    args: [action, role, maxSeconds],
     liveness: false,
   };
 }
@@ -1123,6 +1191,7 @@ export function neverTogether(a: string, b: string): DetFormula {
   return {
     ...me,
     patternName: "never_together",
+    args: [a, b],
     desc: `${a} and ${b} must never occur together`,
   };
 }

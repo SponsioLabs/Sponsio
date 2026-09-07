@@ -1,0 +1,1140 @@
+{
+ "_comment": "Every rule sentence in this repo that the Python DSL parses, with the pattern and args it compiles to. The TypeScript parser must agree on all of them. Regenerate with scripts/gen_nl_corpus.py after changing either parser.",
+ "cases": [
+  {
+   "rule": "#   G: \"tool `get_order_details` must precede `modify_order`\"",
+   "pattern": "must_precede",
+   "args": [
+    "get_order_details",
+    "modify_order"
+   ]
+  },
+  {
+   "rule": "# - G: \"tool `check_policy` must precede `issue_refund`\"",
+   "pattern": "must_precede",
+   "args": [
+    "check_policy",
+    "issue_refund"
+   ]
+  },
+  {
+   "rule": "Accepted for back-compat; no-op. ``install`` is always idempotent. fresh install or smart-merge upgrade, never destructive.",
+   "pattern": "idempotent",
+   "args": [
+    "install"
+   ]
+  },
+  {
+   "rule": "Idempotent write of ``_host_openclaw/sponsio.yaml``.",
+   "pattern": "idempotent",
+   "args": [
+    "_host_openclaw/sponsio.yaml"
+   ]
+  },
+  {
+   "rule": "`action` within 3 steps of `trigger`",
+   "pattern": "deadline",
+   "args": [
+    "action",
+    "trigger",
+    3
+   ]
+  },
+  {
+   "rule": "`approve_deploy` approval for `deploy` within 3 steps",
+   "pattern": "approval_freshness",
+   "args": [
+    "approve_deploy",
+    "deploy",
+    3
+   ]
+  },
+  {
+   "rule": "`approve_deploy` authorizes `deploy` for 3 steps",
+   "pattern": "approval_freshness",
+   "args": [
+    "approve_deploy",
+    "deploy",
+    3
+   ]
+  },
+  {
+   "rule": "`check_policy` before `issue_refund`",
+   "pattern": "must_precede",
+   "args": [
+    "check_policy",
+    "issue_refund"
+   ]
+  },
+  {
+   "rule": "`delete_bucket` is not allowed after `restore_backup`",
+   "pattern": "no_reversal",
+   "args": [
+    "restore_backup",
+    "delete_bucket"
+   ]
+  },
+  {
+   "rule": "`delete_db` requires confirmation",
+   "pattern": "must_confirm",
+   "args": [
+    "delete_db"
+   ]
+  },
+  {
+   "rule": "`deploy_production` at most once per session",
+   "pattern": "idempotent",
+   "args": [
+    "deploy_production"
+   ]
+  },
+  {
+   "rule": "`grant_access` and `revoke_access` are mutually exclusive",
+   "pattern": "mutual_exclusion",
+   "args": [
+    "grant_access",
+    "revoke_access"
+   ]
+  },
+  {
+   "rule": "`grep` must not follow `write_file`",
+   "pattern": "no_reversal",
+   "args": [
+    "write_file",
+    "grep"
+   ]
+  },
+  {
+   "rule": "`issue_refund` before `check_policy` breaks the ordering.",
+   "pattern": "must_precede",
+   "args": [
+    "issue_refund",
+    "check_policy"
+   ]
+  },
+  {
+   "rule": "`notify` within 5 steps of `alert`",
+   "pattern": "deadline",
+   "args": [
+    "notify",
+    "alert",
+    5
+   ]
+  },
+  {
+   "rule": "`plan_migration` dry run before `apply_migration`",
+   "pattern": "dry_run_before_commit",
+   "args": [
+    "plan_migration",
+    "apply_migration"
+   ]
+  },
+  {
+   "rule": "`plan_migration` dry-run before `apply_migration`",
+   "pattern": "dry_run_before_commit",
+   "args": [
+    "plan_migration",
+    "apply_migration"
+   ]
+  },
+  {
+   "rule": "`review` and `approve` must be called by different agents",
+   "pattern": "segregation_of_duty",
+   "args": [
+    "review",
+    "approve"
+   ]
+  },
+  {
+   "rule": "`run_sql` query must not contain `DROP`",
+   "pattern": "arg_blacklist",
+   "args": [
+    "run_sql",
+    "query",
+    [
+     "DROP"
+    ]
+   ]
+  },
+  {
+   "rule": "`search` args matching `invoice-42` at most 2 times",
+   "pattern": "rate_limit",
+   "args": [
+    "search",
+    2
+   ]
+  },
+  {
+   "rule": "`snapshot_db` backup before `drop_table`",
+   "pattern": "backup_before_destructive",
+   "args": [
+    "snapshot_db",
+    "drop_table"
+   ]
+  },
+  {
+   "rule": "`snapshot_db` before destructive `drop_table`",
+   "pattern": "backup_before_destructive",
+   "args": [
+    "snapshot_db",
+    "drop_table"
+   ]
+  },
+  {
+   "rule": "`transfer_funds` must be audited",
+   "pattern": "audit_after",
+   "args": [
+    "transfer_funds",
+    "audit_transfer_funds"
+   ]
+  },
+  {
+   "rule": "`transfer_funds` must be followed by `audit_transfer`",
+   "pattern": "always_followed_by",
+   "args": [
+    "transfer_funds",
+    "audit_transfer"
+   ]
+  },
+  {
+   "rule": "`transfer` at most 5 times",
+   "pattern": "rate_limit",
+   "args": [
+    "transfer",
+    5
+   ]
+  },
+  {
+   "rule": "`trigger` must be followed by `response`",
+   "pattern": "always_followed_by",
+   "args": [
+    "trigger",
+    "response"
+   ]
+  },
+  {
+   "rule": "`warmup` must precede `ping`",
+   "pattern": "must_precede",
+   "args": [
+    "warmup",
+    "ping"
+   ]
+  },
+  {
+   "rule": "`web_fetch` input must be sanitized by `sanitize_input` before `send_email`",
+   "pattern": "sanitized_before_sink",
+   "args": [
+    "web_fetch",
+    "sanitize_input",
+    "send_email"
+   ]
+  },
+  {
+   "rule": "`web_fetch` then `sanitize_input` before `send_email`",
+   "pattern": "sanitized_before_sink",
+   "args": [
+    "web_fetch",
+    "sanitize_input",
+    "send_email"
+   ]
+  },
+  {
+   "rule": "`write_api` cooldown of 2 steps",
+   "pattern": "cooldown",
+   "args": [
+    "write_api",
+    2
+   ]
+  },
+  {
+   "rule": "after `approve_refund`, never call `deny_refund`",
+   "pattern": "no_reversal",
+   "args": [
+    "approve_refund",
+    "deny_refund"
+   ]
+  },
+  {
+   "rule": "after `fetch_url`, `file_write` requires confirmation",
+   "pattern": "must_confirm",
+   "args": [
+    "fetch_url"
+   ]
+  },
+  {
+   "rule": "after `restore_backup`, `delete_bucket` must not be called",
+   "pattern": "no_reversal",
+   "args": [
+    "restore_backup",
+    "delete_bucket"
+   ]
+  },
+  {
+   "rule": "after `restore_backup`, never call `delete_bucket`",
+   "pattern": "no_reversal",
+   "args": [
+    "restore_backup",
+    "delete_bucket"
+   ]
+  },
+  {
+   "rule": "after calling fetch_data, always call log_result",
+   "pattern": "always_followed_by",
+   "args": [
+    "fetch_data",
+    "log_result"
+   ]
+  },
+  {
+   "rule": "bash command must not contain rm -rf",
+   "pattern": "arg_blacklist",
+   "args": [
+    "bash",
+    "command",
+    [
+     "rm -rf"
+    ]
+   ]
+  },
+  {
+   "rule": "bash command must not contain rm -rf or sudo",
+   "pattern": "arg_blacklist",
+   "args": [
+    "bash",
+    "command",
+    [
+     "rm -rf",
+     "sudo"
+    ]
+   ]
+  },
+  {
+   "rule": "called `A`",
+   "pattern": "trigger_called",
+   "args": []
+  },
+  {
+   "rule": "called `issue_refund`",
+   "pattern": "trigger_called",
+   "args": []
+  },
+  {
+   "rule": "cannot `edit_loan` after `aml_check`",
+   "pattern": "no_reversal",
+   "args": [
+    "aml_check",
+    "edit_loan"
+   ]
+  },
+  {
+   "rule": "cannot call `delete_bucket` after `restore_backup`",
+   "pattern": "no_reversal",
+   "args": [
+    "restore_backup",
+    "delete_bucket"
+   ]
+  },
+  {
+   "rule": "check_policy must precede issue_refund",
+   "pattern": "must_precede",
+   "args": [
+    "check_policy",
+    "issue_refund"
+   ]
+  },
+  {
+   "rule": "compliance_approve must precede wire_transfer",
+   "pattern": "must_precede",
+   "args": [
+    "compliance_approve",
+    "wire_transfer"
+   ]
+  },
+  {
+   "rule": "don't call `delete_bucket` after `restore_backup`",
+   "pattern": "no_reversal",
+   "args": [
+    "restore_backup",
+    "delete_bucket"
+   ]
+  },
+  {
+   "rule": "every `start_task` must be followed by all of [`log`, `notify`]",
+   "pattern": "always_followed_by",
+   "args": [
+    "start_task",
+    "log"
+   ]
+  },
+  {
+   "rule": "get_order_details must precede modify_order",
+   "pattern": "must_precede",
+   "args": [
+    "get_order_details",
+    "modify_order"
+   ]
+  },
+  {
+   "rule": "host must be in \"trusted.com\" or \"partners.org\"",
+   "pattern": "arg_allowlist",
+   "args": [
+    "trusted.com",
+    "partners.org",
+    [
+     "trusted.com",
+     "partners.org"
+    ]
+   ]
+  },
+  {
+   "rule": "must call `check_policy` before `issue_refund`",
+   "pattern": "must_precede",
+   "args": [
+    "check_policy",
+    "issue_refund"
+   ]
+  },
+  {
+   "rule": "must not call `delete_bucket` after `restore_backup`",
+   "pattern": "no_reversal",
+   "args": [
+    "restore_backup",
+    "delete_bucket"
+   ]
+  },
+  {
+   "rule": "must not contain `rm -rf` or `sudo`",
+   "pattern": "arg_blacklist",
+   "args": [
+    "rm -rf",
+    "command",
+    [
+     "rm -rf",
+     "sudo"
+    ]
+   ]
+  },
+  {
+   "rule": "must precede `check_policy` before `issue_refund`",
+   "pattern": "must_precede",
+   "args": [
+    "check_policy",
+    "issue_refund"
+   ]
+  },
+  {
+   "rule": "never `send_email` after `web_fetch`",
+   "pattern": "no_reversal",
+   "args": [
+    "web_fetch",
+    "send_email"
+   ]
+  },
+  {
+   "rule": "never call `delete_bucket` after `restore_backup`",
+   "pattern": "no_reversal",
+   "args": [
+    "restore_backup",
+    "delete_bucket"
+   ]
+  },
+  {
+   "rule": "never call delete without confirmation",
+   "pattern": "must_confirm",
+   "args": [
+    "delete"
+   ]
+  },
+  {
+   "rule": "no data leak from `db` to `external`",
+   "pattern": "no_reversal",
+   "args": [
+    "db",
+    "external"
+   ]
+  },
+  {
+   "rule": "no data leak from `pii` to `external_api`",
+   "pattern": "no_data_leak",
+   "args": [
+    "pii",
+    "external_api"
+   ]
+  },
+  {
+   "rule": "no data leak from `read_database` to `send_email`",
+   "pattern": "no_reversal",
+   "args": [
+    "read_database",
+    "send_email"
+   ]
+  },
+  {
+   "rule": "no data leak from `read_secrets` to `http_post`",
+   "pattern": "no_reversal",
+   "args": [
+    "read_secrets",
+    "http_post"
+   ]
+  },
+  {
+   "rule": "recipient must be one of `US-internal-001`, `US-internal-002`",
+   "pattern": "arg_allowlist",
+   "args": [
+    "US-internal-001",
+    "US-internal-002",
+    [
+     "US-internal-001",
+     "US-internal-002"
+    ]
+   ]
+  },
+  {
+   "rule": "response must not contain PII",
+   "pattern": "no_pii",
+   "args": [
+    [
+     "ssn",
+     "credit_card",
+     "email",
+     "phone"
+    ]
+   ]
+  },
+  {
+   "rule": "response must not contain PII (",
+   "pattern": "no_pii",
+   "args": [
+    [
+     "ssn",
+     "credit_card",
+     "email",
+     "phone"
+    ]
+   ]
+  },
+  {
+   "rule": "same `search` request `invoice-42` at most 2 times",
+   "pattern": "duplicate_call_limit",
+   "args": [
+    "search",
+    "invoice-42",
+    2
+   ]
+  },
+  {
+   "rule": "send_email should always come after review_draft",
+   "pattern": "always_followed_by",
+   "args": [
+    "review_draft",
+    "send_email"
+   ]
+  },
+  {
+   "rule": "tool `A` at most 0 times",
+   "pattern": "rate_limit",
+   "args": [
+    "A",
+    0
+   ]
+  },
+  {
+   "rule": "tool `A` at most 1 times",
+   "pattern": "rate_limit",
+   "args": [
+    "A",
+    1
+   ]
+  },
+  {
+   "rule": "tool `A` must always be followed by `B`",
+   "pattern": "always_followed_by",
+   "args": [
+    "A",
+    "B"
+   ]
+  },
+  {
+   "rule": "tool `A` must precede `B`",
+   "pattern": "must_precede",
+   "args": [
+    "A",
+    "B"
+   ]
+  },
+  {
+   "rule": "tool `B` at most 2 times",
+   "pattern": "rate_limit",
+   "args": [
+    "B",
+    2
+   ]
+  },
+  {
+   "rule": "tool `X` at most 0 times",
+   "pattern": "rate_limit",
+   "args": [
+    "X",
+    0
+   ]
+  },
+  {
+   "rule": "tool `X` at most 1 times",
+   "pattern": "rate_limit",
+   "args": [
+    "X",
+    1
+   ]
+  },
+  {
+   "rule": "tool `X` at most 10 times",
+   "pattern": "rate_limit",
+   "args": [
+    "X",
+    10
+   ]
+  },
+  {
+   "rule": "tool `X` at most 2 times",
+   "pattern": "rate_limit",
+   "args": [
+    "X",
+    2
+   ]
+  },
+  {
+   "rule": "tool `X` at most 3 times",
+   "pattern": "rate_limit",
+   "args": [
+    "X",
+    3
+   ]
+  },
+  {
+   "rule": "tool `X` at most 5 times",
+   "pattern": "rate_limit",
+   "args": [
+    "X",
+    5
+   ]
+  },
+  {
+   "rule": "tool `X` must be confirmed before execution",
+   "pattern": "must_confirm",
+   "args": [
+    "X"
+   ]
+  },
+  {
+   "rule": "tool `Y` at most 2 times",
+   "pattern": "rate_limit",
+   "args": [
+    "Y",
+    2
+   ]
+  },
+  {
+   "rule": "tool `a` must precede `b`",
+   "pattern": "must_precede",
+   "args": [
+    "a",
+    "b"
+   ]
+  },
+  {
+   "rule": "tool `api` argument `url` must not contain `http://`",
+   "pattern": "arg_blacklist",
+   "args": [
+    "api",
+    "url",
+    [
+     "http://"
+    ]
+   ]
+  },
+  {
+   "rule": "tool `approve` cannot be reversed by `reject`",
+   "pattern": "no_reversal",
+   "args": [
+    "approve",
+    "reject"
+   ]
+  },
+  {
+   "rule": "tool `banned` at most 0 times",
+   "pattern": "rate_limit",
+   "args": [
+    "banned",
+    0
+   ]
+  },
+  {
+   "rule": "tool `banned` at most 3 times",
+   "pattern": "rate_limit",
+   "args": [
+    "banned",
+    3
+   ]
+  },
+  {
+   "rule": "tool `bash` arg `command` must not contain `rm -rf`",
+   "pattern": "arg_blacklist",
+   "args": [
+    "bash",
+    "command",
+    [
+     "rm -rf"
+    ]
+   ]
+  },
+  {
+   "rule": "tool `bash` command must not contain `rm -rf`",
+   "pattern": "arg_blacklist",
+   "args": [
+    "bash",
+    "command",
+    [
+     "rm -rf"
+    ]
+   ]
+  },
+  {
+   "rule": "tool `bash` command must not contain `rm -rf` or `sudo`",
+   "pattern": "arg_blacklist",
+   "args": [
+    "bash",
+    "command",
+    [
+     "rm -rf",
+     "sudo"
+    ]
+   ]
+  },
+  {
+   "rule": "tool `charge_card` must execute at most once",
+   "pattern": "idempotent",
+   "args": [
+    "charge_card"
+   ]
+  },
+  {
+   "rule": "tool `check_policy` before `refund`",
+   "pattern": "must_precede",
+   "args": [
+    "check_policy",
+    "refund"
+   ]
+  },
+  {
+   "rule": "tool `check_policy` must precede `issue_refund`",
+   "pattern": "must_precede",
+   "args": [
+    "check_policy",
+    "issue_refund"
+   ]
+  },
+  {
+   "rule": "tool `check_policy` must precede `my_tool`",
+   "pattern": "must_precede",
+   "args": [
+    "check_policy",
+    "my_tool"
+   ]
+  },
+  {
+   "rule": "tool `db` field `sql` must not contain `DROP`",
+   "pattern": "arg_blacklist",
+   "args": [
+    "db",
+    "sql",
+    [
+     "DROP"
+    ]
+   ]
+  },
+  {
+   "rule": "tool `delete_content` requires permission `admin_permission`",
+   "pattern": "must_precede",
+   "args": [
+    "admin_permission",
+    "delete_content"
+   ]
+  },
+  {
+   "rule": "tool `delete_record` requires confirmation",
+   "pattern": "must_confirm",
+   "args": [
+    "delete_record"
+   ]
+  },
+  {
+   "rule": "tool `delete` requires permission `admin`",
+   "pattern": "requires_permission",
+   "args": [
+    "delete",
+    "admin"
+   ]
+  },
+  {
+   "rule": "tool `deploy_staging` at most 3 retries",
+   "pattern": "bounded_retry",
+   "args": [
+    "deploy_staging",
+    3
+   ]
+  },
+  {
+   "rule": "tool `deploy` must be idempotent",
+   "pattern": "idempotent",
+   "args": [
+    "deploy"
+   ]
+  },
+  {
+   "rule": "tool `deploy` should only run once",
+   "pattern": "idempotent",
+   "args": [
+    "deploy"
+   ]
+  },
+  {
+   "rule": "tool `execute_query` must be confirmed before execution",
+   "pattern": "must_confirm",
+   "args": [
+    "execute_query"
+   ]
+  },
+  {
+   "rule": "tool `execute` at most 2 times",
+   "pattern": "rate_limit",
+   "args": [
+    "execute",
+    2
+   ]
+  },
+  {
+   "rule": "tool `execute` at most 5 times",
+   "pattern": "rate_limit",
+   "args": [
+    "execute",
+    5
+   ]
+  },
+  {
+   "rule": "tool `file_ops` restricted to `/workspace/`",
+   "pattern": "scope_limit",
+   "args": [
+    "file_ops",
+    [
+     "/workspace/"
+    ]
+   ]
+  },
+  {
+   "rule": "tool `file_write` restricted to `/app/data`",
+   "pattern": "scope_limit",
+   "args": [
+    "file_write",
+    [
+     "/app/data"
+    ]
+   ]
+  },
+  {
+   "rule": "tool `handle_request` must always be followed by `cleanup`",
+   "pattern": "always_followed_by",
+   "args": [
+    "handle_request",
+    "cleanup"
+   ]
+  },
+  {
+   "rule": "tool `issue_refund` at most 0 times",
+   "pattern": "rate_limit",
+   "args": [
+    "issue_refund",
+    0
+   ]
+  },
+  {
+   "rule": "tool `issue_refund` at most 1 times",
+   "pattern": "rate_limit",
+   "args": [
+    "issue_refund",
+    1
+   ]
+  },
+  {
+   "rule": "tool `issue_refund` at most 3 times",
+   "pattern": "rate_limit",
+   "args": [
+    "issue_refund",
+    3
+   ]
+  },
+  {
+   "rule": "tool `issue_refund` must not be called more than 5 times per session",
+   "pattern": "rate_limit",
+   "args": [
+    "issue_refund",
+    5
+   ]
+  },
+  {
+   "rule": "tool `lookup` at most 0 times",
+   "pattern": "rate_limit",
+   "args": [
+    "lookup",
+    0
+   ]
+  },
+  {
+   "rule": "tool `lookup` must precede `delete_record`",
+   "pattern": "must_precede",
+   "args": [
+    "lookup",
+    "delete_record"
+   ]
+  },
+  {
+   "rule": "tool `never_called` must precede `dummy`",
+   "pattern": "must_precede",
+   "args": [
+    "never_called",
+    "dummy"
+   ]
+  },
+  {
+   "rule": "tool `ping` must precede `pong`",
+   "pattern": "must_precede",
+   "args": [
+    "ping",
+    "pong"
+   ]
+  },
+  {
+   "rule": "tool `receive_request` must always be followed by `log_request`",
+   "pattern": "always_followed_by",
+   "args": [
+    "receive_request",
+    "log_request"
+   ]
+  },
+  {
+   "rule": "tool `refund` requires permission `finance`",
+   "pattern": "requires_permission",
+   "args": [
+    "refund",
+    "finance"
+   ]
+  },
+  {
+   "rule": "tool `reject` must not follow `approve`",
+   "pattern": "no_reversal",
+   "args": [
+    "approve",
+    "reject"
+   ]
+  },
+  {
+   "rule": "tool `rm_rf` at most 2 times",
+   "pattern": "rate_limit",
+   "args": [
+    "rm_rf",
+    2
+   ]
+  },
+  {
+   "rule": "tool `run_bash` at most 5 times",
+   "pattern": "rate_limit",
+   "args": [
+    "run_bash",
+    5
+   ]
+  },
+  {
+   "rule": "tool `search_flights` must precede `book_flight`",
+   "pattern": "must_precede",
+   "args": [
+    "search_flights",
+    "book_flight"
+   ]
+  },
+  {
+   "rule": "tool `send_email` at most 3 times",
+   "pattern": "rate_limit",
+   "args": [
+    "send_email",
+    3
+   ]
+  },
+  {
+   "rule": "tool `send_newsletter` at most 1 times",
+   "pattern": "rate_limit",
+   "args": [
+    "send_newsletter",
+    1
+   ]
+  },
+  {
+   "rule": "tool `session_start` must precede `handle_request`",
+   "pattern": "must_precede",
+   "args": [
+    "session_start",
+    "handle_request"
+   ]
+  },
+  {
+   "rule": "tool `start_task` must always be followed by `log_result`",
+   "pattern": "always_followed_by",
+   "args": [
+    "start_task",
+    "log_result"
+   ]
+  },
+  {
+   "rule": "tool `tool_x` at most 0 times",
+   "pattern": "rate_limit",
+   "args": [
+    "tool_x",
+    0
+   ]
+  },
+  {
+   "rule": "tool `transfer` at most 0 times",
+   "pattern": "rate_limit",
+   "args": [
+    "transfer",
+    0
+   ]
+  },
+  {
+   "rule": "tool `transfer` at most 2 times",
+   "pattern": "rate_limit",
+   "args": [
+    "transfer",
+    2
+   ]
+  },
+  {
+   "rule": "tool `transfer` at most 3 times",
+   "pattern": "rate_limit",
+   "args": [
+    "transfer",
+    3
+   ]
+  },
+  {
+   "rule": "tool `verify_identity` must precede `issue_refund`",
+   "pattern": "must_precede",
+   "args": [
+    "verify_identity",
+    "issue_refund"
+   ]
+  },
+  {
+   "rule": "tool `verify_identity` must precede `transfer_funds`",
+   "pattern": "must_precede",
+   "args": [
+    "verify_identity",
+    "transfer_funds"
+   ]
+  },
+  {
+   "rule": "tool `verify` must precede `refund`",
+   "pattern": "must_precede",
+   "args": [
+    "verify",
+    "refund"
+   ]
+  },
+  {
+   "rule": "tool `verify` must precede `transfer`",
+   "pattern": "must_precede",
+   "args": [
+    "verify",
+    "transfer"
+   ]
+  },
+  {
+   "rule": "tool `whatever` at most 1 times",
+   "pattern": "rate_limit",
+   "args": [
+    "whatever",
+    1
+   ]
+  },
+  {
+   "rule": "tool `write_api` cooldown of 2 steps",
+   "pattern": "cooldown",
+   "args": [
+    "write_api",
+    2
+   ]
+  },
+  {
+   "rule": "tool `x` at most 0 times",
+   "pattern": "rate_limit",
+   "args": [
+    "x",
+    0
+   ]
+  },
+  {
+   "rule": "tool `x` at most 1 times",
+   "pattern": "rate_limit",
+   "args": [
+    "x",
+    1
+   ]
+  },
+  {
+   "rule": "tool `x` at most 9 times",
+   "pattern": "rate_limit",
+   "args": [
+    "x",
+    9
+   ]
+  },
+  {
+   "rule": "tool `y` at most 0 times",
+   "pattern": "rate_limit",
+   "args": [
+    "y",
+    0
+   ]
+  },
+  {
+   "rule": "tools `approve` and `reject` are mutually exclusive",
+   "pattern": "mutual_exclusion",
+   "args": [
+    "approve",
+    "reject"
+   ]
+  },
+  {
+   "rule": "tools `flag_content` and `delete_content` must never be called together",
+   "pattern": "mutual_exclusion",
+   "args": [
+    "flag_content",
+    "delete_content"
+   ]
+  },
+  {
+   "rule": "tools `submit` and `approve` require segregation of duty",
+   "pattern": "segregation_of_duty",
+   "args": [
+    "submit",
+    "approve"
+   ]
+  },
+  {
+   "rule": "whenever tool `start` is called, tool `cleanup` must eventually follow",
+   "pattern": "always_followed_by",
+   "args": [
+    "start",
+    "cleanup"
+   ]
+  }
+ ]
+}
