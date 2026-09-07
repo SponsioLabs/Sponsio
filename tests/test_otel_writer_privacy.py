@@ -17,16 +17,32 @@ from sponsio.tracer.otel_writer import trace_to_otlp
 def trace_with_secrets() -> Trace:
     t = Trace()
     t.events.append(
-        Event(ts=0, event_type="tool_call", tool="lookup_case", agent="a",
-              args={"ssn": "999-88-7777", "case": 12}, content="found Jane Roe")
+        Event(
+            ts=0,
+            event_type="tool_call",
+            tool="lookup_case",
+            agent="a",
+            args={"ssn": "999-88-7777", "case": 12},
+            content="found Jane Roe",
+        )
     )
     t.events.append(
-        Event(ts=1, event_type="llm_request", agent="a",
-              args={"model": "gpt-x"}, content="the patient's ssn is 999-88-7777")
+        Event(
+            ts=1,
+            event_type="llm_request",
+            agent="a",
+            args={"model": "gpt-x"},
+            content="the patient's ssn is 999-88-7777",
+        )
     )
     t.events.append(
-        Event(ts=2, event_type="llm_response", agent="a",
-              args={"model": "gpt-x"}, content="I will not repeat it")
+        Event(
+            ts=2,
+            event_type="llm_response",
+            agent="a",
+            args={"model": "gpt-x"},
+            content="I will not repeat it",
+        )
     )
     return t
 
@@ -55,7 +71,7 @@ def test_contents_never_leave_the_machine(level, monkeypatch):
 
 
 def test_the_argument_names_survive_below_full(monkeypatch):
-    """"args.ssn was set" is a debugging fact; its value is not."""
+    """ "args.ssn was set" is a debugging fact; its value is not."""
     out = rendered("shape", monkeypatch)
     assert "args.ssn" in out and "999-88-7777" not in out
 

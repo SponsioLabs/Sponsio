@@ -1,5 +1,3 @@
-
-
 # -- which customer a run belongs to ----------------------------------------
 
 
@@ -29,7 +27,9 @@ def test_an_explicit_project_still_wins(monkeypatch):
     from sponsio.bridge import session as bridge
 
     monkeypatch.setenv("SPONSIO_PROJECT", "from-the-environment")
-    guard = sponsio.Sponsio(agent_id="a", contracts=["tool `x` at most 1 times"], verbose=False)
+    guard = sponsio.Sponsio(
+        agent_id="a", contracts=["tool `x` at most 1 times"], verbose=False
+    )
     run = bridge.attach(guard, project="from-the-call", auto=False)
     assert run.project == "from-the-call"
 
@@ -39,7 +39,9 @@ def test_the_environment_is_used_when_the_call_is_silent(monkeypatch):
     from sponsio.bridge import session as bridge
 
     monkeypatch.setenv("SPONSIO_PROJECT", "fabrikam-health")
-    guard = sponsio.Sponsio(agent_id="a", contracts=["tool `x` at most 1 times"], verbose=False)
+    guard = sponsio.Sponsio(
+        agent_id="a", contracts=["tool `x` at most 1 times"], verbose=False
+    )
     run = bridge.attach(guard, auto=False)
     assert run.project == "fabrikam-health"
 
@@ -49,6 +51,8 @@ def test_neither_falls_back_to_default(monkeypatch):
     from sponsio.bridge import session as bridge
 
     monkeypatch.delenv("SPONSIO_PROJECT", raising=False)
-    guard = sponsio.Sponsio(agent_id="a", contracts=["tool `x` at most 1 times"], verbose=False)
+    guard = sponsio.Sponsio(
+        agent_id="a", contracts=["tool `x` at most 1 times"], verbose=False
+    )
     run = bridge.attach(guard, auto=False)
     assert run.project == "default"
