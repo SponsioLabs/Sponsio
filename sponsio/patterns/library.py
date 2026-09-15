@@ -1502,19 +1502,34 @@ def redirect_to_safe(
     )
 
 
+# Recursive ``rm`` in any spelling: ``rm -rf``, ``rm -fr``, ``rm -Rf``,
+# ``rm -r``, ``rm -f -r``, ``rm --recursive --force``, ``rm -v --recursive``.
+# ``count_with`` is a regex over the serialized args, so a literal
+# ``"rm -rf"`` only caught that one spelling. Mirrored verbatim in
+# ``ts/packages/sdk/src/core/patterns.ts``; keep the two in sync.
+RM_RECURSIVE_PATTERN = (
+    r"\brm(?:\s+(?:-[a-zA-Z]+|--[a-z-]+))*"
+    r"\s+(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)(?=\s|$)"
+)
+
+
 def dangerous_bash_commands(
     forbidden: list[str] | None = None, desc: str = ""
 ) -> DetFormula:
     """Preset: ban common dangerous bash operations.
 
     Combines multiple ``count_with("bash", pattern) ≤ 0`` constraints
-    into a single formula.
+    into a single formula. Each entry is a regex over the serialized
+    call arguments.
 
     Covers: **ASI05** (unexpected code execution).
 
     Args:
-        forbidden: List of bash command patterns to ban. Defaults to
-            ``["rm -rf", "sudo", "chmod", "sed -i", "python -c"]``.
+        forbidden: List of bash command regexes to ban. Defaults to
+            recursive ``rm`` in any flag spelling
+            (:data:`RM_RECURSIVE_PATTERN`), ``sudo``, ``chmod``,
+            ``sed -i``, ``python -c`` and the ``/app`` overwrite
+            primitives.
         desc: Optional human-readable description.
 
     Returns:
@@ -1522,7 +1537,7 @@ def dangerous_bash_commands(
     """
     if forbidden is None:
         forbidden = [
-            "rm -rf",
+            RM_RECURSIVE_PATTERN,
             "sudo",
             "chmod",
             "sed -i",

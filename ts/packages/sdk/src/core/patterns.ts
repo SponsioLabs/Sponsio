@@ -794,10 +794,30 @@ export function redirectToSafe(unsafe: string, safe: string): DetFormula {
   };
 }
 
+/**
+ * Recursive ``rm`` in any spelling: ``rm -rf``, ``rm -fr``, ``rm -Rf``,
+ * ``rm -r``, ``rm -f -r``, ``rm --recursive --force``, ``rm -v --recursive``.
+ * ``count_with`` is a regex over the serialized args, so a literal
+ * ``"rm -rf"`` only caught that one spelling. Mirrors
+ * ``RM_RECURSIVE_PATTERN`` in ``sponsio/patterns/library.py``; keep the
+ * two in sync.
+ */
+export const RM_RECURSIVE_PATTERN =
+  "\\brm(?:\\s+(?:-[a-zA-Z]+|--[a-z-]+))*\\s+(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)(?=\\s|$)";
+
 export function dangerousBashCommands(forbidden?: string[]): DetFormula {
+  // Same list and order as the Python default so the two runtimes emit
+  // identical descriptions and block the same commands.
   const defaults = [
-    "sed -i", "rm -rf", "cp /app/data", "mv /app/data",
-    "python -c", "chmod", "> /app", "tee /app",
+    RM_RECURSIVE_PATTERN,
+    "sudo",
+    "chmod",
+    "sed -i",
+    "python -c",
+    "> /app",
+    "cp /app/data",
+    "mv /app/data",
+    "tee /app",
   ];
   const cmds = forbidden ?? defaults;
   // G(count_with(bash, cmd) <= 0) for each cmd — AND them all
