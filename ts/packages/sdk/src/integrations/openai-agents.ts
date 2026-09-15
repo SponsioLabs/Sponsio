@@ -2,11 +2,17 @@
  * OpenAI Agents SDK integration (``@openai/agents``) — native TypeScript.
  *
  * The Agents SDK is the "native TS" counterpart to Python's
- * ``openai-agents``. It expresses tools as objects with an async
- * ``execute`` (or ``invoke``) function; this adapter intercepts that
- * function with ``guardBefore`` / ``guardAfter`` so contracts run at
- * the action boundary — the same shape as our LangChain and Vercel
- * adapters.
+ * ``openai-agents``. ``tool({ execute })`` returns a ``FunctionTool``
+ * whose only entry point is ``invoke(runContext, input, details)``: the
+ * user's ``execute`` is captured in a closure and never exposed, and the
+ * model's arguments arrive as ``input``, a JSON string, in the *second*
+ * position. This adapter intercepts ``invoke`` and reads the arguments
+ * from there, so contracts see what the model actually asked for and
+ * not the run context.
+ *
+ * Tools that follow the LangChain convention (``execute(args)`` or
+ * ``invoke(args)`` with the arguments first) are handled too; the
+ * Agents SDK shape is recognised by its ``type: "function"`` marker.
  *
  * Usage::
  *
@@ -22,7 +28,7 @@
  * wrapped tool objects. The originals are unmodified so the same
  * tool can be reused across agents or tests without leftover state.
  *
- * Blocked calls throw a thrown ``Error`` with the Sponsio violation
+ * Blocked calls throw an ``Error`` with the Sponsio violation
  * message — the Agents SDK surfaces this as a tool failure the model
  * can react to. If your runtime prefers a structured tool-result
  * error instead, wrap the call site.
@@ -32,18 +38,27 @@ import type { Sponsio } from "../index.js";
 
 /**
  * Structural shape we rely on: a ``name`` and some sort of async
- * executable. We probe for the Agents SDK's current field name
- * (``execute``) and fall back to ``invoke`` for runtimes that follow
- * the LangChain convention. If neither is present the tool is
- * returned unchanged and a one-shot warning is emitted.
+ * executable. We probe for ``execute`` first and fall back to
+ * ``invoke``. If neither is present the tool is returned unchanged and
+ * a one-shot warning is emitted.
  */
 interface AgentsToolLike {
   name: string;
+  type?: string;
   execute?: (...args: unknown[]) => unknown;
   invoke?: (...args: unknown[]) => unknown;
 }
 
 let warnedUnwrappable = false;
+
+/**
+ * True for the object ``tool()`` from ``@openai/agents`` returns: it
+ * carries ``type: "function"`` and dispatches through
+ * ``invoke(runContext, input)``.
+ */
+function isAgentsSdkFunctionTool(tool: AgentsToolLike): boolean {
+  return tool.type === "function" && typeof tool.invoke === "function";
+}
 
 export function wrapAgentsTools<T extends AgentsToolLike>(
   tools: T[],
@@ -66,14 +81,15 @@ export function wrapAgentsTools<T extends AgentsToolLike>(
       return tool;
     }
     const original = tool[field]!.bind(tool);
+    // Agents SDK: invoke(runContext, input, details) — the arguments are
+    // the second parameter. Everything else: arguments first.
+    const inputIndex = field === "invoke" && isAgentsSdkFunctionTool(tool) ? 1 : 0;
     const wrapped = async (...args: unknown[]): Promise<unknown> => {
-      const input = args[0];
-      const argsObj =
-        typeof input === "object" && input !== null
-          ? (input as Record<string, unknown>)
-          : { input };
+      const argsObj = toArgsObject(args[inputIndex]);
       const check = guard.guardBefore(tool.name, argsObj);
-      if (check.blocked) {
+      // ``stopOriginal`` covers a redirect verdict as well as a block:
+      // this adapter has no substitution path, so a redirect refuses.
+      if (check.stopOriginal) {
         throw new Error(check.message);
       }
       const output = await original(...args);
@@ -86,7 +102,7 @@ export function wrapAgentsTools<T extends AgentsToolLike>(
       // Agents SDK routes them as a tool failure the model can see and
       // react to, matching the pre-check block path above.
       const afterCheck = await guard.guardAfter(tool.name, asStr);
-      if (afterCheck.blocked) {
+      if (afterCheck.stopOriginal) {
         throw new Error(afterCheck.message);
       }
       return output;
@@ -95,6 +111,29 @@ export function wrapAgentsTools<T extends AgentsToolLike>(
     const next = { ...tool, [field]: wrapped } as T;
     return next;
   });
+}
+
+/**
+ * The model's arguments as an object. The Agents SDK hands them over as
+ * a JSON string; a string that is not JSON is kept under
+ * ``_sponsio_malformed_args`` so coarse regex contracts still see it.
+ */
+export function toArgsObject(input: unknown): Record<string, unknown> {
+  if (typeof input === "string") {
+    try {
+      const parsed = JSON.parse(input);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+      return { input: parsed };
+    } catch {
+      return { _sponsio_malformed_args: input };
+    }
+  }
+  if (typeof input === "object" && input !== null && !Array.isArray(input)) {
+    return input as Record<string, unknown>;
+  }
+  return { input };
 }
 
 function safeStringify(v: unknown): string {

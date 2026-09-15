@@ -56,10 +56,12 @@ To restore the original behavior::
 
 from __future__ import annotations
 
+import functools
+import inspect
 import json
 import os
 import warnings
-from typing import Any
+from typing import Any, Callable
 
 from sponsio.integrations.base import BaseGuard, CheckResult, select_agent_message
 from sponsio.models.system import System
@@ -69,6 +71,16 @@ from sponsio.runtime.strategies import EnforcementStrategy
 _original_create: Any = None
 _original_async_create: Any = None
 _active_guard: OpenAIGuard | None = None
+# (class, attribute) -> original method, for every SDK method
+# ``patch_openai`` replaced. ``unpatch_openai`` restores them all.
+_ORIGINALS: dict[tuple[Any, str], Callable[..., Any]] = {}
+
+_STREAM_UNSUPPORTED = (
+    "sponsio: the OpenAI guard does not support stream=True. Tool calls "
+    "arrive as deltas and could only be checked after the caller has "
+    "already assembled and run them. Call without stream, or run your "
+    "own executor through guard.guard_before() before each tool call."
+)
 
 
 def _coerce_tool_arguments(
@@ -468,11 +480,312 @@ class OpenAIGuard(BaseGuard):
                     [c for c in llm_check.evidence_claims if c.blocked],
                     error=llm_check.evidence_error,
                 )
+                # A stopped response executes nothing: claims are
+                # extracted from tool_call arguments too, so leaving the
+                # calls in place would run the very action the verdict
+                # refused while only the text carried the notice.
+                if getattr(choice.message, "tool_calls", None):
+                    choice.message.tool_calls = None
             elif llm_check.evidence_clarifications:
                 choice.message.content = format_clarify_notice(
                     llm_check.evidence_clarifications
                 )
         return response
+
+    # -----------------------------------------------------------------
+    # Responses API (``client.responses.create`` / ``parse``)
+    # -----------------------------------------------------------------
+
+    def check_responses_output(self, response: Any) -> list[CheckResult]:
+        """Check every ``function_call`` item in a Responses API result.
+
+        The Responses counterpart of :meth:`check_response`: tool calls
+        are ``output`` items of type ``function_call`` whose
+        ``arguments`` is a JSON string, and the ``call_id`` -> name map is
+        kept so a later ``function_call_output`` item can be observed by
+        name.
+
+        Args:
+            response: The ``Response`` object.
+
+        Returns:
+            A list of CheckResult objects, one per ``function_call`` item.
+        """
+        output = list(getattr(response, "output", None) or [])
+        decoded: list[tuple[Any, str, dict]] = []
+        text_parts: list[str] = []
+        for item in output:
+            item_type = getattr(item, "type", None)
+            if item_type == "function_call":
+                name = getattr(item, "name", "") or ""
+                decoded.append(
+                    (
+                        item,
+                        name,
+                        _coerce_tool_arguments(
+                            getattr(item, "arguments", None), tool_name=name
+                        ),
+                    )
+                )
+            elif item_type == "message":
+                for part in getattr(item, "content", None) or []:
+                    text = getattr(part, "text", None)
+                    if text:
+                        text_parts.append(str(text))
+
+        usage = getattr(response, "usage", None)
+        llm_check = self.observe_llm_call(
+            response="\n".join(text_parts),
+            input_tokens=getattr(usage, "input_tokens", None) if usage else None,
+            output_tokens=getattr(usage, "output_tokens", None) if usage else None,
+            tool_call_args=[args for _, _, args in decoded],
+        )
+        self.last_llm_checks = [llm_check]
+
+        results: list[CheckResult] = []
+        for item, name, args in decoded:
+            check = self.guard_before(name, args)
+            results.append(check)
+            call_id = getattr(item, "call_id", None) or getattr(item, "id", None)
+            if call_id:
+                self._pending_tool_calls[str(call_id)] = name
+            if check.stop_original and self.on_violation:
+                self.on_violation(name, args, check)
+
+        if results:
+            self.last_check = results[-1]
+        return results
+
+    def _auto_observe_responses_input(self, items: Any) -> None:
+        """Observe ``function_call_output`` items on an outbound ``input``.
+
+        The Responses twin of :meth:`_auto_observe_tool_messages`.
+        """
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if isinstance(item, dict):
+                item_type = item.get("type")
+                call_id = item.get("call_id")
+                output = item.get("output")
+            else:
+                item_type = getattr(item, "type", None)
+                call_id = getattr(item, "call_id", None)
+                output = getattr(item, "output", None)
+            if item_type != "function_call_output" or not call_id:
+                continue
+            if str(call_id) in self._observed_tool_call_ids:
+                continue
+            try:
+                self.observe_tool_result(
+                    str(call_id), "" if output is None else str(output)
+                )
+            except Exception:
+                pass
+
+    def _filter_blocked_output_items(
+        self, response: Any, results: list[CheckResult]
+    ) -> Any:
+        """Drop refused ``function_call`` items from a Responses result.
+
+        The Responses twin of :meth:`_filter_blocked_calls`: the caller's
+        executor iterates ``response.output``, so a refused call must not
+        be there. The refusal is appended to the assistant text so the
+        model learns why on the next turn.
+        """
+        blocked_messages: list[str] = []
+        kept: list[Any] = []
+        idx = 0
+        for item in list(getattr(response, "output", None) or []):
+            if getattr(item, "type", None) == "function_call":
+                verdict = results[idx] if idx < len(results) else None
+                idx += 1
+                if verdict is not None and verdict.stop_original:
+                    msg = select_agent_message(
+                        verdict.det_violations, fallback="Contract violation"
+                    )
+                    blocked_messages.append(
+                        f"[BLOCKED] {getattr(item, 'name', '')}: {msg}"
+                    )
+                    continue
+            kept.append(item)
+        try:
+            response.output = kept
+        except Exception:  # pragma: no cover - frozen model shapes
+            pass
+        if blocked_messages:
+            _append_responses_note(response, "\n".join(blocked_messages))
+        return response
+
+    def _apply_evidence_notices_responses(self, response: Any) -> Any:
+        """Responses twin of :meth:`_apply_evidence_notices`."""
+        checks = getattr(self, "last_llm_checks", None)
+        if not checks:
+            return response
+        from sponsio.integrations.evidence_middleware import (
+            format_block_notice,
+            format_clarify_notice,
+        )
+
+        llm_check = checks[0]
+        if llm_check.evidence_stopped:
+            notice = format_block_notice(
+                [c for c in llm_check.evidence_claims if c.blocked],
+                error=llm_check.evidence_error,
+            )
+            # Stopped: no function_call item may survive (see the chat twin).
+            try:
+                response.output = [
+                    item
+                    for item in list(getattr(response, "output", None) or [])
+                    if getattr(item, "type", None) != "function_call"
+                ]
+            except Exception:  # pragma: no cover
+                pass
+            _append_responses_note(response, notice)
+        elif llm_check.evidence_clarifications:
+            _append_responses_note(
+                response, format_clarify_notice(llm_check.evidence_clarifications)
+            )
+        return response
+
+    # -----------------------------------------------------------------
+    # Per-client wiring
+    # -----------------------------------------------------------------
+
+    def wrap(self, client: Any) -> Any:
+        """Attach this guard to one OpenAI client instance.
+
+        Patches the instance's ``chat.completions.create`` / ``parse`` and
+        ``responses.create`` / ``parse`` (sync or async client) so every
+        tool call the model emits is checked before the caller's executor
+        can run it. Unlike :func:`patch_openai`, other clients in the
+        process are untouched. Returns the same client for chaining::
+
+            client = guard.wrap(openai.OpenAI())
+
+        Args:
+            client: An ``openai.OpenAI`` or ``openai.AsyncOpenAI`` instance.
+
+        Returns:
+            The client passed in, now guarded.
+
+        Raises:
+            TypeError: If ``client`` has no ``chat.completions``.
+        """
+        completions = getattr(getattr(client, "chat", None), "completions", None)
+        if completions is None:
+            raise TypeError(
+                "OpenAIGuard.wrap() expects an openai.OpenAI / AsyncOpenAI "
+                f"client (no .chat.completions on {type(client).__name__})"
+            )
+        _patch_instance(completions, "create", self, "chat")
+        _patch_instance(completions, "parse", self, "chat")
+        responses = getattr(client, "responses", None)
+        if responses is not None:
+            _patch_instance(responses, "create", self, "responses")
+            _patch_instance(responses, "parse", self, "responses")
+        return client
+
+
+def _append_responses_note(response: Any, note: str) -> None:
+    """Append ``note`` to the assistant text of a Responses result.
+
+    Appends to the last ``output_text`` part when there is one; otherwise
+    the note lives only in ``guard.violations`` (a synthetic message item
+    would have to match the SDK's pydantic shape exactly).
+    """
+    for item in reversed(list(getattr(response, "output", None) or [])):
+        if getattr(item, "type", None) != "message":
+            continue
+        for part in reversed(list(getattr(item, "content", None) or [])):
+            if hasattr(part, "text"):
+                try:
+                    part.text = (part.text or "") + "\n" + note
+                    return
+                except Exception:  # pragma: no cover
+                    return
+
+
+def _before_call(guard: OpenAIGuard, kind: str, kwargs: dict) -> None:
+    """Pre-flight for every patched SDK method.
+
+    Streaming is refused outright rather than passed through unchecked:
+    there is no buffered response to inspect before the caller's tool
+    loop sees the deltas. The outbound tool results from the previous
+    turn are observed so the trace reflects real execution.
+    """
+    if kwargs.get("stream"):
+        raise NotImplementedError(_STREAM_UNSUPPORTED)
+    if kind == "chat":
+        guard._auto_observe_tool_messages(kwargs.get("messages"))
+    else:
+        guard._auto_observe_responses_input(kwargs.get("input"))
+
+
+def _after_call(guard: OpenAIGuard, kind: str, response: Any) -> Any:
+    """Check the model's tool calls and rewrite the response in place."""
+    if kind == "chat":
+        results = guard.check_response(response)
+        # ``stop_original``: redirected verdicts must also trigger the
+        # rewrite — gating on ``.blocked`` alone lets redirects fail open.
+        if any(r.stop_original for r in results):
+            response = guard._filter_blocked_calls(response, results)
+        return guard._apply_evidence_notices(response)
+    results = guard.check_responses_output(response)
+    if any(r.stop_original for r in results):
+        response = guard._filter_blocked_output_items(response, results)
+    return guard._apply_evidence_notices_responses(response)
+
+
+def _guarded(
+    guard: OpenAIGuard, original: Callable[..., Any], kind: str, is_async: bool
+) -> Callable[..., Any]:
+    """Build the wrapper for one SDK method (bound or unbound)."""
+    if is_async:
+
+        async def patched(*args: Any, **kwargs: Any) -> Any:
+            _before_call(guard, kind, kwargs)
+            response = await original(*args, **kwargs)
+            return _after_call(guard, kind, response)
+
+    else:
+
+        def patched(*args: Any, **kwargs: Any) -> Any:
+            _before_call(guard, kind, kwargs)
+            response = original(*args, **kwargs)
+            return _after_call(guard, kind, response)
+
+    try:
+        functools.update_wrapper(patched, original)
+    except (AttributeError, TypeError):  # pragma: no cover - exotic callables
+        pass
+    patched.__sponsio_original__ = original  # type: ignore[attr-defined]
+    return patched
+
+
+def _patch_instance(resource: Any, attr: str, guard: OpenAIGuard, kind: str) -> None:
+    """Replace ``resource.<attr>`` on one resource object with a guarded twin."""
+    current = getattr(resource, attr, None)
+    if current is None or not callable(current):
+        return
+    # Re-wrapping a guarded client swaps the guard instead of stacking.
+    original = getattr(current, "__sponsio_original__", current)
+    is_async = inspect.iscoroutinefunction(original)
+    setattr(resource, attr, _guarded(guard, original, kind, is_async))
+
+
+def _patch_class(cls: Any, attr: str, guard: OpenAIGuard, kind: str) -> None:
+    """Replace ``cls.<attr>`` process-wide, remembering the original once."""
+    key = (cls, attr)
+    original = _ORIGINALS.get(key)
+    if original is None:
+        original = getattr(cls, attr, None)
+        if original is None or not callable(original):
+            return
+        _ORIGINALS[key] = original
+    is_async = inspect.iscoroutinefunction(original)
+    setattr(cls, attr, _guarded(guard, original, kind, is_async))
 
 
 def patch_openai(
@@ -490,13 +803,19 @@ def patch_openai(
     After calling this, every ``client.chat.completions.create()`` call
     will automatically check tool_calls against the provided contracts.
 
+    Covers ``chat.completions.create`` / ``parse`` and, when the installed
+    SDK has it, ``responses.create`` / ``parse``. ``stream=True`` raises
+    ``NotImplementedError`` at call time on every patched method: tool
+    calls arrive as deltas and could only be checked after the caller's
+    loop has assembled and run them. To guard a single client instead of
+    the whole process, use ``guard.wrap(client)``.
+
     With an ``evidence=`` config (see
     :mod:`sponsio.integrations.evidence_middleware`), configured claims in
     the assistant's structured output are verified server-side and a
-    blocking verdict replaces the assistant text with a block notice
-    (clarify verdicts replace it with a clarifying question). Streaming
-    is out of scope for evidence: ``stream=True`` with an evidence config
-    raises ``NotImplementedError`` at call time.
+    blocking verdict replaces the assistant text with a block notice and
+    drops the response's tool calls (clarify verdicts replace the text
+    with a clarifying question).
 
     Args:
         agent_id: Logical agent identifier for trace/monitor.
@@ -518,7 +837,7 @@ def patch_openai(
     global _original_create, _original_async_create, _active_guard
 
     try:
-        import openai
+        import openai  # noqa: F401 - presence check; the resources are imported below
     except ImportError:
         raise ImportError("openai is required. Install with: pip install openai")
 
@@ -552,61 +871,32 @@ def patch_openai(
         )
     _active_guard = guard
 
-    # Save originals (only on first patch)
-    if _original_create is None:
-        _original_create = openai.resources.chat.completions.Completions.create
+    from openai.resources.chat import completions as _chat_completions
 
-    if _original_async_create is None:
-        _original_async_create = (
-            openai.resources.chat.completions.AsyncCompletions.create
-        )
+    # ``chat.completions.create`` and ``parse`` (``parse`` posts directly
+    # and never goes through ``create``), then the Responses API when the
+    # installed SDK has it. Originals are remembered once so re-patching
+    # swaps the guard instead of stacking wrappers.
+    _patch_class(_chat_completions.Completions, "create", guard, "chat")
+    _patch_class(_chat_completions.AsyncCompletions, "create", guard, "chat")
+    _patch_class(_chat_completions.Completions, "parse", guard, "chat")
+    _patch_class(_chat_completions.AsyncCompletions, "parse", guard, "chat")
+    try:
+        from openai.resources import responses as _responses
+    except ImportError:  # pragma: no cover - SDKs predating the Responses API
+        _responses = None
+    if _responses is not None:
+        for cls_name in ("Responses", "AsyncResponses"):
+            cls = getattr(_responses, cls_name, None)
+            if cls is None:
+                continue
+            _patch_class(cls, "create", guard, "responses")
+            _patch_class(cls, "parse", guard, "responses")
 
-    # --- Sync wrapper ---
-    def patched_create(self_completions: Any, *args: Any, **kwargs: Any) -> Any:
-        # Pre-flight: scan the outbound ``messages`` for tool results
-        # returning from the previous turn and run them through
-        # ``guard_after`` so the trace reflects real execution.  This
-        # is the OpenAI equivalent of LangGraph's post-execution hook.
-        # Streaming + evidence is explicitly out of scope: there is no
-        # buffered response object to verify before chunks reach the
-        # caller. Fail loudly at call time instead of silently skipping
-        # verification the config promised.
-        if kwargs.get("stream") and guard._evidence_config is not None:
-            raise NotImplementedError(
-                "evidence verification is not supported with stream=True; "
-                "call without stream or drop the guard's evidence config"
-            )
-        guard._auto_observe_tool_messages(kwargs.get("messages"))
-        response = _original_create(self_completions, *args, **kwargs)
-        results = guard.check_response(response)
-        # ``stop_original``: redirected verdicts must also trigger the
-        # rewrite — gating on ``.blocked`` alone lets redirects fail open.
-        if any(r.stop_original for r in results):
-            response = guard._filter_blocked_calls(response, results)
-        # Evidence verdicts rewrite the assistant text while the response
-        # is still in hand (no-op when unconfigured / nothing fired).
-        return guard._apply_evidence_notices(response)
-
-    # --- Async wrapper ---
-    async def patched_async_create(
-        self_completions: Any, *args: Any, **kwargs: Any
-    ) -> Any:
-        # Same streaming refusal as the sync twin above.
-        if kwargs.get("stream") and guard._evidence_config is not None:
-            raise NotImplementedError(
-                "evidence verification is not supported with stream=True; "
-                "call without stream or drop the guard's evidence config"
-            )
-        guard._auto_observe_tool_messages(kwargs.get("messages"))
-        response = await _original_async_create(self_completions, *args, **kwargs)
-        results = guard.check_response(response)
-        # Same ``stop_original`` gate as the sync twin above.
-        if any(r.stop_original for r in results):
-            response = guard._filter_blocked_calls(response, results)
-        return guard._apply_evidence_notices(response)
-
-    openai.resources.chat.completions.Completions.create = patched_create  # type: ignore[assignment]
-    openai.resources.chat.completions.AsyncCompletions.create = patched_async_create  # type: ignore[assignment]
+    _original_create = _ORIGINALS.get((_chat_completions.Completions, "create"))
+    _original_async_create = _ORIGINALS.get(
+        (_chat_completions.AsyncCompletions, "create")
+    )
 
     return guard
 
@@ -618,16 +908,15 @@ def unpatch_openai() -> None:
     """
     global _original_create, _original_async_create, _active_guard
 
-    if _original_create is None:
+    if not _ORIGINALS:
         return
 
-    try:
-        import openai
-    except ImportError:
-        return
-
-    openai.resources.chat.completions.Completions.create = _original_create  # type: ignore[assignment]
-    openai.resources.chat.completions.AsyncCompletions.create = _original_async_create  # type: ignore[assignment]
+    for (cls, attr), original in list(_ORIGINALS.items()):
+        try:
+            setattr(cls, attr, original)
+        except (AttributeError, TypeError):  # pragma: no cover
+            pass
+    _ORIGINALS.clear()
 
     _original_create = None
     _original_async_create = None

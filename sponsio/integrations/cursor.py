@@ -427,9 +427,12 @@ def run_cursor_stdin(hook_event: str, stdin_text: str | None = None) -> int:
 
     try:
         outcome = evaluate_event(sponsio_event)
-    except Exception as e:  # pragma: no cover — surfaced via stderr
-        sys.stderr.write(f"sponsio cursor guard:evaluation error: {e}\n")
-        return 0
+    except Exception as e:
+        # Same policy as the Claude Code hook: denied unless
+        # SPONSIO_HOOK_ON_ERROR=allow (see guard_stdin._error_outcome).
+        from sponsio.guard_stdin import _error_outcome
+
+        outcome = _error_outcome(e, "", None)
 
     payload, code = render_cursor_reply(
         outcome,

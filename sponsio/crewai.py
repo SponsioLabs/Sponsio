@@ -14,7 +14,9 @@ Usage::
                 .guarantees("delegate target in {researcher, writer}"),
         ],
     )
-    crew = Crew(agents=guard.wrap(agents), tasks=tasks)
+    guard.register_global_hooks()          # every crew in the process
+    crew = Crew(agents=agents, tasks=tasks)
+    # or per tool: Agent(..., tools=guard.wrap([check_policy, issue_refund]))
 """
 
 from __future__ import annotations

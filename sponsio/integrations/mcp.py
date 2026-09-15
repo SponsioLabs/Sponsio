@@ -174,6 +174,13 @@ class MCPContractProxy:
 
         stopped = [r for r in results if is_stopping_action(r.action)]
         if stopped:
+            # The refused attempt must not stay in the trace: left there it
+            # counts toward ``rate_limit`` budgets and satisfies ordering
+            # rules for a call that never ran, so a later legitimate call
+            # gets refused. ``BaseGuard.guard_before`` rolls back the same
+            # way; this proxy carries only a ``RuntimeMonitor`` so it does
+            # it here.
+            self._monitor.rollback_last_event()
             return {
                 "error": "Blocked by behavioral contract",
                 "violations": [r.message for r in stopped],

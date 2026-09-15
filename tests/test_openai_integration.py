@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio as _asyncio
+import types as _types
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -516,3 +518,244 @@ class TestAutoScanToolMessages:
         writes = _data_writes(guard)
         assert len(writes) == 1
         assert writes[0].contains == ["lookup_customer"]
+
+
+# ---------------------------------------------------------------------------
+# Per-client wrap, parse(), Responses API, streaming refusal
+# ---------------------------------------------------------------------------
+
+
+class _FakeCompletions:
+    """Stands in for ``client.chat.completions``: ``create`` and ``parse``
+    return whatever the test queued."""
+
+    def __init__(self, response):
+        self._response = response
+        self.calls: list[dict] = []
+
+    def create(self, *args, **kwargs):
+        self.calls.append(kwargs)
+        return self._response
+
+    def parse(self, *args, **kwargs):
+        self.calls.append({"parse": True, **kwargs})
+        return self._response
+
+
+class _FakeAsyncCompletions(_FakeCompletions):
+    async def create(self, *args, **kwargs):  # type: ignore[override]
+        self.calls.append(kwargs)
+        return self._response
+
+
+@dataclass
+class _FunctionCallItem:
+    type: str = "function_call"
+    name: str = "issue_refund"
+    arguments: str = "{}"
+    call_id: str = "call_1"
+
+
+@dataclass
+class _OutputText:
+    type: str = "output_text"
+    text: str = ""
+
+
+@dataclass
+class _MessageItem:
+    type: str = "message"
+    role: str = "assistant"
+    content: list = field(default_factory=list)
+
+
+@dataclass
+class _ResponsesResult:
+    output: list = field(default_factory=list)
+    usage: Any = None
+
+
+class _FakeResponses:
+    def __init__(self, result):
+        self._result = result
+
+    def create(self, *args, **kwargs):
+        return self._result
+
+
+def _fake_client(response, *, responses_result=None, is_async=False):
+    completions = (
+        _FakeAsyncCompletions(response) if is_async else _FakeCompletions(response)
+    )
+    chat = _types.SimpleNamespace(completions=completions)
+    client = _types.SimpleNamespace(chat=chat)
+    if responses_result is not None:
+        client.responses = _FakeResponses(responses_result)
+    return client
+
+
+class TestWrapClient:
+    def test_wrap_returns_the_client_and_guards_create(self):
+        """``guard.wrap(client)`` used to be ``BaseGuard.wrap``: the client
+        came back unchanged and nothing was checked."""
+        guard = OpenAIGuard(
+            contracts=["tool `check_policy` must precede `issue_refund`"]
+        )
+        client = _fake_client(make_response("issue_refund"))
+        assert guard.wrap(client) is client
+
+        out = client.chat.completions.create(model="m", messages=[])
+        assert out.choices[0].message.tool_calls is None
+        assert "[BLOCKED] issue_refund" in (out.choices[0].message.content or "")
+        assert guard.last_check is not None and guard.last_check.blocked
+
+    def test_wrap_guards_parse_too(self):
+        guard = OpenAIGuard(
+            contracts=["tool `check_policy` must precede `issue_refund`"]
+        )
+        client = guard.wrap(_fake_client(make_response("issue_refund")))
+        out = client.chat.completions.parse(model="m", messages=[])
+        assert out.choices[0].message.tool_calls is None
+
+    def test_wrap_async_client(self):
+        guard = OpenAIGuard(
+            contracts=["tool `check_policy` must precede `issue_refund`"]
+        )
+        client = guard.wrap(_fake_client(make_response("issue_refund"), is_async=True))
+        out = _asyncio.run(client.chat.completions.create(model="m", messages=[]))
+        assert out.choices[0].message.tool_calls is None
+
+    def test_wrap_twice_swaps_guard_instead_of_stacking(self):
+        first = OpenAIGuard(contracts=["tool `A` must precede `B`"])
+        second = OpenAIGuard(contracts=["tool `A` must precede `B`"])
+        client = _fake_client(make_response("B"))
+        first.wrap(client)
+        second.wrap(client)
+        client.chat.completions.create(model="m", messages=[])
+        assert second.last_check is not None
+        assert first.last_check is None
+
+    def test_wrap_rejects_non_client(self):
+        with pytest.raises(TypeError):
+            OpenAIGuard().wrap(object())
+
+    def test_stream_is_refused_not_passed_through(self):
+        guard = OpenAIGuard(contracts=["tool `A` must precede `B`"])
+        client = guard.wrap(_fake_client(make_response("B")))
+        with pytest.raises(NotImplementedError, match="stream"):
+            client.chat.completions.create(model="m", messages=[], stream=True)
+        # the underlying call never happened
+        assert client.chat.completions.calls == []
+
+
+class TestResponsesAPI:
+    def _guard(self):
+        return OpenAIGuard(
+            contracts=["tool `check_policy` must precede `issue_refund`"]
+        )
+
+    def test_refused_function_call_is_removed_from_output(self):
+        guard = self._guard()
+        result = _ResponsesResult(
+            output=[
+                _MessageItem(content=[_OutputText(text="Refunding now.")]),
+                _FunctionCallItem(name="issue_refund", arguments='{"order_id": "o1"}'),
+            ]
+        )
+        client = guard.wrap(_fake_client(make_response(), responses_result=result))
+        out = client.responses.create(model="m", input="refund order o1")
+        assert [i.type for i in out.output] == ["message"]
+        assert "[BLOCKED] issue_refund" in out.output[0].content[0].text
+        assert guard.last_check is not None and guard.last_check.blocked
+
+    def test_allowed_function_call_survives_and_call_id_is_remembered(self):
+        guard = self._guard()
+        result = _ResponsesResult(
+            output=[_FunctionCallItem(name="check_policy", call_id="c9")]
+        )
+        client = guard.wrap(_fake_client(make_response(), responses_result=result))
+        out = client.responses.create(model="m", input="x")
+        assert [i.type for i in out.output] == ["function_call"]
+        assert guard._pending_tool_calls["c9"] == "check_policy"
+
+    def test_function_call_output_items_are_observed(self):
+        guard = self._guard()
+        guard._pending_tool_calls["c9"] = "check_policy"
+        client = guard.wrap(
+            _fake_client(make_response(), responses_result=_ResponsesResult())
+        )
+        client.responses.create(
+            model="m",
+            input=[{"type": "function_call_output", "call_id": "c9", "output": "ok"}],
+        )
+        assert "c9" in guard._observed_tool_call_ids
+
+    def test_responses_stream_is_refused(self):
+        guard = self._guard()
+        client = guard.wrap(
+            _fake_client(make_response(), responses_result=_ResponsesResult())
+        )
+        with pytest.raises(NotImplementedError, match="stream"):
+            client.responses.create(model="m", input="x", stream=True)
+
+
+class TestPatchOpenAICoverage:
+    def test_patch_covers_parse_and_responses(self):
+        """``parse()`` posts directly and never goes through ``create``;
+        the Responses API is a separate resource. Both must be patched."""
+        openai = pytest.importorskip("openai")
+        from openai.resources.chat import completions as chat_completions
+
+        guard = patch_openai(contracts=["tool `A` must precede `B`"])
+        try:
+            assert getattr(
+                chat_completions.Completions.create, "__sponsio_original__", None
+            )
+            assert getattr(
+                chat_completions.Completions.parse, "__sponsio_original__", None
+            )
+            try:
+                from openai.resources import responses as responses_mod
+            except ImportError:
+                responses_mod = None
+            if responses_mod is not None:
+                assert getattr(
+                    responses_mod.Responses.create, "__sponsio_original__", None
+                )
+        finally:
+            unpatch_openai()
+        assert (
+            getattr(chat_completions.Completions.create, "__sponsio_original__", None)
+            is None
+        )
+        del openai, guard
+
+    def test_patched_create_refuses_stream(self):
+        pytest.importorskip("openai")
+        from openai.resources.chat import completions as chat_completions
+
+        patch_openai(contracts=["tool `A` must precede `B`"])
+        try:
+            with pytest.raises(NotImplementedError, match="stream"):
+                chat_completions.Completions.create(
+                    object(), model="m", messages=[], stream=True
+                )
+        finally:
+            unpatch_openai()
+
+
+class TestEvidenceStopDropsToolCalls:
+    def test_stopped_response_keeps_no_tool_calls(self):
+        """An evidence verdict that stops the response used to rewrite only
+        the text; the tool_calls it was extracted from still executed."""
+        from sponsio.integrations.base import CheckResult
+
+        guard = OpenAIGuard()
+        response = make_response("issue_refund")
+        stopped = CheckResult(allowed=False)
+        stopped.evidence_stopped = True
+        stopped.evidence_claims = []
+        stopped.evidence_error = None
+        guard.last_llm_checks = [stopped]
+        out = guard._apply_evidence_notices(response)
+        assert out.choices[0].message.tool_calls is None

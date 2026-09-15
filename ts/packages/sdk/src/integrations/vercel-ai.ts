@@ -10,31 +10,42 @@
  *   const model = wrapLanguageModel({ model, middleware: sponsioMiddleware(guard) })
  *
  * Behaviour:
- *   - guardBefore is called for every tool call the model emits.
+ *   - guardBefore runs for every tool call the model emits, on both
+ *     ``generateText`` (``wrapGenerate``) and ``streamText``
+ *     (``wrapStream``), before the AI SDK executes the tool.
  *   - Allowed calls pass through untouched.
- *   - Blocked calls are *dropped* from ``result.toolCalls`` (so the AI
- *     SDK's parseToolCall doesn't reject the response with NoSuchToolError),
- *     and a `[Sponsio blocked: <reason>]` line is appended to the
- *     model's text output. If every emitted call was blocked, the
- *     finishReason is forced to ``stop`` so the agent loop terminates
- *     instead of spinning on an empty turn.
- *   - The model's args are JSON-stringified at the language-model layer;
- *     the middleware parses defensively before handing them to the
+ *   - Blocked calls are *dropped* (so the AI SDK never executes them and
+ *     ``parseToolCall`` doesn't reject the response), and a
+ *     ``[Sponsio blocked: <reason>]`` note is added to the model's text.
+ *     If every emitted call was blocked, the finishReason is forced to
+ *     ``stop`` so the agent loop terminates instead of spinning.
+ *   - Both provider result shapes are handled: ``ai`` v4
+ *     (``LanguageModelV1``: ``result.toolCalls[]`` with ``args``) and
+ *     ``ai`` v5 and later (``LanguageModelV2`` / ``V3``:
+ *     ``result.content[]`` with ``{ type: "tool-call", input }`` parts).
+ *   - The model's args arrive JSON-stringified at the language-model
+ *     layer; the middleware parses defensively before handing them to the
  *     guard so the contract evaluator sees a real object.
  */
 
 import type { Sponsio } from "../index.js";
 
-interface ToolCallV1 {
-  toolCallType: "function";
+/** A tool call as either provider generation emits it. */
+interface ToolCallLike {
   toolCallId: string;
   toolName: string;
-  args: unknown; // string | Record<string, unknown> across SDK versions; parsed defensively
+  /** v4: JSON string (or object across SDK versions). */
+  args?: unknown;
+  /** v5+: JSON string. */
+  input?: unknown;
+  type?: string;
+  toolCallType?: string;
 }
 
 interface GenerateResult {
   text?: string;
-  toolCalls?: ToolCallV1[];
+  toolCalls?: ToolCallLike[];
+  content?: Array<Record<string, unknown>>;
   finishReason?: string;
   [k: string]: unknown;
 }
@@ -55,7 +66,12 @@ function emitBanner(toolName: string, reason: string, agentId: string) {
   process.stderr.write(lines.join("\n"));
 }
 
-function parseArgs(raw: unknown): Record<string, unknown> {
+/**
+ * The model's arguments as an object. A string that is not JSON is kept
+ * under ``_sponsio_malformed_args`` so coarse regex contracts still see
+ * it instead of an empty object that passes every argument rule.
+ */
+export function parseArgs(raw: unknown): Record<string, unknown> {
   if (raw == null) return {};
   if (typeof raw === "object" && !Array.isArray(raw)) return raw as Record<string, unknown>;
   if (typeof raw === "string") {
@@ -63,12 +79,52 @@ function parseArgs(raw: unknown): Record<string, unknown> {
       const parsed = JSON.parse(raw);
       return parsed && typeof parsed === "object" && !Array.isArray(parsed)
         ? (parsed as Record<string, unknown>)
-        : {};
+        : { input: parsed };
     } catch {
-      return {};
+      return { _sponsio_malformed_args: raw };
     }
   }
-  return {};
+  return { input: raw };
+}
+
+/** Compact one-line reason for the appended note; full message stays in the session log. */
+function trimReason(msg: string): string {
+  // Strip prefix via indexOf rather than regex — every regex form that
+  // matched the pattern ``^[A-Z-]*BLOCKED:\s*[^—]+—\s*`` kept tripping
+  // CodeQL js/polynomial-redos (the ``\s*`` and ``[^—]+`` overlap on
+  // spaces).  indexOf is O(n) with no backtracking.
+  let trimmed = msg;
+  const blockedIdx = trimmed.indexOf("BLOCKED:");
+  if (blockedIdx >= 0 && blockedIdx <= 64) {
+    const dashIdx = trimmed.indexOf("—", blockedIdx + "BLOCKED:".length);
+    if (dashIdx >= 0) {
+      trimmed = trimmed.slice(dashIdx + "—".length).trimStart();
+    }
+  }
+  const head = trimmed.toLowerCase();
+  if (head.startsWith("det constraint violated:")) {
+    trimmed = trimmed.slice("det constraint violated:".length).trimStart();
+  } else if (head.startsWith("violated:")) {
+    trimmed = trimmed.slice("violated:".length).trimStart();
+  }
+  return trimmed.split("\n")[0];
+}
+
+type Decision = { blocked: false } | { blocked: true; reason: string };
+
+/** Run one emitted tool call through the guard, before anything executes it. */
+function decide(guard: Sponsio, tc: ToolCallLike): Decision {
+  const check = guard.guardBefore(tc.toolName, parseArgs(tc.input ?? tc.args));
+  // ``stopOriginal`` covers a redirect verdict as well as a block: the
+  // middleware has no substitution path, so a redirect drops the call.
+  if (!check.stopOriginal) return { blocked: false };
+  const reason = trimReason(check.message ?? `${tc.toolName} blocked by Sponsio`);
+  emitBanner(tc.toolName, reason, guard.agentId);
+  return { blocked: true, reason };
+}
+
+function blockNote(reasons: string[]): string {
+  return `[Sponsio blocked: ${reasons.join("; ")}]`;
 }
 
 export function sponsioMiddleware(guard: Sponsio) {
@@ -81,42 +137,43 @@ export function sponsioMiddleware(guard: Sponsio) {
       doGenerate: () => any;
       params: any;
     }): Promise<any> => {
-      const result = await doGenerate();
+      const result: GenerateResult = await doGenerate();
+
+      // ai v5+: tool calls are ``tool-call`` parts inside ``content``.
+      if (Array.isArray(result.content)) {
+        const content: Array<Record<string, unknown>> = [];
+        const blockedReasons: string[] = [];
+        let survivingCalls = 0;
+        for (const part of result.content) {
+          if (part?.type === "tool-call") {
+            const d = decide(guard, part as unknown as ToolCallLike);
+            if (d.blocked) {
+              blockedReasons.push(`${String(part.toolName)}: ${d.reason}`);
+              continue;
+            }
+            survivingCalls++;
+          }
+          content.push(part);
+        }
+        if (blockedReasons.length === 0) return result;
+        content.push({ type: "text", text: blockNote(blockedReasons) });
+        return {
+          ...result,
+          content,
+          finishReason: survivingCalls === 0 ? "stop" : result.finishReason,
+        };
+      }
+
+      // ai v4: tool calls are ``result.toolCalls``.
       const calls = result.toolCalls ?? [];
       if (calls.length === 0) return result;
 
-      const surviving: ToolCallV1[] = [];
+      const surviving: ToolCallLike[] = [];
       const blockedReasons: string[] = [];
       for (const tc of calls) {
-        const check = guard.guardBefore(tc.toolName, parseArgs(tc.args));
-        if (check.blocked) {
-          // Strip the leading "BLOCKED: agent.tool — det constraint violated: "
-          // prefix and any "det constraint violated:" / "violated:" boilerplate
-          // so the appended text is concise; full message stays in the session log.
-          const msg = check.message ?? `${tc.toolName} blocked by Sponsio`;
-          // Strip prefix via indexOf rather than regex — every regex
-          // form that matched the pattern
-          // ``^[A-Z-]*BLOCKED:\s*[^—]+—\s*`` kept tripping CodeQL
-          // js/polynomial-redos (the ``\s*`` and ``[^—]+`` overlap on
-          // spaces).  indexOf is O(n) with no backtracking.
-          let trimmed = msg;
-          const blockedIdx = trimmed.indexOf("BLOCKED:");
-          if (blockedIdx >= 0 && blockedIdx <= 64) {
-            const dashIdx = trimmed.indexOf("—", blockedIdx + "BLOCKED:".length);
-            if (dashIdx >= 0) {
-              trimmed = trimmed.slice(dashIdx + "—".length).trimStart();
-            }
-          }
-          // Strip optional "(det constraint )?violated:" boilerplate.
-          const head = trimmed.toLowerCase();
-          if (head.startsWith("det constraint violated:")) {
-            trimmed = trimmed.slice("det constraint violated:".length).trimStart();
-          } else if (head.startsWith("violated:")) {
-            trimmed = trimmed.slice("violated:".length).trimStart();
-          }
-          const reason = trimmed.split("\n")[0];
-          emitBanner(tc.toolName, reason, guard.agentId);
-          blockedReasons.push(`${tc.toolName}: ${reason}`);
+        const d = decide(guard, tc);
+        if (d.blocked) {
+          blockedReasons.push(`${tc.toolName}: ${d.reason}`);
         } else {
           surviving.push(tc);
         }
@@ -124,8 +181,8 @@ export function sponsioMiddleware(guard: Sponsio) {
 
       if (blockedReasons.length === 0) return result;
 
-      const blockNote = `[Sponsio blocked: ${blockedReasons.join("; ")}]`;
-      const newText = result.text ? `${result.text}\n\n${blockNote}` : blockNote;
+      const note = blockNote(blockedReasons);
+      const newText = result.text ? `${result.text}\n\n${note}` : note;
       return {
         ...result,
         toolCalls: surviving,
@@ -135,11 +192,47 @@ export function sponsioMiddleware(guard: Sponsio) {
     },
 
     wrapStream: async ({ doStream }: { doStream: () => any }): Promise<any> => {
-      // Stream support is intentionally pass-through for now; the
-      // stream parts API is more involved and the demo / OSS hot
-      // path uses generateText. We can add full stream filtering in
-      // a follow-up without changing the wrapGenerate contract.
-      return doStream();
+      const streamed = await doStream();
+      const source: ReadableStream<any> | undefined = streamed?.stream;
+      if (!source || typeof source.pipeThrough !== "function") return streamed;
+
+      // ``streamText`` executes a tool when the ``tool-call`` part arrives,
+      // so that part is the gate. Earlier ``tool-input-*`` /
+      // ``tool-call-delta`` parts only render partial arguments and pass
+      // through; nothing runs on them.
+      let survivingCalls = 0;
+      let blockedAny = false;
+      let noteId = 0;
+      const gated = source.pipeThrough(
+        new TransformStream<any, any>({
+          transform(part, controller) {
+            if (part?.type === "tool-call") {
+              const d = decide(guard, part as ToolCallLike);
+              if (d.blocked) {
+                blockedAny = true;
+                const note = blockNote([`${String(part.toolName)}: ${d.reason}`]);
+                if ("input" in part) {
+                  // v5+ text streams are start / delta / end triples.
+                  const id = `sponsio-block-${++noteId}`;
+                  controller.enqueue({ type: "text-start", id });
+                  controller.enqueue({ type: "text-delta", id, delta: note });
+                  controller.enqueue({ type: "text-end", id });
+                } else {
+                  controller.enqueue({ type: "text-delta", textDelta: note });
+                }
+                return;
+              }
+              survivingCalls++;
+            }
+            if (part?.type === "finish" && blockedAny && survivingCalls === 0) {
+              controller.enqueue({ ...part, finishReason: "stop" });
+              return;
+            }
+            controller.enqueue(part);
+          },
+        }),
+      );
+      return { ...streamed, stream: gated };
     },
   };
 }

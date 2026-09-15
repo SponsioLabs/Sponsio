@@ -16,25 +16,34 @@ Usage::
             .guarantees("tool `issue_refund` at most 1 times"),
     ])
 
-    crew = Crew(
-        agents=[agent],
-        tasks=[task],
-        before_tool_call=guard.before_hook,
-        after_tool_call=guard.after_hook,
-    )
-    result = crew.kickoff()
-
-    # Or register globally:
+    # Register the hooks with CrewAI (every crew in the process):
     guard.register_global_hooks()
 
-When a tool call violates a hard contract, ``before_hook`` returns a
-dict with an error message, which CrewAI surfaces to the agent as the
-tool result. The agent then self-corrects.
+    # or with the decorators yourself:
+    from crewai.hooks import after_tool_call, before_tool_call
+    before_tool_call(guard.on_tool_start)
+    after_tool_call(guard.on_tool_end)
+
+    crew = Crew(agents=[agent], tasks=[task])
+    result = crew.kickoff()
+
+    # or wrap the tools instead of hooking the crew:
+    agent = Agent(..., tools=guard.wrap([check_policy, issue_refund]))
+
+CrewAI's hook protocol: a ``before_tool_call`` hook that returns ``False``
+blocks the call; every other return value lets the tool run. CrewAI
+then still runs the ``after_tool_call`` hooks with its own generic
+"blocked by hook" result, and an ``after_tool_call`` hook that returns
+a string replaces the tool result. ``on_tool_start`` therefore returns
+``False`` on a stopping verdict and ``on_tool_end`` swaps CrewAI's
+generic message for the contract violation so the agent learns why
+and self-corrects.
 """
 
 from __future__ import annotations
 
 import functools
+import sys
 from typing import Any
 
 from sponsio.integrations.base import (
@@ -47,13 +56,19 @@ from sponsio.models.system import System
 from sponsio.protocols.sto import StoEvaluator
 from sponsio.runtime.strategies import EnforcementStrategy
 
+# CrewAI's own tool result for a call a before-hook refused. The after-hook
+# only replaces this exact shape, so a lingering block reason can never
+# overwrite the output of a later call that really ran.
+_CREWAI_BLOCKED_PREFIX = "Tool execution blocked by hook"
+
 
 class CrewAIGuard(BaseGuard):
     """Contract guard for CrewAI tool call hooks.
 
-    Provides ``before_hook`` and ``after_hook`` callables that plug
-    directly into CrewAI's ``Crew(before_tool_call=..., after_tool_call=...)``
-    or the global ``@before_tool_call`` / ``@after_tool_call`` decorators.
+    Provides ``on_tool_start`` and ``on_tool_end`` callables that plug
+    into CrewAI's ``@before_tool_call`` / ``@after_tool_call`` hook
+    registry (see :meth:`register_global_hooks`), plus :meth:`wrap` for
+    wrapping the tools themselves.
 
     Attributes:
         last_check: The CheckResult from the most recent tool call.
@@ -79,9 +94,12 @@ class CrewAIGuard(BaseGuard):
             **kwargs,
         )
         self.last_check: CheckResult | None = None
+        # tool name -> reason for the block ``on_tool_start`` just issued,
+        # consumed by ``on_tool_end`` when CrewAI reports the refusal.
+        self._pending_blocks: dict[str, str] = {}
 
-    def on_tool_start(self, context: Any) -> Any:
-        """Hook for ``Crew(before_tool_call=guard.on_tool_start)``.
+    def on_tool_start(self, context: Any) -> bool | None:
+        """Hook for CrewAI's ``before_tool_call``.
 
         Called before every tool execution. Runs det constraint checks.
 
@@ -91,48 +109,76 @@ class CrewAIGuard(BaseGuard):
 
         Returns:
             - ``None`` if the tool call is allowed (execution proceeds).
-            - A ``dict`` with an error message if blocked (returned to
-              the agent as the tool result, skipping actual execution).
+            - ``False`` if blocked. This is the only return value CrewAI
+              treats as a refusal; anything else (including a dict with
+              an error message, which earlier releases returned) lets the
+              tool run.
         """
         tool_name = getattr(context, "tool_name", str(context))
         tool_input = getattr(context, "tool_input", {})
 
-        check = self.guard_before(
-            tool_name, tool_input if isinstance(tool_input, dict) else {}
-        )
+        try:
+            check = self.guard_before(
+                tool_name, tool_input if isinstance(tool_input, dict) else {}
+            )
+        except Exception as exc:  # noqa: BLE001 - fail closed, see below
+            # CrewAI swallows exceptions raised by a hook and runs the
+            # tool anyway. A guard that cannot evaluate must refuse, not
+            # wave the call through.
+            sys.stderr.write(
+                f"sponsio: CrewAI guard could not evaluate `{tool_name}` "
+                f"({exc}); refusing the call.\n"
+            )
+            self._pending_blocks[tool_name] = (
+                f"BLOCKED by Sponsio: the contract guard failed to evaluate "
+                f"`{tool_name}` ({exc})."
+            )
+            return False
         self.last_check = check
 
         # ``stop_original`` folds in ``redirected``: CrewAI's adapter has
         # no transparent-substitution path, so a redirect fails closed
-        # (returns the rejection) rather than executing the unsafe tool.
+        # (refuses the call) rather than executing the unsafe tool.
         if check.stop_original:
             msg = select_agent_message(
                 check.det_violations, fallback="Contract violation detected"
             )
-            # Returning a dict tells CrewAI to use this as the tool result
-            # instead of executing the tool. The "BLOCKED by contract:"
-            # prefix is preserved so CrewAI agents trained on this
-            # template still recognise the rejection pattern.
-            return {"error": f"BLOCKED by contract: {msg}"}
+            # The "BLOCKED by contract:" prefix is preserved so CrewAI
+            # agents trained on this template still recognise the
+            # rejection pattern.
+            self._pending_blocks[tool_name] = f"BLOCKED by contract: {msg}"
+            return False
 
         return None  # Allow execution
 
-    def on_tool_end(self, context: Any, result: str) -> str | None:
-        """Hook for ``Crew(after_tool_call=guard.on_tool_end)``.
+    def on_tool_end(self, context: Any, result: Any = None) -> str | None:
+        """Hook for CrewAI's ``after_tool_call``.
 
-        Called after every tool execution. Runs sto constraint checks.
+        Called after every tool execution, and after every refusal too
+        (CrewAI runs the after-hooks on a blocked call with its generic
+        "blocked by hook" result). Runs sto constraint checks.
 
         Args:
-            context: CrewAI ``ToolCallHookContext``.
-            result: The tool's output string.
+            context: CrewAI ``ToolCallHookContext``; the tool output is
+                ``context.tool_result``.
+            result: The tool's output. Optional; CrewAI passes only the
+                context, older callers passed the result explicitly.
 
         Returns:
             - ``None`` to keep the original result.
-            - A modified string if sto constraints require feedback.
+            - A string to replace the result: the contract violation for
+              a call ``on_tool_start`` refused, or sto feedback.
         """
         tool_name = getattr(context, "tool_name", str(context))
+        if result is None:
+            result = getattr(context, "tool_result", "")
+        result_text = "" if result is None else str(result)
 
-        check = self.guard_after(tool_name, result)
+        reason = self._pending_blocks.pop(tool_name, None)
+        if reason is not None and result_text.startswith(_CREWAI_BLOCKED_PREFIX):
+            return reason
+
+        check = self.guard_after(tool_name, result_text)
 
         if check.needs_retry and check.feedback:
             return format_sto_retry_message(check.feedback, result)
@@ -220,24 +266,32 @@ class CrewAIGuard(BaseGuard):
     def register_global_hooks(self) -> None:
         """Register before/after hooks globally with CrewAI.
 
-        After calling this, ALL crews will have contract enforcement.
+        After calling this, ALL crews in the process have contract
+        enforcement. The decorators live in ``crewai.hooks``; the older
+        ``crewai.tools`` location is tried second for releases that
+        exported them there.
 
         Raises:
             ImportError: If ``crewai`` is not installed.
         """
         try:
-            from crewai.tools import before_tool_call, after_tool_call
+            from crewai.hooks import after_tool_call, before_tool_call
         except (ImportError, TypeError):
-            raise ImportError("crewai is required. Install with: pip install crewai")
+            try:
+                from crewai.tools import after_tool_call, before_tool_call
+            except (ImportError, TypeError) as e:
+                raise ImportError(
+                    "crewai is required. Install with: pip install crewai"
+                ) from e
 
         before_tool_call(self.on_tool_start)
         after_tool_call(self.on_tool_end)
 
     # Backward-compatible aliases (deprecated)
-    def before_hook(self, context: Any) -> Any:
+    def before_hook(self, context: Any) -> bool | None:
         """Deprecated: use ``on_tool_start`` instead."""
         return self.on_tool_start(context)
 
-    def after_hook(self, context: Any, result: str) -> str | None:
+    def after_hook(self, context: Any, result: Any = None) -> str | None:
         """Deprecated: use ``on_tool_end`` instead."""
         return self.on_tool_end(context, result)

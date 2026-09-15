@@ -515,6 +515,109 @@ def _append_event(
         fh.write(line)
 
 
+def _hook_on_error() -> str:
+    """``"deny"`` (default) or ``"allow"``: what a guard error turns into."""
+    raw = os.environ.get("SPONSIO_HOOK_ON_ERROR", "").strip().lower()
+    return "allow" if raw in ("allow", "open", "fail-open", "fail_open") else "deny"
+
+
+def _error_outcome(
+    exc: BaseException, plugin_id: str, library_path: str | None
+) -> GuardOutcome:
+    """Outcome for a call the guard could not evaluate.
+
+    Denied by default. A rulebook that fails to load (a YAML syntax
+    error, a contract that does not parse) used to fall through as an
+    allow, which silently switched off every rule in that library until
+    someone read stderr. ``SPONSIO_HOOK_ON_ERROR=allow`` restores that
+    fail-open behaviour for operators who prefer availability.
+    """
+    where = f" in {library_path}" if library_path else ""
+    sys.stderr.write(f"sponsio plugin guard:evaluation error{where}: {exc}\n")
+    if _hook_on_error() == "allow":
+        return GuardOutcome(
+            allowed=True,
+            reason=f"evaluation error: {exc}",
+            plugin_id=plugin_id,
+            library_path=library_path,
+        )
+    return GuardOutcome(
+        allowed=False,
+        reason=(
+            f"Sponsio could not evaluate this call ({exc}). Fix the contract "
+            "library, or set SPONSIO_HOOK_ON_ERROR=allow to fail open."
+        ),
+        plugin_id=plugin_id,
+        library_path=library_path,
+    )
+
+
+# Tool outputs attached to the trace are capped so one large file read
+# cannot bloat the session log.
+_MAX_ATTACHED_OUTPUT = 4000
+
+
+def _attach_tool_output(
+    plugin_id: str, tool_name: str, output: str, conversation_id: str | None
+) -> bool:
+    """Attach ``output`` to the most recent recorded call of ``tool_name``.
+
+    Rewrites the trace file in place (temp file + rename). Returns True
+    when a call was found and updated.
+    """
+    path = _trace_file_for(plugin_id, conversation_id=conversation_id)
+    if not path.exists():
+        return False
+    lines = path.read_text(encoding="utf-8").splitlines()
+    for i in range(len(lines) - 1, -1, -1):
+        try:
+            d = json.loads(lines[i])
+        except ValueError:
+            continue
+        if (
+            d.get("type") == "tool_call"
+            and d.get("tool") == tool_name
+            and d.get("content") is None
+        ):
+            d["content"] = output[:_MAX_ATTACHED_OUTPUT]
+            lines[i] = json.dumps(d, separators=(",", ":"))
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            tmp.replace(path)
+            return True
+    return False
+
+
+def _observe_post_event(event: dict, tool_name: str, plugin_id: str) -> GuardOutcome:
+    """Handle a ``PostToolUse`` (or any non-pre) event: record, never gate.
+
+    The tool output (``tool_response`` in Claude Code's payload) is
+    attached to the call the ``PreToolUse`` hook admitted, so content
+    atoms (``output_has``, ``contains``) can see it on the next check.
+    """
+    output = event.get("tool_response")
+    if output is None:
+        output = event.get("tool_result")
+    if output is None:
+        output = event.get("output")
+    if output is not None and tool_name:
+        text = output if isinstance(output, str) else json.dumps(output, default=str)
+        conversation_id = event.get("conversation_id")
+        if not isinstance(conversation_id, str):
+            conversation_id = None
+        try:
+            _attach_tool_output(plugin_id, tool_name, text, conversation_id)
+        except OSError as e:  # pragma: no cover - log-write failure
+            sys.stderr.write(
+                f"sponsio plugin guard:could not attach tool output: {e}\n"
+            )
+    return GuardOutcome(
+        allowed=True,
+        reason="post-hoc event: output recorded, nothing to gate",
+        plugin_id=plugin_id,
+    )
+
+
 def evaluate_event(event: dict) -> GuardOutcome:
     """Run one PreToolUse event against the matching per-plugin library.
 
@@ -558,6 +661,14 @@ def evaluate_event(event: dict) -> GuardOutcome:
     # so BaseGuard must be invoked with that id or it can't locate
     # the agent. Trace persistence keeps using ``plugin_id`` so
     # per-host bucketing is preserved.
+    hook_event = event.get("hook_event_name") or "PreToolUse"
+    if hook_event != "PreToolUse":
+        # The tool has already run. There is nothing to gate, and running
+        # the pre-check here would append a second event for one
+        # execution (halving every count-based budget and blocking calls
+        # that already happened). Record the output instead.
+        return _observe_post_event(event, tool_name, plugin_id)
+
     lib_path, effective_agent_id = _resolve_library(plugin_id)
 
     if not lib_path.exists():
@@ -653,15 +764,8 @@ def evaluate_event(event: dict) -> GuardOutcome:
                 if clean:
                     guard.observe_context(clean)
             result = guard.guard_before(tool_name=tool_name, args=tool_input)
-    except Exception as e:  # pragma: no cover - surfaced via stderr
-        sys.stderr.write(f"sponsio plugin guard:evaluation error in {lib_path}: {e}\n")
-        # Fail open — never wedge a tool call on a Sponsio bug.
-        return GuardOutcome(
-            allowed=True,
-            reason=f"evaluation error: {e}",
-            plugin_id=plugin_id,
-            library_path=str(lib_path),
-        )
+    except Exception as e:
+        return _error_outcome(e, plugin_id, str(lib_path))
     finally:
         # Restore SPONSIO_MODE so subsequent in-process calls (rare;
         # the CLI normally exits) don't see the override.
@@ -764,10 +868,11 @@ def render_reply(event: dict, outcome: GuardOutcome) -> tuple[str, int]:
 def run_stdin(stdin_text: str | None = None) -> int:
     """End-to-end entry point: read stdin, evaluate, write reply.
 
-    Returns the process exit code. Wraps every internal error so a
-    Sponsio bug never blocks a tool call (we fail open). Errors go
-    to stderr so the operator can see them; the caller (Claude Code)
-    treats non-2 exit codes as non-blocking.
+    Returns the process exit code. Malformed stdin (not JSON, not an
+    object) is a host protocol problem and is allowed. An error while
+    evaluating the event follows :func:`_error_outcome`: denied unless
+    ``SPONSIO_HOOK_ON_ERROR=allow``. Errors go to stderr so the operator
+    can see them.
     """
     raw = stdin_text if stdin_text is not None else sys.stdin.read()
     if not raw.strip():
@@ -786,9 +891,8 @@ def run_stdin(stdin_text: str | None = None) -> int:
 
     try:
         outcome = evaluate_event(event)
-    except Exception as e:  # pragma: no cover - surfaced via stderr
-        sys.stderr.write(f"sponsio plugin guard:evaluation error: {e}\n")
-        return 0
+    except Exception as e:
+        outcome = _error_outcome(e, "", None)
 
     payload, code = render_reply(event, outcome)
     if payload:

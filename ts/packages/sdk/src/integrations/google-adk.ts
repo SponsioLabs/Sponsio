@@ -2,9 +2,11 @@
  * Google ADK integration (``@google/adk``) - native TypeScript.
  *
  * ADK TypeScript expresses custom tools as ``FunctionTool`` objects
- * with an ``execute`` callback. This adapter clones those tool objects
- * and intercepts ``execute`` with ``guardBefore`` / ``guardAfter`` so
- * Sponsio contracts run at the same boundary ADK already uses.
+ * with an ``execute`` callback, and the runtime dispatches through
+ * ``this.execute(validatedArgs, toolContext)``. This adapter clones
+ * those tool objects and intercepts ``execute`` with ``guardBefore`` /
+ * ``guardAfter`` so Sponsio contracts run at the same boundary ADK
+ * already uses.
  *
  * Usage::
  *
@@ -52,13 +54,15 @@ export function wrapGoogleAdkTool<T extends GoogleAdkToolLike>(
   const wrapped = async (...args: unknown[]): Promise<unknown> => {
     const callArgs = toArgsObject(args);
     const check = guard.guardBefore(tool.name, callArgs);
-    if (check.blocked) {
+    // ``stopOriginal`` covers a redirect verdict as well as a block: this
+    // adapter has no substitution path, so a redirect refuses the call.
+    if (check.stopOriginal) {
       return blockedResult(check.message);
     }
 
     const output = await original(...args);
     const afterCheck = await guard.guardAfter(tool.name, stringify(output));
-    if (afterCheck.blocked) {
+    if (afterCheck.stopOriginal) {
       return blockedResult(afterCheck.message);
     }
     return output;

@@ -193,3 +193,73 @@ class TestClaudeAgentGuard:
         msg = result.get("systemMessage", "")
         assert "issue_refund" in msg
         assert "blocked" in msg.lower()
+
+
+# ---------------------------------------------------------------------------
+# Hook payload fields (no SDK needed: a stand-in HookMatcher is enough)
+# ---------------------------------------------------------------------------
+
+
+def _fake_sdk(monkeypatch):
+    import sys
+    import types
+
+    mod = types.ModuleType("claude_agent_sdk")
+
+    class HookMatcher:
+        def __init__(self, hooks=None, matcher=None):
+            self.hooks = hooks or []
+            self.matcher = matcher
+
+    mod.HookMatcher = HookMatcher  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "claude_agent_sdk", mod)
+
+
+def test_post_hook_reads_tool_response(monkeypatch):
+    """The SDK's ``PostToolUseHookInput`` carries the output as
+    ``tool_response``; reading ``tool_result`` left the after-check with an
+    empty string on every call."""
+    from sponsio.integrations.base import CheckResult
+
+    _fake_sdk(monkeypatch)
+    guard = ClaudeAgentGuard(contracts=["tool `A` must precede `B`"], verbose=False)
+    seen: dict = {}
+
+    def fake_guard_after(name, output):
+        seen["name"] = name
+        seen["output"] = output
+        return CheckResult(allowed=True)
+
+    monkeypatch.setattr(guard, "guard_after", fake_guard_after)
+    post = guard.hooks()["PostToolUse"][0].hooks[0]
+    asyncio.run(
+        post(
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "A",
+                "tool_input": {},
+                "tool_response": {"stdout": "hello from A"},
+                "tool_use_id": "t1",
+            },
+            "t1",
+            None,
+        )
+    )
+    assert seen["name"] == "A"
+    assert "hello from A" in seen["output"]
+
+
+def test_post_hook_falls_back_to_tool_result(monkeypatch):
+    from sponsio.integrations.base import CheckResult
+
+    _fake_sdk(monkeypatch)
+    guard = ClaudeAgentGuard(contracts=["tool `A` must precede `B`"], verbose=False)
+    seen: dict = {}
+    monkeypatch.setattr(
+        guard,
+        "guard_after",
+        lambda name, output: seen.update(output=output) or CheckResult(allowed=True),
+    )
+    post = guard.hooks()["PostToolUse"][0].hooks[0]
+    asyncio.run(post({"tool_name": "A", "tool_result": "legacy"}, "t1", None))
+    assert seen["output"] == "legacy"
