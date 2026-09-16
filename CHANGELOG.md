@@ -43,6 +43,57 @@ broke.
   in any option order. Non-recursive `rm -f file` stays allowed. The
   TypeScript default list now mirrors the Python one exactly (it was
   missing `sudo` and used a different order).
+- **Every adapter now gates the call the framework actually makes.** A
+  sweep of the other integrations for the LangGraph bug class found the
+  same shape in several places; each is fixed and covered by a test that
+  asserts the tool body never ran, and the TypeScript adapters were
+  verified end to end against the real `ai`, `@openai/agents` and
+  `@langchain/langgraph` packages.
+  - CrewAI (Python): `on_tool_start` returned a dict to refuse a call, but
+    CrewAI only honours `False`, so the tool ran. It now returns `False`
+    and `on_tool_end` swaps CrewAI's generic "blocked by hook" result for
+    the contract violation. `on_tool_end` takes the context alone (CrewAI
+    passes nothing else), `register_global_hooks()` imports from
+    `crewai.hooks`, a guard error refuses the call instead of being
+    swallowed, and the docs no longer show the `Crew(before_tool_call=)`
+    keyword, which CrewAI silently drops.
+  - OpenAI Agents (Python): the SDK passes tool parameters positionally,
+    so the guard saw `{}` and every argument contract passed. Arguments
+    are now bound to parameter names. A `@function_tool` object is
+    wrapped at `on_invoke_tool` (it used to crash at wrap time).
+  - OpenAI (Python): `guard.wrap(client)` was a no-op inherited from
+    `BaseGuard`; it now guards that client. `patch_openai()` and `wrap()`
+    cover `chat.completions.parse()` and the Responses API, and refuse
+    `stream=True` with a clear error instead of crashing. An evidence
+    verdict that stops a response now also drops its tool calls.
+  - MCP proxy: a refused call stayed in the trace and counted toward
+    rate limits; it is rolled back like `BaseGuard.guard_before` does.
+  - Claude Agent (Python and TS): the PostToolUse hook read `tool_result`;
+    the SDK sends `tool_response`.
+  - Claude Code / Cursor hook: `PostToolUse` events ran the pre-check and
+    appended a second trace event per execution; they now record the
+    tool output and gate nothing. A guard that cannot evaluate (a YAML
+    syntax error in the library, an internal error) now denies instead
+    of silently allowing; `SPONSIO_HOOK_ON_ERROR=allow` restores the old
+    behaviour.
+  - Vercel AI (TS): with `ai` v5 and later the middleware read
+    `result.toolCalls`, which no longer exists, so nothing was checked;
+    both the `content` and `toolCalls` shapes are handled, and
+    `wrapStream` gates streamed tool calls instead of passing them through.
+  - OpenAI Agents (TS): `tool()` exposes `invoke(runContext, input)`, so
+    the guard was handed the run context as the arguments; it now reads
+    the JSON input.
+  - LangChain.js (TS): LangGraph's `ToolNode` passes the tool-call envelope
+    to `invoke`, so `arg_field_has` looked for fields on the envelope;
+    the envelope is unwrapped.
+  - OpenAI (TS): `stream: true` returned the stream unchecked; it is
+    refused. `parse()` and the Responses API are covered. Malformed
+    arguments no longer record a phantom allowed call, and respect
+    observe mode.
+  - TS core: a contract pattern that is not a valid regular expression is
+    refused at construction (as Python does) instead of never matching.
+  - All TS adapters gate on `stopOriginal`, so a redirect verdict refuses
+    the original call as it does in Python.
 
 ---
 

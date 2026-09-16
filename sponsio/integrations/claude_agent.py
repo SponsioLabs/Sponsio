@@ -139,7 +139,12 @@ class ClaudeAgentGuard(BaseGuard):
             input_data: Any, tool_use_id: Any, context: Any
         ) -> dict:
             tool_name = input_data.get("tool_name", "")
-            tool_output = input_data.get("tool_result", "")
+            # The SDK's ``PostToolUseHookInput`` carries the output as
+            # ``tool_response``; ``tool_result`` is kept as a fallback for
+            # hosts that used the older spelling.
+            tool_output = input_data.get("tool_response")
+            if tool_output is None:
+                tool_output = input_data.get("tool_result", "")
 
             post = guard.guard_after(tool_name, str(tool_output))
 

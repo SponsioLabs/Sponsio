@@ -89,3 +89,38 @@ test("wrapTools accepts string input (LangChain v0 single-arg tools)", async () 
 
   assert.equal(await wrapped.invoke("hello"), "got hello");
 });
+
+test("wrapTools unwraps the ToolNode tool-call envelope so argument contracts see args", async () => {
+  const { argBlacklist } = await import("../core/patterns.js");
+  const guard = new Sponsio({
+    agentId: "lc_envelope",
+    contracts: [argBlacklist("run_sql", "query", ["DROP"])],
+    mode: "enforce",
+    sessionLog: false,
+  });
+  const ran: unknown[] = [];
+  const runSql = tool("run_sql", (input) => {
+    ran.push(input);
+    return "ok";
+  });
+  const [wrapped] = wrapTools([runSql], guard);
+
+  // LangGraph's ToolNode calls invoke({ ...call, type: "tool_call" }, runtime)
+  const blocked = await wrapped.invoke({
+    name: "run_sql",
+    args: { query: "DROP TABLE users" },
+    id: "c1",
+    type: "tool_call",
+  });
+  assert.match(String(blocked), /BLOCKED by Sponsio/);
+  assert.equal(ran.length, 0);
+
+  const allowed = await wrapped.invoke({
+    name: "run_sql",
+    args: { query: "SELECT 1" },
+    id: "c2",
+    type: "tool_call",
+  });
+  assert.equal(allowed, "ok");
+  assert.equal(ran.length, 1);
+});

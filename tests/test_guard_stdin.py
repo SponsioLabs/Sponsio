@@ -484,3 +484,126 @@ def test_evaluate_context_field_ignores_non_dict_value(tmp_path, monkeypatch):
         }
     )
     assert outcome.allowed is True
+
+
+# ---------------------------------------------------------------------------
+# PostToolUse is a record, not a second pre-check
+# ---------------------------------------------------------------------------
+
+
+def _rate_limited_library() -> str:
+    return """
+version: "1"
+agents:
+  _host:
+    contracts:
+      - desc: "at most two Bash calls"
+        G:
+          pattern: rate_limit
+          args: [Bash, 2]
+"""
+
+
+def test_posttooluse_records_output_and_appends_nothing(tmp_path, monkeypatch):
+    """Both hooks are installed with the same command. Running the
+    pre-check on PostToolUse appended a second event per execution, so a
+    budget of two Bash calls was spent after one."""
+    from sponsio.guard_stdin import _load_prior_events
+
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
+    _write_library(tmp_path, "_host", _rate_limited_library())
+
+    pre = {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": "ls"},
+    }
+    post = {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": "ls"},
+        "tool_response": {"stdout": "a.txt\nb.txt"},
+    }
+    assert evaluate_event(pre).allowed is True
+    assert evaluate_event(post).allowed is True
+
+    events = _load_prior_events("_host")
+    assert [e.tool for e in events] == ["Bash"]
+    assert "a.txt" in (events[0].content or "")
+
+    # the second real call still fits the budget of two
+    assert evaluate_event(pre).allowed is True
+    assert evaluate_event(post).allowed is True
+    assert len(_load_prior_events("_host")) == 2
+    # the third does not
+    assert evaluate_event(pre).allowed is False
+
+
+def test_posttooluse_without_prior_call_is_a_noop(tmp_path, monkeypatch):
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
+    _write_library(tmp_path, "_host", _shell_library())
+    outcome = evaluate_event(
+        {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "ls"},
+            "tool_response": "x",
+        }
+    )
+    assert outcome.allowed is True
+
+
+# ---------------------------------------------------------------------------
+# A guard that cannot evaluate denies (fail closed) unless opted out
+# ---------------------------------------------------------------------------
+
+
+_RM_ROOT = {
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {"command": "rm -rf /"},
+}
+
+
+def test_broken_library_denies_by_default(tmp_path, monkeypatch):
+    """A YAML syntax error used to fall through as an allow: every rule in
+    the library was silently off until someone read stderr."""
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
+    monkeypatch.delenv("SPONSIO_HOOK_ON_ERROR", raising=False)
+    _write_library(
+        tmp_path, "_host", "version: '1'\nagents:\n  _host:\n    contracts: [\n"
+    )
+    outcome = evaluate_event(_RM_ROOT)
+    assert outcome.allowed is False
+    assert "SPONSIO_HOOK_ON_ERROR" in outcome.reason
+
+
+def test_broken_library_allows_when_opted_into_fail_open(tmp_path, monkeypatch):
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
+    monkeypatch.setenv("SPONSIO_HOOK_ON_ERROR", "allow")
+    _write_library(
+        tmp_path, "_host", "version: '1'\nagents:\n  _host:\n    contracts: [\n"
+    )
+    outcome = evaluate_event(_RM_ROOT)
+    assert outcome.allowed is True
+    assert "evaluation error" in outcome.reason
+
+
+def test_run_stdin_internal_error_denies(monkeypatch, capsys):
+    import sponsio.guard_stdin as gs
+
+    monkeypatch.delenv("SPONSIO_HOOK_ON_ERROR", raising=False)
+
+    def boom(event):
+        raise RuntimeError("evaluator exploded")
+
+    monkeypatch.setattr(gs, "evaluate_event", boom)
+    code = gs.run_stdin(json.dumps(_RM_ROOT))
+    out = capsys.readouterr().out
+    assert code == 0
+    payload = json.loads(out)
+    assert payload["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert (
+        "evaluator exploded"
+        in payload["hookSpecificOutput"]["permissionDecisionReason"]
+    )

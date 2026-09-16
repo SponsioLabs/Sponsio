@@ -25,6 +25,7 @@ import {
   groundEvent,
   newGroundingState,
   collectContentAtoms,
+  validateContentPatterns,
   type ToolEvent,
   type GroundingState,
 } from "./core/grounding.js";
@@ -477,6 +478,9 @@ export class Sponsio {
     this._contentAtoms = collectContentAtoms(
       this._contracts.map((c) => c.formula),
     );
+    // A pattern that does not compile is a broken contract; refuse to
+    // arm it rather than let it never match at runtime.
+    validateContentPatterns(this._contentAtoms);
 
     // ── Session log ─────────────────────────────────────────────────
     const wantLog = options.sessionLog ?? true;

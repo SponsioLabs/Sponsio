@@ -212,6 +212,47 @@ export function pathWithin(path: string, prefix: string): boolean {
   return normalized === root || normalized.startsWith(root + "/");
 }
 
+/**
+ * Fail at construction on a contract pattern that is not a valid regular
+ * expression. Mirrors Python, where a malformed contract raises when the
+ * guard is built. Without this an ``llm_said`` / ``ctx_matches`` pattern
+ * that never compiles silently never matches (fail-open), and an
+ * ``arg_*`` pattern throws on the first tool call instead of at startup.
+ *
+ * Patterns are stored as ``args.join("|")``; each predicate knows which
+ * tail of that string is the regex, exactly as ``groundEvent`` reads it.
+ */
+export function validateContentPatterns(
+  atoms: Record<string, Set<string>>,
+): void {
+  const regexTail: Record<string, number> = {
+    called_with: 1, // (tool, pattern)
+    count_with: 1, // (tool, pattern)
+    arg_has: 1, // (tool, pattern)
+    arg_field_has: 2, // (tool, field, pattern)
+    llm_said: 0, // (pattern)
+    ctx_matches: 1, // (key, pattern)
+  };
+  for (const [pred, skip] of Object.entries(regexTail)) {
+    const set = atoms[pred];
+    if (!set) continue;
+    for (const raw of set) {
+      const parts = raw.split("|");
+      if (parts.length <= skip) continue;
+      const pattern = parts.slice(skip).join("|");
+      try {
+        new RegExp(pattern);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        throw new Error(
+          `sponsio: contract pattern for ${pred} is not a valid regular ` +
+            `expression: ${JSON.stringify(pattern)} (${detail})`,
+        );
+      }
+    }
+  }
+}
+
 export function groundEvent(
   event: ToolEvent,
   state: GroundingState,

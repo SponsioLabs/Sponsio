@@ -227,3 +227,34 @@ def test_mcp_proxy_list_tools_passthrough():
 
     result = asyncio.run(proxy.list_tools())
     assert result == []
+
+
+# --- refused calls must not poison later checks ---
+
+
+def test_refused_call_is_rolled_back_from_the_trace():
+    """A refused ``issue_refund`` used to stay in the trace: it counted
+    toward the rate limit and satisfied ordering rules for a call that
+    never ran, so the legitimate retry after ``check_policy`` was refused.
+    """
+    from sponsio.models.system import System
+    from sponsio.patterns.library import must_precede, rate_limit
+
+    system = System("s")
+    system.agent("a").enforces(must_precede("check_policy", "issue_refund"))
+    system.agent("a").enforces(rate_limit("issue_refund", max_count=1))
+    client = MockMCPClient()
+    proxy = MCPContractProxy(mcp_client=client, system=system, agent_id="a")
+
+    first = asyncio.run(proxy.call_tool("issue_refund", {}))
+    assert "error" in first
+
+    asyncio.run(proxy.call_tool("check_policy", {}))
+    third = asyncio.run(proxy.call_tool("issue_refund", {}))
+    assert "error" not in third, third
+
+    assert [name for name, _ in client.calls] == ["check_policy", "issue_refund"]
+    trace_tools = [
+        e.tool for e in proxy.monitor.trace.events if e.event_type == "tool_call"
+    ]
+    assert trace_tools == ["check_policy", "issue_refund"]

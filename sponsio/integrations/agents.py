@@ -1,7 +1,7 @@
 """OpenAI Agents SDK integration. enforce contracts on function tools.
 
-Wraps ``@function_tool`` decorated tools with contract enforcement,
-using the SDK's native tool execution flow.
+Wraps ``@function_tool`` decorated tools (and plain callables) with
+contract enforcement, using the SDK's native tool execution flow.
 
 Usage::
 
@@ -29,15 +29,22 @@ Usage::
     guard.last_check       # most recent CheckResult
     guard.summary()        # human-readable summary
 
-When a tool call violates a contract, the wrapped tool raises a
-``ToolCallBlocked`` error which the SDK surfaces to the model,
-allowing it to self-correct.
+When a tool call violates a contract the model sees a
+``BLOCKED by contract: ...`` tool result instead of the tool's output,
+so it can self-correct. A ``FunctionTool`` (the object ``@function_tool``
+returns) is wrapped at its ``on_invoke_tool`` entry point, where the SDK
+hands over the model's arguments as JSON; a plain callable is wrapped
+and then decorated, with the SDK's positional argument passing bound
+back to parameter names so argument contracts see the real values.
 """
 
 from __future__ import annotations
 
+import copy
+import dataclasses
 import functools
 import inspect
+import json
 from typing import Any, Callable
 
 from sponsio.integrations.base import (
@@ -92,14 +99,16 @@ class AgentsSDKGuard(BaseGuard):
         self.last_check: CheckResult | None = None
 
     def wrap_tool(self, tool: Any) -> Any:
-        """Wrap a single ``@function_tool`` with contract enforcement.
+        """Wrap a single tool with contract enforcement.
 
-        The returned tool has the same name, description, and schema
-        as the original, but runs guard_before before execution and
-        guard_after after.
+        Accepts the ``FunctionTool`` object ``@function_tool`` returns,
+        or a plain callable. The returned tool has the same name,
+        description, and schema as the original, but runs guard_before
+        before execution and guard_after after.
 
         Args:
-            tool: A ``FunctionTool`` object (from ``@function_tool``).
+            tool: A ``FunctionTool`` object (from ``@function_tool``) or a
+                plain callable.
 
         Returns:
             A new ``FunctionTool`` with contract enforcement.
@@ -114,6 +123,9 @@ class AgentsSDKGuard(BaseGuard):
                 "openai-agents is required. Install with: pip install openai-agents"
             )
 
+        if _is_function_tool(tool):
+            return self._wrap_function_tool(tool)
+
         guard = self
         tool_name = getattr(tool, "name", getattr(tool, "__name__", str(tool)))
         # SDK kwarg name moved from ``name`` → ``name_override`` mid-2024.
@@ -124,11 +136,19 @@ class AgentsSDKGuard(BaseGuard):
         # Get the original callable
         original_fn = _extract_function(tool)
 
+        # The SDK parses the model's JSON into the function's parameters
+        # and calls the function with them *positionally*
+        # (``FuncSchema.to_call_args``), so ``kwargs`` alone would be
+        # empty and every argument contract would pass vacuously. Bind
+        # whatever arrives back to the parameter names first.
+        def _guard_args(args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict:
+            return _call_args(original_fn, args, kwargs)
+
         if inspect.iscoroutinefunction(original_fn):
 
             @functools.wraps(original_fn)
             async def guarded_async(*args: Any, **kwargs: Any) -> Any:
-                check = guard.guard_before(tool_name, kwargs)
+                check = guard.guard_before(tool_name, _guard_args(args, kwargs))
                 guard.last_check = check
                 # ``stop_original`` folds in ``redirected``: this adapter
                 # does not implement transparent tool substitution, so a
@@ -153,7 +173,7 @@ class AgentsSDKGuard(BaseGuard):
 
             @functools.wraps(original_fn)
             def guarded_sync(*args: Any, **kwargs: Any) -> Any:
-                check = guard.guard_before(tool_name, kwargs)
+                check = guard.guard_before(tool_name, _guard_args(args, kwargs))
                 guard.last_check = check
                 # ``stop_original`` folds in ``redirected``: this adapter
                 # does not implement transparent tool substitution, so a
@@ -175,6 +195,53 @@ class AgentsSDKGuard(BaseGuard):
 
             return function_tool(**{_name_kw: tool_name})(guarded_sync)
 
+    def _wrap_function_tool(self, tool: Any) -> Any:
+        """Wrap a ready-made ``FunctionTool`` at its ``on_invoke_tool``.
+
+        ``@function_tool`` does not keep the user's function on the tool
+        object; what it exposes is ``on_invoke_tool(ctx, input_json)``,
+        the SDK's own invoker. Re-decorating that (what this adapter did
+        before) built a schema from the invoker's signature and failed at
+        wrap time. Wrapping the invoker instead keeps the tool's name,
+        description and JSON schema exactly as the SDK built them and
+        checks the model's arguments before the invoker parses them.
+
+        A stopping verdict returns the block message as the tool result.
+        Raising here would escape the SDK's per-tool failure handling
+        (which sits inside the original invoker) and abort the whole run.
+        """
+        guard = self
+        tool_name = getattr(tool, "name", "tool")
+        original_invoke = tool.on_invoke_tool
+
+        async def guarded_invoke(ctx: Any, input_json: str) -> Any:
+            args = _decode_json_args(input_json)
+            check = guard.guard_before(tool_name, args)
+            guard.last_check = check
+            if check.stop_original:
+                msg = select_agent_message(
+                    check.det_violations, fallback="Contract violation"
+                )
+                return f"BLOCKED by contract: {msg}"
+
+            result = original_invoke(ctx, input_json)
+            if inspect.isawaitable(result):
+                result = await result
+
+            post = guard.guard_after(tool_name, str(result))
+            if post.needs_retry and post.feedback:
+                return format_sto_retry_message(post.feedback, result)
+            return result
+
+        if dataclasses.is_dataclass(tool):
+            try:
+                return dataclasses.replace(tool, on_invoke_tool=guarded_invoke)
+            except (TypeError, ValueError):
+                pass
+        clone = copy.copy(tool)
+        clone.on_invoke_tool = guarded_invoke
+        return clone
+
     def wrap(self, tools: list[Any]) -> list[Any]:
         """Wrap tools with contract enforcement for OpenAI Agents SDK.
 
@@ -186,7 +253,7 @@ class AgentsSDKGuard(BaseGuard):
             agent = Agent(tools=guard.wrap(tools), instructions=...)
 
         Args:
-            tools: List of ``FunctionTool`` objects.
+            tools: List of ``FunctionTool`` objects or plain callables.
 
         Returns:
             List of wrapped tools with contract enforcement.
@@ -254,17 +321,86 @@ def _function_tool_name_kw(function_tool: Callable) -> str:
     return "name_override"
 
 
+def _is_function_tool(tool: Any) -> bool:
+    """True for the SDK's ``FunctionTool`` (or anything shaped like it)."""
+    return callable(getattr(tool, "on_invoke_tool", None)) and hasattr(
+        tool, "params_json_schema"
+    )
+
+
+def _is_run_context(value: Any) -> bool:
+    """True for the SDK's ``RunContextWrapper`` / ``ToolContext`` objects.
+
+    Duck-typed on the class name so no SDK import is needed at check
+    time; both classes carry ``context`` and ``usage`` attributes.
+    """
+    name = type(value).__name__
+    if name in ("RunContextWrapper", "ToolContext"):
+        return True
+    return (
+        hasattr(value, "context")
+        and hasattr(value, "usage")
+        and hasattr(value, "tool_name")
+    )
+
+
+def _call_args(
+    fn: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> dict[str, Any]:
+    """Bind a call's positional and keyword arguments to ``fn``'s parameters.
+
+    The SDK's context object (passed first when the tool takes one) is
+    dropped: it is runtime plumbing, not something the model chose.
+    """
+    try:
+        bound = inspect.signature(fn).bind_partial(*args, **kwargs)
+        merged: dict[str, Any] = dict(bound.arguments)
+    except (TypeError, ValueError):
+        merged = dict(kwargs)
+        if args:
+            merged["args"] = list(args)
+    return {k: v for k, v in merged.items() if not _is_run_context(v)}
+
+
+def _decode_json_args(input_json: Any) -> dict[str, Any]:
+    """Decode the JSON arguments the SDK hands to ``on_invoke_tool``.
+
+    Malformed JSON keeps the raw text under ``_raw_arguments`` (with a
+    ``_sponsio_unparseable`` marker) so coarse ``arg_has`` regexes can
+    still match; the same shape ``sponsio.integrations.openai`` uses.
+    """
+    if input_json is None or input_json == "":
+        return {}
+    if isinstance(input_json, dict):
+        return input_json
+    text = (
+        input_json.decode()
+        if isinstance(input_json, (bytes, bytearray))
+        else str(input_json)
+    )
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return {"_sponsio_unparseable": True, "_raw_arguments": text}
+    if not isinstance(parsed, dict):
+        return {"_raw_arguments": parsed}
+    return parsed
+
+
 def _extract_function(tool: Any) -> Callable:
-    """Extract the underlying callable from a FunctionTool or decorated function.
+    """Extract the underlying callable from a decorated function or tool-like object.
+
+    ``FunctionTool`` objects never reach here (see :func:`_is_function_tool`);
+    this handles plain callables and wrappers that keep the function under
+    a ``fn`` / ``func`` style attribute.
 
     Args:
-        tool: A FunctionTool object, decorated function, or plain callable.
+        tool: A decorated function, plain callable, or object holding one.
 
     Returns:
         The underlying callable.
     """
-    # FunctionTool objects store the function in various attributes
-    for attr in ("fn", "_fn", "func", "_func", "on_invoke_tool"):
+    for attr in ("fn", "_fn", "func", "_func"):
         if hasattr(tool, attr):
             fn = getattr(tool, attr)
             if callable(fn):

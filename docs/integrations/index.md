@@ -30,9 +30,9 @@ Sponsio works with any agent framework in Python and TypeScript. Each integratio
 | Claude Agent SDK | `@sponsio/sdk/claude-agent` | `sponsioHooks(guard)` |
 | Vercel AI SDK | `@sponsio/sdk/vercel-ai` | `sponsioMiddleware(guard)` |
 | OpenAI SDK | `@sponsio/sdk/openai` | `wrapOpenAI(client, guard)` |
-| OpenAI Agents SDK | `@sponsio/sdk/openai-agents` | `wrapAgent(agent, guard)` |
+| OpenAI Agents SDK | `@sponsio/sdk/openai-agents` | `wrapAgentsTools(tools, guard)` |
 | LangChain.js | `@sponsio/sdk/langchain` | `wrapTools(tools, guard)` |
-| Google ADK | `@sponsio/sdk/google-adk` | `wrapTools(tools, guard)` |
+| Google ADK | `@sponsio/sdk/google-adk` | `wrapGoogleAdkTools(tools, guard)` |
 
 ## Python example: LangGraph
 
@@ -256,7 +256,7 @@ elif check.allowed:
 
 ### OpenAI SDK
 
-`patch_openai()` returns a guard whose every `client.chat.completions.create(...)` is checked automatically. Set `SPONSIO_OPENAI_STRICT_TOOL_ARGS=1` to fail closed when the model returns malformed JSON in `tool_call.function.arguments`. Default warns and degrades.
+`patch_openai()` returns a guard whose every `client.chat.completions.create(...)` / `parse(...)` and `client.responses.create(...)` / `parse(...)` is checked automatically; `guard.wrap(client)` does the same for one client instance. `stream=True` raises on every guarded method, because tool calls in a stream can only be checked after the caller's loop has assembled and run them. Set `SPONSIO_OPENAI_STRICT_TOOL_ARGS=1` to fail closed when the model returns malformed JSON in `tool_call.function.arguments`. Default warns and degrades.
 
 ### Google ADK
 
