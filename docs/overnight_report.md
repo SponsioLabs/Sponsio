@@ -3,6 +3,20 @@
 Branch: `fix/enforcement-and-evidence-mw` (off `main`). No push, no merge.
 Baseline before any change: **2399 passed, 26 skipped**.
 
+> **Since this was written.** This is a work log, kept for the record, not
+> a statement of current behaviour. Two items below were deferred that
+> night; one has since been closed and one has not.
+>
+> * **Closed.** `_MonitoredGraph._check_node` computing a verdict that its
+>   callers discarded (§1a, the `langgraph.py` row) was a real enforcement
+>   gap: `wrap_graph()` / `monitor_graph()` ran each node and then dropped
+>   the decision. An external audit (Trenyx) reported it in September 2026
+>   and it is fixed in #172. The wrapper now gates every node before its
+>   body runs, across all seven execution entry points.
+> * **Still open.** The `escalated → tool runs? no` row in the
+>   `EnforcementResult` docstring (§1) still disagrees with base
+>   enforcement. Docs-only, unchanged.
+
 ---
 
 ## Phase 1 — canonical stopping set + stop_original gating
@@ -59,7 +73,7 @@ out of scope tonight), but it is the third place this ambiguity lives.
 | langgraph.py `guarded_func` / `guarded_coro` (~:243/:265) | redirect-substitution branch, then `check.blocked` | **Fixed** final gate → `stop_original` (substitution branch kept first; also fail-closes a redirect verdict with no usable target) |
 | langgraph.py `_invoke_safe_tool` (~:355) | `check.blocked`, then explicit chained-redirect raise | **Justified as-is** (both stopping actions covered explicitly); comment added |
 | langgraph.py callback `on_tool_start` (~:422) | `result.blocked and self._block` | **Fixed** → `stop_original` |
-| langgraph.py `_MonitoredGraph._check_node` (~:730) | `not result.blocked` | **Fixed** → `not result.stop_original` (note: callers still discard the bool — pre-existing, out of scope tonight) |
+| langgraph.py `_MonitoredGraph._check_node` (~:730) | `not result.blocked` | **Fixed** → `not result.stop_original` (note: callers still discard the bool — pre-existing, out of scope tonight; the discarded bool was itself a live enforcement gap and was fixed later in #172, see the note at the top) |
 | crewai.py :108/:193 | `stop_original` | Already compliant — unchanged |
 | vercel_ai.py :125 | `stop_original` | Already compliant — unchanged |
 | claude_agent.py :119 | `stop_original` | Already compliant — unchanged |
