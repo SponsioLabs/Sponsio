@@ -65,10 +65,19 @@ agents:
             #   rm -rf /home/...  (direct home path)
             #   rm -rf /root/...
             #   rm -rf /Users/... (macOS home)
-            - - "rm\\s+-[rRf]+\\s+(/|\\$HOME|~)(\\s|;|&|\\||$)"
-              - "rm\\s+-[rRf]+\\s+/\\*"
-              - "rm\\s+-[rRf]+\\s+/(home|root|Users)"
-              - "rm\\s+-[rRf]+\\s+\\$\\{?HOME\\}?"
+            #
+            # Flag grammar: ``rm`` followed by any options, at least one
+            # of which is a short cluster containing r/R/f (``-rf``,
+            # ``-fr``, ``-Rfv``, ``-r -f``) or the long spelling
+            # (``--recursive`` / ``--force``), then any further options
+            # (``--no-preserve-root``, ``--``), then the target.
+            # ``arg_blacklist`` is a raw regex with no argv parsing, so
+            # the long forms must be spelled out here or
+            # ``rm --recursive --force /`` walks straight through.
+            - - "\\brm(?:\\s+(?:-[a-zA-Z]+|--[a-z-]+))*\\s+(?:-[a-zA-Z]*[rRf][a-zA-Z]*|--recursive|--force)(?:\\s+(?:-[a-zA-Z]+|--[a-z-]+|--))*\\s+(/|\\$HOME|~)/?(\\s|;|&|\\||$)"
+              - "\\brm(?:\\s+(?:-[a-zA-Z]+|--[a-z-]+))*\\s+(?:-[a-zA-Z]*[rRf][a-zA-Z]*|--recursive|--force)(?:\\s+(?:-[a-zA-Z]+|--[a-z-]+|--))*\\s+/\\*"
+              - "\\brm(?:\\s+(?:-[a-zA-Z]+|--[a-z-]+))*\\s+(?:-[a-zA-Z]*[rRf][a-zA-Z]*|--recursive|--force)(?:\\s+(?:-[a-zA-Z]+|--[a-z-]+|--))*\\s+/(home|root|Users)"
+              - "\\brm(?:\\s+(?:-[a-zA-Z]+|--[a-z-]+))*\\s+(?:-[a-zA-Z]*[rRf][a-zA-Z]*|--recursive|--force)(?:\\s+(?:-[a-zA-Z]+|--[a-z-]+|--))*\\s+\\$\\{?HOME\\}?"
           source: "library:tier1.shell"
 
       - desc: "Ban fork-bomb and obvious denial-of-service patterns"
@@ -124,8 +133,8 @@ agents:
           args:
             - exec
             - command
-            - - "\\\\\\n\\s*(sudo|su\\s|rm\\s+-[rRf]|dd\\s+if=|chmod\\s|chown\\s|mount\\s|curl\\s|wget\\s)"
-              - "\\\\\\r?\\n\\s*(sudo|su\\s|rm\\s+-[rRf]|dd\\s+if=|chmod\\s|chown\\s|mount\\s|curl\\s|wget\\s)"
+            - - "\\\\\\n\\s*(sudo|su\\s|rm\\s+(?:-[a-zA-Z]*[rRf][a-zA-Z]*|--recursive|--force)|dd\\s+if=|chmod\\s|chown\\s|mount\\s|curl\\s|wget\\s)"
+              - "\\\\\\r?\\n\\s*(sudo|su\\s|rm\\s+(?:-[a-zA-Z]*[rRf][a-zA-Z]*|--recursive|--force)|dd\\s+if=|chmod\\s|chown\\s|mount\\s|curl\\s|wget\\s)"
           source: "library:tier1.shell"
 
       - desc: "Ban undefined-variable-looking patterns that expand to empty in shell"
@@ -135,8 +144,8 @@ agents:
           args:
             - exec
             - command
-            - - "rm\\s+-[rRf]+\\s+\\{[^}]*\\}/?"
-              - "rm\\s+-[rRf]+\\s+\\$\\{[^}]*\\}/?"
+            - - "\\brm(?:\\s+(?:-[a-zA-Z]+|--[a-z-]+))*\\s+(?:-[a-zA-Z]*[rRf][a-zA-Z]*|--recursive|--force)(?:\\s+(?:-[a-zA-Z]+|--[a-z-]+|--))*\\s+\\{[^}]*\\}/?"
+              - "\\brm(?:\\s+(?:-[a-zA-Z]+|--[a-z-]+))*\\s+(?:-[a-zA-Z]*[rRf][a-zA-Z]*|--recursive|--force)(?:\\s+(?:-[a-zA-Z]+|--[a-z-]+|--))*\\s+\\$\\{[^}]*\\}/?"
           source: "library:tier1.shell"
 
       # =================================================================

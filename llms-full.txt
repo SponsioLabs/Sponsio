@@ -21,7 +21,7 @@ tools can split if needed.
 
 <p align="center">
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-orange.svg" alt="License"></a>
-  <a href="https://pypi.org/project/sponsio/"><img src="https://img.shields.io/badge/install-pip%20install%20sponsio-blue?logo=python&logoColor=white" alt="Install from PyPI"></a>
+  <a href="https://pypi.org/project/sponsio/"><img src="https://img.shields.io/badge/install-pip%20install%20--pre%20sponsio-blue?logo=python&logoColor=white" alt="Install from PyPI"></a>
   <a href="https://sponsio.dev"><img src="https://img.shields.io/badge/Visit-sponsio.dev-181818?logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjI4MyA3NjMgMzczIDM3MyI%2bPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwyMDQ4KSBzY2FsZSgwLjEsLTAuMSkiIGZpbGw9IiNGRkZGRkYiPjxwYXRoIGQ9Ik01MDEwIDEyNTAxIGMtNTggLTkgLTE4NyAtNDEgLTI2NyAtNjYgLTI2IC05IC05OSAtNDEgLTE2MCAtNzEgLTM1NCAtMTc0IC02MTMgLTQ3NiAtNzM2IC04NTkgLTQzIC0xMzMgLTY0IC0yNTEgLTczIC00MDcgbC03IC0xMTggLTQ2MiAwIC00NjMgMCAtNiAtMjIgYy0zIC0xMyAtMyAtNjYgMCAtMTE4IDE2IC0yODQgMTA2IC01NTYgMjYwIC03ODggMTEzIC0xNjggMzI0IC0zNTYgNTE2IC00NjAgMjcyIC0xNDcgNjM3IC0xOTAgOTY4IC0xMTUgMjM2IDUzIDQ1NiAxNzggNjQwIDM2MyAyNzIgMjczIDQxMyA2MTEgNDIzIDEwMjAgbDMgMTE1IDQ1NSA1IDQ1NCA1IDMgNDUgYzQgNDcgLTEyIDIwNyAtMjkgMzAwIC0xMDcgNTkyIC01MjMgMTAzMSAtMTA5NCAxMTU3IC03OSAxNyAtMzQxIDI2IC00MjUgMTR6IG0zMjAgLTk2MCBjNzMgLTI3IDE2MiAtOTkgMjA1IC0xNjQgNTggLTg3IDEwNCAtMjM5IDEwNSAtMzQ1IGwwIC01MiAtNDU3IDIgLTQ1OCAzIC0zIDQ4IGMtNSA3MyAyNCAyMDQgNjAgMjc3IDYxIDExOSAxOTEgMjI1IDMxMCAyNTAgNjQgMTMgMTc2IDUgMjM4IC0xOXogbS02MTIgLTY0MSBjMTMgLTI5NSAtMTkxIC01MjAgLTQ3MCAtNTIwIC0yMTcgMCAtMzkzIDE0NCAtNDUzIDM3MSAtMTUgNTUgLTIwIDIxMCAtOCAyMjIgMyA0IDIxNCA2IDQ2NyA1IGw0NjEgLTMgMyAtNzV6Ii8%2bPC9nPjwvc3ZnPg==&logoColor=white&labelColor=555555" alt="Visit sponsio.dev"></a>
 </p>
 
@@ -37,11 +37,11 @@ tools can split if needed.
 <p align="center">
   <img src="https://raw.githubusercontent.com/SponsioLabs/Sponsio/main/assets/sponsio-comparison-freeze.png" alt="Same coding agent under a declared code freeze. Without Sponsio it drops the prod users table, back-fills fabricated rows, and files a status report that hides the damage. With Sponsio the first destructive SQL is blocked pre-execution: 35 checks, 100% deterministic, 0 LLM calls, p50 13µs." width="900">
 </p>
-Sponsio provides deterministic contracts for agent procedures over time, enforced in under 0.01 ms with zero LLM cost at runtime. Works with LangChain, Claude Agent, OpenAI Agents, Google ADK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop, in Python or TypeScript.
+Sponsio checks an agent's tool calls before they run. A rule can look at what already happened, so "check the policy before issuing a refund" is one rule instead of a paragraph of prompt. Each check takes under 0.01 ms and calls no model. Works with LangChain, Claude Agent, OpenAI Agents, Google ADK, CrewAI, Vercel AI, MCP, or any custom tool-calling loop, in Python or TypeScript.
 
 > An **agent contract** is a runtime rule that is checked at every agent action, [backed by formal methods](docs/concepts/formal-methods.md).
 
-> **v0.2.0a8 alpha is out.** `pip install --pre sponsio`. The output lane ships: alongside every tool call checked before it executes, a run's typed claims are now checked against an authority by deterministic comparators — no LLM in the hot path. Also fixes two bugs that only appear once a project has more than one agent: the second agent could not run at all, and multi-agent runs lost their claim verdicts on the way to the console. See the [v0.2.0a8 release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a8).
+> **v0.2.0a16 alpha is out.** `pip install --pre sponsio`. This one is for platforms running agents for their own customers. `SPONSIO_PROJECT` names the customer a run belongs to, so a per-customer key needs no code change and cannot get the customer wrong: before this, `attach()` always claimed `default`, and a key scoped to one customer was refused, which meant runs from a correctly wired deployment never arrived. The OTLP exporter now obeys `SPONSIO_PRIVACY` too, so the level you set is the level that leaves the machine on either path. See the [release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a16).
 
 ---
 
@@ -53,7 +53,7 @@ Sponsio provides deterministic contracts for agent procedures over time, enforce
 
 On [ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench) (12 frontier LLMs × 80 trajectories), unguarded models cheat in 11.5%–66.7% of runs. **With Sponsio, 95.6% of misalignment is avoided on average; 24/36 high-risk scenarios at 100%.** On the `Financial-Audit-Fraud-Finding` scenario, frontier models commit fraud in 16/24 trials; **Sponsio blocks 18/19**. On RedCode-Exec (1,410 cases), Sponsio reaches **98.9% combined** (bash 98.3% · python 99.4%, lifted from 92.4% by a 4-iteration self-improvement loop), with 0 false positives on a 60-file clean-code audit. These are the open-core numbers; the Cloud version's LLM-judge layer takes ODCV-Bench to **~99%** and RedCode-Exec to **99.4%**. [Book a demo](https://calendar.app.google/ZZmthdxsDXCsHbJk9) for the Cloud and Enterprise versions.
 
-The logic checker runs at p50 **0.0052 ms** on the single-contract hot path and **0.139 ms** on the heaviest ODCV workload (19 contracts per call), **5,000×–60,000× faster than any LLM-as-judge guardrail** (50–800 ms per check), with zero LLM cost in the hot path. p99 stays at ~1 ms across every measured workload.
+One contract takes p50 **0.0052 ms** to check. The heaviest ODCV workload, 19 contracts on every call, takes **0.139 ms**. An LLM-as-judge guardrail takes 50 to 800 ms, so this is **5,000× to 60,000× faster**, and it calls no model. p99 stays near 1 ms on every workload measured.
 
 See the [full benchmark methodology and per-model breakdown](docs/reference/benchmarks.md), [how Sponsio compares against prompt filters, output validators, LLM-as-judge, and sandboxing](docs/why.md), or dive into the [architecture](docs/concepts/architecture.md) and [formal methods primer](docs/concepts/formal-methods.md).
 
@@ -61,7 +61,7 @@ See the [full benchmark methodology and per-model breakdown](docs/reference/benc
 
 ## Quick start
 
-A single prompt or a 2-line CLI command gets you onboarded.
+Two ways in: paste a prompt into your coding agent, or run the CLI yourself.
 
 **Paste into Claude Code / Codex / Cursor.** The agent walks the full onboarding flow:
 
@@ -74,11 +74,23 @@ A single prompt or a 2-line CLI command gets you onboarded.
 **Or run the CLI yourself**:
 
 ```bash
-pip install --pre sponsio        # or: npm install -D @sponsio/sdk
-sponsio init .             # interactive wizard: detects framework, IDE hosts, observe vs enforce
+pip install --pre sponsio   # or: npm install -D @sponsio/sdk@alpha
+sponsio init .              # asks what you use, then writes sponsio.yaml
 ```
 
 The wizard auto-detects your framework and prints the right wrap snippet. For manual wiring, see [all supported integrations](docs/integrations/index.md). [OpenClaw users](docs/integrations/openclaw.md) get bundled ClawHavoc and CVE-2026-25253 coverage out of the box. For config reference, observe → enforce flip, and CI wiring, see the [full walkthrough](QUICKSTART.md).
+
+**Watching runs, and sharing a rulebook.** Enforcement is local and needs no account. If you want to see what your agent did, or keep the rulebook somewhere a person reviews it before it arms, [app.sponsio.dev](https://app.sponsio.dev) is the hosted side. One line puts a run on screen:
+
+```python
+import sponsio
+import sponsio.bridge
+
+guard = sponsio.Sponsio(config="sponsio.yaml", agent_id="mailer", mode="enforce")
+run = sponsio.bridge.attach(guard)
+```
+
+`sponsio push sponsio.yaml` uploads a rulebook as a draft. It does not arm. A person publishes it in the console, and `sponsio pull` or `config="sponsio://default"` brings the reviewed version back. Sending is best effort, so a console that is down never blocks the agent. See [the hosted console](docs/getting-started/hosted-console.md).
 
 **Drafting contracts from natural language.** `sponsio validate "<rule in plain English>"` turns a plain-English rule into a contract you can read back. Treat the output as a starting draft to review and adjust before you enforce. The determinism is in how contracts are *enforced* at runtime, not in how they're drafted.
 
@@ -86,7 +98,7 @@ The wizard auto-detects your framework and prints the right wrap snippet. For ma
 
 ## Contract Library
 
-Sixteen **contract bundles** ship out of the box, organized by tier (always-on / per-tool / per-incident). Each bundle is a YAML pack composed from Sponsio's deterministic patterns. Drop one into `sponsio.yaml` and your agent is guarded against a known failure class in one line, with no per-contract authoring.
+**22 contract bundles** ship out of the box, organized by tier (always-on / per-tool / per-incident). Each bundle is a YAML pack composed from Sponsio's deterministic patterns. Drop one into `sponsio.yaml` and your agent is guarded against a known failure class in one line, with no per-contract authoring.
 
 ```yaml
 # sponsio.yaml: one-line bundle inclusion
@@ -94,12 +106,12 @@ agents:
   my_agent:
     workspace: "/srv/my-bot"
     include:
-      - sponsio:core/universal        # always-on
-      - sponsio:capability/shell      # if your agent runs commands
-      - sponsio:capability/filesystem # if your agent touches files
+      - sponsio:capability/destructive  # gate irreversible actions
+      - sponsio:capability/shell        # if your agent runs commands
+      - sponsio:capability/filesystem   # if your agent touches files
 ```
 
-See the [full bundle reference](docs/reference/contract-lib.md) for all 16 bundles, or the [46 underlying patterns](docs/reference/patterns.md) for the primitives they compose. Want a bundle for your agent type? That is currently the highest-leverage way to contribute. [Open an issue](https://github.com/SponsioLabs/Sponsio/issues/new) with your incident, CVE, or pattern.
+See the [full bundle reference](docs/reference/contract-lib.md) for all 22 bundles, or the [48 underlying patterns](docs/reference/patterns.md) for the primitives they compose. Want a bundle for your agent type? That is the most useful thing to contribute right now. [Open an issue](https://github.com/SponsioLabs/Sponsio/issues/new) with your incident, CVE, or pattern.
 
 ---
 
@@ -203,7 +215,7 @@ Add this to your agent entry point:
 
 Without an LLM key, `init` still ships a name-heuristic starter plus capability packs (shell / filesystem / credentials / …) with deterministic rules — no LLM calls. Run `sponsio packs` for the full list with rule counts.
 
-For TypeScript, install `@sponsio/sdk` and run `npx sponsio init .`. Same yaml output, same `Sponsio({ config: "sponsio.yaml" })` API.
+For TypeScript, `npm install -D @sponsio/sdk@alpha` and run `npx sponsio init .`. Same yaml output, and the same shape of API: `new Sponsio({ config: "sponsio.yaml", agentId: "my_agent" })`.
 
 ## 4. Run and observe
 
@@ -236,7 +248,18 @@ runtime:
   mode: enforce
 ```
 
-Precedence: explicit ctor arg > env var > yaml > default.
+Precedence for `mode`: `SPONSIO_MODE` > ctor arg > yaml > `observe`.
+
+**The env var beats your code, on purpose.** Whoever runs the deployment
+has to be able to flip enforcement without waiting for a release, so
+`SPONSIO_MODE=observe` turns off blocking even where the source says
+`mode="enforce"`, and the reverse holds too. If a rule is not behaving the
+way the code reads, check the environment first: `sponsio doctor` prints
+the mode actually in force.
+
+Every other knob goes the other way. `dashboard`, for instance, is
+`ctor arg > SPONSIO_DASHBOARD > yaml`, because it is set in code at deploy
+time rather than flipped by an operator mid-incident.
 
 ## Troubleshooting
 
@@ -249,6 +272,7 @@ sponsio check --trace trace.json --config sponsio.yaml --agent agent
 ## Next
 
 - [First contract](docs/getting-started/first-contract.md): write your own rule.
+- [The hosted console](docs/getting-started/hosted-console.md): stream a run to app.sponsio.dev, and keep the rulebook where a human reviews it.
 - [Integrations](docs/integrations/index.md): plug into LangGraph, CrewAI, OpenAI Agents, and others.
 - [Config reference](docs/reference/config-yaml.md): full `sponsio.yaml` schema.
 - [CLI reference](docs/reference/cli.md): every command and flag.
@@ -274,11 +298,11 @@ pip install --pre sponsio
 sponsio init .
 ```
 
-Then go to the [Quickstart](getting-started/quickstart.md).
+Then go to the [Write your first contract](getting-started/first-contract.md).
 
 ## Sections
 
-- **[Getting started](getting-started/install.md)**: install, run your first guarded agent, write your first contract. Includes paste-ready [IDE-agent prompts](getting-started/onboard-prompt.md) for Claude Code / Cursor / Codex driven setup.
+- **[Getting started](getting-started/install.md)**: install, run your first guarded agent, write your first contract, and [connect to the hosted console](getting-started/hosted-console.md). Includes paste-ready [IDE-agent prompts](getting-started/onboard-prompt.md) for Claude Code / Cursor / Codex driven setup.
 - **[Concepts](concepts/overview.md)**: what contracts are, how the runtime evaluates them, the LTL (linear temporal logic) backbone, OWASP coverage.
 - **[Integrations](integrations/index.md)**: drop-in adapters for LangGraph, Claude Agent, OpenAI Agents, CrewAI, Vercel AI, MCP, and others.
 - **[Guides](guides/onboarding.md)**: task-oriented walkthroughs. Tuning, observe-vs-enforce, contract sources, reporting, FAQ.
@@ -351,7 +375,7 @@ Python 3.10 and newer. Older versions are not tested.
 The TypeScript deterministic engine ships separately:
 
 ```bash
-npm install @sponsio/sdk
+npm install @sponsio/sdk@alpha
 ```
 
 See [TypeScript integrations](../integrations/index.md#typescript) for framework bindings. The Python and TS engines share the same LTL core. They produce identical block/allow decisions over the same trace.
@@ -390,8 +414,8 @@ Replays a packaged unsafe-agent trajectory locally, no API key, no framework SDK
 
 ## Next
 
-- [Quickstart](quickstart.md): block an unsafe tool call in 60 seconds.
-- [First contract](first-contract.md): write a custom contract against your own agent.
+- [Write your first contract](first-contract.md): block an unsafe tool call in 60 seconds.
+- [The hosted console](hosted-console.md): stream a run to app.sponsio.dev and keep the rulebook there.
 - [Integrations](../integrations/index.md): plug Sponsio into your framework.
 
 
@@ -675,7 +699,7 @@ Deterministic formulas are evaluated in microseconds. A violation routes through
 ## Next
 
 - [Architecture](architecture.md): LTL semantics, grounding internals, why the atom vocabulary is the observation boundary.
-- [Deterministic contracts](contracts.md): the pattern library and how each pattern compiles to LTL.
+- [Deterministic contracts](../reference/patterns.md): the pattern library and how each pattern compiles to LTL.
 - [Write your first contract](../getting-started/first-contract.md): hands-on walkthrough.
 - [Integrations](../integrations/index.md): wire it into your framework (LangGraph, Claude Agent SDK, OpenAI, CrewAI, Google ADK, Vercel AI, MCP, or custom).
 
@@ -1423,7 +1447,7 @@ Sponsio works with any agent framework in Python and TypeScript. Each integratio
 | MCP | `from sponsio.mcp import MCPContractProxy` | `proxy.call_tool()` | 3 |
 | No framework | `sponsio.Sponsio(contracts=[...])` | `guard.guard_before()` / `guard_after()` | 3 |
 
-### TypeScript (via Pyodide, same engine, no server)
+### TypeScript (native, same engine, no server)
 
 | Framework | Import | Integration |
 |---|---|---|
@@ -1463,6 +1487,8 @@ graph = build_my_graph()
 graph = guard.wrap_graph(graph)
 ```
 
+`wrap_graph()` checks every node against the contracts before the node body runs. In enforce mode a stopping verdict raises `ToolCallBlocked` out of `invoke()` / `stream()` (and their async and batch forms) and the node never executes. The contracts see node names as actions; tool calls made inside a node are gated individually only when that node's tools come from `guard.wrap(tools)`.
+
 The pattern is the same for CrewAI, Google ADK, OpenAI Agents SDK, and Vercel AI SDK. Swap the import for the matching `sponsio.<framework>` namespace and call `guard.wrap(tools)`.
 
 ## TypeScript example: Claude Agent SDK
@@ -1500,12 +1526,19 @@ guard = sponsio.Sponsio(
 while not done:
     tool_name, args = llm_decide_next_action()
     result = guard.guard_before(tool_name, args)
-    if result.blocked:
+    if result.stop_original:      # not result.blocked: see note below
         llm_messages.append(f"Action blocked: {result.det_violations[0].message}")
         continue
     output = execute_tool(tool_name, args)
     guard.guard_after(tool_name, output)
 ```
+
+**Gate on `result.stop_original`, not `result.blocked`.** A `redirect_to_safe`
+violation leaves `blocked` False and `allowed` True, because the agent flow can
+continue down the safe path. A loop that gates on `blocked` falls through and
+runs the exact call the contract forbade. `stop_original` folds hard blocks and
+redirects together, so it fails closed. If you want the substitution itself, see
+[Redirect to safe](#redirect-to-safe-v02).
 
 ## Tool policy: default-deny + proactive filtering (v0.2)
 
@@ -1561,7 +1594,7 @@ while not done:
     legal_tools = [t for t in ALL_TOOLS if t.name in legal_names]
     tool_name, args = llm_decide_next_action(messages, tools=legal_tools)
     result = guard.guard_before(tool_name, args)
-    if result.blocked:
+    if result.stop_original:      # not result.blocked: see note below
         messages.append(f"Action blocked: {result.det_violations[0].message}")
         continue
     output = execute_tool(tool_name, args)
@@ -1715,7 +1748,7 @@ description: Sponsio's CLI commands, arguments, and options.
 
 # CLI reference
 
-Every `sponsio` command exits 0 on success and 1 on failure (parse error, violation, missing input). For LLM-backed commands, install the LLM extra: `pip install "sponsio[llm]"`. API keys come from environment variables only.
+Every `sponsio` command exits 0 on success and 1 on failure (parse error, violation, missing input). For LLM-backed commands, install the LLM extra: `pip install --pre "sponsio[llm]"`. API keys come from environment variables only.
 
 ## sponsio scan
 
@@ -1792,7 +1825,7 @@ sponsio init . --apply "framework=langgraph;ides=claude-code:full;mode=observe" 
 sponsio init . --plan "framework=crewai;ides=cursor:skill"                  # dry-run preview
 ```
 
-See [getting-started/quickstart.md](../getting-started/quickstart.md) for the typical interactive flow.
+See [getting-started/first-contract.md](../getting-started/first-contract.md) for the typical interactive flow.
 
 ## sponsio onboard
 
@@ -1981,7 +2014,7 @@ Install the `sponsio` Agent Skill into the local Claude Code, Cursor, or Codex s
 sponsio skill install [--force] [--link]
 ```
 
-`--link` symlinks instead of copying, so future `pip install -U sponsio` upgrades the skill in place.
+`--link` symlinks instead of copying, so future `pip install -U --pre sponsio` upgrades the skill in place.
 
 ## sponsio mode
 
@@ -2152,11 +2185,29 @@ In **observe mode**, no strategy runs. Violations are logged and surfaced in rep
 
 ## Catalog
 
-Run `sponsio patterns` on the CLI to browse this catalog interactively with NL examples.
+Run `sponsio patterns` on the CLI to browse this catalog interactively.
+
+**Every cell in the "How to write it" column is copy-pasteable and is checked
+by the test suite.** Two forms appear there, because not every pattern has a
+plain-English phrasing the parser accepts:
+
+- A quoted sentence goes straight into a `G:` or `A:` field, or into
+  `sponsio validate "..."`.
+- A `{pattern: ..., args: [...]}` mapping goes into the same field as a
+  structured entry. This form always works and is the only form for the
+  patterns whose arguments a sentence cannot carry.
+
+```yaml
+agents:
+  my_agent:
+    contracts:
+      - G: "tool `check_policy` must precede `issue_refund`"
+      - G: {pattern: token_budget, args: [50000]}
+```
 
 ### Safety
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
 | `must_precede(A, B)` | `"tool `check_policy` must precede `issue_refund`"` | A must have been called before B can execute |
 | `must_confirm(action)` | `"tool `delete_file` requires confirmation"` | A confirmation step must precede the action |
@@ -2167,98 +2218,98 @@ Run `sponsio patterns` on the CLI to browse this catalog interactively with NL e
 
 ### Compliance
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
-| `no_reversal(A, B)` | `"after `approve`, tool `reject` is forbidden"` | Once A is called, B is permanently forbidden |
+| `no_reversal(A, B)` | `"tool `reject` must not follow `approve`"` | Once A is called, B is permanently forbidden |
 | `segregation_of_duty(A, B)` | `"tools `review` and `approve` must be by different agents"` | Same agent cannot perform both actions |
 | `always_followed_by(A, B)` | `"every `refund` must be followed by `notify`"` | Whenever A happens, B must eventually happen |
 | `required_steps_completion(steps)` | `"`aml_check` must complete before `issue_loan`"` | All steps must have completed before a gate is passed |
 
 ### Operational
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
 | `rate_limit(action, N)` | `"tool `query_db` at most 5 times"` | Action can be called at most N times total |
 | `idempotent(action)` | `"tool `transfer` at most 1 times"` | Action can be called at most once (special case of rate_limit) |
 | `cooldown(action, N)` | `"tool `send_email` cooldown of 3 steps"` | At least N steps between consecutive calls |
 | `deadline(trigger, action, N)` | `"tool `respond` within 3 steps of `receive`"` | Action must happen within N steps of trigger |
 | `bounded_retry(action, N)` | `"tool `deploy` at most 3 retries"` | Action limited to N retries |
-| `loop_detection(action, N)` | `"tool `search` must not loop more than 5 times"` | Detects repeated calls with similar args |
+| `loop_detection(action, N)` | `{pattern: loop_detection, args: ['search', 5]}` | Detects repeated calls with similar args |
 
 ### Exclusion
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
 | `mutual_exclusion(A, B)` | `"tools `approve` and `reject` are mutually exclusive"` | At most one of A or B can ever be called |
-| `tool_allowlist(tools)` | `"agent may only call `search`, `summarize`"` | Only listed tools may be called |
+| `tool_allowlist(tools)` | `{pattern: tool_allowlist, args: [['search', 'summarize']]}` | Only listed tools may be called |
 
 ### Recovery
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
-| `redirect_to_safe(unsafe, safe)` | `"redirect `issue_refund` to `log_refund_request`"` | Substitute a forbidden tool with a pre-approved alternative. Bundled with the `RedirectToSafe` strategy: a violation surfaces as `action="redirected"` with `fallback_action=safe`, the trace records the substitute call. |
+| `redirect_to_safe(unsafe, safe)` | `{pattern: redirect_to_safe, args: ['issue_refund', 'log_refund_request']}` | Substitute a forbidden tool with a pre-approved alternative. Bundled with the `RedirectToSafe` strategy: a violation surfaces as `action="redirected"` with `fallback_action=safe`, the trace records the substitute call. |
 
 ### Argument and path checks
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
 | `arg_blacklist(tool, field, patterns)` | `"bash command must not contain `rm -rf`"` | An arg field must not match forbidden regex patterns |
 | `scope_limit(tool, paths)` | `"bash may only access files under `/workspace`"` | All file paths in tool args must be within allowed prefixes |
-| `arg_length_limit(tool, field, N)` | `"`sql.query` at most 500 chars"` | Argument length cap |
-| `arg_value_range(tool, field, lo, hi)` | `"`transfer.amount` between 0 and 10000"` | Numeric argument range |
+| `arg_length_limit(tool, field, N)` | `{pattern: arg_length_limit, args: ['sql', 'query', 500]}` | Argument length cap |
+| `arg_value_range(tool, field, lo, hi)` | `{pattern: arg_value_range, args: ['transfer', 'amount', 0, 10000]}` | Numeric argument range |
 | `data_intact(tool, field)` | `"`aml_report` must not be edited after `aml_check`"` | Payload field is immutable once written |
 
 ### Agentic security
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
-| `untrusted_source_gate(tool)` | `"content from untrusted sources requires review"` | Data from untrusted origin must pass a gate before use |
+| `untrusted_source_gate(tool)` | `{pattern: untrusted_source_gate, args: [['fetch_url'], ['send_email']]}` | Data from untrusted origin must pass a gate before use |
 | `confirm_after_source(tool)` | `"confirmation required after reading from `web_search`"` | A confirmation step must follow a source-read |
-| `dangerous_bash_commands()` | `"bash must not run `rm -rf /`, `:(){:|:&};:`..."` | Built-in bash command blacklist |
-| `dangerous_sql_verbs()` | `"sql must not issue `DROP`, `TRUNCATE`, `ALTER`"` | Built-in SQL verb blacklist |
+| `dangerous_bash_commands()` | `{pattern: dangerous_bash_commands}` | Built-in bash command blacklist |
+| `dangerous_sql_verbs()` | `{pattern: dangerous_sql_verbs, args: ['execute_sql']}` | Built-in SQL verb blacklist |
 | `irreversible_once(action)` | `"`post_tweet` at most once per session"` | Irreversible actions capped to a single call |
 
 ### Resource
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
-| `token_budget(N)` | `"total LLM tokens under 50000"` | Session-wide token cap |
-| `delegation_depth_limit(N)` | `"sub-agent delegation at most 3 levels"` | Bounds recursive agent delegation |
+| `token_budget(N)` | `{pattern: token_budget, args: [50000]}` | Session-wide token cap |
+| `delegation_depth_limit(N)` | `{pattern: delegation_depth_limit, args: [3]}` | Bounds recursive agent delegation |
 
 ### Approval and audit
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
-| `approval_active(action, role)` | `"`issue_refund` requires active approval from `manager`"` | A specific role must have approved the action recently |
+| `approval_active(action, role)` | `{pattern: approval_active, args: ['issue_refund', 'manager', 3600]}` | A specific role must have approved the action recently |
 | `approval_freshness(approval, action, max_steps)` | `"`approve_pr` valid for 10 steps before `merge_pr`"` | Approval must be within N steps of the gated action |
-| `audit_after(action, audit)` | `"every `delete_user` must log `audit_event`"` | Sensitive action must be followed by an audit-log step |
+| `audit_after(action, audit)` | `"`delete_user` must be audited"` | Sensitive action must be followed by an audit-log step |
 | `backup_before_destructive(backup, action)` | `"`snapshot_db` must precede `drop_table`"` | Backup must run before any destructive action |
 | `dry_run_before_commit(dry_run, commit)` | `"`plan` must precede `apply`"` | Plan / preview step required before commit |
 | `sanitized_before_sink(source, sanitizer, sink)` | `"`untrusted_input` must pass `sanitize` before `db_write`"` | Untrusted input must pass a sanitizer before reaching a sink |
 
 ### Identity and context
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
-| `ctx_required(tool, key, values)` | `"`publish` requires ctx[`msg_verified`]=`true`"` | A `ctx(k, v)` fact must be set before the tool runs |
-| `ctx_matches_required(tool, key, regex)` | `"`issue_refund` requires caller_id matching `^spiffe://prod/finance-`"` | A `ctx(k, v)` value must match a regex |
+| `ctx_required(tool, key, values)` | `{pattern: ctx_required, args: ['publish', 'msg_verified', ['true']]}` | A `ctx(k, v)` fact must be set before the tool runs |
+| `ctx_matches_required(tool, key, regex)` | `{pattern: ctx_matches_required, args: ['issue_refund', 'caller_id', '^spiffe://prod/finance-']}` | A `ctx(k, v)` value must match a regex |
 
 ### Argument allowlist and content
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
-| `arg_allowlist(tool, field, patterns)` | `"`http_post` url must match allowlist"` | Argument must match one of the allowed regex patterns |
-| `duplicate_call_limit(tool, args_pattern, N)` | `"`send_email` to same recipient at most 1 time"` | Cap on repeated calls with similar args |
-| `time_since(predicate_key, max_seconds)` | `"action within 60s of `user_request`"` | Bounded time window since a referenced predicate |
+| `arg_allowlist(tool, field, patterns)` | `"url must be one of `https://api.example.com`, `https://api.internal`"` | Argument must match one of the allowed regex patterns |
+| `duplicate_call_limit(tool, args_pattern, N)` | `"same `send_email` request `recipient` at most 1 time"` | Cap on repeated calls with similar args |
+| `time_since(predicate_key, max_seconds)` | `{pattern: time_since, args: ['user_request', 60]}` | Bounded time window since a referenced predicate |
 
 ### Output checks (deterministic)
 
 These are deterministic atoms that match against `llm_response` events via regex or exact string compare. They are distinct from stochastic atoms (judge-backed, like `tone` or `faithfulness`), which need an LLM judge at runtime and are not part of this OSS release.
 
-| Pattern | NL example | What it enforces |
+| Pattern | How to write it | What it enforces |
 |---|---|---|
 | `no_pii(fields)` | `"response must not contain PII"` | Regex-detect SSN, credit card, email, phone in response |
-| `no_keywords(words)` | `"response must not mention competitors"` | Response cannot contain any of the given strings |
+| `no_keywords(words)` | `{pattern: no_keywords, args: [['Acme', 'Globex']]}` | Response cannot contain any of the given strings |
 | `max_length(max_words, max_chars)` | `"response under 200 words"` | Response length cap |
 
 ---
@@ -2404,7 +2455,7 @@ Tool inventory:   [check_policy, issue_refund, notify_customer]
 Constraint:       must_precede(check_policy, issue_refund)
 ```
 
-Supported document formats: `.md`, `.txt`, `.pdf` (`pip install sponsio[pdf]`).
+Supported document formats: `.md`, `.txt`, `.pdf` (`pip install --pre 'sponsio[pdf]'`).
 
 ### Source 3: hand-written
 
@@ -2781,7 +2832,7 @@ Yes. The eval script is `ODCV-Bench/eval_sponsio.py`; scenarios and replay tooli
 
 ## Reading order
 
-- **New here?** → [README](../../README.md) for the pitch, then [Quickstart](../getting-started/quickstart.md).
+- **New here?** → [README](../../README.md) for the pitch, then [Write your first contract](../getting-started/first-contract.md).
 - **Writing your first contract?** → [First contract](../getting-started/first-contract.md).
 - **Adopting in an existing repo?** → [Onboarding](onboarding.md).
 - **Shipping to production?** → [Observe vs. enforce](observe-vs-enforce.md).
@@ -3055,7 +3106,7 @@ Four mechanisms apply across all ten risks.
 - [OWASP Top 10 for Agentic Applications (2026)](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)
 - [Agentic AI Threats and Mitigations (T01-T17)](https://genai.owasp.org/resource/agentic-ai-threats-and-mitigations/)
 - Pattern catalog: [Patterns](../reference/patterns.md)
-- Contract DSL: [Contracts](contracts.md)
+- Contract DSL: [Pattern catalog](../reference/patterns.md)
 - Contract bundles: [Contract library](../reference/contract-lib.md)
 
 
@@ -3435,7 +3486,7 @@ path. We'll acknowledge within 72 hours and coordinate disclosure.
 
 ## What belongs in this repo (and what doesn't)
 
-**Ship with open source:** user-facing guides, contract and architecture reference, and design notes (e.g. [`docs/cost-based-thresholds.md`](docs/cost-based-thresholds.md)).
+**Ship with open source:** user-facing guides, contract and architecture reference, and design notes (e.g. [`docs/concepts/assume-enforce-semantics.md`](docs/concepts/assume-enforce-semantics.md)).
 
 **Keep out of the public tree** (or redact before publishing):
 
@@ -3469,6 +3520,210 @@ broke.
 ---
 
 ## [Unreleased]
+
+### Fixed
+
+- **LangGraph `wrap_graph()` / `monitor_graph()` now gate each node before
+  it runs.** The whole-graph wrappers iterated the inner graph's stream,
+  ran `guard_before` only after a node's update had been produced, and
+  discarded the verdict, so a contract violation was recorded but nothing
+  was stopped. Enforcement is now a callback merged into every run's
+  config: LangGraph fires it before the node body executes, and a
+  stopping verdict raises `ToolCallBlocked` so the node never runs. The
+  gate covers `invoke` / `ainvoke` / `stream` / `astream` /
+  `astream_events` / `batch` / `abatch` (the async and batch entry points
+  previously bypassed the wrapper entirely). `invoke` also no longer
+  requires a checkpointer. `monitor_graph()` gained a `mode=` argument.
+  Reported by Trenyx (independent verification, 2026-09).
+- **The shell capability bundle's `rm` rules now match long-form flags.**
+  `rm --recursive --force /`, `rm -r --force ~`, `rm -rf --no-preserve-root /`
+  and similar spellings walked past the "Ban recursive deletes of
+  sensitive roots" rule, whose regexes only accepted a single `-[rRf]+`
+  cluster. The line-continuation and undefined-variable `rm` rules had the
+  same gap. All three now accept any option order with at least one
+  recursive/force flag in short or long form, and anchor `rm` on a word
+  boundary so `perform -rf /` no longer trips them. Reported by Trenyx.
+- **`dangerous_bash_commands()` default now catches every spelling of a
+  recursive `rm`.** The preset's default list carried the literal
+  `"rm -rf"`, so `rm -fr`, `rm -Rf`, `rm -r`, `rm -f -r` and
+  `rm --recursive --force` were not banned. The entry is now the regex
+  `RM_RECURSIVE_PATTERN` (exported from `sponsio.patterns.library` and
+  `@sponsio/sdk`), which matches a recursive flag in short or long form
+  in any option order. Non-recursive `rm -f file` stays allowed. The
+  TypeScript default list now mirrors the Python one exactly (it was
+  missing `sudo` and used a different order).
+
+---
+
+## [0.2.0a11]: 2026-09-02
+
+Two more rules that looked armed and were not, and the answer to the one
+question an audit trail exists for.
+
+### Fixed
+
+- **A run records which rulebook version it enforced.** Every ingested
+  run showed no book at all, so the console could not say which rules
+  were in force when it ran; replays showed a version because the server
+  assigns theirs. The mechanism was already complete and read one
+  source: the env var set while resolving `config="sponsio://project"`.
+  An app that pulls the rulebook itself and hands `Sponsio()` the
+  resulting file — the shape the console's own wiring instructions
+  produce — never went through it. The stamp is the checkout's first
+  line, which the YAML parse drops as a comment; `load_config` keeps it
+  now and the bridge sends it. A hand-written yaml still records
+  nothing, which is honest.
+
+- **The last agent in a checkout list lost its version.** The list is
+  bracketed, so `_own_book` returned `zulu@v9]`, which parses as no
+  version — a book nobody published. It only bit the agent that sorted
+  last.
+
+- **`tool `bash` command must not contain `rm -rf`` never fired.** The
+  NL parser took the banned shape as the FIELD NAME, building
+  `arg_field_has('bash', 'rm -rf', 'rm -rf')` — a rule asking whether an
+  argument *named* `rm -rf` contains `rm -rf`. No such argument exists.
+  The field is read from the sentence's cue word now. `query` was also
+  missing from the cue list, so `` tool `run_sql` query must not contain
+  `DROP` `` did not parse at all.
+
+### Changed
+
+- **TypeScript refuses to enforce a book it could not parse.** A
+  contract that does not parse is a rule that is not there. Python
+  raises; TypeScript logged one line and ran on, so a TS agent enforced
+  a book with holes in it and reported success. Enforce mode throws now,
+  naming every contract it could not read. Observe still runs, and says
+  the rules are NOT armed.
+
+- **`arg_blacklist`, `requires_permission` and `segregation_of_duty`
+  parse in TypeScript**, using Python's own phrasings. Measured over
+  fifteen realistic sentences TypeScript went from 11 to 13, level with
+  Python. Note that TypeScript already supported the structured
+  `pattern:` form for the whole library — the gap was only in NL
+  strings.
+
+---
+
+## [0.2.0a10]: 2026-09-02
+
+Found by running seven agent applications against the stack — a support
+desk, an ops bot, a load harness, one that passes hostile arguments, a
+TypeScript agent — rather than by adding tests to code already believed
+correct. Three of these are the same shape: a rule that loads, arms,
+shows in the console, and does not do what it says.
+
+### Fixed
+
+- **`scope_limit` was a string prefix, not confinement.** A rule reading
+  "writes stay under `/safe`" allowed `/safe/../../root/.ssh/id_rsa`,
+  because the check was `path.startswith(prefix)` — the oldest escape
+  there is, against a rule whose entire purpose is confinement. The same
+  line also counted `/safeguard/evil.txt` as inside `/safe`: a prefix of
+  the text is not a prefix of the path. Paths are normalised now and
+  containment requires a segment boundary. Identical fix in TypeScript,
+  which had the identical line.
+
+- **`never call A after B` compiled the opposite rule.**
+  `no_reversal(commitment, contradiction)` takes the committing action
+  first, and English puts it last whenever the sentence opens with the
+  prohibition. The contract appeared in the console carrying the user's
+  own sentence while checking the reverse, and passed on exactly the
+  sequence it was written to stop. Word order decides by position now,
+  not by a list of fixed phrases. TypeScript had the same inversion with
+  no swap at all.
+
+- **`drop table users` walked past `dangerous_sql_verbs`.** The preset
+  matched its verbs case-sensitively, and SQL keywords do not have a
+  case. Word boundaries went on at the same time, so `DELETE` no longer
+  matches the word "deleted" in a comment or a column named `drop_date`.
+
+- **An enforcing run could start with a rule missing.** Strict compile
+  read `defaults.mode` and nothing else, so a project that said enforce
+  in any of the four other places the runtime honors dropped the broken
+  contract, printed one `UserWarning`, and enforced the rest. Strictness
+  follows the effective mode now, and a contract carrying its own
+  `mode: enforce` raises either way.
+
+- **`sponsio doctor` green-ticked a config that cannot load**, because it
+  validated the schema and never compiled the contracts. It compiles them
+  now and grades by the project's mode. Its `Runtime mode` line also read
+  two of the three places a yaml can say `enforce`, so a blocking project
+  was reported as `observe (shadow — safe default)`.
+
+- **`sponsio doctor` failed on a minimal install.** `find_spec` on a
+  dotted name imports the parent package and raises when it is absent, so
+  the check whose only job is to report what is missing crashed on a
+  machine with no `google` — which is what `pip install sponsio` gives
+  you. Doctor opened with a red mark on a healthy install.
+
+- **A pattern given the wrong number of arguments** raised a bare
+  `TypeError` from inside the compiler, naming the factory's missing
+  parameter and nothing about the contract. Errors now name the agent,
+  the contract's own description, what it passed, and the signature.
+
+- **`attach(guard, agents=["name"])`** — the obvious reading of the
+  parameter — raised `string indices must be integers` from inside the
+  bridge. A bare name is the shorthand now.
+
+### Changed
+
+- A contract row sent to a console carries the `pattern` and `args` it
+  was built from, so a run whose agent has no published book is no longer
+  offered the rules it was just checked against.
+- `tool_allowlist` reads the same in both runtimes; TypeScript's NL
+  parser understands `scope_limit`, which it did not before.
+- CI runs the TypeScript half of `tests/cross_language/scenarios.json`.
+  The step was named "Run cross-language tests" and ran the unit tests,
+  so the shared file gated Python alone — which is how two of the
+  inversions above survived.
+
+### Removed
+
+- The SMT hooks. `base.py` accepted an `smt=` config and imported
+  `sponsio.integrations.smt_middleware`; `CloudClient.smt` imported
+  `sponsio.cloud.smt`. Neither module is in this build, so opting in
+  raised `ModuleNotFoundError` at construction while the public docstring
+  documented the feature. They return with the modules that make them
+  work.
+
+---
+
+## [0.2.0a9]: 2026-09-02
+
+Follow-up to `0.2.0a8`, all of it found by running a real multi-agent app
+against a console that already held other agents' books.
+
+### Added
+
+- **An agent's first run puts its book in the cloud.** Nothing pushed
+  before: the checkout only pulls, and the one push an app tends to own
+  fires on a 404 — which stops happening the moment the project holds any
+  sibling's book. A project's second agent onward ran on rules the console
+  had never seen, so every screen built to show what governs an agent had
+  nothing to show. When the checkout does not carry the agent you named
+  and `./sponsio.yaml` does, that book now goes up: **only that agent's
+  block**, as a **draft**, once — the next checkout carries it, and an
+  identical push is a server-side no-op. `SPONSIO_NO_AUTO_PUSH=1` turns it
+  off; a failed upload prints the manual command and never stops the run.
+
+### Fixed
+
+- **A broken `./sponsio.yaml` says so.** The fallback swallowed the load
+  error, so a typo surfaced as "no ./sponsio.yaml defines it" — sending
+  the user to look for a file sitting in the working directory defining
+  exactly that agent. Both error paths now quote the parse failure.
+
+### Changed
+
+- **`docs/reference/config-yaml.md` names all five places the mode comes
+  from and which one wins.** A contract's own `mode:` beats the mode your
+  code passes, so a rule armed in the console stops calls inside a run
+  started with `mode="observe"`. `@sponsio/sdk` reads `runtime.mode` only,
+  so `defaults.mode` governs the Python runtime and not the TypeScript one.
+- Every install line in the READMEs, QUICKSTART and `docs/` passes
+  `--pre`. Without it pip resolves to `0.1.1`, the last stable — a build
+  that predates the cloud console, the evidence lane and the current CLI.
 
 ---
 

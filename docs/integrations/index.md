@@ -63,6 +63,8 @@ graph = build_my_graph()
 graph = guard.wrap_graph(graph)
 ```
 
+`wrap_graph()` checks every node against the contracts before the node body runs. In enforce mode a stopping verdict raises `ToolCallBlocked` out of `invoke()` / `stream()` (and their async and batch forms) and the node never executes. The contracts see node names as actions; tool calls made inside a node are gated individually only when that node's tools come from `guard.wrap(tools)`.
+
 The pattern is the same for CrewAI, Google ADK, OpenAI Agents SDK, and Vercel AI SDK. Swap the import for the matching `sponsio.<framework>` namespace and call `guard.wrap(tools)`.
 
 ## TypeScript example: Claude Agent SDK

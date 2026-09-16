@@ -15,7 +15,7 @@ Sponsio is pre-1.0 software. Only the latest published release on PyPI receives 
 
 Report vulnerabilities privately via GitHub's [private vulnerability reporting](https://github.com/SponsioLabs/Sponsio/security/advisories/new) — this creates a private advisory only visible to maintainers.
 
-Alternatively, email **ethanxiao@sponsio.dev** with:
+Alternatively, email **ethan@sponsio.dev** with:
 
 - A description of the issue and its impact
 - Steps to reproduce (PoC if possible)
@@ -86,7 +86,7 @@ What Sponsio can and cannot enforce — make sure your threat model matches:
 
 For enterprise security questionnaires, SOC 2 / ISO 27001 evidence requests, threat-model walkthroughs, or pre-deployment security review:
 
-- **Email:** ethanxiao@sponsio.dev (subject: `[Enterprise security] <your org>`)
+- **Email:** ethan@sponsio.dev (subject: `[Enterprise security] <your org>`)
 - **Topics covered:** data residency, deployment topology, audit pipeline, incident response timing, dependency attestation.
 
 This is a pre-1.0 project; we do not yet hold formal certifications (SOC 2 Type II, ISO 27001). What we *do* offer is full source visibility, reproducible builds, an immutable audit log, and a clear scope of what Sponsio does and does not protect against.

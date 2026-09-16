@@ -12,6 +12,38 @@ broke.
 
 ## [Unreleased]
 
+### Fixed
+
+- **LangGraph `wrap_graph()` / `monitor_graph()` now gate each node before
+  it runs.** The whole-graph wrappers iterated the inner graph's stream,
+  ran `guard_before` only after a node's update had been produced, and
+  discarded the verdict, so a contract violation was recorded but nothing
+  was stopped. Enforcement is now a callback merged into every run's
+  config: LangGraph fires it before the node body executes, and a
+  stopping verdict raises `ToolCallBlocked` so the node never runs. The
+  gate covers `invoke` / `ainvoke` / `stream` / `astream` /
+  `astream_events` / `batch` / `abatch` (the async and batch entry points
+  previously bypassed the wrapper entirely). `invoke` also no longer
+  requires a checkpointer. `monitor_graph()` gained a `mode=` argument.
+  Reported by Trenyx (independent verification, 2026-09).
+- **The shell capability bundle's `rm` rules now match long-form flags.**
+  `rm --recursive --force /`, `rm -r --force ~`, `rm -rf --no-preserve-root /`
+  and similar spellings walked past the "Ban recursive deletes of
+  sensitive roots" rule, whose regexes only accepted a single `-[rRf]+`
+  cluster. The line-continuation and undefined-variable `rm` rules had the
+  same gap. All three now accept any option order with at least one
+  recursive/force flag in short or long form, and anchor `rm` on a word
+  boundary so `perform -rf /` no longer trips them. Reported by Trenyx.
+- **`dangerous_bash_commands()` default now catches every spelling of a
+  recursive `rm`.** The preset's default list carried the literal
+  `"rm -rf"`, so `rm -fr`, `rm -Rf`, `rm -r`, `rm -f -r` and
+  `rm --recursive --force` were not banned. The entry is now the regex
+  `RM_RECURSIVE_PATTERN` (exported from `sponsio.patterns.library` and
+  `@sponsio/sdk`), which matches a recursive flag in short or long form
+  in any option order. Non-recursive `rm -f file` stays allowed. The
+  TypeScript default list now mirrors the Python one exactly (it was
+  missing `sudo` and used a different order).
+
 ---
 
 ## [0.2.0a11]: 2026-09-02

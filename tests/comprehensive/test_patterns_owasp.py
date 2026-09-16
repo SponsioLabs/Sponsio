@@ -104,6 +104,26 @@ def test_dangerous_bash_commands_allows_safe():
     assert not g.guard_before("bash", {"command": "ls /tmp"}).blocked
 
 
+def test_dangerous_bash_commands_blocks_long_and_reordered_rm_flags():
+    # The default used to be the literal "rm -rf"; every other spelling
+    # of a recursive delete walked through.
+    for cmd in [
+        "rm --recursive --force /",
+        "rm -fr /tmp/x",
+        "rm -Rf /tmp/x",
+        "rm -f -r /tmp/x",
+        "rm -v --recursive /tmp/x",
+    ]:
+        g = _guard(dangerous_bash_commands())
+        assert g.guard_before("bash", {"command": cmd}).blocked, cmd
+
+
+def test_dangerous_bash_commands_allows_non_recursive_rm():
+    for cmd in ["rm -f build.log", "rm notes.txt", "rmdir -p empty/dir"]:
+        g = _guard(dangerous_bash_commands())
+        assert not g.guard_before("bash", {"command": cmd}).blocked, cmd
+
+
 # ── dangerous_sql_verbs ──────────────────────────────────────────────
 
 

@@ -97,8 +97,12 @@ class LangGraphGuard(BaseGuard):
     def wrap_graph(self, graph: Any) -> Any:
         """Wrap a compiled LangGraph with contract enforcement and dashboard streaming.
 
-        Uses this guard's contracts and dashboard URL to monitor every node
-        invocation in the graph.
+        Every node is checked against this guard's contracts *before* its
+        body runs: a stopping verdict raises :class:`ToolCallBlocked` out
+        of ``invoke`` / ``stream`` (and their async and batch twins) and
+        the node never executes. Node names are the actions the contracts
+        see. Tool calls made inside a node are not gated individually by
+        this wrapper; build the node's tools with :meth:`wrap` for that.
 
         Usage::
 
@@ -581,6 +585,7 @@ def monitor_graph(
     dashboard_url: str = "http://localhost:8000",
     agent_id: str = "agent",
     contracts: list[str] | None = None,
+    mode: str | None = None,
 ) -> Any:
     """Wrap a compiled LangGraph to enforce contracts and stream to the dashboard.
 
@@ -588,9 +593,13 @@ def monitor_graph(
     branching graphs.
 
     Without ``contracts``: monitoring only. pushes events for visibility.
-    With ``contracts``: full enforcement. each node goes through
-    ``BaseGuard.guard_before()``, producing span trees, blocking violations,
-    and streaming everything to the dashboard.
+    With ``contracts``: each node goes through ``BaseGuard.guard_before()``
+    *before* its body runs, producing span trees and streaming everything
+    to the dashboard. In ``enforce`` mode a stopping verdict raises
+    :class:`ToolCallBlocked` and the node never executes; in the default
+    ``observe`` mode the verdict is recorded and the node runs. Tool calls
+    made inside a node are not gated individually here; use
+    ``LangGraphGuard.wrap(tools)`` for that.
 
     Usage::
 
@@ -612,6 +621,8 @@ def monitor_graph(
         agent_id: Agent identifier for the trace events.
         contracts: Optional list of NL contract strings. When provided,
             enforcement is active and span trees are generated.
+        mode: ``"observe"`` (default) or ``"enforce"``. Same semantics
+            and ``SPONSIO_MODE`` precedence as ``BaseGuard(mode=...)``.
 
     Returns:
         A wrapper with the same ``.invoke()`` / ``.stream()`` interface.
@@ -623,6 +634,7 @@ def monitor_graph(
             agent_id=agent_id,
             contracts=contracts,
             dashboard_url=dashboard_url,
+            mode=mode,
         )
 
     return _build_monitored_graph(graph, dashboard_url, agent_id, guard)
@@ -634,7 +646,114 @@ def _build_monitored_graph(
     agent_id: str,
     guard: BaseGuard | None,
 ) -> Any:
-    """Build a monitored graph wrapper (shared by monitor_graph and LangGraphGuard.monitor)."""
+    """Build a monitored graph wrapper (shared by ``monitor_graph`` and
+    ``LangGraphGuard.wrap_graph``).
+
+    Enforcement is a LangChain callback handler that the wrapper merges
+    into the config of every run. LangGraph executes each node as a
+    traced runnable whose ``run_name`` is the node name and whose
+    metadata carries ``langgraph_node``, and it fires ``on_chain_start``
+    for that runnable *before* the node body runs. The handler calls
+    ``guard_before`` there, and a stopping verdict raises
+    :class:`ToolCallBlocked` out of the callback (``raise_error``), which
+    aborts the node before it executes anything. The previous
+    implementation iterated the inner graph's stream and checked each
+    node only after its update had been produced, then dropped the
+    verdict; that was observation dressed as enforcement.
+
+    Every execution entry point (``invoke`` / ``ainvoke`` / ``stream`` /
+    ``astream`` / ``astream_events`` / ``batch`` / ``abatch``) goes
+    through the same gate. Attribute access that is not an execution
+    entry point (``get_state``, ``get_graph``, ...) is forwarded to the
+    inner graph unchanged.
+    """
+    from langchain_core.callbacks.base import BaseCallbackHandler
+    from langchain_core.runnables.config import merge_configs
+
+    class _NodeGate(BaseCallbackHandler):
+        """Pre-execution gate: ``guard_before`` on every node start.
+
+        ``raise_error`` makes LangChain re-raise what this handler
+        raises instead of logging and continuing, so a block actually
+        stops the node. ``run_inline`` keeps the check on the calling
+        thread / event loop in the async path.
+        """
+
+        raise_error = True
+        run_inline = True
+
+        def __init__(self, owner: "_MonitoredGraph") -> None:
+            super().__init__()
+            self._owner = owner
+            # run_id -> (node name, checkpoint namespace) for the node
+            # runs currently executing, so ``on_chain_end`` can push the
+            # node's output and release the namespace.
+            self._runs: dict[Any, tuple[str, str]] = {}
+            # Namespaces with an open node run. A subgraph compiled with
+            # the same name as the node it lives in fires a second
+            # ``on_chain_start`` with the same name and namespace; the
+            # node already passed the gate, so that one is skipped.
+            self._open_ns: set[str] = set()
+
+        def on_chain_start(
+            self,
+            serialized: Dict[str, Any] | None,
+            inputs: Any,
+            *,
+            run_id: UUID,
+            parent_run_id: UUID | None = None,
+            tags: list[str] | None = None,
+            metadata: dict[str, Any] | None = None,
+            **kwargs: Any,
+        ) -> None:
+            md = metadata or {}
+            node = md.get("langgraph_node")
+            # Only the node-level run has ``run_name == langgraph_node``;
+            # runnables invoked inside the node inherit the metadata but
+            # carry their own names. ``__start__`` / ``__end__`` are
+            # LangGraph plumbing, not agent actions.
+            if not node or kwargs.get("name") != node or node.startswith("__"):
+                return
+            ns = md.get("langgraph_checkpoint_ns") or (
+                f"{md.get('langgraph_step')}:{node}"
+            )
+            if ns in self._open_ns:
+                return
+            self._open_ns.add(ns)
+            self._runs[run_id] = (node, ns)
+            try:
+                self._owner._gate_node(node)
+            except BaseException:
+                self._runs.pop(run_id, None)
+                self._open_ns.discard(ns)
+                raise
+
+        def on_chain_end(
+            self,
+            outputs: Any,
+            *,
+            run_id: UUID,
+            parent_run_id: UUID | None = None,
+            **kwargs: Any,
+        ) -> None:
+            entry = self._runs.pop(run_id, None)
+            if entry is None:
+                return
+            node, ns = entry
+            self._open_ns.discard(ns)
+            self._owner._observe_output(node, outputs)
+
+        def on_chain_error(
+            self,
+            error: BaseException,
+            *,
+            run_id: UUID,
+            parent_run_id: UUID | None = None,
+            **kwargs: Any,
+        ) -> None:
+            entry = self._runs.pop(run_id, None)
+            if entry is not None:
+                self._open_ns.discard(entry[1])
 
     class _MonitoredGraph:
         def __init__(self, inner: Any, url: str, aid: str, g: BaseGuard | None) -> None:
@@ -642,6 +761,7 @@ def _build_monitored_graph(
             self._url = url
             self._aid = aid
             self._guard = g
+            self._gate = _NodeGate(self)
 
         def _push(
             self, event_type: str, tool: str | None = None, content: str | None = None
@@ -725,11 +845,16 @@ def _build_monitored_graph(
                     parts.append(f"{k}: {type(v).__name__}")
             return "; ".join(parts[:5]) if parts else "output: dict"
 
-        def _check_node(self, node_name: str) -> bool:
-            """Run enforcement for a node. Returns True if allowed."""
+        def _gate_node(self, node_name: str) -> None:
+            """Pre-execution check for one node.
+
+            Raises :class:`ToolCallBlocked` on a stopping verdict so the
+            node body never runs. Without a guard (monitor-only mode)
+            this only pushes the ``tool_call`` event.
+            """
             if not self._guard:
                 self._push("tool_call", tool=node_name)
-                return True
+                return
 
             # guard_before already pushes a tool_call event via _push_to_dashboard
             result = self._guard.guard_before(node_name)
@@ -740,36 +865,70 @@ def _build_monitored_graph(
 
             # ``stop_original``: node-level checks have no substitution
             # path, so a redirected verdict counts as stopped as well.
-            return not result.stop_original
+            # ``_block=False`` (LangGraphGuard) records without raising,
+            # matching the guard's ``on_tool_start`` callback.
+            if result.stop_original and getattr(self._guard, "_block", True):
+                msg = select_agent_message(
+                    result.det_violations, fallback="contract violated"
+                )
+                raise ToolCallBlocked(
+                    tool_name=node_name,
+                    constraint=msg,
+                    message=f"BLOCKED by contract: {msg}",
+                )
+
+        def _observe_output(self, node_name: str, output: Any) -> None:
+            summary = self._summarize_output(output)
+            if summary:
+                self._push("data_write", tool=node_name, content=summary)
+
+        def _config(self, config: Any) -> Any:
+            """Merge the gate into a run config without touching the caller's."""
+            return merge_configs(config, {"callbacks": [self._gate]})
+
+        def _batch_config(self, config: Any) -> Any:
+            if isinstance(config, list):
+                return [self._config(c) for c in config]
+            return self._config(config)
 
         def invoke(self, state: Any, *, config: Any = None, **kwargs: Any) -> Any:
-            """Invoke the graph, enforcing contracts on each node."""
-            cfg = config or {}
-            last_state = state
-            for chunk in self._inner.stream(
-                state, config=cfg, stream_mode="updates", **kwargs
-            ):
-                for node_name, node_output in chunk.items():
-                    self._check_node(node_name)
-                    summary = self._summarize_output(node_output)
-                    if summary:
-                        self._push("data_write", tool=node_name, content=summary)
-                    last_state = node_output
-            return (
-                self._inner.get_state(cfg).values if last_state is not state else state
+            """Invoke the graph, gating each node before it runs."""
+            return self._inner.invoke(state, config=self._config(config), **kwargs)
+
+        async def ainvoke(
+            self, state: Any, *, config: Any = None, **kwargs: Any
+        ) -> Any:
+            return await self._inner.ainvoke(
+                state, config=self._config(config), **kwargs
             )
 
         def stream(self, state: Any, *, config: Any = None, **kwargs: Any):
-            """Stream the graph, enforcing contracts on each node."""
-            cfg = config or {}
-            for chunk in self._inner.stream(state, config=cfg, **kwargs):
-                if isinstance(chunk, dict):
-                    for node_name, node_output in chunk.items():
-                        self._check_node(node_name)
-                        summary = self._summarize_output(node_output)
-                        if summary:
-                            self._push("data_write", tool=node_name, content=summary)
+            """Stream the graph, gating each node before it runs."""
+            yield from self._inner.stream(state, config=self._config(config), **kwargs)
+
+        async def astream(self, state: Any, *, config: Any = None, **kwargs: Any):
+            async for chunk in self._inner.astream(
+                state, config=self._config(config), **kwargs
+            ):
                 yield chunk
+
+        async def astream_events(
+            self, state: Any, *, config: Any = None, **kwargs: Any
+        ):
+            async for event in self._inner.astream_events(
+                state, config=self._config(config), **kwargs
+            ):
+                yield event
+
+        def batch(self, inputs: Any, config: Any = None, **kwargs: Any) -> Any:
+            return self._inner.batch(
+                inputs, config=self._batch_config(config), **kwargs
+            )
+
+        async def abatch(self, inputs: Any, config: Any = None, **kwargs: Any) -> Any:
+            return await self._inner.abatch(
+                inputs, config=self._batch_config(config), **kwargs
+            )
 
         def __getattr__(self, name: str) -> Any:
             return getattr(self._inner, name)

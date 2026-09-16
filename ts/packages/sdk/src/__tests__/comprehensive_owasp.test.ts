@@ -93,6 +93,22 @@ const a = (cond: boolean, msg: string) => board.assert(cond, msg);
   const g = makeGuard([dangerousBashCommands()]);
   a(!g.guardBefore("bash", { command: "ls /tmp" }).blocked, "dangerous_bash_commands allows ls");
 }
+// The default used to be the literal "rm -rf"; every other spelling of a
+// recursive delete walked through.
+for (const cmd of [
+  "rm --recursive --force /",
+  "rm -fr /tmp/x",
+  "rm -Rf /tmp/x",
+  "rm -f -r /tmp/x",
+  "rm -v --recursive /tmp/x",
+]) {
+  const g = makeGuard([dangerousBashCommands()]);
+  a(g.guardBefore("bash", { command: cmd }).blocked, `dangerous_bash_commands blocks ${cmd}`);
+}
+for (const cmd of ["rm -f build.log", "rm notes.txt", "rmdir -p empty/dir"]) {
+  const g = makeGuard([dangerousBashCommands()]);
+  a(!g.guardBefore("bash", { command: cmd }).blocked, `dangerous_bash_commands allows ${cmd}`);
+}
 
 // ── dangerous_sql_verbs ────────────────────────────────────────────
 {
