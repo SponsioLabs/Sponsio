@@ -62,6 +62,12 @@ agents:
       # configuration — and reading the parent's rule list is
       # reconnaissance for a targeted bypass.
       - sponsio:incident/subagent-escape
+      # Hook-wiring integrity — the agent under guard must not rewrite the
+      # IDE's hook registration (``.claude/settings.json`` /
+      # ``.cursor/hooks.json``). ``self-modify`` above protects the rule
+      # files; this protects the wiring that routes calls to them at all,
+      # without which every other rule here is enforced by nobody.
+      - sponsio:capability/host-config-integrity
 
     contracts:
       # Mirror _host.yaml's inline credential-path denies.  These

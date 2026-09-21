@@ -50,6 +50,12 @@ agents:
       - sponsio:capability/shell
       - sponsio:capability/database
       - sponsio:capability/credentials
+      # Hook-wiring integrity — the agent under guard must not rewrite the
+      # IDE's hook registration (``.claude/settings.json`` /
+      # ``.cursor/hooks.json``). ``self-modify`` above protects the rule
+      # files; this protects the wiring that routes calls to them at all,
+      # without which every other rule here is enforced by nobody.
+      - sponsio:capability/host-config-integrity
 
     contracts:
       # ---------- Sensitive-path blocks for write / edit / apply_patch ----------

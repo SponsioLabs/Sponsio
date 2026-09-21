@@ -235,6 +235,32 @@ def _emit_legacy_fallback_warning(plugin_id: str, legacy: str) -> None:
     )
 
 
+_NO_LIBRARY_WARNED: set[str] = set()
+
+
+def _unconfigured_denies() -> bool:
+    """``SPONSIO_UNCONFIGURED=deny`` turns "no rules" into a refusal."""
+    raw = os.environ.get("SPONSIO_UNCONFIGURED", "").strip().lower()
+    return raw in ("deny", "block", "closed")
+
+
+def _emit_no_library_warning(plugin_id: str) -> None:
+    """One-time stderr notice that a tool ran with nothing checking it.
+
+    Same cadence and reasoning as
+    :func:`_emit_legacy_fallback_warning`: de-duped per namespace per
+    process, so a session prints it once rather than per tool call.
+    """
+    if plugin_id in _NO_LIBRARY_WARNED:
+        return
+    _NO_LIBRARY_WARNED.add(plugin_id)
+    sys.stderr.write(
+        f"[sponsio] no contract library for `{plugin_id}` — its tool calls "
+        f"are running UNCHECKED. Author one at `{plugin_id}/sponsio.yaml`, "
+        f"or set SPONSIO_UNCONFIGURED=deny to refuse instead.\n"
+    )
+
+
 def _resolve_library(plugin_id: str) -> tuple[Path, str]:
     """Resolve ``(library_path, effective_agent_id)`` with legacy fallback.
 
@@ -365,6 +391,49 @@ def _maybe_rotate(path: Path) -> None:
             path.unlink()
         except OSError:  # pragma: no cover - racy unlink
             pass
+
+
+@contextlib.contextmanager
+def _trace_lock():
+    """Serialise the whole read-decide-append cycle across processes.
+
+    Every count-based rule (``rate_limit``, ``cooldown``, ``idempotent``,
+    ``bounded_retry``) is read-then-write over a file: load the prior
+    events, decide, append the new one. Two hook processes interleaving
+    there both read the same "2 so far" and both append a third, so a
+    limit of one admitted several calls. Parallel tool-call batches and
+    concurrent sub-agents do exactly that; the sequential-per-session
+    assumption the old code relied on is enforced nowhere.
+
+    One exclusive lock for the whole trace root rather than per file:
+    ``_load_prior_events`` merges across namespaces, so a per-file lock
+    would not cover what the decision actually reads. Hook invocations
+    are short, so the contention cost is a few milliseconds.
+
+    Degrades to a no-op where ``fcntl`` is unavailable (Windows) rather
+    than failing the call; the race returns there, which is the status
+    quo, and the tool still runs.
+    """
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover - non-POSIX
+        yield
+        return
+    root = _trace_root()
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        handle = open(root / ".shield.lock", "a+")
+    except OSError:  # pragma: no cover - unwritable root
+        yield
+        return
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        handle.close()
 
 
 def _trace_root() -> Path:
@@ -624,7 +693,19 @@ def evaluate_event(event: dict) -> GuardOutcome:
     Returns a :class:`GuardOutcome` describing the decision. No I/O on
     stdin/stdout — the caller is responsible for emitting the
     plugin-system-specific reply (see :func:`run_stdin`).
+
+    Holds :func:`_trace_lock` for the whole decision. Loading the prior
+    events, deciding, and appending the new one is one critical section:
+    split it across two hook processes and both read the same history,
+    both decide "under the limit", and both append. Every caller gets the
+    lock, not just the CLI entry point.
     """
+    with _trace_lock():
+        return _evaluate_event_locked(event)
+
+
+def _evaluate_event_locked(event: dict) -> GuardOutcome:
+    """The body of :func:`evaluate_event`, run under the trace lock."""
     tool_name = event.get("tool_name") or ""
     tool_input = event.get("tool_input") or {}
     host = event.get("host") if isinstance(event.get("host"), str) else None
@@ -672,9 +753,29 @@ def evaluate_event(event: dict) -> GuardOutcome:
     lib_path, effective_agent_id = _resolve_library(plugin_id)
 
     if not lib_path.exists():
-        # No library configured for this plugin — vacuously allow.
-        # Mode A's design: the absence of rules means "we haven't
-        # opined on this plugin yet", not "block everything".
+        # No library configured for this plugin.
+        #
+        # Mode A's design: the absence of rules means "we haven't opined
+        # on this plugin yet", not "block everything" — blocking every
+        # unconfigured MCP server would wedge the host on install. But
+        # the docs say every tool call goes through the guard, and any
+        # third-party MCP server outside the few shipped examples lands
+        # here, so silence read as "checked and fine" when it meant
+        # "never looked". It is now said out loud, once per namespace,
+        # the same way the legacy-bucket fallback is; and an operator who
+        # wants the strict posture can have it.
+        _emit_no_library_warning(plugin_id)
+        if _unconfigured_denies():
+            return GuardOutcome(
+                allowed=False,
+                reason=(
+                    f"no contract library for `{plugin_id}` and "
+                    f"SPONSIO_UNCONFIGURED=deny is set. Author "
+                    f"{plugin_id}/sponsio.yaml, or unset the variable."
+                ),
+                plugin_id=plugin_id,
+                library_path=None,
+            )
         return GuardOutcome(
             allowed=True,
             reason="no contract library configured",

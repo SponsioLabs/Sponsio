@@ -68,6 +68,7 @@ import re as _re
 from dataclasses import dataclass
 from typing import Any
 
+from sponsio.formulas.tool_names import canonical_tool
 from sponsio.formulas.formula import (
     Atom,
     Not,
@@ -112,11 +113,13 @@ def _physical_tool(tool: str) -> str:
     """Return the tool name to ground against.
 
     Strips the ``:argpattern`` suffix when the form is a true
-    pattern-shortcut; passes namespaced literal names through.
+    pattern-shortcut; passes namespaced literal names through. The
+    result is canonicalised (see :mod:`sponsio.formulas.tool_names`) so
+    a rule keys on the same spelling grounding will emit.
     """
     if ":" in tool and not _is_namespaced_tool_name(tool):
-        return tool.split(":", 1)[0]
-    return tool
+        return canonical_tool(tool.split(":", 1)[0])
+    return canonical_tool(tool)
 
 
 def _called(tool: str) -> Atom:
@@ -129,8 +132,8 @@ def _called(tool: str) -> Atom:
     tool = str(tool)
     if ":" in tool and not _is_namespaced_tool_name(tool):
         physical, pattern = tool.split(":", 1)
-        return Atom("called_with", physical, pattern)
-    return Atom("called", tool)
+        return Atom("called_with", canonical_tool(physical), pattern)
+    return Atom("called", canonical_tool(tool))
 
 
 def _count_var(tool: str) -> Var:
@@ -141,8 +144,8 @@ def _count_var(tool: str) -> Var:
     tool = str(tool)
     if ":" in tool and not _is_namespaced_tool_name(tool):
         physical, pattern = tool.split(":", 1)
-        return Var("count_with", physical, pattern)
-    return Var("count", tool)
+        return Var("count_with", canonical_tool(physical), pattern)
+    return Var("count", canonical_tool(tool))
 
 
 @dataclass(frozen=True)

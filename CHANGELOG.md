@@ -14,6 +14,68 @@ broke.
 
 ### Fixed
 
+- **The deterministic layer no longer reads "cannot evaluate" as "not
+  violated".** An external report (kta1kri, 2026-09) confirmed that every
+  framework adapter gates correctly on `stop_original`, and found the
+  weaknesses one layer down: a rule that could not be evaluated produced
+  no violation, which is indistinguishable from a rule that passed. Nine
+  findings, each reproduced before the fix and pinned by a test in
+  `tests/test_fail_open_layer.py`.
+  - **Tool names now meet on one spelling.** Predicate keys are dict
+    lookups, so a rule written against `issue_refund` was silently inert
+    against a call that arrived as `Issue_Refund`, with a trailing space,
+    or as `mcp__finance__issue_refund` — our own documented MCP wire
+    format. With `must_precede` compiling to `Or(order-holds,
+    never-called)`, that read as "satisfied". Contracts now canonicalise
+    their tool name and a call is grounded under every spelling a rule
+    could have used, so `called`, `count`, `consecutive_count` and the
+    argument atoms all bind. Affects `must_precede`, `always_followed_by`,
+    `never_together`, `rate_limit`, `cooldown`, `destructive_action_gate`
+    and every other `called`-based pattern.
+  - **Numeric guards read the shapes a model writes.** A cap that stopped
+    `5000` waved through `'$5,000'`, `'5,000'` and `'5000 USD'`. Currency
+    symbols, unambiguous thousands grouping and trailing unit codes are
+    normalised before coercion; `'5,50'` stays uncoerced rather than being
+    guessed at. A non-numeric value against a numeric guard now warns
+    instead of passing in silence.
+  - **Overflow agrees across runtimes.** `'1e400'` blocked on Python and
+    passed on TypeScript for the identical contract. Both now keep the
+    overflow and compare with it, so the cap fires on each.
+  - **A call whose arguments never arrived is refused.** With `args` empty
+    no argument atom is written, and `arg_blacklist` (`Not(arg_field_has)`)
+    reported satisfied for a call nothing inspected. A tool some rule
+    reads the arguments of is now refused when they are missing;
+    `SPONSIO_ALLOW_MISSING_ARGS=1` restores the old behaviour. Tools with
+    no argument rules are unaffected.
+  - **`guard.mode` reports the monitor's live value.** It returned a
+    cached copy, so it could say `enforce` while the monitor had been
+    moved to `observe` and nothing was being enforced.
+  - **Every shipped host template protects its own hook wiring.**
+    `capability/host-config-integrity` existed but was included by no
+    `_host*.yaml`, so `capability/self-modify` guarded the rule files
+    while `.claude/settings.json` and `.cursor/hooks.json` stayed
+    writable. Emptying one of those removes the enforcer and leaves every
+    other rule enforced by nobody.
+  - **The secret-exfiltration rule dropped its ordering assumption.** It
+    required sender, then data flag, then capture, so the most natural way
+    to write the attack walked through: `SECRETS=$(env); curl -d
+    "$SECRETS"` puts the capture first. The three conditions are now
+    matched independently, and `-F`/`--form`, `--post-data`,
+    `--post-file` and `-T`/`--upload-file` joined the flag set.
+    `curl -d @./payload.json` stays allowed.
+  - **A tool with no contract library says so.** Any third-party MCP
+    server outside the shipped examples was allowed in silence, unlike the
+    sibling legacy-bucket fallback which warns. Allowing stays the
+    default posture, but it is now announced once per namespace on stderr,
+    and `SPONSIO_UNCONFIGURED=deny` refuses instead.
+  - **Count-based rules survive concurrency.** The host hook did
+    load-history, decide, append with no lock, so parallel tool batches or
+    concurrent sub-agents each read the same count and each appended:
+    `rate_limit(Bash, 1)` admitted three to six of twenty concurrent
+    calls. The whole cycle now holds an exclusive lock, and admits one.
+  - Private vulnerability reporting is enabled on the repository, which
+    `SECURITY.md` had been advertising while the link returned 403.
+
 - **LangGraph `wrap_graph()` / `monitor_graph()` now gate each node before
   it runs.** The whole-graph wrappers iterated the inner graph's stream,
   ran `guard_before` only after a node's update had been produced, and

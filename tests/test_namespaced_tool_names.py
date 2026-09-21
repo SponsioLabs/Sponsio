@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import pytest
 
+from sponsio.formulas.tool_names import canonical_tool
 from sponsio.patterns.library import _is_namespaced_tool_name, _physical_tool
 
 
@@ -91,7 +92,11 @@ def test_pattern_forms_keep_split_semantics(tool, physical):
 )
 def test_no_colon_is_not_namespaced(tool):
     assert _is_namespaced_tool_name(tool) is False
-    assert _physical_tool(tool) == tool
+    # ``_physical_tool`` strips a ``:argpattern`` suffix and returns the
+    # canonical spelling of what is left. A name with no colon keeps its
+    # identity apart from that canonicalisation, which is what lets a
+    # rule and a grounded event meet on one key.
+    assert _physical_tool(tool) == canonical_tool(tool)
 
 
 def test_grounding_heuristic_matches_library_heuristic():

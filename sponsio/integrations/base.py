@@ -1346,6 +1346,68 @@ class BaseGuard:
     # Core check methods (framework-agnostic)
     # -----------------------------------------------------------------
 
+    # Predicates whose truth depends on the *contents* of a tool call's
+    # arguments. If a call arrives with no arguments at all, none of these
+    # keys is written, and the evaluator reads a missing key as False —
+    # which makes ``arg_blacklist`` (``Not(arg_field_has(...))``) report
+    # "satisfied" for a call nothing looked at.
+    _ARG_SHAPED_PREDICATES = frozenset(
+        {
+            "arg_has",
+            "arg_field_has",
+            "arg_length_exceeds",
+            "arg_paths_within",
+            "arg_numeric",
+            "arg_value",
+        }
+    )
+
+    def _tools_needing_args(self) -> frozenset[str]:
+        """Tools some contract inspects the arguments of.
+
+        Computed once from the compiled formulas and cached; the contract
+        set does not change after construction.
+        """
+        cached = getattr(self, "_arg_shaped_tools_cache", None)
+        if cached is not None:
+            return cached
+        from sponsio.formulas.tool_names import canonical_tool
+        from sponsio.runtime.verifier import _collect_det_formulas
+        from sponsio.tracer.grounding import collect_content_atoms
+
+        tools: set[str] = set()
+        try:
+            formulas = _collect_det_formulas(self._system.contracts)
+            atoms = collect_content_atoms(formulas) or {}
+            for predicate, tuples in atoms.items():
+                if predicate not in self._ARG_SHAPED_PREDICATES:
+                    continue
+                for args_tuple in tuples:
+                    if args_tuple:
+                        tools.add(canonical_tool(args_tuple[0]))
+        except Exception:  # noqa: BLE001 - never break a check on bookkeeping
+            tools = set()
+        result = frozenset(tools)
+        self._arg_shaped_tools_cache = result
+        return result
+
+    def _args_unevaluable(self, tool_name: str, args: dict | None) -> bool:
+        """True when a rule inspects this tool's arguments and none arrived.
+
+        An adapter that loses the arguments, a partial streamed tool call,
+        or a malformed payload all land here. Treating it as "not violated"
+        silently disarms every argument check for that call, so the guard
+        refuses instead and says why. Set ``SPONSIO_ALLOW_MISSING_ARGS=1``
+        to restore the old permissive behaviour.
+        """
+        if args:
+            return False
+        if os.environ.get("SPONSIO_ALLOW_MISSING_ARGS") == "1":
+            return False
+        from sponsio.formulas.tool_names import canonical_tool
+
+        return canonical_tool(tool_name) in self._tools_needing_args()
+
     def guard_before(self, tool_name: str, args: dict | None = None) -> CheckResult:
         """Check contracts BEFORE tool execution.
 
@@ -1361,6 +1423,32 @@ class BaseGuard:
             CheckResult with allowed=False if blocked.
         """
         with self._lock:
+            if self._args_unevaluable(tool_name, args):
+                msg = (
+                    f"`{tool_name}` was called with no arguments, but a "
+                    f"contract inspects its arguments. The check cannot be "
+                    f"evaluated, so the call is refused rather than passed "
+                    f"unchecked (set SPONSIO_ALLOW_MISSING_ARGS=1 to allow)."
+                )
+                violation = EnforcementResult(
+                    action="blocked",
+                    message=f"BLOCKED: {self.agent_id}.{tool_name}. {msg}",
+                    rule_id="args:unevaluable",
+                    agent_msg=(
+                        f"The action `{tool_name}` was rejected because its "
+                        f"arguments were missing and a policy needs to read "
+                        f"them. Retry with the arguments included."
+                    ),
+                )
+                self._violations.append(
+                    {
+                        "tool": tool_name,
+                        "constraint": violation.message,
+                        "action": "BLOCKED",
+                    }
+                )
+                return CheckResult(allowed=False, det_violations=[violation])
+
             metadata = {"args": args} if args else {}
 
             results = self._monitor.check_action(
@@ -2136,8 +2224,15 @@ class BaseGuard:
         Precedence when the guard is constructed is ``SPONSIO_MODE`` env
         var > ctor arg > yaml ``runtime.mode`` > ``"observe"``. See
         ``sponsio.core.Sponsio`` for the factory that resolves this.
+
+        Reads the monitor's live value, not the guard's own copy. The
+        monitor is what actually decides whether a violation blocks, so a
+        cached copy here could report ``enforce`` while nothing was being
+        enforced — a readout that lies is worse than no readout.
         """
-        return self._mode
+        monitor = getattr(self, "_monitor", None)
+        live = getattr(monitor, "mode", None) if monitor is not None else None
+        return live if isinstance(live, str) and live else self._mode
 
     @property
     def session_log_path(self) -> Path | None:
