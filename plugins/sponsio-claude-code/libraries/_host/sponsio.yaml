@@ -47,6 +47,12 @@ agents:
       # pack only locks the agent's OWN file; managing sub-agent or
       # per-plugin libraries stays open (legitimate parental control).
       - sponsio:capability/self-modify
+      # Hook-wiring integrity — the agent under guard must not rewrite the
+      # IDE's hook registration (``.claude/settings.json`` /
+      # ``.cursor/hooks.json``). ``self-modify`` above protects the rule
+      # files; this protects the wiring that routes calls to them at all,
+      # without which every other rule here is enforced by nobody.
+      - sponsio:capability/host-config-integrity
 
     contracts:
       # ---------- Sensitive-file blocks for Write / Edit / MultiEdit ----------

@@ -73,6 +73,7 @@ from dataclasses import dataclass, field
 
 from sponsio.models.trace import Event, Trace
 from sponsio.formulas._pred_key import pred_key
+from sponsio.formulas.tool_names import canonical_tool, tool_aliases
 
 
 @dataclass
@@ -129,6 +130,9 @@ class GroundingState:
     delegation_depth: int = 0  # L2.4
     consecutive_counts: dict[str, int] = field(default_factory=dict)  # L1.4
     last_tool: str = ""  # previous tool name for consecutive detection
+    # Every spelling the previous call was grounded under, so a tool
+    # change zeroes all of them rather than only the raw name.
+    last_tool_aliases: tuple[str, ...] = ()
     # Event-clock primitives. ``now`` is the ts of the most recently
     # grounded event; ``last_ts[predicate_key]`` is the ts of the last
     # event where ``predicate_key`` *transitioned* False→True. We
@@ -158,6 +162,7 @@ class GroundingState:
         self.delegation_depth = 0
         self.consecutive_counts.clear()
         self.last_tool = ""
+        self.last_tool_aliases = ()
         self.current_ctx.clear()
         self.now = 0.0
         self.last_ts.clear()
@@ -207,10 +212,11 @@ def _tool_matches(target_tool: str, event_tool: str, args_str: str) -> bool:
 
     Plain tool names with no ``:`` match directly.
     """
+    names = set(tool_aliases(event_tool))
     if ":" in target_tool and not _NAMESPACED_TOOL_RE.match(target_tool):
         physical, pattern = target_tool.split(":", 1)
-        return physical == event_tool and bool(re.search(pattern, args_str))
-    return target_tool == event_tool
+        return canonical_tool(physical) in names and bool(re.search(pattern, args_str))
+    return canonical_tool(target_tool) in names
 
 
 # Atom predicates that require regex matching against event content.
@@ -347,7 +353,17 @@ def ground_event(
             stacklevel=2,
         )
     if event.event_type == "tool_call" and event.tool:
-        v[pred_key("called", event.tool)] = True
+        # A tool call is grounded under every spelling a contract could
+        # reasonably have named it by — exact, whitespace-stripped,
+        # case-folded, and the bare name behind an ``mcp__server__``
+        # prefix. Predicate keys are dict lookups, so a rule written
+        # against ``issue_refund`` was silently inert against an event
+        # that arrived as ``mcp__finance__issue_refund``; with
+        # ``must_precede`` compiling to ``Or(order-holds, never-called)``
+        # that read as "satisfied", not as "no opinion".
+        aliases = tool_aliases(event.tool)
+        for alias in aliases:
+            v[pred_key("called", alias)] = True
         # ``called_any`` — true at any timestep where SOME tool fires,
         # regardless of which.  Used by ``tool_allowlist`` to gate
         # ``G(called_any -> Or(called(t₁)..called(tₙ)))`` so the rule
@@ -358,18 +374,26 @@ def ground_event(
         # L1.4: consecutive_count — track how many times the same tool
         # has been called in an unbroken run. Resets when a different
         # tool is called. Used by loop_detection pattern.
-        if event.tool == state.last_tool:
-            state.consecutive_counts[event.tool] = (
-                state.consecutive_counts.get(event.tool, 1) + 1
-            )
+        # Counters are keyed the same way as ``called``: one stream per
+        # alias, so ``rate_limit("issue_refund")`` counts the MCP-prefixed
+        # calls too. "Same tool again" is decided on the canonical form.
+        canonical = canonical_tool(event.tool)
+        if canonical == state.last_tool:
+            for alias in aliases:
+                state.consecutive_counts[alias] = (
+                    state.consecutive_counts.get(alias, 1) + 1
+                )
         else:
             # Different tool → reset the previous tool's consecutive count
-            if state.last_tool:
-                state.consecutive_counts[state.last_tool] = 0
-            state.consecutive_counts[event.tool] = 1
-        state.last_tool = event.tool
+            for stale in state.last_tool_aliases:
+                state.consecutive_counts[stale] = 0
+            for alias in aliases:
+                state.consecutive_counts[alias] = 1
+        state.last_tool = canonical
+        state.last_tool_aliases = aliases
 
-        state.call_counts[event.tool] = state.call_counts.get(event.tool, 0) + 1
+        for alias in aliases:
+            state.call_counts[alias] = state.call_counts.get(alias, 0) + 1
 
         args_str = str(event.args) if event.args else ""
 
@@ -382,7 +406,7 @@ def ground_event(
             for args_tuple in cw_patterns:
                 if len(args_tuple) >= 2:
                     target_tool, pattern = args_tuple[0], args_tuple[1]
-                    if target_tool == event.tool:
+                    if canonical_tool(target_tool) in set(aliases):
                         matched = bool(re.search(pattern, args_str))
                         v[pred_key("called_with", *args_tuple)] = matched
                         if matched:

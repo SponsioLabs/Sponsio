@@ -122,13 +122,47 @@ function valuesEqual(a: unknown, b: unknown): boolean {
 // Number() and Python float() agree exactly on every accepted string.
 const ORDERED_NUMERIC_RE = /^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/;
 
-/** Numeric value of a plain-numeric string, else null. */
+// Unambiguous thousands grouping: 5,000 / 1,234,567 / 1,234,567.89.
+const GROUPED_RE = /^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$/;
+// A leading currency symbol, optionally after the sign.
+const CURRENCY_PREFIX_RE = /^([+-]?)\s*[$€£¥₹]\s*/;
+// A trailing currency code or unit: "5000 USD", "5000USD", "12 %".
+const UNIT_SUFFIX_RE = /\s*(?:[A-Za-z]{2,4}|%)\s*$/;
+
+/**
+ * Strip the formatting a model wraps around a number. Mirrors
+ * ``_normalise`` in sponsio/formulas/_compare.py: a model writing a
+ * currency amount emits "$5,000" or "5000 USD" as readily as "5000", and
+ * treating those as "not a number" let them pass a cap that stopped the
+ * plain form. Commas are removed only in unambiguous thousands grouping,
+ * never from "5,50", where the comma may be a decimal separator.
+ */
+function normaliseNumeric(v: string): string {
+  let s = v.trim();
+  s = s.replace(CURRENCY_PREFIX_RE, "$1");
+  const strippedUnit = s.replace(UNIT_SUFFIX_RE, "");
+  // Only drop the suffix if a number is left; "USD" alone must stay
+  // unparsed, and the exponent in "1e5" must not be read as a unit.
+  if (strippedUnit && GROUPED_RE.test(strippedUnit.replace(/ /g, ""))) {
+    s = strippedUnit;
+  } else if (strippedUnit && ORDERED_NUMERIC_RE.test(strippedUnit)) {
+    s = strippedUnit;
+  }
+  s = s.trim();
+  if (GROUPED_RE.test(s)) s = s.replace(/,/g, "");
+  return s;
+}
+
+/** Numeric value of a numeric-looking string, else null. */
 function numericString(v: unknown): number | null {
   if (typeof v === "string") {
-    const s = v.trim();
+    const s = normaliseNumeric(v);
     if (ORDERED_NUMERIC_RE.test(s)) {
       const n = Number(s);
-      if (Number.isFinite(n)) return n;
+      // Overflow to Infinity is kept, matching Python's float(): the value
+      // really is larger than the runtime can hold, so a cap should fire
+      // rather than be skipped on one runtime and not the other.
+      if (!Number.isNaN(n)) return n;
     }
   }
   return null;
