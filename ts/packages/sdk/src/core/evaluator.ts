@@ -127,7 +127,11 @@ const GROUPED_RE = /^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$/;
 // A leading currency symbol, optionally after the sign.
 const CURRENCY_PREFIX_RE = /^([+-]?)\s*[$€£¥₹]\s*/;
 // A trailing currency code or unit: "5000 USD", "5000USD", "12 %".
-const UNIT_SUFFIX_RE = /\s*(?:[A-Za-z]{2,4}|%)\s*$/;
+// No `\s*` adjacent to the anchor: `/\s*X\s*$/` is the polynomial-ReDoS
+// shape CodeQL flags (a long run of spaces retries at every position).
+// Whitespace is trimmed separately, and the lookbehind keeps the unit from
+// eating the tail of a longer word.
+const UNIT_SUFFIX_RE = /(?<![A-Za-z])(?:[A-Za-z]{2,4}|%)$/;
 
 /**
  * Strip the formatting a model wraps around a number. Mirrors
@@ -140,7 +144,7 @@ const UNIT_SUFFIX_RE = /\s*(?:[A-Za-z]{2,4}|%)\s*$/;
 function normaliseNumeric(v: string): string {
   let s = v.trim();
   s = s.replace(CURRENCY_PREFIX_RE, "$1");
-  const strippedUnit = s.replace(UNIT_SUFFIX_RE, "");
+  const strippedUnit = s.replace(UNIT_SUFFIX_RE, "").trimEnd();
   // Only drop the suffix if a number is left; "USD" alone must stay
   // unparsed, and the exponent in "1e5" must not be read as a unit.
   if (strippedUnit && GROUPED_RE.test(strippedUnit.replace(/ /g, ""))) {

@@ -56,7 +56,11 @@ _GROUPED_RE = re.compile(r"^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$")
 _CURRENCY_PREFIX_RE = re.compile(r"^([+-]?)\s*[$€£¥₹]\s*")
 
 # A trailing currency code or unit: "5000 USD", "5000USD", "12 %".
-_UNIT_SUFFIX_RE = re.compile(r"\s*(?:[A-Za-z]{2,4}|%)\s*$")
+# No ``\s*`` adjacent to the anchor: ``\s*X\s*$`` is the polynomial-ReDoS
+# shape (a long run of spaces retries at every position), and the TypeScript
+# mirror is flagged for it. Whitespace is trimmed separately, and the
+# lookbehind keeps the unit from eating the tail of a longer word.
+_UNIT_SUFFIX_RE = re.compile(r"(?<![A-Za-z])(?:[A-Za-z]{2,4}|%)$")
 
 # Values already reported, so a loop over the same bad argument warns once.
 _WARNED: set[str] = set()
@@ -72,7 +76,7 @@ def _normalise(s: str) -> str:
     """Strip the formatting a model wraps around a number."""
     s = s.strip()
     s = _CURRENCY_PREFIX_RE.sub(r"\1", s)
-    stripped_unit = _UNIT_SUFFIX_RE.sub("", s)
+    stripped_unit = _UNIT_SUFFIX_RE.sub("", s).rstrip()
     # Only drop the suffix if a number is left; "USD" alone must stay unparsed,
     # and the exponent in "1e5" must not be mistaken for a unit.
     if stripped_unit and _GROUPED_RE.match(stripped_unit.replace(" ", "")):
