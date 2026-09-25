@@ -34,7 +34,7 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "^4",
     "@deepseek-ai/dsh-tools": "^0.0.1-rc.1",
-    "@deepseek-ai/schemastery": "^3",
+    "@deepseek-ai/schemastery": "^3.18.4",
     "tsx": "^4"
   },
   "scripts": {
