@@ -158,7 +158,7 @@ function normaliseNumeric(v: string): string {
 }
 
 /** Numeric value of a numeric-looking string, else null. */
-function numericString(v: unknown): number | null {
+export function numericString(v: unknown): number | null {
   if (typeof v === "string") {
     const s = normaliseNumeric(v);
     if (ORDERED_NUMERIC_RE.test(s)) {
@@ -170,6 +170,31 @@ function numericString(v: unknown): number | null {
     }
   }
   return null;
+}
+
+// Values already reported, so a loop over the same bad argument warns once.
+const WARNED_INCOMPARABLE = new Set<string>();
+
+/**
+ * Say so when a numeric guard meets a value it cannot read as a number.
+ *
+ * The comparison still falls through to False (the Hoare-vacuity
+ * convention), which for a ``G(!(amount > cap))`` guard means the call is
+ * NOT constrained. That is a contract not protecting what its author
+ * believes it protects, so it is reported once per value. Mirrors
+ * ``_warn_incomparable`` in sponsio/formulas/_compare.py.
+ */
+function warnIncomparable(value: string): void {
+  const key = value.slice(0, 120);
+  if (WARNED_INCOMPARABLE.has(key)) return;
+  WARNED_INCOMPARABLE.add(key);
+  console.warn(
+    `[sponsio] numeric guard received a non-numeric value ` +
+      `${JSON.stringify(value.slice(0, 60))}; the comparison cannot be ` +
+      `evaluated and the guard does NOT constrain this call. Normalise the ` +
+      `argument, or express the rule with \`arg_blacklist\` / ` +
+      `\`arg_field_has\` so it matches on text.`,
+  );
 }
 
 /**
@@ -213,9 +238,11 @@ function safeCompare(op: string, left: unknown, right: unknown): boolean {
     if (typeof l === "number" && typeof r === "string") {
       const n = numericString(r);
       if (n !== null) r = n;
+      else warnIncomparable(r);
     } else if (typeof r === "number" && typeof l === "string") {
       const n = numericString(l);
       if (n !== null) l = n;
+      else warnIncomparable(l);
     }
     if (!orderComparable(l, r)) return false;
   }

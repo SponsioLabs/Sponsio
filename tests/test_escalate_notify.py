@@ -60,7 +60,8 @@ class TestEscalateNoNotify:
         ``EscalateToHuman()`` keep working unchanged."""
         s = EscalateToHuman(reason="needs CFO")
         result = s.enforce(_make_violation(), _make_context())
-        assert result.action == "escalated"
+        assert result.action == "blocked"
+        assert result.escalation is True
         assert "CFO" in result.message or "CFO" in result.agent_msg
 
 
@@ -116,7 +117,7 @@ class TestEscalateNotifierIsolation:
 
         # Outcome still surfaces. the agent gets the escalation it
         # would have got even if Slack were healthy.
-        assert result.action == "escalated"
+        assert result.action == "blocked" and result.escalation
         # The second notifier ran even though the first raised.
         assert survived == ["alive"]
         # A RuntimeWarning names the offending notifier so the
@@ -173,5 +174,27 @@ class TestEscalateEndToEndThroughGuard:
         # Wrong tool → contract fires → EscalateToHuman runs → notify
         # fires.
         result = guard.guard_before("rm_rf", {})
-        assert any(v.action == "escalated" for v in result.det_violations)
+        assert result.escalated
         assert events == ["bot.rm_rf:oncall review"]
+        # The default holds: an escalation the docs call blocking used
+        # to run the call while telling the agent it was paused.
+        assert result.stop_original and not result.allowed
+
+    def test_notify_only_escalation_lets_the_call_run(self) -> None:
+        events: list[str] = []
+        formula = tool_allowlist(["search"])
+        guard = Sponsio(
+            agent_id="bot",
+            contracts=[contract("approved tools").guarantees(formula)],
+            policy={
+                formula.desc: EscalateToHuman(
+                    reason="fyi", notify=lambda *a: events.append("n"), hold=False
+                )
+            },
+            mode="enforce",
+            verbose=False,
+        )
+        result = guard.guard_before("rm_rf", {})
+        assert result.escalated
+        assert result.allowed and not result.stop_original
+        assert events == ["n"]

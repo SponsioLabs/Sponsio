@@ -271,6 +271,146 @@
           "reason": "same agent doing both"
         }
       ]
+    },
+    {
+      "name": "must_precede_binds_every_spelling_of_the_tool",
+      "contracts": [
+        "tool `check_policy` must precede `issue_refund`"
+      ],
+      "steps": [
+        {
+          "tool": "Issue_Refund",
+          "args": {
+            "order_id": "#1"
+          },
+          "expect_blocked": true,
+          "reason": "case variant of the guarded tool, check_policy not called yet"
+        },
+        {
+          "tool": "issue_refund ",
+          "args": {
+            "order_id": "#1"
+          },
+          "expect_blocked": true,
+          "reason": "trailing space is the same tool"
+        },
+        {
+          "tool": "mcp__finance__issue_refund",
+          "args": {
+            "order_id": "#1"
+          },
+          "expect_blocked": true,
+          "reason": "MCP wire name of the same tool"
+        },
+        {
+          "tool": "Check_Policy",
+          "args": {
+            "order_id": "#1"
+          },
+          "expect_blocked": false,
+          "reason": "case variant of the prerequisite counts as having run it"
+        },
+        {
+          "tool": "mcp__finance__issue_refund",
+          "args": {
+            "order_id": "#1"
+          },
+          "expect_blocked": false,
+          "reason": "prerequisite satisfied"
+        }
+      ]
+    },
+    {
+      "name": "rate_limit_counts_every_spelling_of_the_tool",
+      "contracts": [
+        "tool `send_email` at most 2 times"
+      ],
+      "steps": [
+        {
+          "tool": "send_email",
+          "args": {
+            "to": "a"
+          },
+          "expect_blocked": false,
+          "reason": "first call"
+        },
+        {
+          "tool": "Send_Email",
+          "args": {
+            "to": "b"
+          },
+          "expect_blocked": false,
+          "reason": "second call, different case"
+        },
+        {
+          "tool": "mcp__mail__send_email",
+          "args": {
+            "to": "c"
+          },
+          "expect_blocked": true,
+          "reason": "third call via MCP name exceeds the limit"
+        }
+      ]
+    },
+    {
+      "name": "arg_blacklist_binds_mcp_and_case_variants",
+      "contracts": [
+        "tool `bash` command must not contain `rm -rf`"
+      ],
+      "steps": [
+        {
+          "tool": "Bash",
+          "args": {
+            "command": "rm -rf /"
+          },
+          "expect_blocked": true,
+          "reason": "case variant still reads the argument rule"
+        },
+        {
+          "tool": "mcp__shell__Bash",
+          "args": {
+            "command": "rm -rf /tmp/x"
+          },
+          "expect_blocked": true,
+          "reason": "MCP-prefixed name still reads the argument rule"
+        },
+        {
+          "tool": "BASH ",
+          "args": {
+            "command": "ls"
+          },
+          "expect_blocked": false,
+          "reason": "a clean command passes under any spelling"
+        }
+      ]
+    },
+    {
+      "name": "missing_args_refused_when_a_rule_reads_them",
+      "contracts": [
+        "tool `bash` command must not contain `rm -rf`"
+      ],
+      "steps": [
+        {
+          "tool": "bash",
+          "args": {},
+          "expect_blocked": true,
+          "reason": "no arguments, but a rule reads bash's arguments: args:unevaluable"
+        },
+        {
+          "tool": "list_files",
+          "args": {},
+          "expect_blocked": false,
+          "reason": "no rule reads list_files' arguments"
+        },
+        {
+          "tool": "bash",
+          "args": {
+            "command": "ls"
+          },
+          "expect_blocked": false,
+          "reason": "arguments present and clean"
+        }
+      ]
     }
   ]
 }

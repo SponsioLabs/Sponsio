@@ -61,19 +61,23 @@ function trace(...steps: Array<Record<string, boolean | number>>): Valuation[] {
 function testBoundedEventuallyDeadline() {
   console.log("[N4 boundedEventually]");
 
+  // Valuations are hand-built, so they carry the canonical (case-folded)
+  // key a contract on "X" looks up; grounding emits it for every call
+  // spelled "X" (see core/tool-names.ts).
+  //
   // deadline("X","Y", 1): after X, Y must hold at the *next* position.
   // Trace [X, Z]: pos 1 holds Z (no Y). With the fix this is FALSE
   // (constraint violated); the buggy version made it TRUE because
   // Y was permitted at pos 1 OR pos 2.
   const fOne = deadline("X", "Y", 1).formula;
   assert(
-    evaluate(fOne, trace({ "called(X)": true }, { "called(Z)": true })) === false,
+    evaluate(fOne, trace({ "called(x)": true }, { "called(z)": true })) === false,
     "deadline(X,Y,1): Y missing at next step must violate (off-by-one fix)",
   );
 
   // Sanity: same formula, Y at the next position → satisfied.
   assert(
-    evaluate(fOne, trace({ "called(X)": true }, { "called(Y)": true })) === true,
+    evaluate(fOne, trace({ "called(x)": true }, { "called(y)": true })) === true,
     "deadline(X,Y,1): Y at next step satisfies",
   );
 
@@ -82,7 +86,7 @@ function testBoundedEventuallyDeadline() {
   assert(
     evaluate(
       fTwo,
-      trace({ "called(X)": true }, { "called(Z)": true }, { "called(Y)": true }),
+      trace({ "called(x)": true }, { "called(z)": true }, { "called(y)": true }),
     ) === true,
     "deadline(X,Y,2): Y at pos 2 (within 2 steps) satisfies",
   );
@@ -90,10 +94,10 @@ function testBoundedEventuallyDeadline() {
     evaluate(
       fTwo,
       trace(
-        { "called(X)": true },
-        { "called(Z)": true },
-        { "called(Z)": true },
-        { "called(Y)": true },
+        { "called(x)": true },
+        { "called(z)": true },
+        { "called(z)": true },
+        { "called(y)": true },
       ),
     ) === false,
     "deadline(X,Y,2): Y at pos 3 (one beyond budget) violates",
@@ -240,11 +244,11 @@ function testDeadlineNlParity() {
   // Reuse the lower-level evaluator on the parsed formula.
   const f = internal[0].formula;
   assert(
-    evaluate(f, trace({ "called(X)": true }, { "called(Z)": true })) === false,
+    evaluate(f, trace({ "called(x)": true }, { "called(z)": true })) === false,
     "deadline NL: parsed formula treats X as trigger and Y as the required next step",
   );
   assert(
-    evaluate(f, trace({ "called(X)": true }, { "called(Y)": true })) === true,
+    evaluate(f, trace({ "called(x)": true }, { "called(y)": true })) === true,
     "deadline NL: Y at next step satisfies",
   );
 }

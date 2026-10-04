@@ -43,7 +43,7 @@ class EnforcementResult:
     action         tool runs?    agent informed?    expected agent reaction
     =============  ============  =================  ===============================
     ``blocked``    no            yes (refusal)      abandon this action
-    ``escalated``  no            yes (refusal)      abandon; humans get notified
+    ``escalated``  yes           no                 no change; humans were notified
     ``redirected`` substituted   no (transparent)   continue, sees ``fallback_action``
     ``warned``     yes           no (log only)      no change (user wants this)
     ``observed``   yes           no                 shadow-mode wrapper around any
@@ -56,12 +56,12 @@ class EnforcementResult:
 
     On the close calls between adjacent actions:
 
-    * ``blocked`` vs ``escalated``: both refuse and tell the agent to
-      abandon. The difference is side effects. ``EscalateToHuman``
-      fires user-supplied notifiers (Slack, email, paging); ``DetBlock``
-      does not. With no notifier wired up, the outcomes look identical
-      to the agent; dashboards still distinguish them by the action
-      literal.
+    * ``blocked`` vs ``escalated``: ``escalated`` is the notify-only
+      outcome (``EscalateToHuman(hold=False)``, and the monitor's
+      default for a violated assumption); the call runs. The default
+      ``EscalateToHuman`` refuses, so it returns ``blocked`` with
+      ``escalation=True``: one stop rule for every adapter, and the
+      escalation still visible to reporters.
     * ``warned`` vs ``observed``: both let the tool run without telling
       the agent. ``warned`` is an explicit user choice ("this rule
       should log but never block"); ``observed`` is a runtime
@@ -133,6 +133,10 @@ class EnforcementResult:
     agent_msg: str = ""
     retry_hint: str | None = None
     alternatives: list[str] = field(default_factory=list)
+    # True when this outcome came from ``EscalateToHuman``. A holding
+    # escalation carries ``action="blocked"`` so every adapter's stop
+    # gate refuses it; this flag keeps "a human was asked" visible.
+    escalation: bool = False
 
 
 def _rule_id_from_violation(violation: Violation) -> str:
@@ -200,22 +204,36 @@ class OutcomeBuilder:
         violation: Violation,
         context: ActionContext,
         reason: str = "",
+        hold: bool = True,
     ) -> EnforcementResult:
         rule = _rule_id_from_violation(violation)
         why = reason or violation.desc or "det constraint violation"
-        message = (
-            f"ESCALATED: {context.agent_id}.{context.action}. "
-            f"awaiting human approval: {why}"
-        )
-        agent_msg = (
-            f"The action `{context.action}` is paused awaiting human "
-            f"approval ({rule}). Wait for the approval signal."
-        )
+        if hold:
+            # Refused, not paused: nothing in the runtime resumes a held
+            # call, so telling the agent to wait would be a promise
+            # nobody keeps.
+            return EnforcementResult(
+                action="blocked",
+                message=(
+                    f"ESCALATED: {context.agent_id}.{context.action}. "
+                    f"refused pending human approval: {why}"
+                ),
+                rule_id=rule,
+                agent_msg=(
+                    f"The action `{context.action}` needs human approval "
+                    f"({rule}) and was not executed. A human has been "
+                    f"notified; do not retry it until they approve."
+                ),
+                escalation=True,
+            )
         return EnforcementResult(
             action="escalated",
-            message=message,
+            message=(
+                f"ESCALATED: {context.agent_id}.{context.action}. "
+                f"humans notified, call not held: {why}"
+            ),
             rule_id=rule,
-            agent_msg=agent_msg,
+            escalation=True,
         )
 
     @staticmethod
@@ -304,41 +322,21 @@ class EscalateToHuman:
     """Fire user-supplied notifiers (Slack, email, oncall pager)
     when a contract violates.
 
-    Semantically distinct from :class:`DetBlock`. ``DetBlock`` returns
-    ``action="blocked"`` which the integration adapters gate
-    ``CheckResult.allowed`` on. ``EscalateToHuman`` returns
-    ``action="escalated"`` which is **not** gated by adapters and
-    fires user-supplied notifier callables as a side effect.
+    Refuses the call and tells a human, by default. The outcome carries
+    ``action="blocked"`` (so every adapter's stop gate refuses it) and
+    ``escalation=True`` (so ``CheckResult.escalated`` and dashboards still
+    see that a human was asked). Nothing in the runtime resumes a refused
+    call; approval means the human lets the agent try again.
 
-    Why the runtime layer doesn't gate ``allowed`` on escalated: the
-    monitor uses ``EscalateToHuman()`` as the default strategy for
-    *unfired-assumption* verdicts. a conditional contract whose
-    assumption hasn't activated yet produces an escalated result
-    that is vacuous (the contract doesn't apply). If
-    ``allowed=not escalated`` held at the BaseGuard layer, every
-    conditional contract would refuse every unrelated tool call
-    until its assumption fires. The fix is to keep escalated as a
-    notification surface and let applications decide whether to also
-    gate the call.
+    ``hold=False`` keeps the older notify-only posture: notifiers fire,
+    the outcome is ``action="escalated"``, and the call runs. The monitor
+    uses that form as its default for a violated *assumption*, which
+    flags an upstream problem without refusing the action in front of it.
 
-    Two common patterns:
-
-    * **Notify only, agent continues.** Use ``EscalateToHuman`` with
-      notifiers. The notifiers fire, the agent sees an escalation
-      message in the reporter, the call still runs. Useful for
-      monitoring high-stakes actions without paying the latency of a
-      human-in-the-loop hold.
-    * **Notify + refuse, agent stops.** Pair ``DetBlock`` with the
-      same notifier callables registered via
-      ``monitor.register_callback``. The block gates ``allowed`` and
-      the callback fires the notification. The case study
-      ``examples/integrations/python/v0_2_finance_escalate_vanilla.py``
-      shows how to wire this at the application layer.
-
-    Without at least one notifier, this collapses to "an outcome
-    with a different action literal but no observable effect."
-    Accept that explicitly by not passing ``notify`` if a
-    notification side effect isn't wired up yet.
+    Before 0.2.0a17 the explicit strategy behaved like ``hold=False``
+    while telling the agent the action was "paused awaiting human
+    approval", and the docs described it as blocking. A contract written
+    as "refunds over $10k need CFO approval" therefore ran the refund.
 
     Args:
         reason: Free text rendered into the agent message and passed
@@ -351,13 +349,11 @@ class EscalateToHuman:
             fires. Exceptions raised by a notifier are caught and
             logged (via ``warnings.warn``) so a Slack outage doesn't
             crash the agent loop, and the escalation outcome still
-            returns so dashboards / reporters see it. But note that
-            the runtime layer does NOT gate ``CheckResult.allowed`` on
-            ``action="escalated"`` (see the class docstring for why),
-            so the underlying tool call still runs unless the
-            application layer explicitly checks ``result.escalated``.
-            Notifier signature: ``(violation: Violation, context:
-            ActionContext, reason: str) -> None``.
+            returns so dashboards / reporters see it. Notifier
+            signature: ``(violation: Violation, context: ActionContext,
+            reason: str) -> None``.
+        hold: Refuse the call (default). ``False`` notifies and lets it
+            run.
 
     Example::
 
@@ -381,8 +377,10 @@ class EscalateToHuman:
         self,
         reason: str = "",
         notify: Callable | list[Callable] | None = None,
+        hold: bool = True,
     ) -> None:
         self._reason = reason
+        self._hold = hold
         if notify is None:
             self._notifiers: list[Callable] = []
         elif callable(notify):
@@ -416,7 +414,9 @@ class EscalateToHuman:
                     RuntimeWarning,
                     stacklevel=2,
                 )
-        return OutcomeBuilder.for_det_escalate(violation, context, reason=self._reason)
+        return OutcomeBuilder.for_det_escalate(
+            violation, context, reason=self._reason, hold=self._hold
+        )
 
 
 class WarnOnly:

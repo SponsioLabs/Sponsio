@@ -336,6 +336,21 @@ agents:
             - - "\\b(cp|mv|rm|dd)\\b\\s+[^|&;]*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations)/[^/]+\\.py)"
           source: "library:tier1.self-modify"
 
+      # The rules above name the rule FILE. Removing or moving a directory
+      # that contains it (``rm -rf ~/.sponsio``, ``mv ~/.sponsio/plugins
+      # /tmp``) took every library with it, after which each tool was
+      # "unconfigured" and ran, and ``defaults.unconfigured: deny`` went
+      # too, since it lives in the host library. The lookahead stops at
+      # the directory name so ``~/.sponsio-backup`` stays allowed.
+      - desc: "Host agent must not remove or move the sponsio config directory or a library bucket"
+        G:
+          pattern: arg_blacklist
+          args:
+            - Bash
+            - command
+            - - "\\b(rm|mv|rmdir)\\b[^|&;\\n]*\\.sponsio(/plugins(/[\\w-]+)?)?/?(?![\\w./-])"
+          source: "library:tier1.self-modify"
+
 # -----------------------------------------------------------------------------
 # Integration requirements
 # -----------------------------------------------------------------------------

@@ -238,10 +238,39 @@ def _emit_legacy_fallback_warning(plugin_id: str, legacy: str) -> None:
 _NO_LIBRARY_WARNED: set[str] = set()
 
 
-def _unconfigured_denies() -> bool:
-    """``SPONSIO_UNCONFIGURED=deny`` turns "no rules" into a refusal."""
+_DENY_WORDS = ("deny", "block", "closed")
+_ALLOW_WORDS = ("allow", "open")
+
+
+def _unconfigured_denies(host_bucket: str | None = None) -> bool:
+    """Whether a tool with no contract library is refused.
+
+    ``SPONSIO_UNCONFIGURED`` wins when set (``deny`` / ``allow``).
+    Otherwise the host's own library decides through
+    ``defaults.unconfigured: deny``, which ``sponsio host install
+    --strict`` writes. Keeping the posture in that file rather than only
+    in the environment means it survives a new shell, and the agent
+    cannot flip it: the host library is covered by
+    ``capability/self-modify``.
+    """
     raw = os.environ.get("SPONSIO_UNCONFIGURED", "").strip().lower()
-    return raw in ("deny", "block", "closed")
+    if raw in _DENY_WORDS:
+        return True
+    if raw in _ALLOW_WORDS:
+        return False
+    if host_bucket is None:
+        return False
+    lib_path, _ = _resolve_library(host_bucket)
+    try:
+        import yaml
+
+        data = yaml.safe_load(lib_path.read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError):
+        return False
+    defaults = data.get("defaults") if isinstance(data, dict) else None
+    if not isinstance(defaults, dict):
+        return False
+    return str(defaults.get("unconfigured", "")).strip().lower() in _DENY_WORDS
 
 
 def _emit_no_library_warning(plugin_id: str) -> None:
@@ -257,7 +286,8 @@ def _emit_no_library_warning(plugin_id: str) -> None:
     sys.stderr.write(
         f"[sponsio] no contract library for `{plugin_id}` — its tool calls "
         f"are running UNCHECKED. Author one at `{plugin_id}/sponsio.yaml`, "
-        f"or set SPONSIO_UNCONFIGURED=deny to refuse instead.\n"
+        f"or refuse unconfigured tools with `sponsio host install <host> "
+        f"--strict` (or SPONSIO_UNCONFIGURED=deny).\n"
     )
 
 
@@ -764,18 +794,19 @@ def _evaluate_event_locked(event: dict) -> GuardOutcome:
         # "never looked". It is now said out loud, once per namespace,
         # the same way the legacy-bucket fallback is; and an operator who
         # wants the strict posture can have it.
-        _emit_no_library_warning(plugin_id)
-        if _unconfigured_denies():
+        if _unconfigured_denies(_bucket_for_host(host, is_subagent)):
             return GuardOutcome(
                 allowed=False,
                 reason=(
-                    f"no contract library for `{plugin_id}` and "
-                    f"SPONSIO_UNCONFIGURED=deny is set. Author "
-                    f"{plugin_id}/sponsio.yaml, or unset the variable."
+                    f"no contract library for `{plugin_id}`, and unconfigured "
+                    f"tools are denied (SPONSIO_UNCONFIGURED=deny or "
+                    f"defaults.unconfigured: deny in the host library). "
+                    f"Author {plugin_id}/sponsio.yaml to allow it."
                 ),
                 plugin_id=plugin_id,
                 library_path=None,
             )
+        _emit_no_library_warning(plugin_id)
         return GuardOutcome(
             allowed=True,
             reason="no contract library configured",

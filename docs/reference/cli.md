@@ -178,9 +178,18 @@ Run inside a Claude Code or OpenClaw host plugin.
 
 ```bash
 sponsio host install <host>           # claude-code | openclaw
+sponsio host install <host> --strict  # refuse tools that have no contract library
 sponsio host status <host>
 sponsio host trace <host> [--follow]  # live coloured event stream
 ```
+
+A tool whose namespace has no contract library (any MCP server outside the
+shipped examples) runs with a one-time `running UNCHECKED` warning by
+default. `--strict` writes `defaults.unconfigured: deny` into the host
+library so those calls are refused instead; the setting survives
+reinstalls, and the host library is covered by `capability/self-modify`
+so the agent cannot change it. `SPONSIO_UNCONFIGURED=deny|allow` overrides
+it for one shell.
 
 See [plugins.md](../plugins.md) for the host-plugin walkthrough.
 

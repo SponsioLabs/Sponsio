@@ -23,6 +23,7 @@ import {
   G, F, X, U,
   Le, Ge, Var, Const,
 } from "./formula.js";
+import { canonicalTool } from "./tool-names.js";
 
 export interface DetFormula {
   formula: Formula;
@@ -80,26 +81,32 @@ export interface AssumeGuaranteePair {
 }
 
 // --- Helpers ---
+//
+// Tool names are canonicalised (see core/tool-names.ts) so a rule keys on
+// the same spelling grounding emits for every variant of the call:
+// ``Issue_Refund``, ``"issue_refund "`` and ``mcp__finance__issue_refund``
+// all bind a rule written on ``issue_refund``. Parity with Python's
+// ``_called`` / ``_count_var`` / ``_physical_tool``.
 
 function called(tool: string): Atom {
   // Supports "tool:pattern" format — produces called_with atom.
   if (tool.includes(":")) {
     const [physical, pattern] = tool.split(":", 2);
-    return new Atom("called_with", [physical, pattern]);
+    return new Atom("called_with", [canonicalTool(physical), pattern]);
   }
-  return new Atom("called", [tool]);
+  return new Atom("called", [canonicalTool(tool)]);
 }
 
 function countVar(tool: string): Var {
   if (tool.includes(":")) {
     const [physical, pattern] = tool.split(":", 2);
-    return new Var("count_with", physical, pattern);
+    return new Var("count_with", canonicalTool(physical), pattern);
   }
-  return new Var("count", tool);
+  return new Var("count", canonicalTool(tool));
 }
 
 function physicalTool(tool: string): string {
-  return tool.includes(":") ? tool.split(":", 1)[0] : tool;
+  return canonicalTool(tool.includes(":") ? tool.split(":", 1)[0] : tool);
 }
 
 /**

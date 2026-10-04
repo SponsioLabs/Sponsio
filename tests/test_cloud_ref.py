@@ -222,3 +222,42 @@ def test_local_runs_carry_no_rulebook_attribute(monkeypatch):
 
     keys = {a["key"] for a in otlp["resourceSpans"][0]["resource"]["attributes"]}
     assert "sponsio.rulebook" not in keys
+
+
+# -- cache integrity -------------------------------------------------------
+
+
+def _pull_then_go_offline(tmp_path):
+    ok = FakeClient(result=PulledRulebook(YAML, versions="quant@v3"))
+    cached = resolve_config_ref("sponsio://alpha", client=ok, cwd=tmp_path)
+    return cached, FakeClient(error=CloudError("connection refused"))
+
+
+def test_an_edited_cache_is_not_enforced(tmp_path, capsys):
+    """The cache lives where the guarded agent can often write. An edited
+    copy used to be loaded as the rulebook the next time the cloud was
+    unreachable."""
+    cached, down = _pull_then_go_offline(tmp_path)
+    cached.write_text(YAML.replace("contracts: []", "contracts: []  # emptied"))
+
+    with pytest.raises(CloudRefError):
+        resolve_config_ref("sponsio://alpha", client=down, cwd=tmp_path)
+    assert "cannot be verified" in capsys.readouterr().out
+
+
+def test_a_cache_without_its_mac_is_not_enforced(tmp_path):
+    cached, down = _pull_then_go_offline(tmp_path)
+    cached.with_name(cached.name + ".mac").unlink()
+    local = tmp_path / "sponsio.yaml"
+    local.write_text(YAML)
+
+    assert resolve_config_ref("sponsio://alpha", client=down, cwd=tmp_path) == local
+
+
+def test_a_cache_is_not_trusted_under_a_different_key(tmp_path):
+    cached, _ = _pull_then_go_offline(tmp_path)
+    other = FakeClient(error=CloudError("connection refused"))
+    other.api_key = "someone-else"
+
+    with pytest.raises(CloudRefError):
+        resolve_config_ref("sponsio://alpha", client=other, cwd=tmp_path)

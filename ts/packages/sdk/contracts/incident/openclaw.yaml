@@ -2,14 +2,15 @@
 # Sponsio contract pack for OpenClaw (née Clawdbot / Moltbot)
 # Target: OpenClaw local gateway, v2026.2.12 or newer
 #
-# Mixed det / sto pack: the §0 LLM-output contracts (injection_free,
-# jailbreak_free, harmful, semantic_pii_free, toxic_free) and §9
-# capability-specific atoms (scope_respect) are LLM-judged stochastic
-# atoms that are not supported in this build (the engine is
-# deterministic-only). The engine refuses to load them; det rules in
-# §1–§8 load and enforce as usual either way. External builds with a
-# real StoEvaluator activate the full pack transparently via the
-# `sponsio.evaluators` entry-point group.
+# Deterministic throughout. Eight LLM-judged contracts used to sit in §0
+# and §9 (injection_free, jailbreak_free, harmful, semantic_pii_free,
+# toxic_free, hallucination_free, scope_respect). No build resolves those
+# names, so in enforce mode the loader refused the WHOLE config and this
+# pack armed nothing: the 37 deterministic rules below went down with the
+# eight. The header used to claim §1-§8 loaded "either way". They did not.
+#
+# Removed rather than skipped. A marker that lets enforce mode drop a
+# declared rule is the one mechanism this product must not have.
 #
 # Schema conventions used in this file:
 #   - `desc:`                 — human-readable explanation (rendering only)
@@ -101,36 +102,6 @@ agents:
       # § 0 — Tier 0 universal (portable; candidates for a future universal.yaml)
       # =====================================================================
 
-      - desc: "No prompt injection in any LLM response"
-        G:
-          pattern: injection_free
-          context_scope: full_trace
-          source: "library:tier0.adversarial"
-        beta: 0.95
-
-      - desc: "No jailbreak compliance in any LLM response"
-        G:
-          pattern: jailbreak_free
-          source: "library:tier0.adversarial"
-        beta: 0.9
-
-      - desc: "No harmful advice or facilitation of real-world harm"
-        G:
-          pattern: harmful
-          source: "library:tier0.harm"
-        beta: 0.95
-
-      - desc: "Response free of contextual PII"
-        G:
-          pattern: semantic_pii_free
-          source: "library:tier0.privacy"
-        beta: 0.95
-
-      - desc: "Response free of toxic or harassing language"
-        G:
-          pattern: toxic_free
-          source: "library:tier0.harm"
-        beta: 0.9
 
       - desc: "Total token usage bounded per session"
         G:
@@ -461,31 +432,6 @@ agents:
         G:
           ltl: "G(called(apply_patch) -> count(confirm_reconfirmed) >= count(apply_patch))"
           source: "incident:CVE-2026-29607"
-
-      # =====================================================================
-      # § 9 — Capability-specific stochastic atoms
-      # =====================================================================
-
-      - desc: "After web_fetch, responses stay grounded in the fetched content"
-        A: "called `web_fetch`"
-        G:
-          pattern: hallucination_free
-          args: ["{fetched_content}"]
-          source: "library:tier1.browser"
-        beta: 0.9
-
-      - desc: "Agent stays within its declared scope"
-        G:
-          pattern: scope_respect
-          args: ["local personal assistant — file, shell, messaging, browsing on behalf of owner"]
-          source: "library:tier0.scope"
-        beta: 0.85
-
-      - desc: "Agent does not agree to disable its own safety constraints (anti-guilttrip)"
-        G:
-          pattern: jailbreak_free
-          source: "incident:wired-guilttrip"
-        beta: 0.95
 
 # -----------------------------------------------------------------------------
 # Notes on what this file deliberately does NOT cover

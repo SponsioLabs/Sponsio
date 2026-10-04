@@ -454,3 +454,41 @@ agents:
 
     with pytest.raises(ConfigError, match="'overrides:' is no longer accepted"):
         load_config(cfg)
+
+
+def test_host_reinstall_keeps_the_operators_defaults(tmp_path, monkeypatch):
+    """``defaults:`` is operator state, not shipped content. A reinstall
+    used to drop it, so the next mode stamp could move an enforcing host
+    back to ``observe`` and ``--strict`` was lost."""
+    from sponsio.cli import _refresh_per_host_bundles
+    from sponsio.cli.groups.host import (
+        _apply_install_mode_to_host_buckets,
+        _apply_strict_to_host_buckets,
+    )
+
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
+    _refresh_per_host_bundles("claude-code", tmp_path)
+    _apply_install_mode_to_host_buckets("claude-code", "enforce")
+    assert _apply_strict_to_host_buckets("claude-code")
+
+    _refresh_per_host_bundles("claude-code", tmp_path)
+    _apply_install_mode_to_host_buckets("claude-code", "observe")
+
+    for bucket in ("_host_claude_code", "_host_claude_code_subagent"):
+        doc = yaml.safe_load((tmp_path / bucket / "sponsio.yaml").read_text())
+        assert doc["defaults"]["mode"] == "enforce", bucket
+        assert doc["defaults"]["unconfigured"] == "deny", bucket
+
+
+def test_strict_rewrites_an_existing_unconfigured_line(tmp_path, monkeypatch):
+    from sponsio.cli import _refresh_per_host_bundles
+    from sponsio.cli.groups.host import _apply_strict_to_host_buckets
+
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
+    _refresh_per_host_bundles("claude-code", tmp_path)
+    target = tmp_path / "_host_claude_code" / "sponsio.yaml"
+    target.write_text("defaults:\n  unconfigured: allow\n" + target.read_text())
+
+    _apply_strict_to_host_buckets("claude-code")
+    doc = yaml.safe_load(target.read_text())
+    assert doc["defaults"]["unconfigured"] == "deny"

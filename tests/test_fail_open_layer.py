@@ -164,6 +164,18 @@ def test_a_tool_with_no_argument_rules_is_unaffected():
     assert not _guard(ORDER).guard_before("check_policy", {}).blocked
 
 
+def test_missing_arguments_are_refused_under_an_mcp_prefix():
+    """Grounding binds ``mcp__shell__Bash`` to a rule written for
+    ``Bash``; the missing-args check compared only the canonical name,
+    which keeps the prefix, so the empty call slipped through."""
+    contracts = [
+        sponsio.contract("no rm").guarantees(arg_blacklist("Bash", "command", ["rm"]))
+    ]
+    result = _guard(contracts).guard_before("mcp__shell__Bash", {})
+    assert result.blocked
+    assert result.det_violations[0].rule_id == "args:unevaluable"
+
+
 def test_missing_arguments_can_be_allowed_by_opt_out(monkeypatch):
     monkeypatch.setenv("SPONSIO_ALLOW_MISSING_ARGS", "1")
     contracts = [
@@ -183,8 +195,65 @@ def test_mode_reports_the_monitor_not_a_stale_copy():
     guard = _guard(ORDER)
     assert guard.mode == "enforce"
     guard._monitor._mode = "observe"
-    assert not guard.guard_before("issue_refund", {}).blocked
     assert guard.mode == "observe", "a readout that lies is worse than none"
+
+
+# ---------------------------------------------------------------------------
+# State changed behind the API refuses instead of enforcing less
+# ---------------------------------------------------------------------------
+
+
+def _tampered(result):
+    return result.blocked and any(
+        v.rule_id == "guard:tampered" for v in result.det_violations
+    )
+
+
+def test_an_untouched_guard_is_not_flagged():
+    guard = _guard(ORDER)
+    assert guard.guard_before("check_policy", {}).allowed
+    assert guard.guard_before("issue_refund", {}).allowed
+
+
+def test_flipping_the_monitor_to_observe_refuses_the_next_call():
+    guard = _guard(ORDER)
+    guard._monitor._mode = "observe"
+    assert _tampered(guard.guard_before("issue_refund", {}))
+
+
+def test_emptying_the_contract_list_refuses_the_next_call():
+    guard = _guard(ORDER)
+    guard._system._contracts.clear()
+    assert _tampered(guard.guard_before("issue_refund", {}))
+
+
+def test_rebinding_a_contract_formula_refuses_the_next_call():
+    guard = _guard(ORDER)
+    contract = guard._system._contracts[0]
+    contract.guarantee = None
+    assert _tampered(guard.guard_before("issue_refund", {}))
+
+
+def test_downgrading_a_strategy_refuses_the_next_call():
+    from sponsio.runtime.strategies import WarnOnly
+
+    guard = _guard(ORDER)
+    policy = guard._monitor._policy
+    key = next(iter(policy))
+    policy[key] = WarnOnly()
+    assert _tampered(guard.guard_before("issue_refund", {}))
+
+
+def test_downgrading_one_contract_mode_refuses_the_next_call():
+    guard = _guard(ORDER)
+    guard._monitor._contract_modes["anything"] = "observe"
+    assert _tampered(guard.guard_before("check_policy", {}))
+
+
+def test_tampering_is_also_caught_after_the_call():
+    guard = _guard(ORDER)
+    guard._monitor._mode = "observe"
+    assert _tampered(guard.guard_after("check_policy", "ok"))
 
 
 # ---------------------------------------------------------------------------
@@ -327,6 +396,44 @@ def test_unconfigured_can_be_made_to_deny(tmp_path, monkeypatch):
     assert outcome.allowed is False
 
 
+_STRICT_HOST = """
+version: "1"
+defaults:
+  unconfigured: deny
+agents:
+  _host:
+    contracts: []
+"""
+
+
+def _unknown_mcp_call(gs):
+    return gs.evaluate_event(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "mcp__unknown__do_thing",
+            "tool_input": {},
+        }
+    )
+
+
+def test_the_host_library_can_make_unconfigured_deny(tmp_path, monkeypatch):
+    """The env var alone does not survive a new shell; the host library
+    does, and the agent cannot rewrite it under ``self-modify``."""
+    import sponsio.guard_stdin as gs
+
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(_plugin_root(tmp_path, _STRICT_HOST)))
+    monkeypatch.delenv("SPONSIO_UNCONFIGURED", raising=False)
+    assert _unknown_mcp_call(gs).allowed is False
+
+
+def test_the_environment_overrides_the_host_library(tmp_path, monkeypatch):
+    import sponsio.guard_stdin as gs
+
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(_plugin_root(tmp_path, _STRICT_HOST)))
+    monkeypatch.setenv("SPONSIO_UNCONFIGURED", "allow")
+    assert _unknown_mcp_call(gs).allowed is True
+
+
 def test_a_count_limit_survives_concurrent_hook_invocations(tmp_path, monkeypatch):
     """Load the history, decide, append: split across two hook processes
     and both read the same count and both append. A limit of one admitted
@@ -377,3 +484,101 @@ def test_no_shipped_yaml_reintroduces_the_ordered_exfil_pattern():
         if ordered in p.read_text()
     ]
     assert not offenders, offenders
+
+
+# ---------------------------------------------------------------------------
+# The library's numeric cap reads the same shapes as ArgValue comparisons
+# ---------------------------------------------------------------------------
+
+
+def _capped():
+    from sponsio.patterns.library import arg_value_range
+
+    return _guard(
+        [
+            sponsio.contract("cap").guarantees(
+                arg_value_range("pay", "amount", max_val=1000)
+            )
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    "amount", [5000, "5000", "$5,000", "5,000", "5000 USD", "1e400"]
+)
+def test_arg_value_range_blocks_every_spelling_of_an_amount(amount):
+    """#180 normalised ``ArgValue`` comparisons only. ``arg_value_range``
+    reads ``arg_numeric``, which ``int()``/``float()`` failed on, and the
+    evaluator read the unset variable as 0: the cap users actually get
+    from YAML passed ``'$5,000'``."""
+    assert _capped().guard_before("pay", {"amount": amount}).blocked, amount
+
+
+@pytest.mark.parametrize("amount", [500, "500", "$500"])
+def test_arg_value_range_allows_amounts_under_the_cap(amount):
+    assert _capped().guard_before("pay", {"amount": amount}).allowed, amount
+
+
+def test_an_unreadable_amount_is_refused_not_read_as_zero():
+    result = _capped().guard_before("pay", {"amount": "five thousand"})
+    assert result.blocked
+    assert result.det_violations[0].rule_id == "args:unevaluable"
+
+
+def test_an_absent_numeric_field_is_left_to_the_rule():
+    assert _capped().guard_before("pay", {"note": "x"}).allowed
+
+
+def test_unreadable_amount_opt_out(monkeypatch):
+    monkeypatch.setenv("SPONSIO_ALLOW_MISSING_ARGS", "1")
+    assert _capped().guard_before("pay", {"amount": "five thousand"}).allowed
+
+
+# ---------------------------------------------------------------------------
+# Deleting the directory that holds the rules
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def claude_code_host(tmp_path, monkeypatch):
+    from sponsio.cli import _refresh_per_host_bundles
+
+    root = tmp_path / "plugins"
+    _refresh_per_host_bundles("claude-code", root)
+    monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(root))
+    import sponsio.guard_stdin as gs
+
+    def run(command: str):
+        return gs.evaluate_event(
+            {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Bash",
+                "tool_input": {"command": command},
+                "host": "claude-code",
+            }
+        )
+
+    return run
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm -rf ~/.sponsio",
+        'rm -r "$HOME/.sponsio/"',
+        "mv ~/.sponsio/plugins /tmp/x",
+        "rm -rf ~/.sponsio/plugins/_host_claude_code",
+        "rmdir ~/.sponsio/plugins/github",
+    ],
+)
+def test_removing_the_rules_directory_is_refused(claude_code_host, command):
+    """The file-level rules left the directories open: removing one took
+    every library with it and each tool then ran as unconfigured."""
+    assert claude_code_host(command).allowed is False, command
+
+
+@pytest.mark.parametrize(
+    "command", ["rm -rf ~/.sponsio-backup", "ls ~/.sponsio", "rm -rf node_modules"]
+)
+def test_neighbouring_commands_stay_allowed(claude_code_host, command):
+    assert claude_code_host(command).allowed is True, command

@@ -26,10 +26,13 @@ import {
   newGroundingState,
   collectContentAtoms,
   validateContentPatterns,
+  numericArg,
+  toolMatches,
   type ToolEvent,
   type GroundingState,
 } from "./core/grounding.js";
 import { parseNl } from "./core/nl-parser.js";
+import { canonicalTool, toolAliases } from "./core/tool-names.js";
 import {
   loadSponsoConfig,
   type SkippedItem,
@@ -490,6 +493,121 @@ export class Sponsio {
   }
 
   /**
+   * Predicates whose truth depends on the *contents* of a tool call's
+   * arguments. If a call arrives with no arguments, none of these keys is
+   * written and the evaluator reads a missing key as false, which makes
+   * ``argBlacklist`` (``!arg_field_has(...)``) report "satisfied" for a
+   * call nothing looked at. Mirrors Python's
+   * ``BaseGuard._ARG_SHAPED_PREDICATES``.
+   */
+  private static readonly ARG_SHAPED_PREDICATES = [
+    "arg_has",
+    "arg_field_has",
+    "arg_length_exceeds",
+    "arg_paths_within",
+    "arg_numeric",
+    "arg_value",
+  ];
+
+  /** Canonical names of the tools some contract reads the arguments of. */
+  private _toolsNeedingArgs(): Set<string> {
+    const tools = new Set<string>();
+    for (const pred of Sponsio.ARG_SHAPED_PREDICATES) {
+      for (const raw of this._contentAtoms[pred] ?? []) {
+        const tool = raw.split("|")[0];
+        if (tool) tools.add(canonicalTool(tool));
+      }
+    }
+    return tools;
+  }
+
+  /** ``[tool, field]`` pairs some ``arg_numeric`` rule reads. */
+  private _numericRuleTargets(): [string, string][] {
+    const pairs: [string, string][] = [];
+    for (const raw of this._contentAtoms["arg_numeric"] ?? []) {
+      const parts = raw.split("|");
+      if (parts.length >= 2) pairs.push([parts[0], parts[1]]);
+    }
+    return pairs;
+  }
+
+  /**
+   * Refuse a call whose argument rules cannot be evaluated.
+   *
+   * Two cases, both of which used to read as "not violated":
+   *
+   * - The call arrived with no arguments (``{}``, ``undefined``, ``null``)
+   *   but some rule reads this tool's arguments. An adapter that loses the
+   *   arguments, a partial streamed call or a malformed payload all land
+   *   here, and every argument check would pass vacuously.
+   * - A field an ``arg_numeric`` rule bounds is present but is not a
+   *   number (``"five thousand"``). Grounding leaves ``arg_numeric`` unset
+   *   and the evaluator reads the gap as 0, which passes every upper
+   *   bound. An absent field is left alone: CLI-flag and positional rules
+   *   on ``Bash`` legitimately see calls without their flag.
+   *
+   * ``SPONSIO_ALLOW_MISSING_ARGS=1`` restores the permissive behaviour.
+   * Mirrors Python ``BaseGuard._args_unevaluable`` and
+   * ``_unreadable_numeric_arg``; both block under rule id
+   * ``args:unevaluable``.
+   */
+  private _unevaluableArgs(
+    toolName: string,
+    args: Record<string, unknown> | null | undefined,
+  ): DetViolation | null {
+    const env = typeof process !== "undefined" ? process.env : undefined;
+    if (env?.SPONSIO_ALLOW_MISSING_ARGS === "1") return null;
+
+    const empty = args == null || (typeof args === "object" && Object.keys(args).length === 0);
+    if (empty) {
+      // Every spelling grounding binds the call under, so
+      // ``mcp__shell__Bash`` meets a rule written for ``Bash``.
+      const needed = this._toolsNeedingArgs();
+      if (!toolAliases(toolName).some((alias) => needed.has(alias))) return null;
+      const message =
+        `BLOCKED: ${this.agentId}.${toolName}. \`${toolName}\` was called ` +
+        `with no arguments, but a contract inspects its arguments. The ` +
+        `check cannot be evaluated, so the call is refused rather than ` +
+        `passed unchecked (set SPONSIO_ALLOW_MISSING_ARGS=1 to allow).`;
+      return {
+        desc: message,
+        message,
+        action: "blocked",
+        ruleId: "args:unevaluable",
+        agentMsg:
+          `The action \`${toolName}\` was rejected because its arguments ` +
+          `were missing and a policy needs to read them. Retry with the ` +
+          `arguments included.`,
+      };
+    }
+
+    const aliases = toolAliases(toolName);
+    for (const [target, field] of this._numericRuleTargets()) {
+      if (!Object.prototype.hasOwnProperty.call(args, field)) continue;
+      if (!toolMatches(target, aliases)) continue;
+      const value = (args as Record<string, unknown>)[field];
+      if (value === null || value === undefined) continue;
+      if (numericArg(value) !== undefined) continue;
+      const shown = JSON.stringify(String(value).slice(0, 60));
+      const message =
+        `BLOCKED: ${this.agentId}.${toolName}. \`${field}\`=${shown} is ` +
+        `not a number, but a contract bounds it numerically. The bound ` +
+        `cannot be checked, so the call is refused rather than passed ` +
+        `unchecked (set SPONSIO_ALLOW_MISSING_ARGS=1 to allow).`;
+      return {
+        desc: message,
+        message,
+        action: "blocked",
+        ruleId: "args:unevaluable",
+        agentMsg:
+          `The action \`${toolName}\` was rejected because \`${field}\` ` +
+          `must be a plain number. Retry with a numeric value.`,
+      };
+    }
+    return null;
+  }
+
+  /**
    * Check a tool call against contracts before execution.
    *
    * On block, **all** mutations made by ``groundEvent`` are rolled back via a
@@ -508,6 +626,21 @@ export class Sponsio {
   }
 
   guardBefore(toolName: string, args: Record<string, unknown> = {}): CheckResult {
+    const unevaluable = this._unevaluableArgs(toolName, args);
+    if (unevaluable) {
+      const violations = [unevaluable.message];
+      this._violations.push(...violations);
+      this._logViolations(toolName, violations, [unevaluable.desc], "blocked");
+      return {
+        ...deriveVerdict([unevaluable]),
+        allowed: false,
+        message: unevaluable.message,
+        violations,
+        detViolations: [unevaluable],
+        stoViolations: [],
+      };
+    }
+
     const event: ToolEvent = { tool: toolName, args };
     const snapshot = this._snapshotState();
     const valuation = groundEvent(event, this._state, this._contentAtoms);
@@ -755,6 +888,7 @@ export class Sponsio {
       callCounts: { ...this._state.callCounts },
       callWithCounts: { ...this._state.callWithCounts },
       lastTool: this._state.lastTool,
+      lastToolAliases: [...this._state.lastToolAliases],
       consecutiveCounts: { ...this._state.consecutiveCounts },
       tokenCounts: { ...this._state.tokenCounts },
       delegationDepth: this._state.delegationDepth,

@@ -13,16 +13,10 @@ whenever the contract trips. Failure isolation is also demonstrated:
 one broken webhook (PagerDuty outage) does NOT stop the other
 notifiers from firing, and the escalation outcome still surfaces.
 
-**Limitation to be honest about**: today ``EscalateToHuman`` produces
-``action="escalated"`` and the integration adapters do NOT gate the
-call on this action (only on ``blocked``). That is intentional: the
-monitor uses an unfired-assumption verdict as a default "escalated"
-literal, and gating ``allowed`` on it would break every conditional
-contract whose assumption hasn't fired yet. To get **block + notify**
-in the same step today, pair ``DetBlock`` (the strategy that gates
-``allowed``) with the same notifier callables via
-``monitor.register_callback``. This example uses that pairing so the
-agent really does stop.
+Since 0.2.0a17 ``EscalateToHuman`` refuses the call by default, so
+**block + notify** is one strategy: ``result.allowed`` is False and
+``result.escalated`` is True. Pass ``hold=False`` for notify-only.
+(Before a17 the call ran, and this example had to gate it by hand.)
 
 Run::
 
@@ -113,24 +107,16 @@ def run() -> int:
     # 1. A normal allowed call. no escalation, no notify.
     print(">> step 1: agent reads an invoice (allowed)")
     r1 = guard.guard_before("read_invoice", {"invoice_id": "INV-001"})
-    print(
-        f"   allowed={r1.allowed}  escalated={any(v.action == 'escalated' for v in r1.det_violations)}"
-    )
+    print(f"   allowed={r1.allowed}  escalated={r1.escalated}")
 
     # 2. A wire to an unapproved external service. rule fires.
-    # EscalateToHuman fires the notifiers. To ALSO refuse the call
-    # today, the example uses a thin wrapper around guard_before that
-    # treats action="escalated" as a hard stop on the application side.
-    # The runtime itself only gates `allowed` on action="blocked"
-    # (see EscalateToHuman docstring for the rationale).
+    # EscalateToHuman fires the notifiers and refuses the call.
     print()
     print(">> step 2: agent attempts `wire_transfer` (not approved)")
     r2 = guard.guard_before("wire_transfer", {"to": "vendor_X", "amount": 250000})
-    escalated = any(v.action == "escalated" for v in r2.det_violations)
-    application_allowed = r2.allowed and not escalated
-    print(f"   raw guard_before allowed:    {r2.allowed}")
-    print(f"   escalation fired:            {escalated}")
-    print(f"   application-level allowed:   {application_allowed}")
+    escalated = r2.escalated
+    print(f"   allowed:          {r2.allowed}")
+    print(f"   escalation fired: {escalated}")
     print(f"   agent will see: {r2.det_violations[0].agent_msg}")
 
     print()
@@ -149,11 +135,11 @@ def run() -> int:
     if not escalated:
         print("FAIL: escalation action didn't fire on the violation")
         return 1
-    if application_allowed:
-        print("FAIL: application-level allowed should be False on escalation")
+    if r2.allowed:
+        print("FAIL: the escalated call should have been refused")
         return 1
     print()
-    print("PASS: escalation fired notifiers AND the application gated the call,")
+    print("PASS: escalation fired notifiers AND refused the call,")
     print("PASS: the broken notifier's exception did not crash the agent loop.")
     return 0
 

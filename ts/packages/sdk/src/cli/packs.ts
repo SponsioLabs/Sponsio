@@ -25,13 +25,7 @@ const PACKS: Pack[] = [
     name: "sponsio:core/universal",
     rules: 0,
     ruleType: "det",
-    description: "Empty stub in this build. The output-quality contracts (injection / jailbreak / toxic / PII / harm) moved to sponsio:core/llm_safety, which is not supported in this build (the engine is deterministic-only).",
-  },
-  {
-    name: "sponsio:core/llm_safety",
-    rules: 5,
-    ruleType: "sto",
-    description: "Not supported in this build (the engine is deterministic-only). LLM-judge safety net: injection_free / jailbreak_free / harmful / toxic_free / semantic_pii_free.",
+    description: "Empty stub in this build. The stochastic output-safety contracts it once shipped were removed (the engine is deterministic-only).",
   },
   {
     name: "sponsio:core/runaway",
@@ -44,6 +38,18 @@ const PACKS: Pack[] = [
     rules: 11,
     ruleType: "det",
     description: "Any tool executing shell commands — dangerous verbs, force flags, rate caps.",
+  },
+  {
+    name: "sponsio:capability/destructive",
+    rules: 11,
+    ruleType: "det",
+    description: "Destructive / irreversible operations the other capability packs don't cover: unconditional denies plus count-gated confirmations.",
+  },
+  {
+    name: "sponsio:capability/factual-claims",
+    rules: 3,
+    ruleType: "det",
+    description: "Evidence obligations for factual claims. Needs a Sponsio Cloud key: verdicts come from the cloud evidence API.",
   },
   {
     name: "sponsio:capability/filesystem",
