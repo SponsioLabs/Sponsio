@@ -175,10 +175,23 @@ agents:
 
 ## Pattern vocabulary
 
-(Same as plugin scan — `arg_blacklist`, `arg_value_range`,
-`arg_length_limit`, `rate_limit`, `loop_detection`,
-`irreversible_once`, `must_precede`.  See
-``sponsio plugin prompt mcp-bare`` for full signatures.)
+Run ``sponsio patterns`` and use the FULL list it prints — do not
+rely on a memorized subset.  The library spans temporal ordering
+(`must_precede`, `no_reversal`, `always_followed_by`, …), argument &
+path constraints (`arg_blacklist`, `arg_allowlist`, `scope_limit`,
+`arg_value_range`, `arg_length_limit`, …), OWASP presets
+(`dangerous_sql_verbs`, `dangerous_bash_commands`,
+`destructive_action_gate`, `tool_allowlist`, …), rate / resource
+caps (`rate_limit`, `idempotent`, `loop_detection`, …), and data
+flow (`no_data_leak`).  Policy docs about SQL safety, data
+isolation, taint, or approval gates almost always need patterns
+outside the arg-constraint family — check the full list before
+concluding a rule can't be expressed.
+
+If no pattern fits, two fallbacks (in order): a plain NL rule that
+``sponsio validate`` accepts, or a raw formula over the atomic
+propositions in ``sponsio/tracer/grounding.py`` (`called`,
+`called_with`, `arg_has`, `arg_field_has`, `contains`, `flow`).
 
 ## Source tagging
 

@@ -25,6 +25,8 @@
 
 import { predKey } from "./formula.js";
 import type { Formula } from "./formula.js";
+import { numericString } from "./evaluator.js";
+import { canonicalTool, toolAliases } from "./tool-names.js";
 
 /**
  * Public event shape consumed by the grounding kernel. ``tool`` is
@@ -51,7 +53,13 @@ export interface ToolEvent {
 export interface GroundingState {
   callCounts: Record<string, number>;
   callWithCounts: Record<string, number>;
+  /** Canonical spelling of the previous tool (see core/tool-names.ts). */
   lastTool: string | null;
+  /**
+   * Every spelling the previous call was grounded under, so a tool change
+   * zeroes all of them rather than only the raw name.
+   */
+  lastToolAliases: string[];
   consecutiveCounts: Record<string, number>;
   tokenCounts: Record<string, number>;
   delegationDepth: number;
@@ -84,6 +92,7 @@ export function newGroundingState(): GroundingState {
     callCounts: {},
     callWithCounts: {},
     lastTool: null,
+    lastToolAliases: [],
     consecutiveCounts: {},
     tokenCounts: {},
     delegationDepth: 0,
@@ -253,6 +262,44 @@ export function validateContentPatterns(
   }
 }
 
+/**
+ * Read a tool argument as a number, the way a numeric cap needs it.
+ *
+ * ``"$5,000"``, ``"5,000"`` and ``"5000 USD"`` are the shapes a model
+ * writes for an amount. ``parseFloat`` read ``"5,000"`` as ``5`` and
+ * ``"$5,000"`` as nothing at all, and the evaluator reads a missing
+ * ``arg_numeric`` as ``0``, so ``argValueRange`` waved them through a cap
+ * that stopped ``5000``. The normalisation is the one ordered comparisons
+ * already use (``numericString`` in core/evaluator.ts), so both paths
+ * agree. Parity with Python ``numeric_arg`` in sponsio/tracer/grounding.py:
+ * a boolean reads as 0/1, a number as itself, anything else as undefined.
+ */
+export function numericArg(value: unknown): number | undefined {
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const n = numericString(value);
+    return n === null ? undefined : n;
+  }
+  return undefined;
+}
+
+/**
+ * Does a contract's target tool name the tool this event called?
+ *
+ * The target is canonicalised and looked up among every spelling the
+ * event answers to (see core/tool-names.ts), so a rule on ``issue_refund``
+ * binds ``Issue_Refund``, ``"issue_refund "`` and
+ * ``mcp__finance__issue_refund``. Parity with Python ``_tool_matches``
+ * for plain names; the ``tool:argpattern`` form is split by the pattern
+ * factories before it reaches grounding in this runtime.
+ */
+export function toolMatches(targetTool: string, aliases: Iterable<string>): boolean {
+  const target = canonicalTool(targetTool);
+  for (const a of aliases) if (a === target) return true;
+  return false;
+}
+
 export function groundEvent(
   event: ToolEvent,
   state: GroundingState,
@@ -272,27 +319,43 @@ export function groundEvent(
     const tool = event.tool;
     const argsStr = event.args ? JSON.stringify(event.args) : "";
 
-    // called(tool)
-    v[predKey("called", tool)] = true;
+    // called(tool) — grounded under every spelling a contract could
+    // reasonably have named it by: exact, whitespace-stripped, case-folded,
+    // and the bare name behind an ``mcp__server__`` prefix. A rule written
+    // against ``issue_refund`` was otherwise inert against
+    // ``mcp__finance__issue_refund``, and with ``mustPrecede`` compiling to
+    // ``Or(order-holds, never-called)`` that read as "satisfied".
+    const aliases = toolAliases(tool);
+    for (const alias of aliases) v[predKey("called", alias)] = true;
 
     // called_any — fires whenever any tool is invoked. Used by
     // ``tool_allowlist`` to encode "whenever any tool runs, it must
     // be one of the allowed ones".
     v[predKey("called_any")] = true;
 
-    // count(tool)
-    state.callCounts[tool] = (state.callCounts[tool] || 0) + 1;
-    v[predKey("count", tool)] = state.callCounts[tool];
-
-    // consecutive_count(tool)
-    if (tool === state.lastTool) {
-      state.consecutiveCounts[tool] = (state.consecutiveCounts[tool] || 1) + 1;
-    } else {
-      if (state.lastTool) state.consecutiveCounts[state.lastTool] = 0;
-      state.consecutiveCounts[tool] = 1;
+    // count(tool) — one counter per alias, so ``rateLimit("issue_refund")``
+    // counts the MCP-prefixed and differently-cased calls too.
+    for (const alias of aliases) {
+      state.callCounts[alias] = (state.callCounts[alias] || 0) + 1;
+      v[predKey("count", alias)] = state.callCounts[alias];
     }
-    state.lastTool = tool;
-    v[predKey("consecutive_count", tool)] = state.consecutiveCounts[tool];
+
+    // consecutive_count(tool) — keyed per alias like ``count``; "same tool
+    // again" is decided on the canonical form.
+    const canonical = canonicalTool(tool);
+    if (canonical === state.lastTool) {
+      for (const alias of aliases) {
+        state.consecutiveCounts[alias] = (state.consecutiveCounts[alias] || 1) + 1;
+      }
+    } else {
+      for (const stale of state.lastToolAliases) state.consecutiveCounts[stale] = 0;
+      for (const alias of aliases) state.consecutiveCounts[alias] = 1;
+    }
+    state.lastTool = canonical;
+    state.lastToolAliases = aliases;
+    for (const alias of aliases) {
+      v[predKey("consecutive_count", alias)] = state.consecutiveCounts[alias];
+    }
 
     // arg_value(tool, field) — raw value for Term-based lookups.
     // ``ArgValue(tool, field)`` reads state[predKey("arg_value", tool,
@@ -319,7 +382,7 @@ export function groundEvent(
         if (parts.length >= 2) {
           const targetTool = parts[0];
           const pattern = parts.slice(1).join("|");
-          if (targetTool === tool) {
+          if (toolMatches(targetTool, aliases)) {
             const matched = new RegExp(pattern).test(argsStr);
             v[predKey("called_with", targetTool, pattern)] = matched;
             if (matched) {
@@ -340,7 +403,7 @@ export function groundEvent(
           if (parts.length >= 2) {
             const targetTool = parts[0];
             const pattern = parts.slice(1).join("|");
-            if (targetTool === tool) {
+            if (toolMatches(targetTool, aliases)) {
               v[predKey("arg_has", targetTool, pattern)] = new RegExp(pattern).test(argsStr);
             }
           }
@@ -356,7 +419,7 @@ export function groundEvent(
             const targetTool = parts[0];
             const field = parts[1];
             const pattern = parts.slice(2).join("|");
-            if (targetTool === tool) {
+            if (toolMatches(targetTool, aliases)) {
               const fieldVal = event.args[field];
               const matched = fieldVal != null && new RegExp(pattern).test(String(fieldVal));
               v[predKey("arg_field_has", targetTool, field, pattern)] = matched;
@@ -374,7 +437,7 @@ export function groundEvent(
             const targetTool = parts[0];
             const field = parts[1];
             const maxChars = parseInt(parts[2], 10) || 500;
-            if (targetTool === tool) {
+            if (toolMatches(targetTool, aliases)) {
               const fieldVal = event.args[field] ?? "";
               v[predKey("arg_length_exceeds", targetTool, field, String(maxChars))] =
                 String(fieldVal).length > maxChars;
@@ -394,14 +457,14 @@ export function groundEvent(
           if (parts.length >= 2) {
             const targetTool = parts[0];
             const field = parts[1];
-            if (targetTool === tool) {
+            if (toolMatches(targetTool, aliases)) {
               let numericVal: number | null = null;
 
-              // Strategy 1: direct dict key
-              if (event.args && field in event.args) {
-                const val = event.args[field];
-                const n = typeof val === "number" ? val : parseFloat(String(val));
-                if (!isNaN(n)) numericVal = n;
+              // Strategy 1: direct dict key, read with the same
+              // normaliser ordered comparisons use ("$5,000" -> 5000).
+              if (event.args && Object.prototype.hasOwnProperty.call(event.args, field)) {
+                const n = numericArg(event.args[field]);
+                if (n !== undefined) numericVal = n;
               }
 
               // Strategy 2: CLI --field VALUE
@@ -438,7 +501,7 @@ export function groundEvent(
           if (parts.length >= 2) {
             const targetTool = parts[0];
             const prefixes = parts.slice(1);
-            if (targetTool === tool) {
+            if (toolMatches(targetTool, aliases)) {
               const paths = argsStr.match(/(\/[^\s;|&>"']+)/g) ?? [];
               const allWithin = paths.length === 0 ||
                 paths.every((p) => prefixes.some((pre) => pathWithin(p, pre)));

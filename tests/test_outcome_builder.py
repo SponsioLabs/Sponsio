@@ -129,14 +129,15 @@ def test_alternatives_round_trip_through_block_outcome():
     assert out.alternatives == ["refund_partial", "escalate_to_supervisor"]
 
 
-def test_escalate_carries_wait_voice_in_agent_msg():
+def test_escalate_tells_the_agent_the_call_did_not_run():
     out = EscalateToHuman(reason="manual review required").enforce(
         _det_violation(), _ctx()
     )
-    assert out.action == "escalated"
-    # Wait/pause voice — distinct from block (abandon) and retry
-    # (regenerate). Agent should hold, not switch tactics.
-    assert "wait" in out.agent_msg.lower() or "paused" in out.agent_msg.lower()
+    assert out.action == "blocked" and out.escalation
+    # Refused, not paused: nothing resumes a held call, so the agent is
+    # told it did not run and not to retry until a human approves.
+    assert "not executed" in out.agent_msg
+    assert "approv" in out.agent_msg
 
 
 def test_warn_carries_no_agent_msg():

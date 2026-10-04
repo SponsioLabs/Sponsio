@@ -197,6 +197,30 @@ def _path_within(path: str, prefix: str) -> bool:
     return normalized == root or normalized.startswith(root + "/")
 
 
+def numeric_arg(value: object) -> int | float | None:
+    """Read a tool argument as a number, the way a numeric cap needs it.
+
+    ``"$5,000"``, ``"5,000"`` and ``"5000 USD"`` are the shapes a model
+    writes for an amount. Parsing them with ``int()`` / ``float()`` failed,
+    left ``arg_numeric`` unset, and the evaluator read the gap as ``0``, so
+    ``arg_value_range`` waved them through a cap that stopped ``5000``. The
+    normalisation is the one ordered comparisons already use
+    (:mod:`sponsio.formulas._compare`), so both paths agree.
+    """
+    from sponsio.formulas._compare import _numeric_string
+
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        n = _numeric_string(value)
+        if n is None:
+            return None
+        return int(n) if n.is_integer() and abs(n) < 2**53 else n
+    return None
+
+
 def _tool_matches(target_tool: str, event_tool: str, args_str: str) -> bool:
     """Check if a target tool spec matches the current event.
 
@@ -466,13 +490,7 @@ def ground_event(
                         numeric_val = None
                         # Strategy 1: direct dict key
                         if event.args and field in event.args:
-                            try:
-                                numeric_val = int(event.args[field])
-                            except (ValueError, TypeError):
-                                try:
-                                    numeric_val = float(event.args[field])
-                                except (ValueError, TypeError):
-                                    pass
+                            numeric_val = numeric_arg(event.args[field])
                         # Strategy 2: CLI --field VALUE
                         if numeric_val is None and args_str:
                             m = re.search(

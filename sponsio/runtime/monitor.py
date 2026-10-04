@@ -718,7 +718,9 @@ class RuntimeMonitor:
         )
         strategy = self._policy.get(a_verdict.lookup_key)
         if strategy is None:
-            strategy = EscalateToHuman()
+            # Notify-only: a broken assumption flags the upstream flow,
+            # it does not by itself make this action unsafe.
+            strategy = EscalateToHuman(hold=False)
 
         collector.add_violation(
             kind="assumption",

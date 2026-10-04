@@ -1,0 +1,79 @@
+# =============================================================================
+# sponsio/contracts/capability/factual-claims.yaml
+#
+# Capability pack — evidence obligations for factual claims.
+#
+# REQUIRES A SPONSIO CLOUD KEY. Verdicts are produced by the cloud
+# evidence API (POST /v1/evidence/verify); the runtime computes none of
+# them. The integration calls ``client.evidence.verify(...)`` and feeds
+# ``EvidenceResult.to_event(...)`` into the trace; that grounds three
+# atom families this pack composes:
+#
+#   claim_emitted(pred)             a claim of this predicate was emitted
+#   evidence_verdict(pred, V)       the server's verdict for it (PASS /
+#                                   MISMATCH / UNDERDETERMINED /
+#                                   NO_EVIDENCE / STALE /
+#                                   SOURCE_UNAVAILABLE /
+#                                   EXTRACTION_AMBIGUOUS)
+#   evidence_action(pred, a)        the server's policy action
+#                                   (release / block / clarify /
+#                                   re_resolve)
+#
+# Two shapes:
+#
+#   § A — claim_requires_evidence(pred):
+#         G(claim_emitted(pred) -> evidence_verdict(pred, PASS)).
+#         Any claim whose verdict is not PASS violates at the timestep
+#         the verdict lands.
+#
+#   § B — underdetermined_must_clarify(pred):
+#         G(evidence_verdict(pred, UNDERDETERMINED) ->
+#           evidence_action(pred, clarify)).
+#         Guards the policy wiring: ambiguous evidence must resolve to
+#         a clarify action, never a silent release.
+#
+# Without a cloud key no ``evidence`` events exist, both atom families
+# stay un-grounded, and every rule below is vacuously satisfied — the
+# pack does nothing rather than something wrong.
+#
+# The predicate names below are the two self-serve built-ins used across
+# the docs; replace them with the predicates your project actually
+# protects (GET /v1/evidence/predicates lists them).
+#
+# Include via:
+#   include:
+#     - sponsio:capability/factual-claims
+# =============================================================================
+
+agents:
+  "*":
+    contracts:
+
+      # ===================================================================
+      # § A — claims must verify (PASS or it doesn't ship)
+      # ===================================================================
+
+      - desc: "Weekday claims must match the calendar (cloud-verified)"
+        G:
+          pattern: claim_requires_evidence
+          args:
+            - date_weekday_agreement
+        source: "library:evidence.factual-claims"
+
+      - desc: "ZIP claims for a city must verify against reference data (cloud-verified)"
+        G:
+          pattern: claim_requires_evidence
+          args:
+            - city_zip_candidates
+        source: "library:evidence.factual-claims"
+
+      # ===================================================================
+      # § B — ambiguous evidence must clarify, never silently release
+      # ===================================================================
+
+      - desc: "Ambiguous city→ZIP evidence must trigger clarification"
+        G:
+          pattern: underdetermined_must_clarify
+          args:
+            - city_zip_candidates
+        source: "library:evidence.factual-claims"

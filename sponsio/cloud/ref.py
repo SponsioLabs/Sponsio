@@ -12,7 +12,9 @@ have to guess which rulebook is running:
 
 1. **Cloud** — fetch, cache, use it. Prints the version and sha.
 2. **Cache** — network down but we pulled before: use the cached copy and say
-   it is stale.
+   it is stale. The copy carries an HMAC keyed with the API key, written at
+   pull time; a copy that fails it (edited, or written by something without
+   the key) is not used.
 3. **Local yaml** — never pulled: fall back to ``sponsio.yaml`` next to the
    process and say so.
 4. **Nothing** — raise. Running an agent with no contracts because the network
@@ -25,6 +27,7 @@ and steps 3-4 apply directly.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 import re
 from dataclasses import dataclass
@@ -87,6 +90,32 @@ def cache_path(ref: CloudRef) -> Path:
     return cache_dir() / name
 
 
+def _mac_path(cached: Path) -> Path:
+    return cached.with_name(cached.name + ".mac")
+
+
+def _mac(api_key: str, text: str) -> str:
+    return hmac.new(api_key.encode(), text.encode(), hashlib.sha256).hexdigest()
+
+
+def _cache_is_intact(cached: Path, api_key: str | None) -> bool:
+    """True when ``cached`` is byte-for-byte what a pull with this key wrote.
+
+    The cache sits in the user's home, where the agent being guarded can
+    often write. A copy that cannot be verified is treated as absent:
+    falling through to the local file, or refusing to start, beats
+    enforcing a rulebook someone else edited.
+    """
+    if not api_key:
+        return False
+    try:
+        text = cached.read_text()
+        expected = _mac_path(cached).read_text().strip()
+    except OSError:
+        return False
+    return hmac.compare_digest(_mac(api_key, text), expected)
+
+
 def _find_local_fallback(start: Path | None = None) -> Path | None:
     base = start or Path.cwd()
     for name in LOCAL_FALLBACKS:
@@ -137,6 +166,7 @@ def resolve_config_ref(
             try:
                 cached.parent.mkdir(parents=True, exist_ok=True)
                 cached.write_text(pulled.yaml_text)
+                _mac_path(cached).write_text(_mac(client.api_key, pulled.yaml_text))
             except OSError as exc:  # cache is an optimisation, not a requirement
                 _say(f"could not write cache: {exc}", quiet=quiet)
                 scratch = (
@@ -174,10 +204,16 @@ def resolve_config_ref(
         )
 
     if cached.is_file():
-        # Not "stale": we have no TTL and no way to know whether the book
-        # moved. Say what is true — this is the last copy we pulled.
-        _say(f"rulebook ← last cached copy · {cached}", quiet=quiet)
-        return cached
+        if _cache_is_intact(cached, client.api_key):
+            # Not "stale": we have no TTL and no way to know whether the
+            # book moved. Say what is true — this is the last copy we pulled.
+            _say(f"rulebook ← last cached copy · {cached}", quiet=quiet)
+            return cached
+        _say(
+            f"cached copy at {cached} cannot be verified against this API key "
+            f"(edited, or pulled before 0.2.0a17); not using it",
+            quiet=quiet,
+        )
 
     local = _find_local_fallback(cwd)
     if local is not None:

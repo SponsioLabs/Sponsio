@@ -1,0 +1,213 @@
+# =============================================================================
+# sponsio/contracts/capability/destructive.yaml
+#
+# Capability pack — destructive / irreversible operations that the
+# other capability packs don't already cover.  Two LTL shapes, both
+# using existing grounding atoms (``called_with``, ``count``,
+# ``count_with``).
+#
+#   § A — unconditional deny.  ``G: arg_blacklist(...)`` compiles to
+#         ``G(called_with(tool, param, regex) -> false)``.  No
+#         override path; the only way to allow is an operator
+#         ``overrides:`` with ``disabled: true``.
+#
+#   § B — gated by per-call confirm marker.  Raw LTL of the form
+#         ``G(called_with(<tool>, <regex>) ->
+#            count(confirm_destructive_action) >=
+#            count_with(<tool>, <regex>))``.
+#         Every destructive call must be matched by a fresh
+#         ``confirm_destructive_action`` marker — agent cannot
+#         reuse one confirm to cover multiple destructives.
+#         Violation = host adapter's choice of how to surface
+#         (deny / ask).  Mode A hosts (Claude Code,
+#         OpenClaw) translate to ``permissionDecision: ask`` /
+#         ``requireApproval`` independently of the contract layer.
+#
+# Scope (deliberately narrow):
+#
+#   This pack only covers categories the other capability packs
+#   miss.  Specifically, it does NOT re-cover:
+#
+#     - DROP / TRUNCATE / DELETE / dropdb / FLUSHALL / alembic
+#       downgrade base / data-dir deletes  ── ``database.yaml``
+#       already bans these unconditionally; a confirm-marker
+#       version would be strictly weaker.
+#     - rm -rf of system roots, dd, mkfs, fork bomb  ── ``shell.yaml``
+#       already bans these unconditionally.
+#     - SSH key / dotenv / credentials reads or overwrites  ──
+#       ``credentials.yaml`` / ``filesystem.yaml``.
+#
+#   What this pack adds is the *infra control plane*, *git history*,
+#   *mass-file*, and *MCP-tool* layers — categories where the blast
+#   radius is "wipe production" but the surface (cloud CLI / HTTP
+#   API / MCP tool / git mutation) isn't a shell builtin or SQL
+#   statement and so isn't caught by the existing packs.
+#
+# Real-world incidents this pack defends against:
+#
+#   - PocketOS / Cursor / Claude Opus 4.6 (2026-04-27): agent in
+#     staging deleted production Railway volume + all backups in
+#     9 seconds.  § B gating on the Railway CLI form
+#     (``railway volume delete``) AND the HTTP API form
+#     (``curl -X DELETE backboard.railway.app/...``) would have
+#     demanded a per-call confirm marker first.  The third form —
+#     in-process SDK call from a Python/Node script — sits outside
+#     the shell-tool boundary; catching that requires Mode B
+#     (`sponsio.Sponsio()` wrapping the agent loop where the SDK
+#     `delete_volume` tool call is visible directly).
+#   - claude-code issue #30475 (closed-as-duplicate, recurring):
+#     "Agent commits and pushes changes without waiting for user
+#     approval."  § B on force-push to protected branches.
+#
+# Marker convention:
+#   ``confirm_destructive_action`` is the integration's signal that
+#   the user has explicitly approved a destructive operation
+#   through the host UI.  Sub-agents are not expected to emit it
+#   directly — their work product flows back to the main agent,
+#   which surfaces an ``ask``-style confirmation prompt and emits
+#   the marker on user approval.  Without the marker, every § B
+#   call fails the per-call count comparison.
+#
+#   This marker is independent of ``shell.yaml``'s
+#   ``confirm_reconfirmed`` marker — each pack defines its own so
+#   a single user click can't unintentionally satisfy multiple
+#   distinct gates.
+#
+# Include via:
+#   include:
+#     - sponsio:capability/destructive
+#
+# Tool naming:
+#   The pack uses canonical ``exec`` for the shell tool.  Both
+#   ``_host.yaml`` and ``_host_subagent.yaml`` rename ``exec: Bash``;
+#   ``_host_openclaw.yaml`` uses canonical ``exec`` directly.  For
+#   plugin tools (``mcp__<server>__<tool>``) the rule references
+#   the namespaced name verbatim.
+#
+# Source tag convention:
+#   library:tier1.destructive.{always,confirm}
+# =============================================================================
+
+version: "1"
+
+tools:
+  - name: exec
+    description: "Shell command execution"
+    params: "command: str"
+  - name: confirm_destructive_action
+    description: "Marker tool the integration emits when the user explicitly approves a destructive operation."
+    params: "operation: str"
+
+agents:
+  "*":
+    contracts:
+
+      # ===================================================================
+      # § A — unconditional deny (G(¬destructive))
+      # ===================================================================
+
+      - desc: "Ban git history rewrites that obliterate state silently (filter-branch / filter-repo)"
+        G:
+          pattern: arg_blacklist
+          args:
+            - exec
+            - command
+            - - "\\bgit\\b[^|;&]*?\\bfilter-(branch|repo)\\b"
+        source: "library:tier1.destructive.always"
+
+      # ===================================================================
+      # § B — per-call confirm marker required
+      # ===================================================================
+      #
+      # LTL idiom:  G(called_with(t, r) ->
+      #               count(confirm_destructive_action)
+      #                  >= count_with(t, r))
+      #
+      # Every match of the destructive regex must be matched by a
+      # fresh confirm marker — confirms are not reusable across
+      # different destructive ops within the same session.
+
+      - desc: "git force-push to protected branches needs per-call confirm_destructive_action (PocketOS-class blast radius)"
+        G:
+          ltl: >-
+            G(called_with(exec, "\\bgit\\b[^|;&]*?\\bpush\\b[^|;&]*?(--force|--force-with-lease|\\s-f\\b)[^|;&]*?\\b(main|master|release|prod|production)\\b")
+              -> count(confirm_destructive_action)
+                  >= count_with(exec, "\\bgit\\b[^|;&]*?\\bpush\\b[^|;&]*?(--force|--force-with-lease|\\s-f\\b)[^|;&]*?\\b(main|master|release|prod|production)\\b"))
+        source: "library:tier1.destructive.confirm"
+
+      - desc: "git reset --hard / clean -fdx needs per-call confirm_destructive_action (drops local work)"
+        G:
+          ltl: >-
+            G(called_with(exec, "\\bgit\\b[^|;&]*?\\b(reset\\b[^|;&]*?\\b--hard|clean\\b[^|;&]*?\\b-[fdx]+)\\b")
+              -> count(confirm_destructive_action)
+                  >= count_with(exec, "\\bgit\\b[^|;&]*?\\b(reset\\b[^|;&]*?\\b--hard|clean\\b[^|;&]*?\\b-[fdx]+)\\b"))
+        source: "library:tier1.destructive.confirm"
+
+      - desc: "Cloud volume / cluster delete needs per-call confirm_destructive_action (PocketOS Railway pattern)"
+        G:
+          ltl: >-
+            G(called_with(exec, "\\b(railway\\s+(volume|service|environment|project)\\s+delete|aws\\s+ec2\\s+delete-volume|aws\\s+rds\\s+delete-(db-instance|db-cluster|db-snapshot)|aws\\s+s3\\s+rb|gcloud\\s+(sql|compute|container)\\s+\\S+\\s+delete|kubectl\\s+delete\\s+(pv|pvc|namespace|cluster)|fly\\s+(volumes|apps)\\s+destroy|heroku\\s+apps:destroy|terraform\\s+destroy|pulumi\\s+destroy|docker\\s+volume\\s+rm)\\b")
+              -> count(confirm_destructive_action)
+                  >= count_with(exec, "\\b(railway\\s+(volume|service|environment|project)\\s+delete|aws\\s+ec2\\s+delete-volume|aws\\s+rds\\s+delete-(db-instance|db-cluster|db-snapshot)|aws\\s+s3\\s+rb|gcloud\\s+(sql|compute|container)\\s+\\S+\\s+delete|kubectl\\s+delete\\s+(pv|pvc|namespace|cluster)|fly\\s+(volumes|apps)\\s+destroy|heroku\\s+apps:destroy|terraform\\s+destroy|pulumi\\s+destroy|docker\\s+volume\\s+rm)\\b"))
+        source: "library:tier1.destructive.confirm"
+
+      - desc: "GitHub MCP delete_repository needs per-call confirm_destructive_action"
+        G:
+          ltl: >-
+            G(called(mcp__github__delete_repository)
+              -> count(confirm_destructive_action) >= count(mcp__github__delete_repository))
+        source: "library:tier1.destructive.confirm"
+
+      - desc: "Railway MCP delete_volume needs per-call confirm_destructive_action (PocketOS pattern)"
+        G:
+          ltl: >-
+            G(called(mcp__railway__delete_volume)
+              -> count(confirm_destructive_action) >= count(mcp__railway__delete_volume))
+        source: "library:tier1.destructive.confirm"
+
+      - desc: "AWS MCP delete_volume needs per-call confirm_destructive_action"
+        G:
+          ltl: >-
+            G(called(mcp__aws__delete_volume)
+              -> count(confirm_destructive_action) >= count(mcp__aws__delete_volume))
+        source: "library:tier1.destructive.confirm"
+
+      - desc: "Supabase MCP delete_database needs per-call confirm_destructive_action"
+        G:
+          ltl: >-
+            G(called(mcp__supabase__delete_database)
+              -> count(confirm_destructive_action) >= count(mcp__supabase__delete_database))
+        source: "library:tier1.destructive.confirm"
+
+      - desc: "GitHub repo deletion via gh CLI needs per-call confirm_destructive_action"
+        G:
+          ltl: >-
+            G(called_with(exec, "\\b(gh\\s+repo\\s+delete|hub\\s+delete)\\b")
+              -> count(confirm_destructive_action)
+                  >= count_with(exec, "\\b(gh\\s+repo\\s+delete|hub\\s+delete)\\b"))
+        source: "library:tier1.destructive.confirm"
+
+      - desc: "Mass file delete (find -delete / xargs rm) needs per-call confirm_destructive_action"
+        G:
+          ltl: >-
+            G(called_with(exec, "\\bfind\\s+\\S+[^|;&]*?(\\s-delete|\\|\\s*xargs\\s+rm)\\b")
+              -> count(confirm_destructive_action)
+                  >= count_with(exec, "\\bfind\\s+\\S+[^|;&]*?(\\s-delete|\\|\\s*xargs\\s+rm)\\b"))
+        source: "library:tier1.destructive.confirm"
+
+      # PocketOS / Cursor (2026-04-27) almost certainly went through
+      # the Railway HTTP API, not the CLI — "single API call to
+      # Railway" is the operative wording.  curl / wget / httpie / xh
+      # carrying DELETE to known infra endpoints (Railway, AWS,
+      # GCP, Heroku, Fly, Vercel, DO, Linode, Cloudflare, Supabase)
+      # gates on the same confirm marker.  Generic curl with DELETE
+      # to arbitrary URLs is intentionally NOT gated here — too many
+      # legitimate REST API uses; users get the gate exactly where
+      # the blast radius is "wipe production infra".
+      - desc: "HTTP DELETE to cloud infra control planes needs per-call confirm_destructive_action (PocketOS API path)"
+        G:
+          ltl: >-
+            G(called_with(exec, "\\b(curl|wget|http|https|httpie|xh)\\b[^|;&]*?(-X\\s+DELETE|--request\\s+DELETE|\\sDELETE\\b)[^|;&]*?(railway\\.app|amazonaws\\.com|googleapis\\.com|heroku\\.com|fly\\.io|vercel\\.com|digitalocean\\.com|linode\\.com|cloudflare\\.com|supabase\\.co|planetscale\\.com|neon\\.tech|render\\.com|fly\\.dev|backboard\\.railway\\.app)")
+              -> count(confirm_destructive_action)
+                  >= count_with(exec, "\\b(curl|wget|http|https|httpie|xh)\\b[^|;&]*?(-X\\s+DELETE|--request\\s+DELETE|\\sDELETE\\b)[^|;&]*?(railway\\.app|amazonaws\\.com|googleapis\\.com|heroku\\.com|fly\\.io|vercel\\.com|digitalocean\\.com|linode\\.com|cloudflare\\.com|supabase\\.co|planetscale\\.com|neon\\.tech|render\\.com|fly\\.dev|backboard\\.railway\\.app)"))
+        source: "library:tier1.destructive.confirm"

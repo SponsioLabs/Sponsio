@@ -405,6 +405,62 @@ def _apply_install_mode_to_host_buckets(
     return out
 
 
+def _apply_strict_to_host_buckets(host_name: str) -> list[tuple[Path, str]]:
+    """Stamp ``defaults.unconfigured: deny`` on the host's buckets.
+
+    The hook reads this key when a tool's namespace has no contract
+    library (any MCP server outside the shipped examples): ``deny``
+    refuses the call instead of running it unchecked. Unlike the mode,
+    an explicit ``--strict`` is a request, so an existing
+    ``unconfigured:`` line is rewritten rather than kept. Same
+    line-walking approach as :func:`_apply_install_mode_to_host_buckets`.
+    """
+    import os as _os
+
+    root_env = _os.environ.get("SPONSIO_PLUGIN_ROOT")
+    root = (
+        Path(root_env).expanduser()
+        if root_env
+        else Path.home() / ".sponsio" / "plugins"
+    )
+    out: list[tuple[Path, str]] = []
+    for bucket in _bucket_for_host_name(host_name):
+        path = root / bucket / "sponsio.yaml"
+        if not path.exists():
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        except OSError as e:
+            out.append((path, f"could not read: {e}"))
+            continue
+        entry = "  unconfigured: deny  # tools with no contract library are refused\n"
+        defaults_at = next(
+            (i for i, line in enumerate(lines) if line.rstrip() == "defaults:"),
+            None,
+        )
+        if defaults_at is None:
+            lines[:0] = ["defaults:\n", entry, "\n"]
+        else:
+            existing = None
+            for i in range(defaults_at + 1, len(lines)):
+                line = lines[i]
+                if line.strip() and not line[0].isspace():
+                    break
+                if line.lstrip().startswith("unconfigured:"):
+                    existing = i
+                    break
+            if existing is not None:
+                lines[existing] = entry
+            else:
+                lines.insert(defaults_at + 1, entry)
+        try:
+            path.write_text("".join(lines), encoding="utf-8")
+            out.append((path, "unconfigured tools: deny"))
+        except OSError as e:
+            out.append((path, f"could not write: {e}"))
+    return out
+
+
 def _refresh_per_host_bundles(
     host_name: str, plugin_root: Path
 ) -> list[tuple[str, str]]:
@@ -640,6 +696,17 @@ def _uninstall_skill_for_host(host_name: str, *, scope: str) -> tuple[bool, str]
         "existing on-disk library."
     ),
 )
+@click.option(
+    "--strict",
+    is_flag=True,
+    help=(
+        "Refuse tool calls from any MCP server or plugin that has no "
+        "contract library, instead of running them unchecked with a "
+        "warning. Written to the host library as "
+        "``defaults.unconfigured: deny``; ``SPONSIO_UNCONFIGURED=allow`` "
+        "overrides it for one shell."
+    ),
+)
 def host_install(
     names: tuple[str, ...],
     scope: str,
@@ -648,6 +715,7 @@ def host_install(
     binary_override: str | None,
     with_skill: bool,
     mode: str | None,
+    strict: bool,
 ):
     """Install Sponsio as a hook handler for one or more hosts.
 
@@ -663,6 +731,7 @@ def host_install(
       sponsio host install all
       sponsio host install auto              # only hosts detected on this machine
       sponsio host install cursor --scope project
+      sponsio host install claude-code --strict  # refuse tools with no rules
     """
     from sponsio.integrations import hosts as _hosts_mod
 
@@ -767,6 +836,11 @@ def host_install(
             click.secho(f"○  {name} mode: {note}", fg="yellow")
             click.echo(f"     {path}")
             review_paths.append(path)
+
+        if strict:
+            for path, note in _apply_strict_to_host_buckets(name):
+                click.secho(f"✔  {name} {note}", fg="green")
+                click.echo(f"     {path}")
 
         if with_skill:
             written, note = _install_skill_for_host(name, scope=scope, force=force)

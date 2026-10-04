@@ -461,6 +461,16 @@ def _install_one(name: str, target: Path) -> dict | None:
             if isinstance(existing_block, list):
                 tweaks_kept += len(existing_block)
 
+    # ``defaults:`` holds operator choices (``mode``, ``unconfigured``),
+    # never shipped content. Dropping it on upgrade quietly undid them: a
+    # reinstall moved an enforcing host back to whatever mode the
+    # installer stamped next, and lost ``unconfigured: deny``.
+    existing_defaults = existing.get("defaults")
+    if isinstance(existing_defaults, dict) and existing_defaults:
+        merged = dict(new_doc.get("defaults") or {})
+        merged.update(existing_defaults)
+        new_doc["defaults"] = merged
+
     target.write_text(yaml.safe_dump(new_doc, sort_keys=False), encoding="utf-8")
     return {"user_contracts": user_contracts_kept, "customized": tweaks_kept}
 

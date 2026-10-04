@@ -29,7 +29,7 @@ Sponsio はエージェントがツールを呼ぶ前に、その呼び出しを
 
 > **エージェント契約** とは、エージェントのすべてのアクションでチェックされるランタイムルールであり、[形式手法に裏打ちされています](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a16 alpha リリース。** `pip install --pre sponsio`。今回は自社の顧客向けにエージェントを運用するプラットフォーム向けです。`SPONSIO_PROJECT` が実行の帰属先の顧客を示すため、顧客ごとの鍵はコード変更なしで動き、顧客を取り違えることもありません。これまでは `attach()` が常に `default` を名乗り、単一顧客に限定した鍵は拒否されたため、正しく配線した環境からも実行が届きませんでした。OTLP エクスポータも `SPONSIO_PRIVACY` に従うようになり、どちらの経路でも設定した水準がそのまま機外に出る水準になります。[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a16)。
+> **v0.2.0a17 alpha リリース。** `pip install --pre sponsio`。セキュリティ修正リリースです。外部レポート（kta1kri）の指摘と、そこから見つかった問題を修正しました。評価できないルール（ツール名の表記ゆれ、`$5,000` と書かれた金額、引数の欠落）は満たされた扱いになりません。`EscalateToHuman` はエスカレーションした呼び出しを実際に拒否します。`sponsio host install --strict` はルールのないツールを拒否します。TypeScript `@sponsio/sdk@0.2.0-alpha.7` にも同じ修正が入っています。[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a17)。
 
 ---
 

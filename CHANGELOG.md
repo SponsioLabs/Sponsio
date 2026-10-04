@@ -12,7 +12,75 @@ broke.
 
 ## [Unreleased]
 
+---
+
+## [0.2.0a17]: 2026-10-04
+
+### Changed
+
+- **`EscalateToHuman` refuses the call by default.** The docs described it
+  as "refuse and notify", the outcome table said the tool does not run,
+  and the agent was told the action was "paused awaiting human approval",
+  but `BaseGuard` let it run: a policy of "refunds over $10k need CFO
+  approval" issued the refund and paged the CFO afterwards. The strategy
+  now returns `action="blocked"` with `escalation=True`, so every adapter's
+  stop gate refuses it and `CheckResult.escalated` still reports it.
+  `EscalateToHuman(hold=False)` keeps the notify-only behaviour, and is
+  what the monitor uses by default for a violated assumption. Reported as
+  a naming concern by kta1kri.
+
+### Added
+
+- **`sponsio host install <host> --strict`.** Writes
+  `defaults.unconfigured: deny` into the host library, so a tool whose
+  namespace has no contract library is refused instead of running with a
+  warning. Unlike `SPONSIO_UNCONFIGURED=deny` alone it survives a new
+  shell, and the agent cannot flip it because the host library is under
+  `capability/self-modify`. The environment variable (`deny` / `allow`)
+  still overrides it. Allowing remains the default.
+
 ### Fixed
+
+- **Follow-ups to the kta1kri report**, found while finishing it and
+  while porting the fixes below to TypeScript.
+  - **The library's numeric cap read `'$5,000'` as 0.** The fix below
+    normalised `ArgValue` comparisons only. `arg_value_range`, the cap
+    YAML and the pattern factory produce, reads `arg_numeric`, which
+    `int()` / `float()` (`parseFloat` in TypeScript, which read `'5,000'`
+    as 5) failed on; the variable stayed unset and the evaluator read it
+    as 0, under every upper bound. Both runtimes now use the same
+    normaliser, and a value that is present but not a number is refused
+    as `args:unevaluable` instead of compared as 0.
+  - **Changing a guard's state behind its API is refused.** Flipping
+    `guard._monitor._mode`, emptying the contract list, rebinding a
+    formula or swapping a strategy for `WarnOnly` now makes the next
+    check refuse with `guard:tampered`, instead of enforcing the weakened
+    rulebook. Code in the same interpreter can still defeat the check
+    itself; this makes tampering loud, not impossible.
+  - **Removing the rules directory is refused.** `capability/self-modify`
+    named the rule files, so `rm -rf ~/.sponsio` or `mv
+    ~/.sponsio/plugins /tmp` took every library with it and each tool then
+    ran as unconfigured.
+  - **A cached cloud rulebook is verified before use.** The copy used when
+    the cloud is unreachable now carries an HMAC keyed with the API key;
+    an edited copy, or one pulled before this release, is not enforced.
+  - **OpenAI raw responses are checked.** `responses.with_raw_response.create`
+    returned a forbidden tool call unchecked, and the chat variant and
+    `with_streaming_response` raised `AttributeError`. The guard now
+    parses the wrapper and raises `ToolCallBlocked` when a call must stop,
+    since the caller can read the raw body.
+  - **A host reinstall keeps `defaults:`.** The smart merge rebuilt the
+    file from the bundle and dropped the operator's block, so the next
+    mode stamp could move an enforcing host back to `observe`.
+  - **Missing-argument refusal sees MCP spellings.** `mcp__shell__Bash`
+    with no arguments was let through by a rule written for `Bash`.
+  - **`sponsio.__version__` was stuck at `0.2.0a11`** through a16, so
+    `sponsio --version` and `sponsio doctor` misreported every release
+    since. It is correct again and a test now pins it to `pyproject.toml`.
+  - **TypeScript catches up with the fixes below.** Tool-name
+    canonicalisation, refusal of missing and unreadable arguments, and the
+    once-per-value warning for a non-numeric value against a numeric guard
+    were Python-only; the contract and prompt mirror is resynced.
 
 - **The deterministic layer no longer reads "cannot evaluate" as "not
   violated".** An external report (kta1kri, 2026-09) confirmed that every

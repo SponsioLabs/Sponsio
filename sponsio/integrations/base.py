@@ -270,11 +270,10 @@ def format_sto_retry_message(feedback: str, original: Any) -> str:
 # ``redirected`` is stopping because the contract forbade the original
 # call; adapters with a real substitution path branch on ``redirected_to``
 # BEFORE this predicate and run the substitute instead.
-# ``escalated`` is deliberately NOT stopping: the monitor uses
-# ``EscalateToHuman()`` as the default strategy for unfired-assumption
-# verdicts, so an escalated result is routinely vacuous — gating on it
-# would refuse every action while a conditional contract's assumption is
-# simply not yet satisfied (see the long note in ``guard_before``).
+# ``escalated`` is deliberately NOT stopping: it is the notify-only
+# outcome (``EscalateToHuman(hold=False)``, the monitor's default for a
+# violated assumption). A holding ``EscalateToHuman`` returns ``blocked``
+# with ``escalation=True``, so it stops through this same set.
 STOPPING_ACTIONS: frozenset[str] = frozenset({"blocked", "redirected"})
 
 
@@ -330,13 +329,14 @@ class CheckResult:
     def escalated(self) -> bool:
         """True if any det violation resulted in an escalation.
 
-        Adapters can use this to distinguish "refused, agent picks
-        again" (blocked) from "refused AND a human was paged"
-        (escalated). The two share a refusal posture; the difference
-        is in the side effect and in what operators want to see
-        downstream.
+        Covers both forms: a holding ``EscalateToHuman`` (also
+        ``blocked``; the call was refused and a human asked) and the
+        notify-only one (``action="escalated"``; the call ran).
         """
-        return any(r.action == "escalated" for r in self.det_violations)
+        return any(
+            r.action == "escalated" or getattr(r, "escalation", False)
+            for r in self.det_violations
+        )
 
     @property
     def redirected(self) -> bool:
@@ -359,8 +359,8 @@ class CheckResult:
         substitution MUST gate execution on ``stop_original`` so a
         redirect fails *closed* (the unsafe call is refused) instead of
         falling through to ``if check.blocked``, which is False on a
-        redirect. ``escalated`` is intentionally excluded — see
-        ``guard_before`` for why escalation does not gate execution.
+        redirect. A notify-only ``escalated`` result does not stop the
+        call; a holding escalation arrives as ``blocked``.
         """
         return any(is_stopping_action(r.action) for r in self.det_violations)
 
@@ -937,6 +937,79 @@ class BaseGuard:
         self._auto_summary: bool = auto_summary
         atexit.register(self._auto_print_summary)
 
+        # --- Seal the enforcement state ---
+        # Nothing after construction changes the mode, the contract set
+        # or the strategy table through a public API, so any change seen
+        # later came from code reaching into private attributes
+        # (``guard._monitor._mode = "observe"``, swapping a ``DetBlock``
+        # for ``WarnOnly``). ``guard.mode`` already reports the live
+        # value; the seal makes the guard refuse instead of enforcing a
+        # weakened rulebook. Same-process code can still defeat the seal
+        # itself, so this makes tampering loud, not impossible.
+        self._seal = self._enforcement_fingerprint()
+
+    def _enforcement_fingerprint(self) -> tuple:
+        """Identity snapshot of everything that decides block vs pass.
+
+        Holds the objects themselves and compares with ``is``, so a
+        replaced contract or strategy is caught even when ``id()``
+        values are reused after garbage collection.
+        """
+        monitor = self._monitor
+        return (
+            monitor._mode,
+            tuple(
+                (c, c.guarantee, c.assumption, c.mode)
+                for c in monitor._system._contracts
+            ),
+            tuple(monitor._policy.items()),
+            tuple(sorted(monitor._contract_modes.items())),
+        )
+
+    def _seal_drift(self) -> str | None:
+        """Name what changed since construction, or ``None`` if nothing."""
+        seal = getattr(self, "_seal", None)
+        if seal is None:
+            return None
+        now = self._enforcement_fingerprint()
+        if seal[0] != now[0]:
+            return f"mode changed from {seal[0]!r} to {now[0]!r}"
+
+        def same(x: Any, y: Any) -> bool:
+            # Strings compare by value (keys and mode names need not be
+            # the same object); everything else by identity.
+            return x is y or (isinstance(x, str) and x == y)
+
+        labels = ("contracts", "strategies", "per-contract modes")
+        for label, before, after in zip(labels, seal[1:], now[1:], strict=True):
+            if len(before) != len(after) or not all(
+                same(x, y)
+                for b, a in zip(before, after, strict=True)
+                for x, y in zip(b, a, strict=True)
+            ):
+                return f"{label} changed"
+        return None
+
+    def _tamper_block(self, tool_name: str, drift: str) -> CheckResult:
+        """Refuse a call because the guard's state no longer matches its seal."""
+        violation = EnforcementResult(
+            action="blocked",
+            message=(
+                f"BLOCKED: {self.agent_id}.{tool_name}. Guard state was "
+                f"modified outside its API after construction ({drift}); "
+                f"refusing rather than enforcing an altered rulebook."
+            ),
+            rule_id="guard:tampered",
+            agent_msg=(
+                f"The action `{tool_name}` was rejected because the policy "
+                f"guard's configuration was altered at runtime."
+            ),
+        )
+        self._violations.append(
+            {"tool": tool_name, "constraint": violation.message, "action": "BLOCKED"}
+        )
+        return CheckResult(allowed=False, det_violations=[violation])
+
     # -----------------------------------------------------------------
     # Contract construction
     # -----------------------------------------------------------------
@@ -1404,9 +1477,59 @@ class BaseGuard:
             return False
         if os.environ.get("SPONSIO_ALLOW_MISSING_ARGS") == "1":
             return False
-        from sponsio.formulas.tool_names import canonical_tool
+        from sponsio.formulas.tool_names import tool_aliases
 
-        return canonical_tool(tool_name) in self._tools_needing_args()
+        # Every spelling grounding would bind the call under, so
+        # ``mcp__shell__Bash`` meets a rule written for ``Bash``.
+        needed = self._tools_needing_args()
+        return any(alias in needed for alias in tool_aliases(tool_name))
+
+    def _numeric_rule_targets(self) -> tuple[tuple[str, str], ...]:
+        """``(tool, field)`` pairs some ``arg_numeric`` rule reads."""
+        cached = getattr(self, "_numeric_targets_cache", None)
+        if cached is not None:
+            return cached
+        from sponsio.runtime.verifier import _collect_det_formulas
+        from sponsio.tracer.grounding import collect_content_atoms
+
+        pairs: list[tuple[str, str]] = []
+        try:
+            formulas = _collect_det_formulas(self._system.contracts)
+            atoms = collect_content_atoms(formulas) or {}
+            for args_tuple in atoms.get("arg_numeric", ()):
+                if len(args_tuple) >= 2:
+                    pairs.append((str(args_tuple[0]), str(args_tuple[1])))
+        except Exception:  # noqa: BLE001 - never break a check on bookkeeping
+            pairs = []
+        result = tuple(pairs)
+        self._numeric_targets_cache = result
+        return result
+
+    def _unreadable_numeric_arg(
+        self, tool_name: str, args: dict | None
+    ) -> tuple[str, Any] | None:
+        """A numeric rule's field that arrived but is not a number.
+
+        Grounding leaves ``arg_numeric`` unset for such a value and the
+        evaluator reads the gap as ``0``, which passes every upper bound.
+        An absent field is left alone (CLI-flag and positional rules on
+        ``Bash`` legitimately see calls without their flag); a field that
+        is present and unreadable is the "cannot evaluate" case.
+        """
+        if not args or os.environ.get("SPONSIO_ALLOW_MISSING_ARGS") == "1":
+            return None
+        from sponsio.tracer.grounding import _tool_matches, numeric_arg
+
+        args_str = str(args)
+        for target_tool, arg_field in self._numeric_rule_targets():
+            if arg_field not in args or not _tool_matches(
+                target_tool, tool_name, args_str
+            ):
+                continue
+            value = args[arg_field]
+            if value is not None and numeric_arg(value) is None:
+                return arg_field, value
+        return None
 
     def guard_before(self, tool_name: str, args: dict | None = None) -> CheckResult:
         """Check contracts BEFORE tool execution.
@@ -1423,6 +1546,9 @@ class BaseGuard:
             CheckResult with allowed=False if blocked.
         """
         with self._lock:
+            drift = self._seal_drift()
+            if drift is not None:
+                return self._tamper_block(tool_name, drift)
             if self._args_unevaluable(tool_name, args):
                 msg = (
                     f"`{tool_name}` was called with no arguments, but a "
@@ -1449,6 +1575,34 @@ class BaseGuard:
                 )
                 return CheckResult(allowed=False, det_violations=[violation])
 
+            unreadable = self._unreadable_numeric_arg(tool_name, args)
+            if unreadable is not None:
+                field, value = unreadable
+                violation = EnforcementResult(
+                    action="blocked",
+                    message=(
+                        f"BLOCKED: {self.agent_id}.{tool_name}. `{field}`="
+                        f"{str(value)[:60]!r} is not a number, but a contract "
+                        f"bounds it numerically. The bound cannot be checked, "
+                        f"so the call is refused rather than passed unchecked "
+                        f"(set SPONSIO_ALLOW_MISSING_ARGS=1 to allow)."
+                    ),
+                    rule_id="args:unevaluable",
+                    agent_msg=(
+                        f"The action `{tool_name}` was rejected because "
+                        f"`{field}` must be a plain number. Retry with a "
+                        f"numeric value."
+                    ),
+                )
+                self._violations.append(
+                    {
+                        "tool": tool_name,
+                        "constraint": violation.message,
+                        "action": "BLOCKED",
+                    }
+                )
+                return CheckResult(allowed=False, det_violations=[violation])
+
             metadata = {"args": args} if args else {}
 
             results = self._monitor.check_action(
@@ -1463,19 +1617,11 @@ class BaseGuard:
             redirected = [r for r in results if r.action == "redirected"]
             sto_list = [r for r in results if r.action == "retrying"]
 
-            # ``allowed`` gates only on ``blocked``. ``escalated`` is
-            # intentionally NOT gated here: the monitor uses
-            # ``EscalateToHuman()`` as the *default* strategy for
-            # unfired-assumption verdicts (an unfired assumption
-            # produces an ``escalated`` result that is vacuous, not a
-            # refusal). Treating every escalated outcome as a refusal
-            # would break every conditional contract whose assumption
-            # hasn't fired yet. Users who explicitly wire
-            # ``EscalateToHuman`` as their strategy get the
-            # notification side effects via the strategy's notifier
-            # hook, AND can pair it with a callback or with
-            # ``register_callback`` for a hard-stop posture. The
-            # tradeoff is documented in EscalateToHuman's docstring.
+            # ``allowed`` gates only on ``blocked``. ``escalated`` is the
+            # notify-only outcome (``EscalateToHuman(hold=False)``, the
+            # monitor's default for a violated assumption) and lets the
+            # call run. An explicit ``EscalateToHuman`` holds by default
+            # and arrives here as ``blocked`` with ``escalation=True``.
             result = CheckResult(
                 allowed=not any(r.action == "blocked" for r in hard),
                 det_violations=hard + warned + observed + redirected,
@@ -1484,10 +1630,8 @@ class BaseGuard:
             )
 
             # Rollback blocked / redirected events. Same gating as
-            # ``allowed`` above: ``escalated`` is NOT rolled back
-            # because the default unfired-assumption verdict produces
-            # an escalated result that does NOT actually prevent the
-            # call from running.
+            # ``allowed`` above: a notify-only ``escalated`` result does
+            # not prevent the call, so its event stays in the trace.
             # Observe mode never rolls back. the whole point is to
             # show users the trace their agent would have produced.
             # Deliberately NOT ``stop_original``: observe-mode redirects
@@ -1647,6 +1791,9 @@ class BaseGuard:
         self._autotag_tool_output(tool_name, output)
 
         with self._lock:
+            drift = self._seal_drift()
+            if drift is not None:
+                return self._tamper_block(tool_name, drift)
             if self._sto_evaluator is None:
                 return CheckResult(allowed=True)
 

@@ -82,6 +82,15 @@ tools:
       OpenClaw's native ``exec`` (no rename).  Writing rules against
       the canonical name lets one pack cover all three hosts.
     params: "command: str"
+  - name: write
+    description: >-
+      File-write tool.  Mapped to host-specific ``Write`` (Cursor /
+      Claude Code) via ``tool_rename``.  We scan the ``content`` arg
+      for staged destructive shell commands so an agent that wraps
+      the deletion into a script and runs the script (the actual
+      observed evasion in trace ``conv-c407bfd9``) doesn't bypass
+      § 1–3.  See § 4.
+    params: "path: str, content: str"
 
 agents:
   "*":
@@ -91,8 +100,9 @@ agents:
       # § 1 — Destructive HTTP verbs against Railway's control-plane API.
       # =====================================================================
       - desc: >-
-          Block destructive Railway control-plane API calls
-          (PocketOS-style 9-second prod wipe via curl + token).
+          🚨 BLOCKED: curl -X DELETE against Railway would destroy a
+          production volume (data + co-located backups, irreversible).
+          PocketOS lost everything in 9 seconds this way.
         G:
           pattern: arg_blacklist
           args:
@@ -122,8 +132,9 @@ agents:
       # delete`` are equally irreversible.
       # =====================================================================
       - desc: >-
-          Block Railway CLI destructive verbs (down / volume delete /
-          environment delete / project delete / service delete).
+          🚨 BLOCKED: Railway CLI destructive verb (down / volume delete /
+          env delete / project delete) — would destroy production data
+          including co-located backups. Replay of PocketOS 9-second wipe.
         G:
           pattern: arg_blacklist
           args:
@@ -162,3 +173,48 @@ agents:
                 "(?i)\\b(curl|wget|httpie|http)\\b[^|;&\\n]*(?:-X\\s*DELETE|--request\\s+DELETE)[^|;&\\n]*\\bmanagement\\.azure\\.com\\b",
               ]
           source: "incident:cursor-railway-wipe.curl_paas_destroy_generic"
+
+      # =====================================================================
+      # § 4 — Script-staging evasion (file Write that contains the same
+      #       destructive shell pattern § 1–3 watch for).
+      #
+      # Real-world observed in trace ``conv-c407bfd9-2333-450b-bb01-
+      # 0bea7798ae48`` (PocketOS demo replay, 2026-05-05): instead of
+      # emitting ``curl -X DELETE`` directly through Bash, the agent
+      # wrote ``ops/recover-staging-db.sh`` containing the destructive
+      # curl, then executed ``./ops/recover-staging-db.sh``.  Because
+      # § 1–3 inspect the ``Bash.command`` literal, the regex sees
+      # ``./script.sh`` (no curl, no DELETE) and the call passes.  This
+      # rule closes the staging surface — Write content is matched
+      # with the SAME regex set as § 1–3.
+      #
+      # Trade-off: catches legitimate ops scripts that genuinely do
+      # call Railway DELETE (the runbook itself, audit tooling, etc.).
+      # That's intentional — those scripts shouldn't be authored by
+      # an LLM agent on the spot; humans commit them out-of-band.
+      # =====================================================================
+      - desc: >-
+          🚨 BLOCKED: writing a script that contains a destructive
+          Railway / PaaS curl. Script-staging evasion — same blast
+          radius as direct curl, just hidden in a .sh file.
+        G:
+          pattern: arg_blacklist
+          args:
+            - write
+            - content
+            - [
+                # Mirrors § 1 on Write content.
+                "(?i)\\b(curl|wget|httpie|http)\\b[^|;&\\n]*\\b(api|backboard)\\.railway\\.(?:app|com)\\b[^|;&\\n]*(?:-X\\s*DELETE|--request\\s+DELETE)",
+                "(?i)\\b(curl|wget|httpie|http)\\b[^|;&\\n]*(?:-X\\s*DELETE|--request\\s+DELETE)[^|;&\\n]*\\b(api|backboard)\\.railway\\.(?:app|com)\\b",
+                "(?i)\\b(curl|wget|httpie|http)\\b[^|;&\\n]*backboard\\.railway\\.(?:app|com)[^|;&\\n]*(?:volumeDelete|volumeInstanceDelete|projectDelete|environmentDelete|serviceDelete|deploymentRemove)",
+                # Mirrors § 2 — Railway CLI verbs in script content.
+                "(?i)(?<!\\S)railway\\s+down(?:\\s|$)",
+                "(?i)(?<!\\S)railway\\s+volumes?\\s+delete\\b",
+                "(?i)(?<!\\S)railway\\s+environment\\s+delete\\b",
+                "(?i)(?<!\\S)railway\\s+project\\s+delete\\b",
+                "(?i)(?<!\\S)railway\\s+service\\s+delete\\b",
+                "(?i)(?<!\\S)railway\\s+destroy\\b",
+                # Mirrors § 3 — generic PaaS curl-DELETE.
+                "(?i)\\b(curl|wget|httpie|http)\\b[^|;&\\n]*(?:-X\\s*DELETE|--request\\s+DELETE)[^|;&\\n]*\\b(?:api|console|cloud|backboard|app)\\.(?:railway|fly|render|supabase|vercel|heroku|cloudflare|digitalocean|linode|hetzner|fastly|netlify)\\.(?:app|io|com|dev|net)\\b",
+              ]
+          source: "incident:cursor-railway-wipe.write_script_staging"

@@ -723,8 +723,54 @@ def _before_call(guard: OpenAIGuard, kind: str, kwargs: dict) -> None:
         guard._auto_observe_responses_input(kwargs.get("input"))
 
 
+class ToolCallBlocked(Exception):
+    """A contract stopped a tool call in a response that cannot be rewritten.
+
+    Raised for ``with_raw_response`` / ``with_streaming_response`` calls:
+    the caller can read the raw body (``.text()``, ``.json()``), so
+    removing the call from the parsed object would not remove it from
+    what the caller sees. Refusing the whole response is the only
+    closed option.
+    """
+
+    def __init__(self, results: list[CheckResult]) -> None:
+        self.results = results
+        reasons = [
+            v.message for r in results if r.stop_original for v in r.det_violations
+        ]
+        super().__init__("; ".join(reasons) or "tool call blocked by contract")
+
+
+def _is_raw_wrapper(response: Any) -> bool:
+    """``LegacyAPIResponse`` / ``APIResponse``: the body is behind ``.parse()``.
+
+    Without unwrapping, the checks found no ``choices`` / ``output`` and
+    ``responses.with_raw_response.create`` handed back the forbidden call
+    unchecked; the chat variant crashed with ``AttributeError``.
+    """
+    return (
+        hasattr(response, "http_response")
+        and callable(getattr(response, "parse", None))
+        and not hasattr(response, "choices")
+        and not hasattr(response, "output")
+    )
+
+
+def _check_raw(guard: OpenAIGuard, kind: str, response: Any, parsed: Any) -> Any:
+    """Check a raw wrapper's parsed body; refuse it if any call must stop."""
+    if kind == "chat":
+        results = guard.check_response(parsed)
+    else:
+        results = guard.check_responses_output(parsed)
+    if any(r.stop_original for r in results):
+        raise ToolCallBlocked(results)
+    return response
+
+
 def _after_call(guard: OpenAIGuard, kind: str, response: Any) -> Any:
     """Check the model's tool calls and rewrite the response in place."""
+    if _is_raw_wrapper(response):
+        return _check_raw(guard, kind, response, response.parse())
     if kind == "chat":
         results = guard.check_response(response)
         # ``stop_original``: redirected verdicts must also trigger the
@@ -747,6 +793,10 @@ def _guarded(
         async def patched(*args: Any, **kwargs: Any) -> Any:
             _before_call(guard, kind, kwargs)
             response = await original(*args, **kwargs)
+            if _is_raw_wrapper(response) and inspect.iscoroutinefunction(
+                response.parse
+            ):
+                return _check_raw(guard, kind, response, await response.parse())
             return _after_call(guard, kind, response)
 
     else:

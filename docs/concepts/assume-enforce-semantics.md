@@ -83,7 +83,7 @@ If `issue_refund` is never called, the assumption never activates and the contra
 
 > The assumption is an **invariant**. It is expected to hold throughout the trace; a failure is treated as an upstream problem and escalated.
 
-This is the older interpretation, retained for backward compatibility with contracts that use the assumption side as an assertion ("the user is authenticated", "the caller_id is from the prod SPIFFE domain"). When that assertion fails, the runtime escalates via the configured `_handle_assumption_failure` strategy (default: `EscalateToHuman`).
+This is the older interpretation, retained for backward compatibility with contracts that use the assumption side as an assertion ("the user is authenticated", "the caller_id is from the prod SPIFFE domain"). When that assertion fails, the runtime escalates via the configured `_handle_assumption_failure` strategy (default: `EscalateToHuman(hold=False)`, which notifies and lets the call run; the broken assumption flags the upstream flow rather than this action).
 
 If your contract reads as "*if* X then Y", prefer `activate_at="first_match"` so an unmet trigger behaves vacuously. Reach for the global default only when the assumption side genuinely encodes a precondition that you want to be *asserted*, not merely waited on.
 
@@ -92,7 +92,7 @@ If your contract reads as "*if* X then Y", prefer `activate_at="first_match"` so
 | Question | Reactive (`first_match`) | Global (`None`) |
 |---|---|---|
 | What does an unmet assumption mean? | Contract not triggered yet | Upstream invariant failed |
-| Runtime action on unmet assumption | None (vacuous pass event) | `EscalateToHuman` |
+| Runtime action on unmet assumption | None (vacuous pass event) | `EscalateToHuman(hold=False)` (notify, call runs) |
 | Best for | "If agent does X, must do Y" rules | "X must always hold" assertions |
 | When evaluation starts for the enforcement | At the activation point `k = max(k_i)` | At trace start (`pos=0`) |
 | Typical authoring shape | `assume = F(trigger)` or atomic | `assume = G(invariant)` or atomic |
