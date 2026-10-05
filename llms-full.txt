@@ -41,7 +41,7 @@ Sponsio checks an agent's tool calls before they run. A rule can look at what al
 
 > An **agent contract** is a runtime rule that is checked at every agent action, [backed by formal methods](docs/concepts/formal-methods.md).
 
-> **v0.2.0a16 alpha is out.** `pip install --pre sponsio`. This one is for platforms running agents for their own customers. `SPONSIO_PROJECT` names the customer a run belongs to, so a per-customer key needs no code change and cannot get the customer wrong: before this, `attach()` always claimed `default`, and a key scoped to one customer was refused, which meant runs from a correctly wired deployment never arrived. The OTLP exporter now obeys `SPONSIO_PRIVACY` too, so the level you set is the level that leaves the machine on either path. See the [release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a16).
+> **v0.2.0a17 alpha is out.** `pip install --pre sponsio`. A security release: it closes the findings from an external report (kta1kri) and the follow-ups they led to. Rules that could not be evaluated (a tool name spelled differently, an amount written as `$5,000`, missing arguments) no longer pass as satisfied; `EscalateToHuman` now refuses the call it escalates; `sponsio host install --strict` refuses tools that have no rules. TypeScript `@sponsio/sdk@0.2.0-alpha.7` carries the same fixes. See the [release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a17).
 
 ---
 
@@ -51,7 +51,7 @@ Sponsio checks an agent's tool calls before they run. A rule can look at what al
   <img src="https://raw.githubusercontent.com/SponsioLabs/Sponsio/main/assets/sponsio-architecture.png" alt="Sponsio architecture: Agent Flow + (Natural Language + Pattern Library) compile into Contracts (Assumption → Enforcement), enforced by a Fuzzy LTL Monitor (deterministic + stochastic) that decides Pass / Block · Warn · Escalate / Redirect for every function call, with full audit trail logs feeding back to the agent." width="900">
 </p>
 
-On [ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench) (12 frontier LLMs × 80 trajectories), unguarded models cheat in 11.5%–66.7% of runs. **With Sponsio, 95.6% of misalignment is avoided on average; 24/36 high-risk scenarios at 100%.** On the `Financial-Audit-Fraud-Finding` scenario, frontier models commit fraud in 16/24 trials; **Sponsio blocks 18/19**. On RedCode-Exec (1,410 cases), Sponsio reaches **98.9% combined** (bash 98.3% · python 99.4%, lifted from 92.4% by a 4-iteration self-improvement loop), with 0 false positives on a 60-file clean-code audit. These are the open-core numbers; the Cloud version's LLM-judge layer takes ODCV-Bench to **~99%** and RedCode-Exec to **99.4%**. [Book a demo](https://calendar.app.google/ZZmthdxsDXCsHbJk9) for the Cloud and Enterprise versions.
+On [ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench) (12 frontier LLMs × 80 trajectories), unguarded models cheat in 11.5%–66.7% of runs. **With Sponsio, 95.6% of misalignment is avoided on average; 24/36 high-risk scenarios at 100%.** On the `Financial-Audit-Fraud-Finding` scenario, frontier models commit fraud in 16/24 trials; **Sponsio blocks 18/19**. On RedCode-Exec (1,410 cases), Sponsio reaches **98.9% combined** (bash 98.3% · python 99.4%, lifted from 92.4% by a 4-iteration self-improvement loop), with 0 false positives on a 60-file clean-code audit. These are the open-core numbers; with the Cloud version's self-evolving loop, which mines new contracts from execution traces, ODCV-Bench reaches **~99%** and RedCode-Exec **99.4%**. Enforcement stays deterministic. [Book a demo](https://calendar.app.google/ZZmthdxsDXCsHbJk9) for the Cloud and Enterprise versions.
 
 One contract takes p50 **0.0052 ms** to check. The heaviest ODCV workload, 19 contracts on every call, takes **0.139 ms**. An LLM-as-judge guardrail takes 50 to 800 ms, so this is **5,000× to 60,000× faster**, and it calls no model. p99 stays near 1 ms on every workload measured.
 
@@ -1921,9 +1921,18 @@ Run inside a Claude Code or OpenClaw host plugin.
 
 ```bash
 sponsio host install <host>           # claude-code | openclaw
+sponsio host install <host> --strict  # refuse tools that have no contract library
 sponsio host status <host>
 sponsio host trace <host> [--follow]  # live coloured event stream
 ```
+
+A tool whose namespace has no contract library (any MCP server outside the
+shipped examples) runs with a one-time `running UNCHECKED` warning by
+default. `--strict` writes `defaults.unconfigured: deny` into the host
+library so those calls are refused instead; the setting survives
+reinstalls, and the host library is covered by `capability/self-modify`
+so the agent cannot change it. `SPONSIO_UNCONFIGURED=deny|allow` overrides
+it for one shell.
 
 See [plugins.md](../plugins.md) for the host-plugin walkthrough.
 
@@ -3521,7 +3530,75 @@ broke.
 
 ## [Unreleased]
 
+---
+
+## [0.2.0a17]: 2026-10-04
+
+### Changed
+
+- **`EscalateToHuman` refuses the call by default.** The docs described it
+  as "refuse and notify", the outcome table said the tool does not run,
+  and the agent was told the action was "paused awaiting human approval",
+  but `BaseGuard` let it run: a policy of "refunds over $10k need CFO
+  approval" issued the refund and paged the CFO afterwards. The strategy
+  now returns `action="blocked"` with `escalation=True`, so every adapter's
+  stop gate refuses it and `CheckResult.escalated` still reports it.
+  `EscalateToHuman(hold=False)` keeps the notify-only behaviour, and is
+  what the monitor uses by default for a violated assumption. Reported as
+  a naming concern by kta1kri.
+
+### Added
+
+- **`sponsio host install <host> --strict`.** Writes
+  `defaults.unconfigured: deny` into the host library, so a tool whose
+  namespace has no contract library is refused instead of running with a
+  warning. Unlike `SPONSIO_UNCONFIGURED=deny` alone it survives a new
+  shell, and the agent cannot flip it because the host library is under
+  `capability/self-modify`. The environment variable (`deny` / `allow`)
+  still overrides it. Allowing remains the default.
+
 ### Fixed
+
+- **Follow-ups to the kta1kri report**, found while finishing it and
+  while porting the fixes below to TypeScript.
+  - **The library's numeric cap read `'$5,000'` as 0.** The fix below
+    normalised `ArgValue` comparisons only. `arg_value_range`, the cap
+    YAML and the pattern factory produce, reads `arg_numeric`, which
+    `int()` / `float()` (`parseFloat` in TypeScript, which read `'5,000'`
+    as 5) failed on; the variable stayed unset and the evaluator read it
+    as 0, under every upper bound. Both runtimes now use the same
+    normaliser, and a value that is present but not a number is refused
+    as `args:unevaluable` instead of compared as 0.
+  - **Changing a guard's state behind its API is refused.** Flipping
+    `guard._monitor._mode`, emptying the contract list, rebinding a
+    formula or swapping a strategy for `WarnOnly` now makes the next
+    check refuse with `guard:tampered`, instead of enforcing the weakened
+    rulebook. Code in the same interpreter can still defeat the check
+    itself; this makes tampering loud, not impossible.
+  - **Removing the rules directory is refused.** `capability/self-modify`
+    named the rule files, so `rm -rf ~/.sponsio` or `mv
+    ~/.sponsio/plugins /tmp` took every library with it and each tool then
+    ran as unconfigured.
+  - **A cached cloud rulebook is verified before use.** The copy used when
+    the cloud is unreachable now carries an HMAC keyed with the API key;
+    an edited copy, or one pulled before this release, is not enforced.
+  - **OpenAI raw responses are checked.** `responses.with_raw_response.create`
+    returned a forbidden tool call unchecked, and the chat variant and
+    `with_streaming_response` raised `AttributeError`. The guard now
+    parses the wrapper and raises `ToolCallBlocked` when a call must stop,
+    since the caller can read the raw body.
+  - **A host reinstall keeps `defaults:`.** The smart merge rebuilt the
+    file from the bundle and dropped the operator's block, so the next
+    mode stamp could move an enforcing host back to `observe`.
+  - **Missing-argument refusal sees MCP spellings.** `mcp__shell__Bash`
+    with no arguments was let through by a rule written for `Bash`.
+  - **`sponsio.__version__` was stuck at `0.2.0a11`** through a16, so
+    `sponsio --version` and `sponsio doctor` misreported every release
+    since. It is correct again and a test now pins it to `pyproject.toml`.
+  - **TypeScript catches up with the fixes below.** Tool-name
+    canonicalisation, refusal of missing and unreadable arguments, and the
+    once-per-value warning for a non-numeric value against a numeric guard
+    were Python-only; the contract and prompt mirror is resynced.
 
 - **The deterministic layer no longer reads "cannot evaluate" as "not
   violated".** An external report (kta1kri, 2026-09) confirmed that every
