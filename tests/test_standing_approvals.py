@@ -1,8 +1,9 @@
 """Standing approvals: the human decision that outlives its escalation.
 
 The loop under test: a person answers "Always allow" in the console; the
-guard pulls that standing list at construction; ``EscalateToHuman`` releases
-the covered call as ``observed`` instead of re-asking. The failure policy is
+guard pulls that standing list at construction; ``EscalateToHuman``, which
+otherwise refuses the call, releases the covered one as ``observed`` instead
+of re-asking. The failure policy is
 the whole point — anything short of an exact, authenticated match escalates
 exactly as before. A standing approval can release a call, never block one.
 """
@@ -21,7 +22,10 @@ from sponsio.runtime.strategies import ActionContext, EscalateToHuman
 
 def _grant(agent="flow-agent", tool="issue_refund", contract="At most one refund"):
     return StandingApproval(
-        agent=agent, tool=tool, contract=contract, approval_id="a1",
+        agent=agent,
+        tool=tool,
+        contract=contract,
+        approval_id="a1",
         decided_at="2026-08-23T00:00:00+00:00",
     )
 
@@ -61,9 +65,10 @@ def test_either_spelling_of_the_contract_matches():
     reg = StandingRegistry()
     reg.load([_grant(contract="At most one refund")])
     hit = reg.covers(
-        "flow-agent", "issue_refund",
+        "flow-agent",
+        "issue_refund",
         "issue_refund limited to 1 invocations",  # formula spelling: no match
-        "At most one refund",                      # authored: match
+        "At most one refund",  # authored: match
     )
     assert hit is not None
 
@@ -96,7 +101,8 @@ def test_an_uncovered_escalation_still_escalates_and_pages():
     strategy = EscalateToHuman(reason="human only", notify=lambda *a: paged.append(a))
     registry().clear()
     out = strategy.enforce(_violation(), _ctx())
-    assert out.action == "escalated"
+    # Since 0.2.0a17 an escalation holds: refused, and a human is paged.
+    assert out.action == "blocked" and out.escalation
     assert len(paged) == 1
 
 
@@ -107,7 +113,59 @@ def test_a_grant_for_another_agent_never_releases_this_one():
         out = strategy.enforce(_violation(), _ctx())
     finally:
         registry().clear()
-    assert out.action == "escalated"
+    assert out.action == "blocked" and out.escalation
+
+
+def test_a_grant_releases_a_held_call_end_to_end():
+    """Through the guard: the same call is refused without the grant and
+    runs with it. Before a17 the escalation never stopped the call, so a
+    standing approval had nothing to release."""
+    from sponsio import contract
+    from sponsio.core import Sponsio
+    from sponsio.patterns.library import tool_allowlist
+
+    formula = tool_allowlist(["search"])
+
+    def guard():
+        return Sponsio(
+            agent_id="flow-agent",
+            contracts=[contract("approved tools").guarantees(formula)],
+            policy={formula.desc: EscalateToHuman(reason="human only")},
+            mode="enforce",
+            verbose=False,
+        )
+
+    registry().clear()
+    held = guard().guard_before("issue_refund", {"amount": 5})
+    assert held.stop_original and held.escalated
+
+    registry().load([_grant(contract=formula.desc)])
+    try:
+        released = guard().guard_before("issue_refund", {"amount": 5})
+    finally:
+        registry().clear()
+    assert released.allowed and not released.stop_original
+
+
+def test_a_grant_never_releases_a_detblock_rule():
+    """Standing approvals answer escalations. A rule whose strategy is a
+    plain block was never put to a human, so no grant can release it."""
+    from sponsio import contract
+    from sponsio.core import Sponsio
+    from sponsio.patterns.library import tool_allowlist
+
+    formula = tool_allowlist(["search"])
+    registry().load([_grant(contract=formula.desc)])
+    try:
+        result = Sponsio(
+            agent_id="flow-agent",
+            contracts=[contract("approved tools").guarantees(formula)],
+            mode="enforce",
+            verbose=False,
+        ).guard_before("issue_refund", {"amount": 5})
+    finally:
+        registry().clear()
+    assert result.stop_original
 
 
 # -- fail-closed fetch ------------------------------------------------------
@@ -139,9 +197,13 @@ def test_fetch_loads_the_server_rows():
 
         def standing_approvals(self):
             return [
-                {"agent": "flow-agent", "tool": "issue_refund",
-                 "contract": "At most one refund", "id": "x",
-                 "decidedAt": "2026-08-23T00:00:00+00:00"},
+                {
+                    "agent": "flow-agent",
+                    "tool": "issue_refund",
+                    "contract": "At most one refund",
+                    "id": "x",
+                    "decidedAt": "2026-08-23T00:00:00+00:00",
+                },
                 {"agent": "a2", "contract": "no tool -> dropped"},
             ]
 

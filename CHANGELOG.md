@@ -168,6 +168,20 @@ broke.
   start it concurrently end with one daemon and one trace. Starts and
   restarts are recorded in `<state-dir>/audit.jsonl`.
 
+### Added
+
+- **Standing approvals reach the runtime.** "Always allow" in the console
+  was recorded server-side only, so the SDK refused the same call on every
+  run and re-asked a question a person had answered. A guard built from a
+  `sponsio://` rulebook now loads the project's standing approvals once at
+  construction, and `EscalateToHuman` releases a covered call (exact match
+  on agent, tool and contract) as `observed`, naming the approval, without
+  paging anyone. Any fetch failure loads nothing and every escalation waits
+  on a human as before. A standing approval can only release an
+  escalation, never a `DetBlock` rule. `SPONSIO_STANDING=0` opts out.
+  This matters since 0.2.0a17, when `EscalateToHuman` started refusing the
+  call: before that there was nothing to release.
+
 ### Fixed
 
 - **A fresh install held every default contract twice.** The Claude Code
