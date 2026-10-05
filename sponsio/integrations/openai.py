@@ -16,7 +16,7 @@ Usage::
             .guarantees("tool `issue_refund` at most 1 times"),
     ])
 
-    # All tool_calls are now auto-monitored
+    # Tool calls from chat.completions and responses are now checked
     client = openai.OpenAI()
     response = client.chat.completions.create(
         model="gpt-5",
@@ -41,6 +41,14 @@ Two enforcement hooks run automatically:
 If you're not going through ``patch_openai`` — e.g. you use the raw
 response plus your own executor — call ``guard.observe_tool_result``
 explicitly after each tool execution.
+
+Covered: ``chat.completions.create`` / ``parse`` and ``responses.create``
+/ ``parse``, including their ``with_raw_response`` and
+``with_streaming_response`` forms. ``stream=True`` is refused.
+Not covered: the Assistants API (``client.beta.threads`` runs), the
+Realtime API (``client.realtime``) and Batches (``client.batches``). Tool
+calls made through those surfaces are not checked; guard them with
+``guard.guard_before`` in your own executor.
 
 You can also check results programmatically::
 
@@ -850,11 +858,15 @@ def patch_openai(
 ) -> OpenAIGuard:
     """Monkey-patch the OpenAI SDK to auto-enforce contracts on tool_calls.
 
-    After calling this, every ``client.chat.completions.create()`` call
-    will automatically check tool_calls against the provided contracts.
+    After calling this, ``client.chat.completions.create()`` and
+    ``client.responses.create()`` calls check tool_calls against the
+    provided contracts.
 
     Covers ``chat.completions.create`` / ``parse`` and, when the installed
-    SDK has it, ``responses.create`` / ``parse``. ``stream=True`` raises
+    SDK has it, ``responses.create`` / ``parse``, including their
+    ``with_raw_response`` / ``with_streaming_response`` forms. The
+    Assistants (``beta.threads``), Realtime and Batches APIs are not
+    covered. ``stream=True`` raises
     ``NotImplementedError`` at call time on every patched method: tool
     calls arrive as deltas and could only be checked after the caller's
     loop has assembled and run them. To guard a single client instead of

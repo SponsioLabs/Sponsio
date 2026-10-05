@@ -256,7 +256,9 @@ elif check.allowed:
 
 ### OpenAI SDK
 
-`patch_openai()` returns a guard whose every `client.chat.completions.create(...)` / `parse(...)` and `client.responses.create(...)` / `parse(...)` is checked automatically; `guard.wrap(client)` does the same for one client instance. `stream=True` raises on every guarded method, because tool calls in a stream can only be checked after the caller's loop has assembled and run them. Set `SPONSIO_OPENAI_STRICT_TOOL_ARGS=1` to fail closed when the model returns malformed JSON in `tool_call.function.arguments`. Default warns and degrades.
+`patch_openai()` returns a guard whose every `client.chat.completions.create(...)` / `parse(...)` and `client.responses.create(...)` / `parse(...)` is checked automatically; `guard.wrap(client)` does the same for one client instance. `stream=True` raises on every guarded method, because tool calls in a stream can only be checked after the caller's loop has assembled and run them. The `with_raw_response` / `with_streaming_response` forms are checked too; if a call must stop, the guard raises `ToolCallBlocked`, since the raw body cannot be rewritten.
+
+**Not covered:** the Assistants API (`client.beta.threads` runs), the Realtime API (`client.realtime`) and Batches (`client.batches`). Tool calls through those surfaces are not checked. Call `guard.guard_before(name, args)` in your own executor before running them. Set `SPONSIO_OPENAI_STRICT_TOOL_ARGS=1` to fail closed when the model returns malformed JSON in `tool_call.function.arguments`. Default warns and degrades.
 
 ### Google ADK
 

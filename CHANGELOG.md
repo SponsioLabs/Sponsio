@@ -12,6 +12,14 @@ broke.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The OpenAI integration says what it does not cover.** Its docstring
+  claimed every tool call was monitored; the Assistants
+  (`client.beta.threads`), Realtime and Batches APIs never were. The
+  module docs and the integrations guide now name them. Reported by
+  kta1kri.
+
 ---
 
 ## [0.2.0a17]: 2026-10-04
