@@ -328,6 +328,11 @@ class EscalateToHuman:
     see that a human was asked). Nothing in the runtime resumes a refused
     call; approval means the human lets the agent try again.
 
+    A call covered by a standing approval ("Always allow" in the console,
+    loaded at construction for a ``sponsio://`` rulebook; see
+    :mod:`sponsio.runtime.standing`) is released instead: it runs, is
+    recorded as ``observed`` with the approval named, and nobody is paged.
+
     ``hold=False`` keeps the older notify-only posture: notifiers fire,
     the outcome is ``action="escalated"``, and the call runs. The monitor
     uses that form as its default for a violated *assumption*, which
@@ -417,7 +422,7 @@ class EscalateToHuman:
                 action="observed",
                 message=(
                     f"RELEASED by standing approval{when}: "
-                    f"{context.agent_id}.{context.action} — "
+                    f"{context.agent_id}.{context.action} · "
                     f"{violation.desc or violation.kind}. Revocable in the console."
                 ),
                 rule_id=rule,
