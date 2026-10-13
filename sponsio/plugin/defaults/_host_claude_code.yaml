@@ -172,11 +172,11 @@ agents:
           args:
             - Bash
             - command
-            - - ">\\s*[^|&;]*\\.sponsio/plugins/_host_claude_code/sponsio\\.yaml"
-              - ">>\\s*[^|&;]*\\.sponsio/plugins/_host_claude_code/sponsio\\.yaml"
+            - - ">{1,2}\\|?\\s*[^|&;<>]*\\.sponsio/plugins/_host_claude_code/sponsio\\.yaml"
               - "tee\\s+[^|&;]*\\.sponsio/plugins/_host_claude_code/sponsio\\.yaml"
               - "sed\\s+-i\\b[^|&;]*\\.sponsio/plugins/_host_claude_code/sponsio\\.yaml"
               - "(cp|mv|rm|dd)\\s+[^|&;]*\\.sponsio/plugins/_host_claude_code/sponsio\\.yaml"
+              - "\\b(truncate|ln|chmod|chown|chattr|shred|unlink|install|rsync|sponge|patch|ed|ex|vi|vim|nvim)\\s+[^|&;]*\\.sponsio/plugins/_host_claude_code/sponsio\\.yaml"
 
       # ---------- Read protections for credentials exfiltration ----------
       - desc: "Block reads of SSH keys / cloud creds / dotenv secrets / keychains"

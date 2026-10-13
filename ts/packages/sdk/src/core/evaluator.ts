@@ -124,6 +124,16 @@ const ORDERED_NUMERIC_RE = /^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/;
 
 // Unambiguous thousands grouping: 5,000 / 1,234,567 / 1,234,567.89.
 const GROUPED_RE = /^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$/;
+// Unambiguous European grouping: a decimal comma after dot groups
+// (5.000,00 / 1.234.567,89) or two or more dot groups (1.000.000). One dot
+// group alone (5.000) is a plain float on its own.
+const EU_GROUPED_RE = /^[+-]?\d{1,3}(\.\d{3})+,\d+$|^[+-]?\d{1,3}(\.\d{3}){2,}$/;
+// One dot group behind a currency symbol or unit (€5.000 / 5.000 EUR): five
+// thousand in Berlin, five with three decimals in Boston. Guessing either way
+// changes the magnitude a thousandfold, so it is left unparsed and the
+// numeric guard refuses it. Leading digit non-zero: nobody writes 0.500 for
+// five hundred.
+const EU_AMBIGUOUS_RE = /^[+-]?[1-9]\d{0,2}\.\d{3}$/;
 // A leading currency symbol, optionally after the sign.
 const CURRENCY_PREFIX_RE = /^([+-]?)\s*[$€£¥₹]\s*/;
 // A trailing currency code or unit: "5000 USD", "5000USD", "12 %".
@@ -139,20 +149,33 @@ const UNIT_SUFFIX_RE = /(?<![A-Za-z])(?:[A-Za-z]{2,4}|%)$/;
  * currency amount emits "$5,000" or "5000 USD" as readily as "5000", and
  * treating those as "not a number" let them pass a cap that stopped the
  * plain form. Commas are removed only in unambiguous thousands grouping,
- * never from "5,50", where the comma may be a decimal separator.
+ * never from "5,50", where the comma may be a decimal separator. European
+ * grouping is read when unambiguous ("5.000,00", "1.000.000"); "€5.000" is
+ * returned unparsed so the guard refuses it, and a bare "5.000" stays 5.
  */
 function normaliseNumeric(v: string): string {
-  let s = v.trim();
-  s = s.replace(CURRENCY_PREFIX_RE, "$1");
+  const original = v.trim();
+  let s = original.replace(CURRENCY_PREFIX_RE, "$1");
+  const currency = s !== original;
   const strippedUnit = s.replace(UNIT_SUFFIX_RE, "").trimEnd();
   // Only drop the suffix if a number is left; "USD" alone must stay
   // unparsed, and the exponent in "1e5" must not be read as a unit.
-  if (strippedUnit && GROUPED_RE.test(strippedUnit.replace(/ /g, ""))) {
-    s = strippedUnit;
-  } else if (strippedUnit && ORDERED_NUMERIC_RE.test(strippedUnit)) {
-    s = strippedUnit;
+  let unit = false;
+  if (strippedUnit && strippedUnit !== s) {
+    const bare = strippedUnit.replace(/ /g, "");
+    if (
+      GROUPED_RE.test(bare) ||
+      ORDERED_NUMERIC_RE.test(strippedUnit) ||
+      EU_GROUPED_RE.test(bare) ||
+      EU_AMBIGUOUS_RE.test(bare)
+    ) {
+      s = strippedUnit;
+      unit = true;
+    }
   }
   s = s.trim();
+  if (EU_GROUPED_RE.test(s)) return s.replace(/\./g, "").replace(",", ".");
+  if ((currency || unit) && EU_AMBIGUOUS_RE.test(s)) return original;
   if (GROUPED_RE.test(s)) s = s.replace(/,/g, "");
   return s;
 }

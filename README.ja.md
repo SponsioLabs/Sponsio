@@ -29,7 +29,7 @@ Sponsio はエージェントがツールを呼ぶ前に、その呼び出しを
 
 > **エージェント契約** とは、エージェントのすべてのアクションでチェックされるランタイムルールであり、[形式手法に裏打ちされています](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a17 alpha リリース。** `pip install --pre sponsio`。セキュリティ修正リリースです。外部レポート（kta1kri）の指摘と、そこから見つかった問題を修正しました。評価できないルール（ツール名の表記ゆれ、`$5,000` と書かれた金額、引数の欠落）は満たされた扱いになりません。`EscalateToHuman` はエスカレーションした呼び出しを実際に拒否します。`sponsio host install --strict` はルールのないツールを拒否します。TypeScript `@sponsio/sdk@0.2.0-alpha.7` にも同じ修正が入っています。[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a17)。
+> **v0.2.0a18 alpha リリース。** `pip install --pre sponsio`。kta1kri レポートに対する 2 回目のセキュリティ修正です。a17 の再検証で 3 件が完全には閉じていないことが分かりました。`sponsio host install --strict` が Claude Code のフックに実際に適用されるようになり、フック設定とルールファイルの保護が `~/`、`$HOME`、絶対パス、`truncate`、`ln`、`chmod`、`rm -rf ~/.claude` を網羅し、ステートレスなシークレット持ち出しルールが引数の順序に依存しなくなりました。TypeScript `@sponsio/sdk@0.2.0-alpha.8` にも同じ修正が入り、npm に実際に公開された最初の 0.2 系 TypeScript ビルドです。[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a18)。
 
 ---
 

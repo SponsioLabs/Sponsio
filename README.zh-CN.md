@@ -29,7 +29,7 @@ Sponsio 在 Agent 调用工具之前先检查这次调用。一条规则可以�
 
 > **Agent 合约**是一条运行时规则，在每一次 Agent 操作时检查，[由形式化方法支撑](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a17 alpha 已发布。** `pip install --pre sponsio`。这是一个安全修复版本，修掉了外部报告（kta1kri）指出的问题以及顺着它查出来的几处。无法求值的规则（工具名换了写法、金额写成 `$5,000`、参数缺失）不再被当成满足；`EscalateToHuman` 现在会真正拦下它升级的那次调用；`sponsio host install --strict` 会拒绝没有规则库的工具。TypeScript `@sponsio/sdk@0.2.0-alpha.7` 包含同样的修复。详见[发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a17)。
+> **v0.2.0a18 alpha 已发布。** `pip install --pre sponsio`。这是 kta1kri 报告的第二个安全修复版本：报告者复测 a17 后发现三项未完全闭合。`sponsio host install --strict` 现在真正作用于 Claude Code 的 hook；hook 配置与规则文件的保护覆盖 `~/`、`$HOME`、绝对路径以及 `truncate`、`ln`、`chmod`、`rm -rf ~/.claude`；无状态的密钥外发规则不再依赖参数顺序。TypeScript `@sponsio/sdk@0.2.0-alpha.8` 包含同样的修复，也是第一个真正发布到 npm 的 0.2 TypeScript 版本。详见[发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a18)。
 
 ---
 

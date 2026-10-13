@@ -18,7 +18,9 @@ Two functions, used on opposite sides of the same join:
 * :func:`tool_aliases` — what an *event* answers to. A tool call is a
   fact about the world and cannot be rewritten, so it is grounded under
   every spelling a contract might reasonably have used, canonical form
-  included. That is where the two sides meet.
+  included. That is where the two sides meet. The bare name is supplied
+  behind both MCP spellings: Claude Code's ``mcp__server__tool`` in any
+  case, and OpenClaw's unprefixed ``server__tool``.
 
 Widening only ever makes more contracts apply to a given call, never
 fewer, so the failure mode this introduces is a rule firing on a tool
@@ -30,18 +32,37 @@ from __future__ import annotations
 
 import re
 
-__all__ = ["canonical_tool", "tool_aliases", "MCP_TOOL_RE"]
+__all__ = ["canonical_tool", "tool_aliases", "MCP_TOOL_RE", "SERVER_TOOL_RE"]
 
 # Claude Code / MCP wire format: ``mcp__<server>__<tool>``. The server
 # segment has no ``__`` of its own; the tool segment may (some servers
 # namespace further), so the split is on the FIRST ``__`` after the
-# prefix and the remainder is the tool.
-MCP_TOOL_RE = re.compile(r"^mcp__(?P<server>[^_]+(?:_[^_]+)*)__(?P<tool>.+)$")
+# prefix and the remainder is the tool. The prefix is matched in any
+# case: the wire format is lower-case, but ``MCP__finance__issue_refund``
+# is the same call and used to keep its server prefix past a rule
+# written for the bare name.
+MCP_TOOL_RE = re.compile(
+    r"^mcp__(?P<server>[^_]+(?:_[^_]+)*)__(?P<tool>.+)$", re.IGNORECASE
+)
+
+# OpenClaw's MCP wire format: ``<server>__<tool>`` with no ``mcp__``
+# prefix (``pi-bundle-mcp-tools.js::buildSafeToolName``). Same split.
+SERVER_TOOL_RE = re.compile(r"^(?P<server>[^_]+(?:_[^_]+)*)__(?P<tool>.+)$")
 
 
 def _strip_mcp(name: str) -> str | None:
     """``mcp__finance__issue_refund`` -> ``issue_refund``; else ``None``."""
     m = MCP_TOOL_RE.match(name)
+    return m.group("tool") if m else None
+
+
+def _strip_server(name: str) -> str | None:
+    """``finance__issue_refund`` -> ``issue_refund``; else ``None``.
+
+    Only consulted when :func:`_strip_mcp` did not match, so the
+    ``mcp`` of a prefixed name is never read as a server.
+    """
+    m = SERVER_TOOL_RE.match(name)
     return m.group("tool") if m else None
 
 
@@ -71,6 +92,8 @@ def tool_aliases(tool: str) -> tuple[str, ...]:
     out.append(stripped.casefold())
 
     bare = _strip_mcp(stripped)
+    if bare is None:
+        bare = _strip_server(stripped)
     if bare:
         out.append(bare)
         out.append(bare.casefold())

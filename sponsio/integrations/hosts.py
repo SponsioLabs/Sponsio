@@ -198,11 +198,16 @@ def _claude_uninstall(*args, **kwargs):
 def _claude_runtime(host, hook_event, stdin_text):
     # Claude Code's hook protocol is single-stream: the event name is
     # carried inside the JSON payload (``hook_event_name`` field), not
-    # as a separate ``--event`` argument.  Just route stdin straight
-    # through.
+    # as a separate ``--event`` argument.  The payload carries no
+    # ``host`` field either, so the hook names the host itself: the
+    # installer wrote ``host guard claude-code``, and that is what
+    # routes the call to ``_host_claude_code`` (where ``--strict`` and
+    # the per-host rules live) rather than the legacy ``_host`` bucket.
     from sponsio.guard_stdin import run_stdin
 
-    return run_stdin(stdin_text)
+    return run_stdin(
+        stdin_text, default_host=getattr(host, "name", None) or "claude-code"
+    )
 
 
 def _openclaw_install(*args, **kwargs):
@@ -219,10 +224,11 @@ def _openclaw_uninstall(*args, **kwargs):
 
 def _openclaw_runtime(host, hook_event, stdin_text):
     # OpenClaw uses the same stdin/stdout protocol as Claude Code; the
-    # ``host`` field on the inbound JSON drives library routing.
+    # ``host`` field on the inbound JSON drives library routing; when a
+    # payload omits it, the host the hook was installed for applies.
     from sponsio.guard_stdin import run_stdin
 
-    return run_stdin(stdin_text)
+    return run_stdin(stdin_text, default_host=getattr(host, "name", None) or "openclaw")
 
 
 def _openclaw_status(host):
