@@ -26,13 +26,21 @@
  */
 
 /**
- * Claude Code / MCP wire format: ``mcp__<server>__<tool>``. The server
- * segment has no ``__`` of its own; the tool segment may, so the split is
- * on the FIRST ``__`` after the prefix. ``[^\n]`` rather than ``.`` because
+ * Claude Code / MCP wire format: ``mcp__<server>__<tool>``, prefix in any
+ * case (``MCP__finance__x`` is the same call). The server segment has no
+ * ``__`` of its own; the tool segment may, so the split is on the FIRST
+ * ``__`` after the prefix. ``[^\n]`` rather than ``.`` because
  * Python's ``.`` excludes only ``\n`` while JavaScript's also excludes
  * ``\r`` and U+2028/2029.
  */
-export const MCP_TOOL_RE = /^mcp__([^_]+(?:_[^_]+)*)__([^\n]+)$/;
+export const MCP_TOOL_RE = /^mcp__([^_]+(?:_[^_]+)*)__([^\n]+)$/i;
+
+/**
+ * OpenClaw's MCP wire format: ``<server>__<tool>`` with no ``mcp__``
+ * prefix. Same split; consulted only when {@link MCP_TOOL_RE} did not
+ * match, so the ``mcp`` of a prefixed name is never read as a server.
+ */
+export const SERVER_TOOL_RE = /^([^_]+(?:_[^_]+)*)__([^\n]+)$/;
 
 /**
  * Python ``str.strip()`` whitespace (``str.isspace``). Differs from
@@ -86,6 +94,12 @@ function stripMcp(name: string): string | null {
   return m ? m[2] : null;
 }
 
+/** ``finance__issue_refund`` -> ``issue_refund``; else ``null``. */
+function stripServer(name: string): string | null {
+  const m = SERVER_TOOL_RE.exec(name);
+  return m ? m[2] : null;
+}
+
 /**
  * The single spelling a contract keys on.
  *
@@ -110,7 +124,7 @@ export function toolAliases(tool: string): string[] {
   const out = [raw];
   const stripped = pyStrip(raw);
   out.push(stripped, pyCasefold(stripped));
-  const bare = stripMcp(stripped);
+  const bare = stripMcp(stripped) ?? stripServer(stripped);
   if (bare) out.push(bare, pyCasefold(bare));
   return [...new Set(out)].filter((k) => k);
 }

@@ -45,10 +45,25 @@ test("toolAliases answers to every spelling, raw name first", () => {
   assert.deepEqual(toolAliases("issue_refund"), ["issue_refund"]);
   // The server segment has no "__"; the tool segment may.
   assert.ok(toolAliases("mcp__a_b__c__d").includes("c__d"));
+  // The prefix in any case, and OpenClaw's unprefixed server__tool form,
+  // both answer to the bare name (kta1kri's retest, 2026-10).
+  assert.deepEqual(toolAliases("MCP__finance__issue_refund"), [
+    "MCP__finance__issue_refund",
+    "mcp__finance__issue_refund",
+    "issue_refund",
+  ]);
+  assert.deepEqual(toolAliases("finance__issue_refund"), ["finance__issue_refund", "issue_refund"]);
 });
 
 test("mustPrecede binds every spelling of the guarded tool", () => {
-  for (const name of ["issue_refund", "Issue_Refund", "issue_refund ", "mcp__finance__issue_refund"]) {
+  for (const name of [
+    "issue_refund",
+    "Issue_Refund",
+    "issue_refund ",
+    "mcp__finance__issue_refund",
+    "MCP__finance__issue_refund",
+    "finance__issue_refund",
+  ]) {
     const r = guard([mustPrecede("check_policy", "issue_refund")]).guardBefore(name, { id: 1 });
     assert.equal(r.blocked, true, `expected ${JSON.stringify(name)} to be blocked`);
   }
@@ -225,4 +240,29 @@ test("a numeric guard meeting a non-numeric value warns, once per value", () => 
   const hits = seen.filter((s) => s.includes("non-numeric value"));
   assert.equal(hits.length, 1);
   assert.match(hits[0], /a great many dollars/);
+});
+
+// ── 6. European grouping: read when unambiguous, refused when not ──────
+
+test("argValueRange reads unambiguous European grouping", () => {
+  for (const amount of ["5.000,00", "€5.000,00", "1.000.000", "1.000.000,50"]) {
+    const r = guard([argValueRange("pay", "amount", undefined, 1000)]).guardBefore("pay", { amount });
+    assert.equal(r.blocked, true, `amount=${JSON.stringify(amount)}`);
+    assert.notEqual(r.detViolations[0]?.ruleId, "args:unevaluable");
+  }
+});
+
+test("argValueRange refuses an ambiguous currency amount instead of reading it as five", () => {
+  // "€5.000" is five thousand in Berlin and five in Boston; both "5.000"
+  // and "€5.000" read as 5 before (kta1kri's retest, 2026-10).
+  for (const amount of ["€5.000", "5.000 EUR", "$5.000"]) {
+    const r = guard([argValueRange("pay", "amount", undefined, 1000)]).guardBefore("pay", { amount });
+    assert.equal(r.blocked, true, `amount=${JSON.stringify(amount)}`);
+    assert.equal(r.detViolations[0]?.ruleId, "args:unevaluable");
+  }
+  // With no currency marker, one dot group is the float it is everywhere.
+  assert.equal(
+    guard([argValueRange("pay", "amount", undefined, 1000)]).guardBefore("pay", { amount: "5.000" }).blocked,
+    false,
+  );
 });

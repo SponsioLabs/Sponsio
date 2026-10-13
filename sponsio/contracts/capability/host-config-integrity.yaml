@@ -42,6 +42,10 @@
 #      — bash redirect / mutator forms that the self-modify pack
 #      doesn't currently match because its regex anchors on
 #      ``.sponsio/plugins/...`` paths only.
+#   6. ``truncate -s0 ~/.claude/settings.json`` / ``ln -sf /dev/null
+#      ~/.claude/settings.json`` / ``chmod 000 ~/.claude/settings.json``
+#      / ``rm -rf ~/.claude`` — no write at all, but the IDE reads an
+#      empty, foreign, or unreadable file and loads no hooks.
 #
 # What this pack denies:
 #
@@ -222,26 +226,55 @@ agents:
       # interpreter: ``echo '{}' > hooks.json``, ``cat /dev/null >
       # settings.json``, ``: > hooks.json``, ``sed -i 's/true/false/'
       # hooks.json``, ``tee hooks.json``, ``cp empty.json
-      # hooks.json``, ``mv x hooks.json``, ``rm hooks.json``.
+      # hooks.json``, ``mv x hooks.json``, ``rm hooks.json``,
+      # ``truncate -s0``, ``ln -sf /dev/null``, ``chmod 000``.
       #
-      # The pattern is "any of {redirect, sed, awk, tee, cp, mv,
-      # rm, install} adjacent to a hook-config path on the same
-      # command line". Read-only patterns (``cat hooks.json``,
-      # ``jq . hooks.json``, ``grep ... hooks.json``) are NOT
-      # matched — they don't carry a mutator verb in front of the
-      # path, so the alternation never triggers.
+      # The pattern is "a mutator verb, then anything up to the next
+      # pipe / separator, then a hook-config path on the same command
+      # line". The gap between verb and path is what ``~/``, ``$HOME/``,
+      # ``"${HOME}/``, and an absolute prefix sit in: an earlier version
+      # required the path to follow the redirect operator immediately,
+      # so ``> .claude/settings.json`` was denied and ``> ~/.claude/
+      # settings.json`` was not (reported by kta1kri, 2026-10).
+      # ``truncate``, ``ln``, ``chmod``, ``chown`` and ``chattr`` are
+      # mutators too: an emptied, replaced, or unreadable settings file
+      # removes the hook exactly as an edited one does.
+      #
+      # Read-only patterns (``cat hooks.json``, ``jq . hooks.json``,
+      # ``grep ... hooks.json``, ``jq . settings.json > /tmp/backup``)
+      # are NOT matched — they carry no mutator verb in front of the
+      # path, and a redirect to a different file stops at that file.
+      # ``cp`` with the file as the *source* does match; a backup is
+      # the price of catching ``cp empty.json settings.json``.
       #
       # Edge case: ``python ... > hooks.json`` is already caught
       # by §5 via the interpreter alternation. No double-deny harm
       # since this is the deny side of the contract anyway.
 
-      - desc: "Host agent must not redirect / sed / tee / mv / rm an IDE hook / MCP wiring file"
+      - desc: "Host agent must not redirect / sed / tee / mv / rm / truncate / ln / chmod an IDE hook / MCP wiring file"
         G:
           pattern: arg_blacklist
           args:
             - Bash
             - command
-            - - "(>\\s*|>>\\s*|\\btee\\b[^|\\n]*|\\bsed\\b\\s+-i[^|\\n]*|\\bawk\\b[^|\\n]*-i[^|\\n]*|\\bcp\\b[^|\\n]+|\\bmv\\b[^|\\n]+|\\brm\\b[^|\\n]+|\\binstall\\b[^|\\n]+)(\\.cursor/(hooks|mcp)\\.json|\\.claude/(settings(\\.local)?\\.json|hooks/[^\\s|]+)|\\.codex/hooks\\.json|\\.windsurf/hooks\\.json)"
+            - - ">{1,2}\\|?\\s*[^|&;<>\\n]*(\\.cursor/(hooks|mcp)\\.json|\\.claude/(settings(\\.local)?\\.json|hooks/[^\\s|]+)|\\.codex/hooks\\.json|\\.windsurf/hooks\\.json)"
+              - "\\b(tee|cp|mv|rm|install|truncate|ln|chmod|chown|chattr|shred|unlink|rsync|dd|sponge|patch|ed|ex|vi|vim|nvim)\\b[^|&;\\n]*(\\.cursor/(hooks|mcp)\\.json|\\.claude/(settings(\\.local)?\\.json|hooks/[^\\s|]+)|\\.codex/hooks\\.json|\\.windsurf/hooks\\.json)"
+              - "\\bsed\\b[^|&;\\n]*\\s-[a-zA-Z]*i[^|&;\\n]*(\\.cursor/(hooks|mcp)\\.json|\\.claude/(settings(\\.local)?\\.json|hooks/[^\\s|]+)|\\.codex/hooks\\.json|\\.windsurf/hooks\\.json)"
+              - "\\bawk\\b[^|&;\\n]*\\s-i[^|&;\\n]*(\\.cursor/(hooks|mcp)\\.json|\\.claude/(settings(\\.local)?\\.json|hooks/[^\\s|]+)|\\.codex/hooks\\.json|\\.windsurf/hooks\\.json)"
+          source: "library:tier1.host-config-integrity"
+
+      # The rules above name the wiring FILE. Removing, moving, or making
+      # unreadable the directory that holds it (``rm -rf ~/.claude``,
+      # ``chmod 000 ~/.claude``, ``mv .cursor /tmp``) takes the hook
+      # registration with it. The lookahead stops at the directory name
+      # so ``~/.claude-backup`` and ``.claude/commands/x.md`` stay open.
+      - desc: "Host agent must not remove, move, or lock the IDE config directory that holds the hook wiring"
+        G:
+          pattern: arg_blacklist
+          args:
+            - Bash
+            - command
+            - - "\\b(rm|rmdir|mv|chmod|chown|chattr|ln)\\b[^|&;\\n]*(\\.claude|\\.cursor|\\.codex|\\.windsurf)/?(?![\\w./-])"
           source: "library:tier1.host-config-integrity"
 
 # -----------------------------------------------------------------------------

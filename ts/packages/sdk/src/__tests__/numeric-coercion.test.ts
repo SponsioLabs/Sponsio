@@ -25,7 +25,7 @@ function capGuard() {
 }
 
 test("a cap blocks formatted currency above the limit", () => {
-  for (const amount of [5000, "5000", "$5,000", "5,000", "5000 USD", "$1,234.50"]) {
+  for (const amount of [5000, "5000", "$5,000", "5,000", "5000 USD", "$1,234.50", "5.000,00", "1.000.000"]) {
     assert.equal(
       capGuard().guardBefore("pay", { amount }).blocked,
       true,

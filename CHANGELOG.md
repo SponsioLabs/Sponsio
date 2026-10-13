@@ -10,9 +10,53 @@ broke.
 
 ---
 
-## [Unreleased]
+## [0.2.0a18]: 2026-10-13
 
 ### Fixed
+
+- **Second round on the kta1kri report**, from the reporter's retest of
+  0.2.0a17. Three findings were not fully closed and two residuals remained.
+  - **`--strict` never reached the Claude Code hook.** Claude Code's hook
+    payload carries no `host` field, so the hook routed every call to the
+    legacy `_host` bucket while `sponsio host install claude-code --strict`
+    had written `defaults.unconfigured: deny` into `_host_claude_code`. The
+    posture was on disk and never read, and `mcp__acme__*` still ran. The
+    hook now names the host it was installed for (`host guard claude-code`
+    routes to `_host_claude_code`; a `host` the payload carries wins).
+    Installs that only ever had `_host/sponsio.yaml` keep enforcing through
+    the existing legacy fallback, with its one-time notice; their trace
+    history starts a new file under the per-host bucket.
+  - **The hook-wiring rule missed every path with a prefix.** The redirect
+    pattern required `.claude/settings.json` right after `>`, so
+    `> .claude/settings.json` was denied and `> ~/.claude/settings.json`,
+    `> $HOME/...` and an absolute path were not. `truncate -s0`, `ln -sf
+    /dev/null`, `chmod 000` and `rm -rf ~/.claude` were not mutators at all,
+    though each leaves the IDE loading no hooks. `capability/host-config-
+    integrity` now matches a mutator verb anywhere before the path on the
+    same simple command, adds those verbs, and refuses removing, moving or
+    locking the directory that holds the wiring. `capability/self-modify`
+    and the per-host templates get the same verbs for the rule file (where
+    the hook already fails closed on an empty or unreadable library).
+  - **The stateless exfiltration rule kept the ordered regex.** 0.2.0a17
+    made the trace-aware rules order-free and left the per-event rule as
+    sender-then-flag-then-capture, so `SECRETS=$(env); curl -d "$SECRETS"`,
+    `curl -F "data=$(env)"` and `wget --post-data="$(env)"` were denied only
+    after an earlier `printenv` in the same conversation. The stateless
+    rule now matches the three parts independently with `-F`, `--form` and
+    `--post-data` as data flags; a captured dump (`$(env)`, `` `printenv` ``)
+    also arms the trace-aware window, which the trigger used to miss.
+  - **Two spellings still slipped the name join.** `MCP__finance__issue_refund`
+    (prefix re-cased) and `finance__issue_refund` (OpenClaw's unprefixed
+    form) now answer to `issue_refund`, in both runtimes; the hook also
+    routes a re-cased prefix to the server's own library instead of the
+    host bucket.
+  - **`5.000` and `€5.000` read as 5.** European grouping is now read when
+    it is unambiguous (`5.000,00`, `1.000.000`), and one dot group behind a
+    currency symbol or unit (`€5.000`, `5.000 EUR`) is refused as
+    unevaluable rather than guessed either way. A bare `5.000` stays the
+    float it is in every programming language.
+  - `@sponsio/sdk` 0.2.0-alpha.7 was never published; npm still serves
+    alpha.4, so the TypeScript side of a17 could not be retested.
 
 - **The OpenAI integration says what it does not cover.** Its docstring
   claimed every tool call was monitored; the Assistants

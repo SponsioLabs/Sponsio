@@ -306,7 +306,7 @@ agents:
           args:
             - Bash
             - command
-            - - ">>?\\s*[^|&;]*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations)/[^/]+\\.py)"
+            - - ">{1,2}\\|?\\s*[^|&;<>\\n]*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations)/[^/]+\\.py)"
           source: "library:tier1.self-modify"
 
       - desc: "Host agent must not `tee` into a sponsio guard config or engine file"
@@ -336,19 +336,35 @@ agents:
             - - "\\b(cp|mv|rm|dd)\\b\\s+[^|&;]*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations)/[^/]+\\.py)"
           source: "library:tier1.self-modify"
 
+      # A file can be emptied, replaced, or made unreadable without a
+      # write operator: ``truncate -s0``, ``ln -sf /dev/null``,
+      # ``chmod 000`` (reported by kta1kri, 2026-10, against the hook
+      # wiring; the rule file has the same exposure). The hook fails
+      # closed on an empty or unreadable library, so for the rule file
+      # these are denial of service rather than bypass, but they are
+      # the agent reaching for its own guard all the same.
+      - desc: "Host agent must not truncate / link over / lock a sponsio guard config or engine file"
+        G:
+          pattern: arg_blacklist
+          args:
+            - Bash
+            - command
+            - - "\\b(truncate|ln|chmod|chown|chattr|shred|unlink|install|rsync|sponge|patch|ed|ex|vi|vim|nvim)\\b\\s+[^|&;]*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations)/[^/]+\\.py)"
+          source: "library:tier1.self-modify"
+
       # The rules above name the rule FILE. Removing or moving a directory
       # that contains it (``rm -rf ~/.sponsio``, ``mv ~/.sponsio/plugins
       # /tmp``) took every library with it, after which each tool was
       # "unconfigured" and ran, and ``defaults.unconfigured: deny`` went
       # too, since it lives in the host library. The lookahead stops at
       # the directory name so ``~/.sponsio-backup`` stays allowed.
-      - desc: "Host agent must not remove or move the sponsio config directory or a library bucket"
+      - desc: "Host agent must not remove, move, or lock the sponsio config directory or a library bucket"
         G:
           pattern: arg_blacklist
           args:
             - Bash
             - command
-            - - "\\b(rm|mv|rmdir)\\b[^|&;\\n]*\\.sponsio(/plugins(/[\\w-]+)?)?/?(?![\\w./-])"
+            - - "\\b(rm|mv|rmdir|chmod|chown|chattr|ln)\\b[^|&;\\n]*\\.sponsio(/plugins(/[\\w-]+)?)?/?(?![\\w./-])"
           source: "library:tier1.self-modify"
 
 # -----------------------------------------------------------------------------

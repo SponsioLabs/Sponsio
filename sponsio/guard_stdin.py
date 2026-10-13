@@ -118,6 +118,12 @@ def _bucket_for_host(host: str | None, is_subagent: bool) -> str:
     return "_host_subagent" if is_subagent else "_host"
 
 
+def _has_mcp_prefix(tool_name: str) -> bool:
+    """``mcp__server__tool`` in any case; the wire format is lower-case,
+    but routing on the exact spelling let a re-cased name change bucket."""
+    return tool_name[:5].casefold() == "mcp__"
+
+
 def derive_plugin_id(
     tool_name: str,
     host: str | None = None,
@@ -163,8 +169,11 @@ def derive_plugin_id(
         # Shell tool is renamed to "Bash" upstream in
         # ``cursor_event_to_sponsio_event`` so it lands here too.
         return fallback
-    if tool_name.startswith("mcp__"):
-        # mcp__<server>__<tool>  (Claude Code MCP tool naming)
+    if _has_mcp_prefix(tool_name):
+        # mcp__<server>__<tool>  (Claude Code MCP tool naming). The
+        # prefix is matched without regard to case: ``MCP__finance__x``
+        # used to miss this branch and land in the host bucket, where
+        # the finance library never saw it.
         parts = tool_name.split("__", 2)
         if len(parts) >= 2 and parts[1]:
             return parts[1]
@@ -754,7 +763,7 @@ def _evaluate_event_locked(event: dict) -> GuardOutcome:
         host == "openclaw"
         and tool_name
         and "__" in tool_name
-        and not tool_name.startswith("mcp__")
+        and not _has_mcp_prefix(tool_name)
     ):
         tool_name = f"mcp__{tool_name}"
     # Claude Code's PreToolUse payload includes ``agent_id`` only when
@@ -997,7 +1006,7 @@ def render_reply(event: dict, outcome: GuardOutcome) -> tuple[str, int]:
     return json.dumps(payload), 0
 
 
-def run_stdin(stdin_text: str | None = None) -> int:
+def run_stdin(stdin_text: str | None = None, *, default_host: str | None = None) -> int:
     """End-to-end entry point: read stdin, evaluate, write reply.
 
     Returns the process exit code. Malformed stdin (not JSON, not an
@@ -1005,6 +1014,14 @@ def run_stdin(stdin_text: str | None = None) -> int:
     evaluating the event follows :func:`_error_outcome`: denied unless
     ``SPONSIO_HOOK_ON_ERROR=allow``. Errors go to stderr so the operator
     can see them.
+
+    ``default_host`` is the host the hook was installed for (``sponsio
+    host guard claude-code`` knows it is Claude Code). Claude Code's own
+    payload carries no ``host`` field, so without it every call routed
+    to the legacy ``_host`` bucket while ``sponsio host install --strict``
+    had written ``defaults.unconfigured: deny`` into ``_host_claude_code``:
+    the posture was on disk and never read, and an MCP tool with no
+    library still ran. A ``host`` the payload does carry wins.
     """
     raw = stdin_text if stdin_text is not None else sys.stdin.read()
     if not raw.strip():
@@ -1020,6 +1037,11 @@ def run_stdin(stdin_text: str | None = None) -> int:
     if not isinstance(event, dict):
         sys.stderr.write("sponsio plugin guard:stdin payload must be a JSON object\n")
         return 0
+
+    if default_host and not (
+        isinstance(event.get("host"), str) and event["host"].strip()
+    ):
+        event["host"] = default_host
 
     try:
         outcome = evaluate_event(event)

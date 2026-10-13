@@ -24,6 +24,10 @@ code or unit are therefore normalised away before the literal test.
 Commas are removed only in unambiguous thousands grouping
 (``5,000`` / ``1,234,567.89``), never from ``5,50``, where the comma may
 be a decimal separator and guessing would silently change the magnitude.
+European grouping is read when it is unambiguous (``5.000,00`` /
+``1.000.000``); ``€5.000`` and ``5.000 EUR`` are refused rather than read
+as 5, and a bare ``5.000`` stays the float it is in every programming
+language.
 
 Overflow is a value, not a parse failure: ``"1e400"`` is beyond both
 runtimes' float range and becomes infinity on each. Both accept it and
@@ -52,6 +56,19 @@ _NUMERIC_RE = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$")
 # Unambiguous thousands grouping: 5,000 / 1,234,567 / 1,234,567.89.
 _GROUPED_RE = re.compile(r"^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$")
 
+# Unambiguous European grouping: a decimal comma after dot groups
+# (5.000,00 / 1.234.567,89) or two or more dot groups (1.000.000). One
+# dot group alone (5.000) is a plain float on its own.
+_EU_GROUPED_RE = re.compile(r"^[+-]?\d{1,3}(\.\d{3})+,\d+$|^[+-]?\d{1,3}(\.\d{3}){2,}$")
+
+# One dot group behind a currency symbol or unit (€5.000 / 5.000 EUR):
+# five thousand in Berlin, five with three decimals in Boston. A money
+# amount with three decimals is rare, a cap that reads it as 5 is a
+# bypass, and guessing either way changes the magnitude a thousandfold,
+# so it is left unparsed and the numeric guard refuses it. The leading
+# digit is non-zero: nobody writes 0.500 for five hundred.
+_EU_AMBIGUOUS_RE = re.compile(r"^[+-]?[1-9]\d{0,2}\.\d{3}$")
+
 # A leading currency symbol, optionally after the sign.
 _CURRENCY_PREFIX_RE = re.compile(r"^([+-]?)\s*[$€£¥₹]\s*")
 
@@ -73,17 +90,34 @@ def _is_number(v: object) -> bool:
 
 
 def _normalise(s: str) -> str:
-    """Strip the formatting a model wraps around a number."""
-    s = s.strip()
+    """Strip the formatting a model wraps around a number.
+
+    Returns a string :data:`_NUMERIC_RE` accepts when the value is
+    unambiguous, and the input untouched when it is not.
+    """
+    original = s.strip()
+    s = original
     s = _CURRENCY_PREFIX_RE.sub(r"\1", s)
+    currency = s != original
     stripped_unit = _UNIT_SUFFIX_RE.sub("", s).rstrip()
     # Only drop the suffix if a number is left; "USD" alone must stay unparsed,
     # and the exponent in "1e5" must not be mistaken for a unit.
-    if stripped_unit and _GROUPED_RE.match(stripped_unit.replace(" ", "")):
-        s = stripped_unit
-    elif stripped_unit and _NUMERIC_RE.match(stripped_unit):
-        s = stripped_unit
+    unit = False
+    if stripped_unit and stripped_unit != s:
+        bare = stripped_unit.replace(" ", "")
+        if (
+            _GROUPED_RE.match(bare)
+            or _NUMERIC_RE.match(stripped_unit)
+            or _EU_GROUPED_RE.match(bare)
+            or _EU_AMBIGUOUS_RE.match(bare)
+        ):
+            s = stripped_unit
+            unit = True
     s = s.strip()
+    if _EU_GROUPED_RE.match(s):
+        return s.replace(".", "").replace(",", ".")
+    if (currency or unit) and _EU_AMBIGUOUS_RE.match(s):
+        return original
     if _GROUPED_RE.match(s):
         s = s.replace(",", "")
     return s
