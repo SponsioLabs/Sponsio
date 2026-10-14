@@ -29,7 +29,7 @@ Sponsio 在 Agent 调用工具之前先检查这次调用。一条规则可以�
 
 > **Agent 合约**是一条运行时规则，在每一次 Agent 操作时检查，[由形式化方法支撑](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a18 alpha 已发布。** `pip install --pre sponsio`。这是 kta1kri 报告的第二个安全修复版本：报告者复测 a17 后发现三项未完全闭合。`sponsio host install --strict` 现在真正作用于 Claude Code 的 hook；hook 配置与规则文件的保护覆盖 `~/`、`$HOME`、绝对路径以及 `truncate`、`ln`、`chmod`、`rm -rf ~/.claude`；无状态的密钥外发规则不再依赖参数顺序。TypeScript `@sponsio/sdk@0.2.0-alpha.8` 包含同样的修复，也是第一个真正发布到 npm 的 0.2 TypeScript 版本。详见[发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a18)。
+> **v0.2.0a19 alpha 已发布。** `pip install --pre sponsio`。kta1kri 几轮报告的后续：YAML 里用 LTL 写的规则（`called(Issue_Refund)`）和 `ArgValue` 项现在会命中工具的所有拼写，包括 `mcp__server__` 形式；`sponsio host install` 写入的是运行它的那个安装的绝对路径，`--mode observe` 成为真正的影子模式，随 hook 命令一起下发。TypeScript `@sponsio/sdk@0.2.0-alpha.9` 包含同样的修复。详见[发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a19)。
 
 ---
 

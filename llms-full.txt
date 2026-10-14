@@ -41,7 +41,7 @@ Sponsio checks an agent's tool calls before they run. A rule can look at what al
 
 > An **agent contract** is a runtime rule that is checked at every agent action, [backed by formal methods](docs/concepts/formal-methods.md).
 
-> **v0.2.0a18 alpha is out.** `pip install --pre sponsio`. A second security release from the kta1kri report: the reporter's retest of a17 found three findings not fully closed. `sponsio host install --strict` now actually reaches the Claude Code hook; the hook-wiring and rule-file protections cover `~/`, `$HOME` and absolute paths plus `truncate`, `ln`, `chmod` and `rm -rf ~/.claude`; the stateless secret-exfiltration rule no longer depends on argument order. TypeScript `@sponsio/sdk@0.2.0-alpha.8` carries the same fixes and is the first 0.2 TypeScript build actually published to npm. See the [release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a18).
+> **v0.2.0a19 alpha is out.** `pip install --pre sponsio`. Follow-ups to the kta1kri rounds: a rule written as LTL in YAML (`called(Issue_Refund)`) and the `ArgValue` term now bind every spelling of their tool, including the `mcp__server__` form; `sponsio host install` writes the absolute path of the install that ran it, and `--mode observe` is now a real shadow run carried on the hook command. TypeScript `@sponsio/sdk@0.2.0-alpha.9` carries the same fixes. See the [release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a19).
 
 ---
 
@@ -3538,7 +3538,7 @@ broke.
 
 ---
 
-## [Unreleased]
+## [0.2.0a19]: 2026-10-14
 
 ### Fixed
 

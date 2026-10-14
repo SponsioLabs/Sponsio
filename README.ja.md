@@ -29,7 +29,7 @@ Sponsio はエージェントがツールを呼ぶ前に、その呼び出しを
 
 > **エージェント契約** とは、エージェントのすべてのアクションでチェックされるランタイムルールであり、[形式手法に裏打ちされています](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a18 alpha リリース。** `pip install --pre sponsio`。kta1kri レポートに対する 2 回目のセキュリティ修正です。a17 の再検証で 3 件が完全には閉じていないことが分かりました。`sponsio host install --strict` が Claude Code のフックに実際に適用されるようになり、フック設定とルールファイルの保護が `~/`、`$HOME`、絶対パス、`truncate`、`ln`、`chmod`、`rm -rf ~/.claude` を網羅し、ステートレスなシークレット持ち出しルールが引数の順序に依存しなくなりました。TypeScript `@sponsio/sdk@0.2.0-alpha.8` にも同じ修正が入り、npm に実際に公開された最初の 0.2 系 TypeScript ビルドです。[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a18)。
+> **v0.2.0a19 alpha リリース。** `pip install --pre sponsio`。kta1kri レポートのフォローアップです。YAML 内で LTL として書かれたルール（`called(Issue_Refund)`）と `ArgValue` 項が、`mcp__server__` 形式を含むツール名のあらゆる表記に一致するようになりました。`sponsio host install` は実行したインストールの絶対パスを書き込み、`--mode observe` はフックコマンドに載る本物のシャドウモードになりました。TypeScript `@sponsio/sdk@0.2.0-alpha.9` にも同じ修正が入っています。[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a19)。
 
 ---
 
