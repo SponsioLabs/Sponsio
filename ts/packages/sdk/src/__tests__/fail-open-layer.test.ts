@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Sponsio } from "../index.js";
-import { ArgValue, Const, G, Gt, Not } from "../core/formula.js";
+import { ArgValue, Const, G, Gt, Not, predKey } from "../core/formula.js";
 import {
   argBlacklist,
   argLengthLimit,
@@ -265,4 +265,46 @@ test("argValueRange refuses an ambiguous currency amount instead of reading it a
     guard([argValueRange("pay", "amount", undefined, 1000)]).guardBefore("pay", { amount: "5.000" }).blocked,
     false,
   );
+});
+
+// ── 7. The join reaches predicate keys, the ArgValue term and loop detection ──
+
+test("predKey canonicalises the tool position of tool-keyed predicates only", () => {
+  assert.equal(predKey("called", "Issue_Refund "), "called(issue_refund)");
+  assert.equal(predKey("arg_value", "MCP__x__Pay", "amount"), "arg_value(mcp__x__pay, amount)");
+  // A regex argument is not a tool name and is left alone.
+  assert.equal(predKey("called_with", "Issue_Refund", "re"), "called_with(Issue_Refund, re)");
+});
+
+test("an ArgValue cap reads every spelling of its tool", () => {
+  for (const contractTool of ["issue_refund", "Issue_Refund"]) {
+    const cap = {
+      formula: new G(new Not(new Gt(new ArgValue(contractTool, "amount"), new Const(10)))),
+      desc: "cap",
+      patternName: "custom",
+      liveness: false,
+    } as DetFormula;
+    for (const name of ["issue_refund", "Issue_Refund", "mcp__finance__issue_refund", "finance__issue_refund"]) {
+      assert.equal(guard([cap]).guardBefore(name, { amount: 50 }).blocked, true, `${contractTool} vs ${name}`);
+      assert.equal(guard([cap]).guardBefore(name, { amount: 5 }).blocked, false);
+    }
+  }
+});
+
+test("loopDetection follows the tool across an MCP prefix, and still resets on another tool", () => {
+  const g = guard([loopDetection("search", 2)]);
+  assert.equal(g.guardBefore("search", { q: "x" }).blocked, false);
+  assert.equal(g.guardBefore("mcp__web__search", { q: "x" }).blocked, false);
+  assert.equal(g.guardBefore("search", { q: "x" }).blocked, true);
+  const h = guard([loopDetection("search", 2)]);
+  for (const t of ["search", "mcp__web__search", "read_file", "search"]) {
+    assert.equal(h.guardBefore(t, { q: "x" }).blocked, false, t);
+  }
+});
+
+test("a counter is not overwritten by a stale spelling", () => {
+  const g = guard([rateLimit("send_email", 2)]);
+  assert.equal(g.guardBefore("send_email", {}).blocked, false);
+  assert.equal(g.guardBefore("Send_Email", {}).blocked, false);
+  assert.equal(g.guardBefore("mcp__mail__send_email", {}).blocked, true);
 });

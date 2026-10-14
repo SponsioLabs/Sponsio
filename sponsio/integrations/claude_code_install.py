@@ -19,27 +19,21 @@ Reference: https://code.claude.com/docs/en/hooks
 from __future__ import annotations
 
 import json
-import shutil
-import sys
 from pathlib import Path
 
 from sponsio.integrations.hosts import (
     HookHost,
     HostInstallResult,
     HostUninstallResult,
+    hook_command,
+    resolve_binary,
 )
 
 _INSTALLED_EVENTS = ("PreToolUse", "PostToolUse")
 
 
 def _resolve_binary(override: str | None) -> str:
-    if override:
-        return override
-    candidate = Path(sys.argv[0]) if sys.argv and sys.argv[0] else None
-    if candidate and candidate.is_absolute() and candidate.exists():
-        return str(candidate)
-    resolved = shutil.which("sponsio")
-    return resolved or "sponsio"
+    return resolve_binary(override)
 
 
 def _ensure_bundled_library(bucket: str) -> None:
@@ -88,8 +82,13 @@ def install(
     fail_closed: bool = True,
     force: bool = False,
     binary: str | None = None,
+    mode: str = "enforce",
 ) -> HostInstallResult:
     """Write or merge Sponsio entries into Claude Code's settings.json.
+
+    ``mode`` is carried on the hook command (see
+    :func:`sponsio.integrations.hosts.hook_command`); ``observe`` makes
+    the hook log without blocking.
 
     ``fail_closed`` is currently advisory — Claude Code's hook protocol
     treats any non-zero exit as a non-blocking error (deny is signalled
@@ -106,7 +105,7 @@ def install(
         target = host.config_path_user
 
     bin_cmd = _resolve_binary(binary)
-    cmd = f"{bin_cmd} host guard claude-code --stdin"
+    cmd = hook_command(bin_cmd, "host", "guard", "claude-code", "--stdin", mode=mode)
 
     target.parent.mkdir(parents=True, exist_ok=True)
 

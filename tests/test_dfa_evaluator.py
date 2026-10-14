@@ -67,51 +67,51 @@ def _trace(*tool_calls: str) -> Trace:
 
 class TestProgressionAtoms:
     def test_single_atom_true(self):
-        dfa = DFAEvaluator(Atom("called", "X"))
-        assert dfa.step({"called(X)": True}) == "⊤"
+        dfa = DFAEvaluator(Atom("called", "x"))
+        assert dfa.step({"called(x)": True}) == "⊤"
 
     def test_single_atom_false(self):
-        dfa = DFAEvaluator(Atom("called", "X"))
-        assert dfa.step({"called(Y)": True}) == "⊥"
+        dfa = DFAEvaluator(Atom("called", "x"))
+        assert dfa.step({"called(y)": True}) == "⊥"
 
     def test_not_atom(self):
-        dfa = DFAEvaluator(Not(Atom("called", "X")))
-        assert dfa.step({"called(X)": True}) == "⊥"
+        dfa = DFAEvaluator(Not(Atom("called", "x")))
+        assert dfa.step({"called(x)": True}) == "⊥"
 
     def test_and_short_circuits(self):
-        dfa = DFAEvaluator(And(Atom("called", "X"), Atom("called", "Y")))
+        dfa = DFAEvaluator(And(Atom("called", "x"), Atom("called", "y")))
         # Both must hold at the SAME step for non-temporal And
-        assert dfa.step({"called(X)": True, "called(Y)": True}) == "⊤"
+        assert dfa.step({"called(x)": True, "called(y)": True}) == "⊤"
 
     def test_or(self):
-        dfa = DFAEvaluator(Or(Atom("called", "X"), Atom("called", "Y")))
-        assert dfa.step({"called(X)": True}) == "⊤"
+        dfa = DFAEvaluator(Or(Atom("called", "x"), Atom("called", "y")))
+        assert dfa.step({"called(x)": True}) == "⊤"
 
 
 class TestProgressionG:
     """G(φ) stays ? while φ holds, becomes ⊥ the moment φ fails."""
 
     def test_g_remains_undecided_when_phi_holds(self):
-        dfa = DFAEvaluator(G(Atom("called", "X")))
+        dfa = DFAEvaluator(G(Atom("called", "x")))
         for _ in range(3):
-            assert dfa.step({"called(X)": True}) == "?"
+            assert dfa.step({"called(x)": True}) == "?"
 
     def test_g_becomes_false_on_first_violation(self):
-        dfa = DFAEvaluator(G(Atom("called", "X")))
-        dfa.step({"called(X)": True})
+        dfa = DFAEvaluator(G(Atom("called", "x")))
+        dfa.step({"called(x)": True})
         assert dfa.step({}) == "⊥"
 
     def test_g_stays_false_after_violation(self):
-        dfa = DFAEvaluator(G(Atom("called", "X")))
+        dfa = DFAEvaluator(G(Atom("called", "x")))
         dfa.step({})
-        assert dfa.step({"called(X)": True}) == "⊥"
-        assert dfa.step({"called(X)": True}) == "⊥"
+        assert dfa.step({"called(x)": True}) == "⊥"
+        assert dfa.step({"called(x)": True}) == "⊥"
 
     def test_g_finalize_vacuous_true(self):
         """G(φ) still undecided at session end → vacuously True (weak semantics)."""
-        dfa = DFAEvaluator(G(Atom("called", "X")))
-        dfa.step({"called(X)": True})
-        dfa.step({"called(X)": True})
+        dfa = DFAEvaluator(G(Atom("called", "x")))
+        dfa.step({"called(x)": True})
+        dfa.step({"called(x)": True})
         assert dfa.peek() == "?"
         assert dfa.finalize() == "⊤"
 
@@ -120,17 +120,17 @@ class TestProgressionF:
     """F(φ) stays ? until a witness, then ⊤ forever."""
 
     def test_f_becomes_true_on_witness(self):
-        dfa = DFAEvaluator(F(Atom("called", "X")))
+        dfa = DFAEvaluator(F(Atom("called", "x")))
         assert dfa.step({}) == "?"
-        assert dfa.step({"called(X)": True}) == "⊤"
+        assert dfa.step({"called(x)": True}) == "⊤"
 
     def test_f_stays_true_after_witness(self):
-        dfa = DFAEvaluator(F(Atom("called", "X")))
-        dfa.step({"called(X)": True})
+        dfa = DFAEvaluator(F(Atom("called", "x")))
+        dfa.step({"called(x)": True})
         assert dfa.step({}) == "⊤"
 
     def test_f_finalize_without_witness_is_false(self):
-        dfa = DFAEvaluator(F(Atom("called", "X")))
+        dfa = DFAEvaluator(F(Atom("called", "x")))
         dfa.step({})
         dfa.step({})
         assert dfa.peek() == "?"
@@ -168,35 +168,35 @@ class TestProgressionU:
 
 class TestProgressionX:
     def test_x_peels_off(self):
-        dfa = DFAEvaluator(X(Atom("called", "X")))
-        # First event: X peels off, residual = Atom("called", "X")
+        dfa = DFAEvaluator(X(Atom("called", "x")))
+        # First event: X peels off, residual = Atom("called", "x")
         dfa.step({})
         assert dfa.peek() == "?"
-        assert dfa.step({"called(X)": True}) == "⊤"
+        assert dfa.step({"called(x)": True}) == "⊤"
 
     def test_x_finalize_weak_next(self):
         """X(φ) unresolved at session end = vacuously True (weak next)."""
-        dfa = DFAEvaluator(X(Atom("called", "X")))
+        dfa = DFAEvaluator(X(Atom("called", "x")))
         # Zero events: X is still pending → finalize = ⊤
         assert dfa.finalize() == "⊤"
 
 
 class TestProgressionArithmetic:
     def test_rate_limit_pattern(self):
-        """G(count(X) ≤ 3) violates on the 4th call."""
-        f = G(Le(Var("count", "X"), Const(3)))
+        """G(count(x) ≤ 3) violates on the 4th call."""
+        f = G(Le(Var("count", "x"), Const(3)))
         dfa = DFAEvaluator(f)
         for count in [1, 2, 3]:
-            v = {"count(X)": count, "called(X)": True}
+            v = {"count(x)": count, "called(x)": True}
             assert dfa.step(v) == "?"
         # 4th call: count=4 > 3 → violation
-        assert dfa.step({"count(X)": 4, "called(X)": True}) == "⊥"
+        assert dfa.step({"count(x)": 4, "called(x)": True}) == "⊥"
 
 
 class TestSnapshotRestore:
     def test_snapshot_preserves_state(self):
-        dfa = DFAEvaluator(G(Atom("called", "X")))
-        dfa.step({"called(X)": True})
+        dfa = DFAEvaluator(G(Atom("called", "x")))
+        dfa.step({"called(x)": True})
         snap = dfa.snapshot()
 
         # Advance past the snapshot and violate
@@ -208,7 +208,7 @@ class TestSnapshotRestore:
         assert dfa.peek() == "?"
 
     def test_reset_rewinds_to_initial(self):
-        dfa = DFAEvaluator(G(Atom("called", "X")))
+        dfa = DFAEvaluator(G(Atom("called", "x")))
         dfa.step({})  # violate
         assert dfa.peek() == "⊥"
         dfa.reset()

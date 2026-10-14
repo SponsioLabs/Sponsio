@@ -5,6 +5,8 @@
  * Three families: Propositional, Temporal (LTL), Arithmetic.
  */
 
+import { canonicalTool } from "./tool-names.js";
+
 // --- Base type ---
 export type Formula =
   | Atom | Not | And | Or | Implies
@@ -201,7 +203,19 @@ function escape(s: string): string {
     .replace(/ /g, "\\ ");
 }
 
+/**
+ * Predicates whose first argument is a tool name and whose key must meet
+ * the grounded event on one spelling. Mirrors ``_TOOL_KEYED`` in
+ * sponsio/formulas/_pred_key.py: canonicalising here, in the one function
+ * both sides call, lets ``called(Issue_Refund)`` in YAML/LTL and an event
+ * grounded as ``mcp__finance__issue_refund`` agree.
+ */
+const TOOL_KEYED = new Set(["called", "count", "consecutive_count", "arg_value"]);
+
 export function predKey(predicate: string, ...args: string[]): string {
+  if (TOOL_KEYED.has(predicate) && args.length > 0) {
+    args = [canonicalTool(args[0]), ...args.slice(1)];
+  }
   if (args.length === 0) return `${predicate}()`;
   return `${predicate}(${args.map(escape).join(", ")})`;
 }

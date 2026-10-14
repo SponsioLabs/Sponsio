@@ -10,6 +10,33 @@ broke.
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **A rule written in YAML/LTL binds every spelling of its tool.** The
+  pattern factories canonicalised their tool argument in a17; a rule
+  written as LTL (`called(Issue_Refund)`, `Var(count, Issue_Refund)`) and
+  the `ArgValue` term keyed on the exact spelling, so they missed
+  `issue_refund` and `mcp__finance__issue_refund`. The join now lives in
+  the predicate key itself, on both runtimes. `loop_detection` follows a
+  tool across an MCP prefix (`search`, then `mcp__web__search`, used to
+  reset the run), and a counter is no longer overwritten by a stale
+  spelling.
+- **`sponsio host install` names its own binary.** A relative invocation
+  (`./venv/bin/sponsio host install`) wrote whatever `sponsio` was first
+  on `PATH` into the hook, which on a machine with a second install was a
+  different, possibly broken, binary; Claude Code runs the tool when a
+  hook exits non-zero. The command now carries the absolute path of the
+  install that ran, or `python -m sponsio.cli` for a module invocation.
+- **`--mode` on `host install` does what it says.** It wrote
+  `defaults.mode` into the host library, which the hook never read, so a
+  default install printed `observe` and blocked anyway. The hook now
+  defaults to `enforce` openly, and `--mode observe` rides on the hook
+  command (`env SPONSIO_GUARD_MODE=observe ...`), where the agent under
+  guard cannot change it. A `mode:` line already in a host library is
+  ignored, as it always was.
+
 ## [0.2.0a18]: 2026-10-13
 
 ### Fixed

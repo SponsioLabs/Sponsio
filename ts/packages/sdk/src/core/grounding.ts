@@ -325,7 +325,11 @@ export function groundEvent(
     // against ``issue_refund`` was otherwise inert against
     // ``mcp__finance__issue_refund``, and with ``mustPrecede`` compiling to
     // ``Or(order-holds, never-called)`` that read as "satisfied".
-    const aliases = toolAliases(tool);
+    // Canonical spellings only: ``predKey`` collapses the case variants of
+    // a tool-keyed predicate, so a per-raw-spelling counter would have two
+    // entries landing on one key, the snapshot loop writing whichever came
+    // last.
+    const aliases = [...new Set(toolAliases(tool).map(canonicalTool))];
     for (const alias of aliases) v[predKey("called", alias)] = true;
 
     // called_any — fires whenever any tool is invoked. Used by
@@ -342,8 +346,11 @@ export function groundEvent(
 
     // consecutive_count(tool) — keyed per alias like ``count``; "same tool
     // again" is decided on the canonical form.
+    // ``search`` then ``mcp__web__search`` is the same tool again: the run
+    // continues when the alias sets overlap, not only on equal canonicals.
     const canonical = canonicalTool(tool);
-    if (canonical === state.lastTool) {
+    const lastAliases = new Set(state.lastToolAliases);
+    if (canonical === state.lastTool || aliases.some((a) => lastAliases.has(a))) {
       for (const alias of aliases) {
         state.consecutiveCounts[alias] = (state.consecutiveCounts[alias] || 1) + 1;
       }
@@ -363,9 +370,12 @@ export function groundEvent(
     // CtxValue("approved_amount"))). Emit unconditionally for every arg
     // field, every tool_call — Terms read by direct key lookup, not via
     // contentAtoms extraction.
+    // Written under every alias (``predKey`` collapses the case variants),
+    // so ``ArgValue("issue_refund", "amount")`` reads a call that arrived as
+    // ``mcp__finance__issue_refund``.
     if (event.args) {
       for (const [field, val] of Object.entries(event.args)) {
-        v[predKey("arg_value", tool, field)] = val;
+        for (const alias of aliases) v[predKey("arg_value", alias, field)] = val;
       }
     }
 

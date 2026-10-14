@@ -11,14 +11,14 @@ code path.
 from __future__ import annotations
 
 import json
-import shutil
-import sys
 from pathlib import Path
 
 from sponsio.integrations.hosts import (
     HookHost,
     HostInstallResult,
     HostUninstallResult,
+    hook_command,
+    resolve_binary,
 )
 
 # Events Sponsio wires up.  Keep this in sync with the
@@ -36,23 +36,7 @@ _INSTALLED_EVENTS_SOFT = (
 
 
 def _resolve_binary(override: str | None) -> str:
-    """Pick the absolute path to the ``sponsio`` binary that the hook
-    should invoke.
-
-    Cursor launches hook subprocesses from launchd's bare PATH —
-    venvs and ``~/.local/bin`` are NOT on it.  Defaulting to the
-    binary backing the *current* process avoids the common footgun
-    of bare ``sponsio`` resolving to a stale user-pip install at
-    ``~/Library/Python/3.x/bin``.
-    """
-    if override:
-        return override
-
-    candidate = Path(sys.argv[0]) if sys.argv and sys.argv[0] else None
-    if candidate and candidate.is_absolute() and candidate.exists():
-        return str(candidate)
-    resolved = shutil.which("sponsio")
-    return resolved or "sponsio"
+    return resolve_binary(override)
 
 
 def _ensure_bundled_library(bucket: str) -> None:
@@ -104,8 +88,12 @@ def install(
     fail_closed: bool = True,
     force: bool = False,
     binary: str | None = None,
+    mode: str = "enforce",
 ) -> HostInstallResult:
     """Write or merge Cursor hook entries pointing at Sponsio.
+
+    ``mode`` is carried on each hook command (see
+    :func:`sponsio.integrations.hosts.hook_command`).
 
     Side effect: bootstraps ``_host_subagent`` library if absent, so
     Cursor Task-spawned subagent tool calls (routed there by
@@ -122,14 +110,18 @@ def install(
     for event in _INSTALLED_EVENTS_FAILCLOSED:
         sponsio_hooks[event] = [
             {
-                "command": f"{bin_cmd} host guard cursor --event {event}",
+                "command": hook_command(
+                    bin_cmd, "host", "guard", "cursor", "--event", event, mode=mode
+                ),
                 "failClosed": fail_closed,
             }
         ]
     for event in _INSTALLED_EVENTS_SOFT:
         sponsio_hooks[event] = [
             {
-                "command": f"{bin_cmd} host guard cursor --event {event}",
+                "command": hook_command(
+                    bin_cmd, "host", "guard", "cursor", "--event", event, mode=mode
+                ),
             }
         ]
 

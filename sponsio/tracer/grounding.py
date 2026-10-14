@@ -385,7 +385,13 @@ def ground_event(
         # that arrived as ``mcp__finance__issue_refund``; with
         # ``must_precede`` compiling to ``Or(order-holds, never-called)``
         # that read as "satisfied", not as "no opinion".
-        aliases = tool_aliases(event.tool)
+        # Canonical spellings only: ``pred_key`` collapses the case
+        # variants of a tool-keyed predicate, so a per-raw-spelling
+        # counter would have two entries landing on one key, with the
+        # snapshot loop below writing whichever came last.
+        aliases = tuple(
+            dict.fromkeys(canonical_tool(a) for a in tool_aliases(event.tool))
+        )
         for alias in aliases:
             v[pred_key("called", alias)] = True
         # ``called_any`` — true at any timestep where SOME tool fires,
@@ -401,8 +407,13 @@ def ground_event(
         # Counters are keyed the same way as ``called``: one stream per
         # alias, so ``rate_limit("issue_refund")`` counts the MCP-prefixed
         # calls too. "Same tool again" is decided on the canonical form.
+        # ``search`` followed by ``mcp__web__search`` is the same tool
+        # calling again, so the run continues when the two alias sets
+        # overlap rather than only when the canonical spellings match.
         canonical = canonical_tool(event.tool)
-        if canonical == state.last_tool:
+        if canonical == state.last_tool or (
+            state.last_tool_aliases and set(aliases) & set(state.last_tool_aliases)
+        ):
             for alias in aliases:
                 state.consecutive_counts[alias] = (
                     state.consecutive_counts.get(alias, 1) + 1
@@ -541,9 +552,13 @@ def ground_event(
         # those objects alive until ``reset`` / ``rotate_session``. Fine
         # for typical scalar args; if a tool passes megabyte payloads,
         # bound the trace with ``rotate_session``.
+        # Written under every alias of the tool (``pred_key`` collapses
+        # the case variants), so ``ArgValue("issue_refund", "amount")``
+        # reads the call that arrived as ``mcp__finance__issue_refund``.
         if event.args:
             for _field, _val in event.args.items():
-                v[pred_key("arg_value", event.tool, _field)] = _val
+                for alias in aliases:
+                    v[pred_key("arg_value", alias, _field)] = _val
 
         # ── arg_paths_within(tool, *prefixes) — all paths in allowed set ─
         if args_str and content_atoms and "arg_paths_within" in content_atoms:

@@ -154,6 +154,66 @@ def detect_installed() -> list[HookHost]:
 
 
 # ---------------------------------------------------------------------------
+# The command a hook runs
+# ---------------------------------------------------------------------------
+
+
+def resolve_binary(override: str | None = None) -> str:
+    """The absolute path of the ``sponsio`` the hook should invoke.
+
+    Hosts launch hook subprocesses from a bare PATH (launchd's, or the
+    IDE's), so the command has to be absolute, and it has to be *this*
+    install: the one that ran ``sponsio host install``. Resolving
+    ``sys.argv[0]`` against the working directory is what makes that
+    hold for a relative invocation (``./venv/bin/sponsio host install``).
+    An earlier version only accepted an already-absolute ``argv[0]`` and
+    otherwise took whatever ``sponsio`` was first on PATH, which on a
+    machine with a second (older, or broken) install wrote that one into
+    the hook. Claude Code treats a hook that exits non-zero as a
+    non-blocking error and runs the tool, so a hook pointing at a broken
+    binary is the guard silently off.
+
+    When the process was started as ``python -m sponsio.cli`` there is
+    no console script to point at; the interpreter plus module is used.
+    PATH is the last resort, and only when nothing else resolved.
+    """
+    import shutil
+    import sys
+
+    if override:
+        return override
+    argv0 = sys.argv[0] if sys.argv else ""
+    if argv0:
+        candidate = Path(argv0)
+        if candidate.suffix == ".py" or argv0 in ("-m", "-c"):
+            return f"{sys.executable} -m sponsio.cli"
+        try:
+            resolved = candidate.resolve(strict=True)
+        except OSError:
+            resolved = None
+        if resolved is not None and resolved.is_file():
+            return str(resolved)
+    return shutil.which("sponsio") or "sponsio"
+
+
+def hook_command(binary: str, *args: str, mode: str = "enforce") -> str:
+    """``<binary> host guard <host> ...``, in the mode the operator chose.
+
+    The hook decides enforce / observe from ``SPONSIO_GUARD_MODE`` (then
+    ``SPONSIO_MODE``, then ``enforce``), never from the host library's
+    ``defaults.mode``: a hook that read the library could be switched
+    off by editing a file the agent can reach. So ``--mode observe`` is
+    carried on the command line itself, through ``env``, which works
+    whether the host runs the command through a shell or exec()s it
+    directly. ``enforce`` is the hook's own default and adds nothing.
+    """
+    cmd = " ".join((binary, *args))
+    if mode == "observe":
+        return f"env SPONSIO_GUARD_MODE=observe {cmd}"
+    return cmd
+
+
+# ---------------------------------------------------------------------------
 # Per-host specs
 # ---------------------------------------------------------------------------
 #
