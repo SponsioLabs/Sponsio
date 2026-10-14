@@ -32,7 +32,7 @@
     "@sponsio/sdk": "^0.2.0-alpha.5"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4",
+    "@deepseek-ai/cordis": "^4.0.4",
     "@deepseek-ai/dsh-tools": "^0.0.1-rc.1",
     "@deepseek-ai/schemastery": "^3.18.4",
     "tsx": "^4.23.15"
