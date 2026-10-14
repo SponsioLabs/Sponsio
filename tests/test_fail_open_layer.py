@@ -838,3 +838,117 @@ def test_a_recased_mcp_prefix_routes_to_the_servers_library():
     from sponsio.guard_stdin import derive_plugin_id
 
     assert derive_plugin_id("MCP__finance__issue_refund") == "finance"
+
+
+# ---------------------------------------------------------------------------
+# The name join reaches YAML/LTL atoms, the ArgValue term, and loop detection
+# ---------------------------------------------------------------------------
+
+SPELLINGS = [
+    "issue_refund",
+    "Issue_Refund",
+    "mcp__finance__issue_refund",
+    "MCP__finance__issue_refund",
+    "finance__issue_refund",
+]
+
+
+def _ltl_guard(ltl: str) -> BaseGuard:
+    cfg = Path(tempfile.mkdtemp()) / "sponsio.yaml"
+    cfg.write_text(
+        "agents:\n  bot:\n    contracts:\n      - desc: r\n        G:\n"
+        f"          ltl: '{ltl}'\n"
+    )
+    return BaseGuard(
+        agent_id="bot",
+        config=str(cfg),
+        mode="enforce",
+        verbose=False,
+        init_banner=False,
+    )
+
+
+@pytest.mark.parametrize("event_tool", SPELLINGS)
+@pytest.mark.parametrize(
+    "ltl",
+    [
+        "G(!called(Issue_Refund))",
+        "G(Le(Var(count, Issue_Refund), Const(0)))",
+        'G(!called_with(Issue_Refund, "big"))',
+    ],
+)
+def test_a_yaml_rule_binds_every_spelling_of_its_tool(ltl, event_tool):
+    """The pattern factories canonicalised their tool argument; a rule
+    written as LTL in YAML did not, so ``called(Issue_Refund)`` keyed on
+    that exact spelling and missed ``issue_refund`` and the MCP form.
+    The join now lives in ``pred_key`` itself, where both sides meet."""
+    assert _ltl_guard(ltl).guard_before(event_tool, {"note": "big"}).blocked, event_tool
+
+
+def test_a_yaml_rule_still_leaves_other_tools_alone():
+    assert _ltl_guard("G(!called(Issue_Refund))").guard_before("send_email", {}).allowed
+
+
+@pytest.mark.parametrize("event_tool", SPELLINGS)
+@pytest.mark.parametrize("contract_tool", ["issue_refund", "Issue_Refund"])
+def test_the_arg_value_term_reads_every_spelling(contract_tool, event_tool):
+    """``ArgValue`` looked up ``arg_value(<exact tool>, field)``, and
+    grounding wrote it under the raw event name only, so a cap written as
+    a Term passed the MCP-prefixed call with the value unread."""
+    from sponsio.patterns.library import DetFormula
+
+    cap = DetFormula(
+        formula=G(Not(Gt(ArgValue(contract_tool, "amount"), Const(10)))),
+        desc="cap",
+        pattern_name="custom",
+    )
+    guard = _guard([sponsio.contract("cap").guarantees(cap)])
+    assert guard.guard_before(event_tool, {"amount": 50}).blocked, event_tool
+    assert (
+        _guard([sponsio.contract("cap").guarantees(cap)])
+        .guard_before(event_tool, {"amount": 5})
+        .allowed
+    )
+
+
+def test_loop_detection_follows_the_tool_across_an_mcp_prefix():
+    """``search`` then ``mcp__web__search`` is the same tool calling again;
+    comparing canonical spellings reset the run at every prefix change."""
+    from sponsio.patterns.library import loop_detection
+
+    guard = _guard(
+        [
+            sponsio.contract("loop").guarantees(
+                loop_detection("search", max_consecutive=2)
+            )
+        ]
+    )
+    assert guard.guard_before("search", {"q": "x"}).allowed
+    assert guard.guard_before("mcp__web__search", {"q": "x"}).allowed
+    assert guard.guard_before("search", {"q": "x"}).blocked
+
+
+def test_loop_detection_still_resets_on_a_different_tool():
+    from sponsio.patterns.library import loop_detection
+
+    guard = _guard(
+        [
+            sponsio.contract("loop").guarantees(
+                loop_detection("search", max_consecutive=2)
+            )
+        ]
+    )
+    for tool in ["search", "mcp__web__search", "read_file", "search"]:
+        assert guard.guard_before(tool, {"q": "x"}).allowed, tool
+
+
+def test_a_counter_is_not_overwritten_by_a_stale_spelling():
+    """Keying the counters by raw spelling put two entries behind one
+    canonical key; the snapshot loop then wrote whichever came last, and a
+    limit of two admitted the third call under a new spelling."""
+    from sponsio.patterns.library import rate_limit
+
+    guard = _guard([sponsio.contract("rl").guarantees(rate_limit("send_email", 2))])
+    assert guard.guard_before("send_email", {}).allowed
+    assert guard.guard_before("Send_Email", {}).allowed
+    assert guard.guard_before("mcp__mail__send_email", {}).blocked

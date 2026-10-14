@@ -282,7 +282,9 @@ _HOST_SKILL_DIRS: dict[str, tuple[Path, Path | None]] = {
 }
 
 
-def _resolve_runtime_mode(explicit: str | None, *, allow_prompt: bool = True) -> str:
+def _resolve_runtime_mode(
+    explicit: str | None, *, allow_prompt: bool = True, default: str = "observe"
+) -> str:
     """Pick the runtime mode for a fresh sponsio.yaml / host bucket.
 
     Single shared resolver for ``sponsio init`` / ``sponsio onboard`` /
@@ -293,7 +295,10 @@ def _resolve_runtime_mode(explicit: str | None, *, allow_prompt: bool = True) ->
     1. ``--mode`` flag on the command (skip the prompt).
     2. Interactive Y/N-style prompt. only if ``allow_prompt`` is true
        AND stdin is a tty (so CI / piped invocations don't hang).
-    3. Default ``"observe"``. the safe shadow-mode first run.
+    3. ``default``: ``"observe"`` for a project ``sponsio.yaml`` (the
+       safe shadow-mode first run); ``sponsio host install`` passes
+       ``"enforce"``, because that is what the hook does unless told
+       otherwise.
 
     ``allow_prompt=False`` lets callers opt out of interactive mode
     even on a tty (for ``--json`` / ``--emit-context`` / ``--no-interactive``
@@ -303,7 +308,7 @@ def _resolve_runtime_mode(explicit: str | None, *, allow_prompt: bool = True) ->
     if explicit is not None:
         return explicit
     if not allow_prompt or not sys.stdin.isatty():
-        return "observe"
+        return default
     click.echo(
         "\nRuntime mode:\n"
         "  observe   shadow. checks run + log; tool behavior unchanged  (safe first run)\n"
@@ -312,97 +317,13 @@ def _resolve_runtime_mode(explicit: str | None, *, allow_prompt: bool = True) ->
     return click.prompt(
         "Mode",
         type=click.Choice(["observe", "enforce"]),
-        default="observe",
+        default=default,
         show_default=True,
     )
 
 
 # Backward-compat alias. earlier code imported the more specific name.
 _resolve_install_mode = _resolve_runtime_mode
-
-
-def _apply_install_mode_to_host_buckets(
-    host_name: str, mode: str
-) -> list[tuple[Path, str]]:
-    """Stamp ``defaults.mode: <mode>`` on freshly-bootstrapped buckets.
-
-    Walks the per-host main + sub-agent buckets for ``host_name``, and
-    for each one whose ``sponsio.yaml`` exists on disk:
-
-    * If the file already has a ``defaults:`` block with ``mode:``,
-      leave it alone. the user's choice (or a previous install)
-      wins. This is the load-bearing "never overwrite" promise.
-    * Otherwise, add a top-level ``defaults: { mode: <mode> }``
-      block right after the ``version:`` line.
-
-    Returns a list of ``(path, note)`` tuples suitable for the CLI
-    to surface to the user (one per bucket touched). Never raises.
-    a malformed yaml just gets reported and skipped.
-    """
-    import os as _os
-    import re
-
-    root_env = _os.environ.get("SPONSIO_PLUGIN_ROOT")
-    root = (
-        Path(root_env).expanduser()
-        if root_env
-        else Path.home() / ".sponsio" / "plugins"
-    )
-    main_bucket, sub_bucket = _bucket_for_host_name(host_name)
-    candidates = [
-        root / main_bucket / "sponsio.yaml",
-        root / sub_bucket / "sponsio.yaml",
-    ]
-
-    out: list[tuple[Path, str]] = []
-    for path in candidates:
-        if not path.exists():
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError as e:
-            out.append((path, f"could not read: {e}"))
-            continue
-        # Line-walking check (ReDoS-free).  Originally a single regex
-        # ``^defaults:\s*$\n(?:[ \t]+.*\n)*[ \t]+mode:`` flagged by
-        # CodeQL py/redos for nested-quantifier backtracking on inputs
-        # with many ``\t\t\n`` lines; rewritten to explicit iteration
-        # so there is no regex engine to backtrack.
-        in_defaults = False
-        already_has_mode = False
-        for line in text.splitlines():
-            if not in_defaults:
-                if line.rstrip() == "defaults:":
-                    in_defaults = True
-                continue
-            # Within the defaults: block; indented lines belong to it.
-            if line and not line[0].isspace():
-                break  # block ended without mode:
-            if line.lstrip().startswith("mode:"):
-                already_has_mode = True
-                break
-        if already_has_mode:
-            out.append((path, "mode already set, kept"))
-            continue
-        # Insert ``defaults:\n  mode: <mode>\n`` after the version line.
-        # If there's no ``version:`` line, prepend at top of file.
-        defaults_block = f"defaults:\n  mode: {mode}  # observe|enforce. observe = shadow (safe default)\n\n"
-        if re.search(r"^version:\s*", text, re.MULTILINE):
-            new_text = re.sub(
-                r"(^version:[^\n]*\n)",
-                lambda m: m.group(1) + "\n" + defaults_block,
-                text,
-                count=1,
-                flags=re.MULTILINE,
-            )
-        else:
-            new_text = defaults_block + text
-        try:
-            path.write_text(new_text, encoding="utf-8")
-            out.append((path, f"set mode={mode}"))
-        except OSError as e:
-            out.append((path, f"could not write: {e}"))
-    return out
 
 
 def _apply_strict_to_host_buckets(host_name: str) -> list[tuple[Path, str]]:
@@ -412,8 +333,7 @@ def _apply_strict_to_host_buckets(host_name: str) -> list[tuple[Path, str]]:
     library (any MCP server outside the shipped examples): ``deny``
     refuses the call instead of running it unchecked. Unlike the mode,
     an explicit ``--strict`` is a request, so an existing
-    ``unconfigured:`` line is rewritten rather than kept. Same
-    line-walking approach as :func:`_apply_install_mode_to_host_buckets`.
+    ``unconfigured:`` line is rewritten rather than kept.
     """
     import os as _os
 
@@ -688,12 +608,12 @@ def _uninstall_skill_for_host(host_name: str, *, scope: str) -> tuple[bool, str]
     type=click.Choice(["observe", "enforce"]),
     default=None,
     help=(
-        "Initial runtime mode written into the bootstrapped per-host "
-        "library (``defaults.mode``). ``observe`` (recommended) shadow-"
-        "logs every violation without blocking; ``enforce`` blocks at "
-        "the action boundary. Skip the flag to be prompted "
-        "interactively. Doesn't overwrite a mode already set in an "
-        "existing on-disk library."
+        "Mode the installed hook runs in. ``enforce`` (default) blocks at "
+        "the action boundary; ``observe`` logs every violation and lets "
+        "the tool run, for a shadow first run. Carried on the hook "
+        "command itself (``env SPONSIO_GUARD_MODE=observe ...``), not in "
+        "the host library, so the agent under guard cannot change it. "
+        "Re-run to switch."
     ),
 )
 @click.option(
@@ -742,13 +662,14 @@ def host_install(
     seen: set[str] = set()
     targets = [t for t in targets if not (t in seen or seen.add(t))]
 
-    # Resolve runtime mode once for all hosts in this invocation. The
-    # prompt mirrors ``sponsio init``'s mode prompt so first-time users
-    # see the same observe-vs-enforce question regardless of entry
-    # point. ``observe`` is the default if non-interactive (CI, piped
-    # stdin). same precedent as init_wizard.
-    chosen_mode = _resolve_install_mode(mode)
-    click.echo(f"Runtime mode for new host libraries: {chosen_mode}")
+    # Resolve the hook's mode once for all hosts in this invocation. The
+    # prompt mirrors ``sponsio init``'s, but the default is ``enforce``:
+    # the hook enforces unless its command says otherwise, and an
+    # earlier version wrote ``defaults.mode: observe`` into the host
+    # library, which the hook never read, so "observe" was printed and
+    # the hook blocked anyway.
+    chosen_mode = _resolve_install_mode(mode, default="enforce")
+    click.echo(f"Hook mode: {chosen_mode}")
 
     # Bootstrap the default contract library buckets (``_host`` etc.)
     # the hook will read at runtime. folded in here so users don't
@@ -797,13 +718,16 @@ def host_install(
             click.secho(f"✘  {e}", fg="red", err=True)
             any_failed = True
             continue
-        result = host_spec.install_fn(
-            host_spec,
+        install_kwargs = dict(
             scope=scope,
             fail_closed=fail_closed,
             force=force,
             binary=binary_override,
         )
+        if name in ("claude-code", "cursor"):
+            # The mode rides on the hook command these two hosts run.
+            install_kwargs["mode"] = chosen_mode
+        result = host_spec.install_fn(host_spec, **install_kwargs)
         glyph = "✔" if result.written else "○"
         colour = "green" if result.written else "yellow"
         click.secho(
@@ -828,14 +752,11 @@ def host_install(
         for line, colour in bundle_summary:
             click.secho(line, fg=colour)
 
-        # Stamp the chosen mode onto the freshly-bootstrapped per-host
-        # library, but never clobber a mode the user has already set.
-        # Done after install so the bucket directory exists.
-        applied = _apply_install_mode_to_host_buckets(name, chosen_mode)
-        for path, note in applied:
-            click.secho(f"○  {name} mode: {note}", fg="yellow")
-            click.echo(f"     {path}")
-            review_paths.append(path)
+        # The per-host library paths, for the review pointer below.
+        for bucket in _bucket_for_host_name(name):
+            bucket_yaml = plugin_root / bucket / "sponsio.yaml"
+            if bucket_yaml.exists():
+                review_paths.append(bucket_yaml)
 
         if strict:
             for path, note in _apply_strict_to_host_buckets(name):
@@ -859,11 +780,18 @@ def host_install(
         click.secho("Review the bootstrapped contract libraries:", bold=True)
         for path in review_paths:
             click.echo(f"  {click.style(str(path), fg='green')}")
-        click.secho(
-            "  (open each, sanity-check the rules, then re-run with `--mode enforce`",
-            dim=True,
-        )
-        click.secho("   when you're ready to switch from observe to active)", dim=True)
+        if chosen_mode == "observe":
+            click.secho(
+                "  (the hook logs violations without blocking; re-run with "
+                "`--mode enforce` to block)",
+                dim=True,
+            )
+        else:
+            click.secho(
+                "  (the hook blocks on a violation; `--mode observe` for a "
+                "shadow run that only logs)",
+                dim=True,
+            )
 
     if any_failed:
         sys.exit(1)

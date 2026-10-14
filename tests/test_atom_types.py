@@ -99,9 +99,9 @@ class TestDetPipelineZeroRegression:
     def test_det_evaluator_ignores_new_fields(self):
         from sponsio.formulas.evaluator import evaluate
 
-        # A simple formula: G(called(X))
-        f = G(Atom("called", "X"))
-        trace = [{"called(X)": True}, {"called(X)": True}]
+        # A simple formula: G(called(x))
+        f = G(Atom("called", "x"))
+        trace = [{"called(x)": True}, {"called(x)": True}]
         assert evaluate(f, trace) is True
 
         # Same formula with a nested Not/And using Atoms

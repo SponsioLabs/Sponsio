@@ -177,8 +177,9 @@ sponsio report --live --interval 5
 Run inside a Claude Code or OpenClaw host plugin.
 
 ```bash
-sponsio host install <host>           # claude-code | openclaw
+sponsio host install <host>           # claude-code | cursor | openclaw
 sponsio host install <host> --strict  # refuse tools that have no contract library
+sponsio host install <host> --mode observe  # shadow run: log violations, let the tool run
 sponsio host status <host>
 sponsio host trace <host> [--follow]  # live coloured event stream
 ```
@@ -190,6 +191,13 @@ library so those calls are refused instead; the setting survives
 reinstalls, and the host library is covered by `capability/self-modify`
 so the agent cannot change it. `SPONSIO_UNCONFIGURED=deny|allow` overrides
 it for one shell.
+
+The hook enforces by default. `--mode observe` is carried on the hook
+command itself (`env SPONSIO_GUARD_MODE=observe sponsio host guard ...`),
+not in the host library, so the agent under guard cannot change it; re-run
+`host install` to switch. The hook command names the absolute path of the
+`sponsio` that ran the install, so a second install elsewhere on `PATH` is
+not picked up.
 
 See [plugins.md](../plugins.md) for the host-plugin walkthrough.
 

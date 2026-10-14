@@ -458,21 +458,22 @@ agents:
 
 def test_host_reinstall_keeps_the_operators_defaults(tmp_path, monkeypatch):
     """``defaults:`` is operator state, not shipped content. A reinstall
-    used to drop it, so the next mode stamp could move an enforcing host
-    back to ``observe`` and ``--strict`` was lost."""
+    used to drop it, so ``--strict`` was lost (and, before the hook's mode
+    moved onto its command line, so was any ``mode:`` an operator had
+    written by hand)."""
     from sponsio.cli import _refresh_per_host_bundles
-    from sponsio.cli.groups.host import (
-        _apply_install_mode_to_host_buckets,
-        _apply_strict_to_host_buckets,
-    )
+    from sponsio.cli.groups.host import _apply_strict_to_host_buckets
 
     monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
     _refresh_per_host_bundles("claude-code", tmp_path)
-    _apply_install_mode_to_host_buckets("claude-code", "enforce")
     assert _apply_strict_to_host_buckets("claude-code")
+    for bucket in ("_host_claude_code", "_host_claude_code_subagent"):
+        target = tmp_path / bucket / "sponsio.yaml"
+        target.write_text(
+            target.read_text().replace("defaults:\n", "defaults:\n  mode: enforce\n", 1)
+        )
 
     _refresh_per_host_bundles("claude-code", tmp_path)
-    _apply_install_mode_to_host_buckets("claude-code", "observe")
 
     for bucket in ("_host_claude_code", "_host_claude_code_subagent"):
         doc = yaml.safe_load((tmp_path / bucket / "sponsio.yaml").read_text())
