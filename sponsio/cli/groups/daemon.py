@@ -48,11 +48,44 @@ def daemon():
     default="0600",
     help="chmod for the socket file (octal). Default 0600 keeps it owner-only.",
 )
-def daemon_run(socket_path_arg: Path | None, socket_mode: str):
-    """Start the daemon in the foreground.  Blocks until SIGINT/SIGTERM."""
+@click.option(
+    "--state-dir",
+    "state_dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help=(
+        "Where the daemon keeps session traces (write-ahead log). "
+        "Default ~/.sponsio/state."
+    ),
+)
+@click.option(
+    "--plugin-root",
+    "plugin_root",
+    type=click.Path(path_type=Path),
+    default=None,
+    help=(
+        "The contract-library root the daemon serves from. Fixed at start; "
+        "default $SPONSIO_PLUGIN_ROOT or ~/.sponsio/plugins."
+    ),
+)
+def daemon_run(
+    socket_path_arg: Path | None,
+    socket_mode: str,
+    state_dir: Path | None,
+    plugin_root: Path | None,
+):
+    """Start the daemon in the foreground.  Blocks until SIGINT/SIGTERM.
+
+    Serves rule writes (``plugin.append``) and hook evaluation
+    (``guard.check`` / ``guard.observe``): libraries are compiled once
+    per change and session traces live in memory with a write-ahead log
+    under the state dir, so a restart keeps every live conversation.
+    """
     from sponsio.daemon import default_socket_path
+    from sponsio.daemon.guard_service import GuardService
     from sponsio.daemon.handlers import register_default_handlers
     from sponsio.daemon.server import serve_forever
+    from sponsio.guard_stdin import library_root
 
     path = socket_path_arg or default_socket_path()
     try:
@@ -61,11 +94,18 @@ def daemon_run(socket_path_arg: Path | None, socket_mode: str):
         raise click.ClickException(
             f"invalid --mode {socket_mode!r}: must be octal like 0600 / 0666"
         ) from e
+    service = GuardService(
+        root=(plugin_root or library_root()).expanduser(), state_dir=state_dir
+    )
     click.echo(f"sponsio daemon listening at {path} (mode {socket_mode})")
+    click.echo(f"  libraries: {service.store.root}")
+    click.echo(f"  state:     {service.state_dir}")
     try:
         serve_forever(
             path,
-            handler_registry=register_default_handlers,
+            handler_registry=lambda server: register_default_handlers(
+                server, guard_service=service
+            ),
             socket_mode=mode,
         )
     except RuntimeError as e:

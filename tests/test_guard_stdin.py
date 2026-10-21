@@ -14,6 +14,8 @@ parser or runtime regression breaks pytest, not Claude Code itself.
 from __future__ import annotations
 
 import json
+import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -25,6 +27,59 @@ from sponsio.guard_stdin import (
     render_reply,
     run_stdin,
 )
+
+
+# ---------------------------------------------------------------------------
+# Two backends: the file-backed per-call path, and the daemon
+# ---------------------------------------------------------------------------
+#
+# Every decision test below runs twice. ``direct`` is the legacy entry
+# point as the hook calls it today. ``daemon`` starts an in-process
+# ``DaemonServer`` with a ``GuardService`` on a temp socket and routes
+# ``evaluate_event`` through the ``guard.check`` RPC, so the same
+# library, payload and expectation hold when the daemon decides.
+# Tests that inspect the legacy trace files, or monkeypatch the
+# evaluator itself, are marked ``direct_only``.
+
+
+@pytest.fixture(params=["direct", "daemon"], autouse=True)
+def backend(request, monkeypatch):
+    if request.param == "direct":
+        yield "direct"
+        return
+    if request.node.get_closest_marker("direct_only"):
+        pytest.skip("exercises the file-backed path only")
+    from sponsio.daemon.client import DaemonClient
+    from sponsio.daemon.guard_service import GuardService
+    from sponsio.daemon.handlers import register_default_handlers
+    from sponsio.daemon.server import DaemonServer
+    from sponsio.guard_stdin import library_root
+
+    state = Path(tempfile.mkdtemp(prefix="sp-", dir="/tmp"))
+    # The root is resolved per call because each test points
+    # ``SPONSIO_PLUGIN_ROOT`` at its own tmp_path after this fixture ran.
+    service = GuardService(root=library_root, state_dir=state / "state")
+    server = DaemonServer(state / "sock", accept_timeout_s=0.05)
+    register_default_handlers(server, guard_service=service)
+    server.start()
+    client = DaemonClient(socket_path=server.socket_path, timeout_s=10.0)
+
+    def via_daemon(event: dict) -> GuardOutcome:
+        res = client.call("guard.check", {"host": event.get("host"), "payload": event})
+        return GuardOutcome(
+            allowed=res["allowed"],
+            reason=res["reason"],
+            plugin_id=res["plugin_id"],
+            library_path=res["library_path"],
+        )
+
+    monkeypatch.setattr("sponsio.guard_stdin.evaluate_event", via_daemon)
+    monkeypatch.setattr("tests.test_guard_stdin.evaluate_event", via_daemon)
+    try:
+        yield "daemon"
+    finally:
+        server.stop(join_timeout_s=0.5)
+        shutil.rmtree(state, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
@@ -504,6 +559,7 @@ agents:
 """
 
 
+@pytest.mark.direct_only
 def test_posttooluse_records_output_and_appends_nothing(tmp_path, monkeypatch):
     """Both hooks are installed with the same command. Running the
     pre-check on PostToolUse appended a second event per execution, so a
@@ -589,6 +645,7 @@ def test_broken_library_allows_when_opted_into_fail_open(tmp_path, monkeypatch):
     assert "evaluation error" in outcome.reason
 
 
+@pytest.mark.direct_only
 def test_run_stdin_internal_error_denies(monkeypatch, capsys):
     import sponsio.guard_stdin as gs
 

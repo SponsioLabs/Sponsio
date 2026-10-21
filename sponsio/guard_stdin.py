@@ -39,6 +39,7 @@ process holding state in memory) is a future optimisation.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -46,6 +47,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Protocol
 
 # Built-in tool names that count as "host" tools (no plugin prefix).
 # Claude Code's first-party tools live here.
@@ -208,9 +210,14 @@ def library_root() -> Path:
     return Path.home() / ".sponsio" / "plugins"
 
 
-def library_path_for(plugin_id: str) -> Path:
-    """Path to the per-plugin ``sponsio.yaml`` library file."""
-    return library_root() / plugin_id / "sponsio.yaml"
+def library_path_for(plugin_id: str, root: Path | None = None) -> Path:
+    """Path to the per-plugin ``sponsio.yaml`` library file.
+
+    ``root`` overrides the environment-derived plugin root; the daemon
+    passes the root it was configured with so the client's environment
+    never picks the library.
+    """
+    return (root if root is not None else library_root()) / plugin_id / "sponsio.yaml"
 
 
 _LEGACY_FALLBACK_WARNED: set[str] = set()
@@ -251,37 +258,6 @@ _DENY_WORDS = ("deny", "block", "closed")
 _ALLOW_WORDS = ("allow", "open")
 
 
-def _unconfigured_denies(host_bucket: str | None = None) -> bool:
-    """Whether a tool with no contract library is refused.
-
-    ``SPONSIO_UNCONFIGURED`` wins when set (``deny`` / ``allow``).
-    Otherwise the host's own library decides through
-    ``defaults.unconfigured: deny``, which ``sponsio host install
-    --strict`` writes. Keeping the posture in that file rather than only
-    in the environment means it survives a new shell, and the agent
-    cannot flip it: the host library is covered by
-    ``capability/self-modify``.
-    """
-    raw = os.environ.get("SPONSIO_UNCONFIGURED", "").strip().lower()
-    if raw in _DENY_WORDS:
-        return True
-    if raw in _ALLOW_WORDS:
-        return False
-    if host_bucket is None:
-        return False
-    lib_path, _ = _resolve_library(host_bucket)
-    try:
-        import yaml
-
-        data = yaml.safe_load(lib_path.read_text(encoding="utf-8")) or {}
-    except (OSError, ValueError):
-        return False
-    defaults = data.get("defaults") if isinstance(data, dict) else None
-    if not isinstance(defaults, dict):
-        return False
-    return str(defaults.get("unconfigured", "")).strip().lower() in _DENY_WORDS
-
-
 def _emit_no_library_warning(plugin_id: str) -> None:
     """One-time stderr notice that a tool ran with nothing checking it.
 
@@ -300,7 +276,7 @@ def _emit_no_library_warning(plugin_id: str) -> None:
     )
 
 
-def _resolve_library(plugin_id: str) -> tuple[Path, str]:
+def _resolve_library(plugin_id: str, root: Path | None = None) -> tuple[Path, str]:
     """Resolve ``(library_path, effective_agent_id)`` with legacy fallback.
 
     Cursor and Claude Code route to per-host buckets
@@ -320,7 +296,7 @@ def _resolve_library(plugin_id: str) -> tuple[Path, str]:
     OpenClaw bucket return their primary path unchanged — they have
     no legacy counterpart to fall back to.
     """
-    primary = library_path_for(plugin_id)
+    primary = library_path_for(plugin_id, root)
     if primary.exists():
         return primary, plugin_id
 
@@ -331,7 +307,7 @@ def _resolve_library(plugin_id: str) -> tuple[Path, str]:
         legacy = "_host_subagent"
 
     if legacy:
-        legacy_path = library_path_for(legacy)
+        legacy_path = library_path_for(legacy, root)
         if legacy_path.exists():
             _emit_legacy_fallback_warning(plugin_id, legacy)
             return legacy_path, legacy
@@ -629,20 +605,238 @@ def _hook_on_error() -> str:
     return "allow" if raw in ("allow", "open", "fail-open", "fail_open") else "deny"
 
 
+# ----------------------------------------------------------------------
+# The decision, separated from where rules and history come from
+# ----------------------------------------------------------------------
+#
+# ``evaluate`` is a pure function of (event, store, traces, policy). It
+# reads no file and no environment variable. The per-call hook path
+# (``evaluate_event``) feeds it a file-backed store and trace store plus
+# a policy resolved from the environment; the daemon feeds it a cached
+# snapshot store, an in-memory trace store, and its own config. Both
+# make the same decision for the same inputs, which is what lets the
+# existing hook tests run unchanged through the daemon.
+
+
+@dataclass(frozen=True)
+class GuardPolicy:
+    """Knobs that shape a decision, resolved by the caller.
+
+    ``mode`` is ``enforce`` or ``observe``. ``on_error`` is what an
+    evaluation failure becomes (``deny`` by default). ``unconfigured``
+    is ``deny`` / ``allow`` for a tool with no library, or ``None`` to
+    let the host library's ``defaults.unconfigured`` decide.
+    """
+
+    mode: str = "enforce"
+    on_error: str = "deny"
+    unconfigured: str | None = None
+    trace_ttl_hours: float = 24.0
+
+    @classmethod
+    def from_env(cls) -> "GuardPolicy":
+        """The legacy resolution: ``SPONSIO_GUARD_MODE`` then
+        ``SPONSIO_MODE`` then ``enforce``; ``SPONSIO_HOOK_ON_ERROR``;
+        ``SPONSIO_UNCONFIGURED``; ``SPONSIO_SHIELD_TRACE_TTL_HOURS``."""
+        mode = (
+            os.environ.get("SPONSIO_GUARD_MODE")
+            or os.environ.get("SPONSIO_MODE")
+            or "enforce"
+        )
+        raw = os.environ.get("SPONSIO_UNCONFIGURED", "").strip().lower()
+        unconfigured: str | None = None
+        if raw in _DENY_WORDS:
+            unconfigured = "deny"
+        elif raw in _ALLOW_WORDS:
+            unconfigured = "allow"
+        return cls(
+            mode=mode,
+            on_error=_hook_on_error(),
+            unconfigured=unconfigured,
+            trace_ttl_hours=_trace_ttl_seconds() / 3600,
+        )
+
+
+@dataclass(frozen=True)
+class LibrarySnapshot:
+    """One loaded library, as the decision sees it.
+
+    ``agent_id`` is the effective agent key (it differs from
+    ``plugin_id`` when the legacy ``_host`` bucket is serving a per-host
+    request). ``content_hash`` covers the file and every included pack.
+    ``error`` carries the load failure when the file exists but could
+    not be parsed; ``config`` is then ``None`` and the decision follows
+    the on-error policy.
+    """
+
+    plugin_id: str
+    agent_id: str
+    path: str
+    content_hash: str
+    config: Any = None
+    error: BaseException | None = None
+
+    @property
+    def defaults(self) -> dict:
+        raw = getattr(self.config, "defaults", None)
+        return raw if isinstance(raw, dict) else {}
+
+
+class RuleStore(Protocol):
+    """Where libraries come from."""
+
+    def resolve(self, plugin_id: str) -> LibrarySnapshot | None:
+        """The snapshot serving ``plugin_id``, or ``None`` when no
+        library exists for it (after legacy fallback)."""
+        ...
+
+
+class TraceStore(Protocol):
+    """Where session history lives."""
+
+    def events(self, plugin_id: str, conversation_id: str | None) -> list:
+        """Prior events of the conversation, merged across buckets,
+        oldest first."""
+        ...
+
+    def append(self, plugin_id: str, conversation_id: str | None, event: dict) -> None:
+        """Record one admitted event."""
+        ...
+
+    def attach_output(
+        self,
+        plugin_id: str,
+        conversation_id: str | None,
+        tool_name: str,
+        text: str,
+    ) -> bool:
+        """Attach a tool's output to its most recent recorded call."""
+        ...
+
+
+def _content_hash(paths: list[str] | tuple[str, ...]) -> str:
+    """Hash the content of every file in ``paths``, in order, prefixed
+    with its path so a swap of two files does not collide."""
+    h = hashlib.sha256()
+    for p in paths:
+        h.update(str(p).encode("utf-8"))
+        h.update(b"\0")
+        try:
+            h.update(Path(p).read_bytes())
+        except OSError:
+            h.update(b"<unreadable>")
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def load_snapshot(plugin_id: str, lib_path: Path, agent_id: str) -> LibrarySnapshot:
+    """Load ``lib_path`` into a :class:`LibrarySnapshot`.
+
+    A parse failure is captured on the snapshot rather than raised, so
+    the caller can turn it into the on-error decision with the path in
+    the message.
+    """
+    from sponsio.config import load_config
+
+    try:
+        config = load_config(str(lib_path))
+    except Exception as e:  # noqa: BLE001 - every load error is a decision input
+        return LibrarySnapshot(
+            plugin_id=plugin_id,
+            agent_id=agent_id,
+            path=str(lib_path),
+            content_hash=_content_hash([str(lib_path)]),
+            error=e,
+        )
+    files = config.source_files or (str(lib_path),)
+    return LibrarySnapshot(
+        plugin_id=plugin_id,
+        agent_id=agent_id,
+        path=str(lib_path),
+        content_hash=_content_hash(files),
+        config=config,
+    )
+
+
+class FileRuleStore:
+    """Reads the library from disk on every resolve.
+
+    This is the per-call hook path's store: a fresh process has no
+    cache to keep, so it parses the file each time. The daemon's
+    snapshot store (``sponsio.daemon.guard_service``) caches by content.
+    """
+
+    def __init__(self, root: Path | None = None) -> None:
+        self._root = root
+
+    def resolve(self, plugin_id: str) -> LibrarySnapshot | None:
+        lib_path, agent_id = _resolve_library(plugin_id, self._root)
+        if not lib_path.exists():
+            return None
+        return load_snapshot(plugin_id, lib_path, agent_id)
+
+
+class FileTraceStore:
+    """The JSONL trace logs next to each library (the legacy layout)."""
+
+    def events(self, plugin_id: str, conversation_id: str | None) -> list:
+        return _load_prior_events(plugin_id, conversation_id=conversation_id)
+
+    def append(self, plugin_id: str, conversation_id: str | None, event: dict) -> None:
+        _append_event(plugin_id, event, conversation_id=conversation_id)
+
+    def attach_output(
+        self,
+        plugin_id: str,
+        conversation_id: str | None,
+        tool_name: str,
+        text: str,
+    ) -> bool:
+        return _attach_tool_output(plugin_id, tool_name, text, conversation_id)
+
+
+def _unconfigured_denies(
+    policy: GuardPolicy, store: RuleStore, host_bucket: str | None
+) -> bool:
+    """Whether a tool with no contract library is refused.
+
+    ``policy.unconfigured`` wins when set. Otherwise the host's own
+    library decides through ``defaults.unconfigured: deny``, which
+    ``sponsio host install --strict`` writes. Keeping the posture in that
+    file rather than only in the environment means it survives a new
+    shell, and the agent cannot flip it: the host library is covered by
+    ``capability/self-modify``.
+    """
+    if policy.unconfigured == "deny":
+        return True
+    if policy.unconfigured == "allow":
+        return False
+    if host_bucket is None:
+        return False
+    snap = store.resolve(host_bucket)
+    if snap is None:
+        return False
+    return str(snap.defaults.get("unconfigured", "")).strip().lower() in _DENY_WORDS
+
+
 def _error_outcome(
-    exc: BaseException, plugin_id: str, library_path: str | None
+    exc: BaseException,
+    plugin_id: str,
+    library_path: str | None,
+    on_error: str | None = None,
 ) -> GuardOutcome:
     """Outcome for a call the guard could not evaluate.
 
     Denied by default. A rulebook that fails to load (a YAML syntax
     error, a contract that does not parse) used to fall through as an
     allow, which silently switched off every rule in that library until
-    someone read stderr. ``SPONSIO_HOOK_ON_ERROR=allow`` restores that
+    someone read stderr. ``SPONSIO_HOOK_ON_ERROR=allow`` (or an
+    ``on_error`` of ``allow`` from the caller's policy) restores that
     fail-open behaviour for operators who prefer availability.
     """
     where = f" in {library_path}" if library_path else ""
     sys.stderr.write(f"sponsio plugin guard:evaluation error{where}: {exc}\n")
-    if _hook_on_error() == "allow":
+    if (on_error if on_error is not None else _hook_on_error()) == "allow":
         return GuardOutcome(
             allowed=True,
             reason=f"evaluation error: {exc}",
@@ -696,7 +890,9 @@ def _attach_tool_output(
     return False
 
 
-def _observe_post_event(event: dict, tool_name: str, plugin_id: str) -> GuardOutcome:
+def _observe_post_event(
+    event: dict, tool_name: str, plugin_id: str, traces: TraceStore
+) -> GuardOutcome:
     """Handle a ``PostToolUse`` (or any non-pre) event: record, never gate.
 
     The tool output (``tool_response`` in Claude Code's payload) is
@@ -714,7 +910,7 @@ def _observe_post_event(event: dict, tool_name: str, plugin_id: str) -> GuardOut
         if not isinstance(conversation_id, str):
             conversation_id = None
         try:
-            _attach_tool_output(plugin_id, tool_name, text, conversation_id)
+            traces.attach_output(plugin_id, conversation_id, tool_name, text)
         except OSError as e:  # pragma: no cover - log-write failure
             sys.stderr.write(
                 f"sponsio plugin guard:could not attach tool output: {e}\n"
@@ -727,11 +923,12 @@ def _observe_post_event(event: dict, tool_name: str, plugin_id: str) -> GuardOut
 
 
 def evaluate_event(event: dict) -> GuardOutcome:
-    """Run one PreToolUse event against the matching per-plugin library.
+    """Run one hook event against the matching per-plugin library.
 
-    Returns a :class:`GuardOutcome` describing the decision. No I/O on
-    stdin/stdout — the caller is responsible for emitting the
-    plugin-system-specific reply (see :func:`run_stdin`).
+    The legacy per-call entry point: library from disk, history from
+    the JSONL logs next to it, policy from the environment. Returns a
+    :class:`GuardOutcome`; the caller emits the host-specific reply
+    (see :func:`run_stdin`).
 
     Holds :func:`_trace_lock` for the whole decision. Loading the prior
     events, deciding, and appending the new one is one critical section:
@@ -740,11 +937,37 @@ def evaluate_event(event: dict) -> GuardOutcome:
     lock, not just the CLI entry point.
     """
     with _trace_lock():
-        return _evaluate_event_locked(event)
+        return evaluate(
+            event,
+            store=FileRuleStore(),
+            traces=FileTraceStore(),
+            policy=GuardPolicy.from_env(),
+        )
 
 
 def _evaluate_event_locked(event: dict) -> GuardOutcome:
-    """The body of :func:`evaluate_event`, run under the trace lock."""
+    """The body of :func:`evaluate_event`, for callers that hold the lock."""
+    return evaluate(
+        event,
+        store=FileRuleStore(),
+        traces=FileTraceStore(),
+        policy=GuardPolicy.from_env(),
+    )
+
+
+def evaluate(
+    event: dict,
+    *,
+    store: RuleStore,
+    traces: TraceStore,
+    policy: GuardPolicy,
+) -> GuardOutcome:
+    """Decide one hook event. Pure in its inputs: no file, no environment.
+
+    The caller serialises calls that share a conversation (the per-call
+    path holds a file lock; the daemon holds one lock per conversation),
+    because the decision reads history and then appends to it.
+    """
     tool_name = event.get("tool_name") or ""
     tool_input = event.get("tool_input") or {}
     host = event.get("host") if isinstance(event.get("host"), str) else None
@@ -774,24 +997,17 @@ def _evaluate_event_locked(event: dict) -> GuardOutcome:
     raw_agent_id = event.get("agent_id")
     is_subagent = isinstance(raw_agent_id, str) and bool(raw_agent_id.strip())
     plugin_id = derive_plugin_id(tool_name, host=host, is_subagent=is_subagent)
-    # ``effective_agent_id`` may differ from ``plugin_id`` when the
-    # per-host library (``_host_cursor.yaml`` / ``_host_claude_code.yaml``)
-    # isn't installed yet and we fall back to the legacy ``_host``
-    # library — the legacy yaml's top-level agent key is ``_host``,
-    # so BaseGuard must be invoked with that id or it can't locate
-    # the agent. Trace persistence keeps using ``plugin_id`` so
-    # per-host bucketing is preserved.
     hook_event = event.get("hook_event_name") or "PreToolUse"
     if hook_event != "PreToolUse":
         # The tool has already run. There is nothing to gate, and running
         # the pre-check here would append a second event for one
         # execution (halving every count-based budget and blocking calls
         # that already happened). Record the output instead.
-        return _observe_post_event(event, tool_name, plugin_id)
+        return _observe_post_event(event, tool_name, plugin_id, traces)
 
-    lib_path, effective_agent_id = _resolve_library(plugin_id)
+    snap = store.resolve(plugin_id)
 
-    if not lib_path.exists():
+    if snap is None:
         # No library configured for this plugin.
         #
         # Mode A's design: the absence of rules means "we haven't opined
@@ -803,7 +1019,7 @@ def _evaluate_event_locked(event: dict) -> GuardOutcome:
         # "never looked". It is now said out loud, once per namespace,
         # the same way the legacy-bucket fallback is; and an operator who
         # wants the strict posture can have it.
-        if _unconfigured_denies(_bucket_for_host(host, is_subagent)):
+        if _unconfigured_denies(policy, store, _bucket_for_host(host, is_subagent)):
             return GuardOutcome(
                 allowed=False,
                 reason=(
@@ -823,37 +1039,22 @@ def _evaluate_event_locked(event: dict) -> GuardOutcome:
             library_path=None,
         )
 
+    if snap.error is not None:
+        return _error_outcome(snap.error, plugin_id, snap.path, policy.on_error)
+
     # Lazy import — keeps cold-start cheap when no library exists.
     from sponsio.integrations.base import BaseGuard
 
-    # BaseGuard prints a contract-load banner on construction and a
-    # live reporter banner on each event regardless of ``verbose``.
-    # Claude Code's hook protocol expects either nothing or the deny
-    # JSON on stdout — anything else corrupts the channel. Capture
-    # stdout for the entire eval and discard it.
+    # BaseGuard prints a live reporter banner on each event regardless
+    # of ``verbose``. Claude Code's hook protocol expects either nothing
+    # or the deny JSON on stdout — anything else corrupts the channel.
+    # Capture stdout for the entire eval and discard it.
     captured_out = io.StringIO()
     captured_err = io.StringIO()
 
-    # Host-plugin runtime enforces by default — without enforce mode
-    # the plugin logs but doesn't block, defeating the whole purpose.
-    # Mode precedence: SPONSIO_GUARD_MODE > SPONSIO_MODE > "enforce".
-    # SPONSIO_GUARD_MODE is the plugin-specific dial so operators can
-    # run a session-wide SPONSIO_MODE=observe (e.g. for an unrelated
-    # integration in the same process) while still enforcing here.
-    guard_mode = (
-        os.environ.get("SPONSIO_GUARD_MODE")
-        or os.environ.get("SPONSIO_MODE")
-        or "enforce"
-    )
-    # BaseGuard._resolve_mode reads SPONSIO_MODE FIRST and ignores its
-    # ``mode=`` arg if env is set. Override the env for the scope of
-    # this call so our chosen mode actually wins.
-    saved_env = os.environ.get("SPONSIO_MODE")
-    os.environ["SPONSIO_MODE"] = guard_mode
-
     # Per-conversation trace bucketing. Cursor and Claude Code both
     # emit a ``conversation_id`` per IDE conversation; routing the
-    # trace file by that id keeps cumulative contracts (rate_limit /
+    # trace by that id keeps cumulative contracts (rate_limit /
     # idempotent / count-based) honest — without it, every Bash call
     # in the user's history compounds across conversations and
     # ``rate_limit(Bash, 50)`` blows past its session budget within
@@ -864,21 +1065,26 @@ def _evaluate_event_locked(event: dict) -> GuardOutcome:
     if not isinstance(conversation_id, str):
         conversation_id = None
 
-    # Load prior session trace from the per-plugin JSONL log (if any).
-    # ``_load_prior_events`` handles TTL rotation internally.
-    prior_events = _load_prior_events(plugin_id, conversation_id=conversation_id)
+    prior_events = traces.events(plugin_id, conversation_id)
 
     try:
         with (
             contextlib.redirect_stdout(captured_out),
             contextlib.redirect_stderr(captured_err),
         ):
+            # ``env_mode=False``: the policy's mode is the decision's
+            # mode. The process environment is not consulted, so a
+            # daemon serving several hosts can hold a mode per host, and
+            # a client's environment never reaches the decision.
             guard = BaseGuard(
-                agent_id=effective_agent_id,
-                config=str(lib_path),
+                agent_id=snap.agent_id,
+                parsed_config=snap.config,
                 verbose=False,
                 verbosity=0,
-                mode=guard_mode,
+                mode=policy.mode,
+                env_mode=False,
+                init_banner=False,
+                auto_summary=False,
             )
             # Seed the monitor with the reconstructed trace so trace-aware
             # contracts (must_precede, cooldown, A→G temporal, …) see the
@@ -906,29 +1112,22 @@ def _evaluate_event_locked(event: dict) -> GuardOutcome:
                     guard.observe_context(clean)
             result = guard.guard_before(tool_name=tool_name, args=tool_input)
     except Exception as e:
-        return _error_outcome(e, plugin_id, str(lib_path))
-    finally:
-        # Restore SPONSIO_MODE so subsequent in-process calls (rare;
-        # the CLI normally exits) don't see the override.
-        if saved_env is None:
-            os.environ.pop("SPONSIO_MODE", None)
-        else:
-            os.environ["SPONSIO_MODE"] = saved_env
+        return _error_outcome(e, plugin_id, snap.path, policy.on_error)
     # ``not stop_original`` rather than ``allowed``: ``allowed`` is False
     # only on ``blocked``, so a redirected verdict fell through here as a
     # permit — a fail-open hole for a hook adapter with no substitution
     # path. Redirects must deny.
     if not result.stop_original:
-        # Append the now-permitted event to the trace log so the next
-        # PreToolUse subprocess sees it.  Use the ts BaseGuard actually
-        # assigned (== ``len(trace.events) - 1`` after the append).  If
-        # we computed ts ourselves we'd race the monitor's own ts and
-        # collisions would silently confuse re-grounded valuations on
-        # the next subprocess.
+        # Append the now-permitted event to the trace so the next check
+        # sees it.  Use the ts BaseGuard actually assigned (==
+        # ``len(trace.events) - 1`` after the append).  If we computed ts
+        # ourselves we'd race the monitor's own ts and collisions would
+        # silently confuse re-grounded valuations on the next check.
         last_event = guard._monitor.trace.events[-1]
         try:
-            _append_event(
+            traces.append(
                 plugin_id,
+                conversation_id,
                 {
                     "ts": last_event.ts,
                     "agent": last_event.agent,
@@ -936,7 +1135,6 @@ def _evaluate_event_locked(event: dict) -> GuardOutcome:
                     "tool": last_event.tool,
                     "args": last_event.args,
                 },
-                conversation_id=conversation_id,
             )
         except OSError as e:  # pragma: no cover - log-write failure
             sys.stderr.write(
@@ -945,7 +1143,7 @@ def _evaluate_event_locked(event: dict) -> GuardOutcome:
         return GuardOutcome(
             allowed=True,
             plugin_id=plugin_id,
-            library_path=str(lib_path),
+            library_path=snap.path,
         )
 
     # Concatenate violation messages for the deny reason. The plugin
@@ -971,7 +1169,7 @@ def _evaluate_event_locked(event: dict) -> GuardOutcome:
         allowed=False,
         reason=reason,
         plugin_id=plugin_id,
-        library_path=str(lib_path),
+        library_path=snap.path,
     )
 
 

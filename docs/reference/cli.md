@@ -332,13 +332,18 @@ For local observability use `sponsio host trace --follow` (live stream), `sponsi
 
 Privileged-process side of the IPC split. The daemon owns the host bucket / per-plugin yaml files and is the only entity the host agent can reach to write them, so self-modify protection becomes an OS-level guarantee (ideally a separate UID under launchd/systemd) rather than a regex-on-tool-args one.
 
+It also evaluates host hook events. Each library is compiled once per content change (the yaml and every pack it includes), and session traces live in the daemon's memory with a write-ahead log under the state dir, so a restart keeps every live conversation and deleting trace files on disk does not reset a running session's counters.
+
 ```bash
-sponsio daemon run [--socket PATH] [--mode 0600]   # foreground; used by launchd/systemd
+sponsio daemon run [--socket PATH] [--mode 0600] [--state-dir DIR] [--plugin-root DIR]
+                                                   # foreground; used by launchd/systemd
 sponsio daemon ping [--echo VALUE]                 # round-trip health check
 sponsio daemon status                              # resolved socket path + reachability
 ```
 
-Socket path resolves to `$SPONSIO_DAEMON_SOCKET`, then `/var/run/sponsio.sock` if writable, else `~/.sponsio/sponsio.sock`.
+Socket path resolves to `$SPONSIO_DAEMON_SOCKET`, then `/var/run/sponsio.sock` if writable, else `~/.sponsio/sponsio.sock`. The state dir defaults to `~/.sponsio/state`; the plugin root is fixed when the daemon starts.
+
+RPC methods: `ping`, `plugin.append`, `guard.check` (pre-event: decide and render the host's reply), `guard.observe` (post-event: record the tool output).
 
 ## sponsio cursor
 

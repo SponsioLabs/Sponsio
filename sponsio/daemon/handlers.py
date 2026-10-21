@@ -20,14 +20,57 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sponsio.daemon.server import DaemonServer, RpcError
 
+if TYPE_CHECKING:
+    from sponsio.daemon.guard_service import GuardService
 
-def register_default_handlers(server: DaemonServer) -> None:
-    """Install the daemon's privileged-operation handlers."""
+
+def register_default_handlers(
+    server: DaemonServer, *, guard_service: "GuardService | None" = None
+) -> None:
+    """Install the daemon's privileged-operation handlers.
+
+    ``guard_service`` adds the hook-evaluation methods (``guard.check``,
+    ``guard.observe``); without one the daemon serves rule writes only.
+    """
     server.register("plugin.append", _handle_plugin_append)
+    if guard_service is not None:
+        register_guard_handlers(server, guard_service)
+
+
+def register_guard_handlers(server: DaemonServer, service: "GuardService") -> None:
+    """``guard.check`` (pre-event) and ``guard.observe`` (post-event).
+
+    Params: ``host`` (str or null), ``event`` (the host's hook event
+    name, for hosts that carry it outside the payload), and one of
+    ``payload`` (the parsed hook JSON object) or ``raw`` (the hook's
+    stdin as text). Result: ``allowed``, ``reason``, ``plugin_id``,
+    ``library_path``, plus the rendered ``stdout`` and ``exit_code`` the
+    host expects, so the client writes bytes and exits.
+    """
+
+    def _args(params: dict[str, Any]) -> dict[str, Any]:
+        host = params.get("host")
+        if host is not None and not isinstance(host, str):
+            raise RpcError("`host` must be a string or null", code="validation")
+        event = params.get("event")
+        if event is not None and not isinstance(event, str):
+            raise RpcError("`event` must be a string or null", code="validation")
+        payload = params.get("payload")
+        raw = params.get("raw")
+        if payload is not None and not isinstance(payload, dict):
+            raise RpcError("`payload` must be an object", code="validation")
+        if raw is not None and not isinstance(raw, str):
+            raise RpcError("`raw` must be a string", code="validation")
+        if payload is None and raw is None:
+            raise RpcError("one of `payload` or `raw` is required", code="validation")
+        return {"host": host, "hook_event": event, "payload": payload, "raw": raw}
+
+    server.register("guard.check", lambda params: service.check(**_args(params)))
+    server.register("guard.observe", lambda params: service.observe(**_args(params)))
 
 
 def _resolve_plugin_root(params: dict[str, Any]) -> Path:
