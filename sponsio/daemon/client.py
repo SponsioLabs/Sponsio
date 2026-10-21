@@ -17,8 +17,11 @@ from __future__ import annotations
 
 import os
 import socket
+import subprocess
+import sys
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from sponsio.daemon.protocol import (
     FrameError,
@@ -87,6 +90,107 @@ def daemon_is_running(
         return True
     except OSError:
         return False
+
+
+def wait_for_daemon(
+    socket_path: Path, *, timeout_s: float, poll_s: float = 0.05
+) -> bool:
+    """Block until a daemon answers at ``socket_path`` or ``timeout_s``
+    passes. Whoever started it: a hook that raced another hook to start
+    the daemon waits for the winner's socket all the same."""
+    deadline = time.monotonic() + timeout_s
+    while True:
+        if daemon_is_running(socket_path, timeout_s=0.2):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(poll_s)
+
+
+def daemon_start_command(
+    socket_path: Path,
+    *,
+    sponsio: Sequence[str] | None = None,
+    plugin_root: Path | None = None,
+    state_dir: Path | None = None,
+) -> list[str]:
+    """``sponsio daemon run --detach ...`` for ``socket_path``.
+
+    ``sponsio`` is the command prefix that runs the CLI (default: this
+    interpreter with ``-m sponsio.cli``). Roots given explicitly are
+    fixed on the command line so the daemon that comes up does not
+    depend on the starter's environment.
+    """
+    cmd = list(sponsio) if sponsio else [sys.executable, "-m", "sponsio.cli"]
+    cmd += ["daemon", "run", "--detach", "--socket", str(socket_path)]
+    if plugin_root is not None:
+        cmd += ["--plugin-root", str(plugin_root)]
+    if state_dir is not None:
+        cmd += ["--state-dir", str(state_dir)]
+    return cmd
+
+
+_DAEMON_ENV_PASSTHROUGH = (
+    "HOME",
+    "PATH",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TMPDIR",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "TERM",
+    "TZ",
+    "OPENCLAW_HOME",
+)
+
+
+def daemon_environment() -> dict[str, str]:
+    """The environment a daemon started on a hook's behalf gets.
+
+    Only the locale and path basics pass through. No ``SPONSIO_*``
+    variable does: the hook runs in the host's environment, which the
+    agent under guard can edit (a ``settings.json`` ``env`` block), and
+    a daemon that inherited it would read its mode, plugin root, and
+    error policy from the agent.
+    """
+    return {k: v for k, v in os.environ.items() if k in _DAEMON_ENV_PASSTHROUGH}
+
+
+def ensure_daemon(
+    socket_path: Path,
+    *,
+    wait_s: float = 1.5,
+    sponsio: Sequence[str] | None = None,
+    plugin_root: Path | None = None,
+    state_dir: Path | None = None,
+) -> bool:
+    """Start a daemon for ``socket_path`` if none answers, and wait up to
+    ``wait_s`` for one to. Returns whether a daemon answers at the end.
+
+    Several callers can run this at once: every one of them spawns a
+    ``daemon run --detach``, the daemons race for the state dir lock,
+    the losers exit, and every caller finds the one socket.
+    """
+    if daemon_is_running(socket_path, timeout_s=0.2):
+        return True
+    cmd = daemon_start_command(
+        socket_path, sponsio=sponsio, plugin_root=plugin_root, state_dir=state_dir
+    )
+    try:
+        subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=daemon_environment(),
+            start_new_session=True,
+            close_fds=True,
+        )
+    except OSError:
+        return False
+    return wait_for_daemon(socket_path, timeout_s=wait_s)
 
 
 # ---------------------------------------------------------------------------

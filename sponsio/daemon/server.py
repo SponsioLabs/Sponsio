@@ -18,6 +18,11 @@ import traceback
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
+try:  # POSIX only; the daemon is not supported on Windows
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX
+    fcntl = None  # type: ignore[assignment]
+
 from sponsio.daemon.protocol import (
     FrameError,
     Request,
@@ -57,6 +62,15 @@ class RpcError(Exception):
         self.code = code
 
 
+class DaemonAlreadyRunning(RuntimeError):
+    """Another daemon holds the lock, or answers on the socket.
+
+    Starting is not an error for the caller: the daemon it wanted is
+    up. ``sponsio daemon run`` exits 0 on it, and the shims that raced
+    to start one all find the winner's socket.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Server
 # ---------------------------------------------------------------------------
@@ -66,8 +80,17 @@ class DaemonServer:
     """Unix-socket JSON-RPC server.
 
     Args:
-        socket_path: Path to bind. Will be unlinked first if it exists
-            and is a stale socket; refuses to clobber a non-socket file.
+        socket_path: Path to bind. A socket file already there is probed
+            first: if a daemon answers, :class:`DaemonAlreadyRunning` is
+            raised and the file is left alone; only a socket nobody
+            answers on (a crashed daemon's) is unlinked. A non-socket
+            file is never removed.
+        lock_path: A file to hold an exclusive ``flock`` on for the
+            daemon's lifetime, so two daemons cannot serve the same
+            state dir (each would keep its own trace, and the second
+            to bind would have removed the first one's socket). The
+            holder's pid is written into it. ``None`` skips the lock
+            (in-process test servers on private sockets).
         socket_mode: chmod applied after bind. Default 0o600 — only
             the daemon's own UID can connect.  When the daemon runs as
             a separate system user serving multiple users, the install
@@ -84,12 +107,18 @@ class DaemonServer:
         *,
         socket_mode: int = 0o600,
         accept_timeout_s: float = 0.5,
+        lock_path: Path | str | None = None,
     ) -> None:
         self.socket_path = Path(socket_path)
+        self.lock_path = Path(lock_path) if lock_path is not None else None
         self._socket_mode = socket_mode
         self._accept_timeout_s = accept_timeout_s
         self._handlers: dict[str, RpcHandler] = {}
         self._sock: socket.socket | None = None
+        self._lock_fd: int | None = None
+        self.previous_pid: int | None = None
+        """The pid the lock file held before this daemon took it: the
+        prior instance, if there was one. ``None`` on a first start."""
         self._accept_thread: threading.Thread | None = None
         self._workers: list[threading.Thread] = []
         self._stop_event = threading.Event()
@@ -108,7 +137,12 @@ class DaemonServer:
         """Bind, listen, and start the accept loop on a background thread."""
         if self._sock is not None:
             raise RuntimeError("server already started")
-        self._prepare_socket_path()
+        self._acquire_lock()
+        try:
+            self._prepare_socket_path()
+        except BaseException:
+            self._release_lock()
+            raise
         self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._sock.bind(str(self.socket_path))
         self._sock.settimeout(self._accept_timeout_s)
@@ -124,6 +158,7 @@ class DaemonServer:
     def stop(self, *, join_timeout_s: float = 2.0) -> None:
         """Close the listening socket, join workers, remove the socket file."""
         self._stop_event.set()
+        bound = self._sock is not None
         if self._sock is not None:
             try:
                 self._sock.close()
@@ -136,27 +171,75 @@ class DaemonServer:
         for w in list(self._workers):
             w.join(timeout=join_timeout_s)
         self._workers.clear()
-        try:
-            self.socket_path.unlink()
-        except FileNotFoundError:
-            pass
+        if bound:
+            try:
+                self.socket_path.unlink()
+            except FileNotFoundError:
+                pass
+        self._release_lock()
 
     # ---- internals ----
 
+    def _acquire_lock(self) -> None:
+        """Take the exclusive lock, or raise :class:`DaemonAlreadyRunning`.
+
+        The lock file is created with mode 0600 and holds the pid of
+        the daemon that owns it; the pid that was there before is kept
+        on :attr:`previous_pid` so the caller can tell a restart after
+        a crash from a first start.
+        """
+        if self.lock_path is None or fcntl is None:
+            return
+        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
+            raise DaemonAlreadyRunning(
+                f"another sponsio daemon holds {self.lock_path}"
+            ) from None
+        try:
+            prior = os.read(fd, 64).decode("ascii", "replace").strip()
+            self.previous_pid = int(prior) if prior.isdigit() else None
+            os.lseek(fd, 0, os.SEEK_SET)
+            os.ftruncate(fd, 0)
+            os.write(fd, f"{os.getpid()}\n".encode("ascii"))
+        except OSError:
+            self.previous_pid = None
+        self._lock_fd = fd
+
+    def _release_lock(self) -> None:
+        fd = self._lock_fd
+        self._lock_fd = None
+        if fd is None:
+            return
+        try:
+            if fcntl is not None:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
     def _prepare_socket_path(self) -> None:
         """Ensure ``socket_path``'s parent exists and the path itself is
-        free of a prior daemon's stale socket.  Refuses to delete a
-        non-socket file at that path — that's user data, not ours.
+        free. A socket file that a daemon answers on belongs to that
+        daemon (:class:`DaemonAlreadyRunning`); one nobody answers on is
+        a crashed daemon's leftover and is removed. A non-socket file
+        is never removed: that is user data, not ours.
         """
         self.socket_path.parent.mkdir(parents=True, exist_ok=True)
-        if self.socket_path.exists():
-            if self.socket_path.is_socket():
-                self.socket_path.unlink()
-            else:
-                raise RuntimeError(
-                    f"socket path {self.socket_path} exists and is not a socket — "
-                    f"refusing to remove (looks like user data)"
-                )
+        if not self.socket_path.exists():
+            return
+        if not self.socket_path.is_socket():
+            raise RuntimeError(
+                f"socket path {self.socket_path} exists and is not a socket — "
+                f"refusing to remove (looks like user data)"
+            )
+        if _answers(self.socket_path):
+            raise DaemonAlreadyRunning(
+                f"a sponsio daemon already answers at {self.socket_path}"
+            )
+        self.socket_path.unlink()
 
     def _accept_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -221,6 +304,17 @@ class DaemonServer:
             )
 
 
+def _answers(path: Path, timeout_s: float = 0.5) -> bool:
+    """Does something accept connections on the socket at ``path``?"""
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout_s)
+            s.connect(str(path))
+        return True
+    except OSError:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Default handlers
 # ---------------------------------------------------------------------------
@@ -251,18 +345,25 @@ def serve_forever(
     *,
     handler_registry: Callable[[DaemonServer], None] | None = None,
     socket_mode: int = 0o600,
+    lock_path: Path | str | None = None,
+    on_started: Callable[[DaemonServer], None] | None = None,
 ) -> None:
     """Start a server, install handlers, block until SIGINT/SIGTERM.
 
     Used by ``sponsio daemon run`` (foreground) and the launchd /
     systemd unit (which runs the same code under their lifecycle).
+    ``on_started`` runs once the socket is bound (the CLI records the
+    start in the audit log there). :class:`DaemonAlreadyRunning`
+    propagates to the caller.
     """
     import signal
 
-    server = DaemonServer(socket_path, socket_mode=socket_mode)
+    server = DaemonServer(socket_path, socket_mode=socket_mode, lock_path=lock_path)
     if handler_registry is not None:
         handler_registry(server)
     server.start()
+    if on_started is not None:
+        on_started(server)
 
     stop = threading.Event()
 
