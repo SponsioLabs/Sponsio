@@ -47,9 +47,12 @@ def register_guard_handlers(server: DaemonServer, service: "GuardService") -> No
     Params: ``host`` (str or null), ``event`` (the host's hook event
     name, for hosts that carry it outside the payload), and one of
     ``payload`` (the parsed hook JSON object) or ``raw`` (the hook's
-    stdin as text). Result: ``allowed``, ``reason``, ``plugin_id``,
-    ``library_path``, plus the rendered ``stdout`` and ``exit_code`` the
-    host expects, so the client writes bytes and exits.
+    stdin as text). ``mode`` (``enforce`` / ``observe``, optional) is
+    the mode the installer wrote on the hook command; it overrides the
+    daemon's policy for this call until P0.6 moves the per-host mode
+    into the daemon's own config. Result: ``allowed``, ``reason``,
+    ``plugin_id``, ``library_path``, plus the rendered ``stdout`` and
+    ``exit_code`` the host expects, so the client writes bytes and exits.
     """
 
     def _args(params: dict[str, Any]) -> dict[str, Any]:
@@ -67,7 +70,18 @@ def register_guard_handlers(server: DaemonServer, service: "GuardService") -> No
             raise RpcError("`raw` must be a string", code="validation")
         if payload is None and raw is None:
             raise RpcError("one of `payload` or `raw` is required", code="validation")
-        return {"host": host, "hook_event": event, "payload": payload, "raw": raw}
+        mode = params.get("mode")
+        if mode is not None and mode not in ("enforce", "observe"):
+            raise RpcError(
+                '`mode` must be "enforce", "observe" or null', code="validation"
+            )
+        return {
+            "host": host,
+            "hook_event": event,
+            "payload": payload,
+            "raw": raw,
+            "mode": mode,
+        }
 
     server.register("guard.check", lambda params: service.check(**_args(params)))
     server.register("guard.observe", lambda params: service.observe(**_args(params)))

@@ -1020,13 +1020,24 @@ def host_uninstall(names: tuple[str, ...], scope: str, with_skill: bool):
     default=True,
     help="(default) Read one hook event as JSON from stdin.",
 )
-def host_guard(name: str, hook_event: str | None, use_stdin: bool):
+@click.option(
+    "--direct",
+    is_flag=True,
+    help=(
+        "Evaluate in this process from the library files and trace logs "
+        "on disk, instead of through the daemon. For debugging; the "
+        "daemon path is what the installed hooks use."
+    ),
+)
+def host_guard(name: str, hook_event: str | None, use_stdin: bool, direct: bool):
     """Runtime hook handler. called by the host's hook subprocess.
 
-    Reads a JSON payload from stdin, evaluates it against the matching
-    Sponsio contract library, and writes the host-shaped reply.  Exits
-    cleanly on internal errors so a Sponsio bug never wedges a real
-    tool call.
+    Reads one hook event from stdin and forwards it to the daemon, which
+    evaluates it against the matching contract library and renders the
+    host-shaped reply; starts a daemon when none answers. Denies with
+    exit 2 when no daemon can be reached. New installs run the shim
+    instead (``sponsio_shim.py``); this entry stays for hooks installed
+    before it and does the same thing.
     """
     from sponsio.integrations import hosts as _hosts_mod
 
@@ -1036,5 +1047,9 @@ def host_guard(name: str, hook_event: str | None, use_stdin: bool):
         sys.stderr.write(f"sponsio host guard: {e}\n")
         sys.exit(0)
 
-    code = host_spec.runtime_fn(host_spec, hook_event, None)
-    sys.exit(code)
+    if direct:
+        sys.exit(host_spec.runtime_fn(host_spec, hook_event, None))
+
+    from sponsio.hook_client import run_hook
+
+    sys.exit(run_hook(host_spec.name, hook_event))

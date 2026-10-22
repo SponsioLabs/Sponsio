@@ -30,7 +30,7 @@ import sys
 import threading
 import time
 from contextlib import redirect_stderr
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -451,15 +451,17 @@ class GuardService:
         hook_event: str | None = None,
         payload: dict | None = None,
         raw: str | None = None,
+        mode: str | None = None,
     ) -> dict[str, Any]:
         """Decide a pre-event and render the host's reply.
 
         Exactly one of ``payload`` (the parsed hook JSON) or ``raw``
         (the bytes the host wrote to the hook's stdin) is given. The
         result carries the decision and the rendered ``stdout`` and
-        ``exit_code`` for the host.
+        ``exit_code`` for the host. ``mode`` is the hook command's
+        mode, when the installer wrote one.
         """
-        return self._handle(host, hook_event, payload, raw, post=False)
+        return self._handle(host, hook_event, payload, raw, post=False, mode=mode)
 
     def observe(
         self,
@@ -468,9 +470,10 @@ class GuardService:
         hook_event: str | None = None,
         payload: dict | None = None,
         raw: str | None = None,
+        mode: str | None = None,
     ) -> dict[str, Any]:
         """Record a post-event (tool output); never gates."""
-        return self._handle(host, hook_event, payload, raw, post=True)
+        return self._handle(host, hook_event, payload, raw, post=True, mode=mode)
 
     # ---- internals ----
 
@@ -482,10 +485,11 @@ class GuardService:
         raw: str | None,
         *,
         post: bool,
+        mode: str | None = None,
     ) -> dict[str, Any]:
         if host == "cursor":
-            return self._handle_cursor(hook_event, payload, raw, post=post)
-        return self._handle_stdin_protocol(host, payload, raw, post=post)
+            return self._handle_cursor(hook_event, payload, raw, post=post, mode=mode)
+        return self._handle_stdin_protocol(host, payload, raw, post=post, mode=mode)
 
     @staticmethod
     def _parse_raw(raw: str, label: str) -> tuple[dict | None, str | None]:
@@ -512,8 +516,10 @@ class GuardService:
             "exit_code": exit_code,
         }
 
-    def _evaluate(self, event: dict) -> GuardOutcome:
+    def _evaluate(self, event: dict, mode: str | None = None) -> GuardOutcome:
         policy = self.policy()
+        if mode in ("enforce", "observe") and mode != policy.mode:
+            policy = replace(policy, mode=mode)
         conversation_id = event.get("conversation_id")
         if not isinstance(conversation_id, str):
             conversation_id = None
@@ -531,7 +537,13 @@ class GuardService:
         return outcome
 
     def _handle_stdin_protocol(
-        self, host: str | None, payload: dict | None, raw: str | None, *, post: bool
+        self,
+        host: str | None,
+        payload: dict | None,
+        raw: str | None,
+        *,
+        post: bool,
+        mode: str | None = None,
     ) -> dict[str, Any]:
         if payload is None:
             payload, problem = self._parse_raw(raw or "", "sponsio plugin guard")
@@ -548,7 +560,7 @@ class GuardService:
             and (event.get("hook_event_name") or "PreToolUse") in _PRE_EVENTS_CLAUDE
         ):
             event["hook_event_name"] = "PostToolUse"
-        outcome = self._evaluate(event)
+        outcome = self._evaluate(event, mode)
         stdout, code = render_reply(event, outcome)
         return self._result(outcome, stdout, code)
 
@@ -559,6 +571,7 @@ class GuardService:
         raw: str | None,
         *,
         post: bool,
+        mode: str | None = None,
     ) -> dict[str, Any]:
         from sponsio.integrations.cursor import (
             _record_subagent,
@@ -580,7 +593,7 @@ class GuardService:
                 GuardOutcome(allowed=True, reason="subagent recorded"), "", 0
             )
         event = cursor_event_to_sponsio_event(payload, hook_event)
-        outcome = self._evaluate(event)
+        outcome = self._evaluate(event, mode)
         rewrite_deny = os.environ.get("SPONSIO_CURSOR_REWRITE_DENY", "").lower() in (
             "1",
             "true",

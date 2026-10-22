@@ -17,8 +17,8 @@ from sponsio.integrations.hosts import (
     HookHost,
     HostInstallResult,
     HostUninstallResult,
-    hook_command,
-    resolve_binary,
+    is_sponsio_hook_command,
+    shim_command,
 )
 
 # Events Sponsio wires up.  Keep this in sync with the
@@ -33,10 +33,6 @@ _INSTALLED_EVENTS_SOFT = (
     "beforeSubmitPrompt",
     "postToolUse",
 )
-
-
-def _resolve_binary(override: str | None) -> str:
-    return resolve_binary(override)
 
 
 def _ensure_bundled_library(bucket: str) -> None:
@@ -90,10 +86,11 @@ def install(
     binary: str | None = None,
     mode: str = "enforce",
 ) -> HostInstallResult:
-    """Write or merge Cursor hook entries pointing at Sponsio.
+    """Write or merge Cursor hook entries pointing at the Sponsio shim.
 
-    ``mode`` is carried on each hook command (see
-    :func:`sponsio.integrations.hosts.hook_command`).
+    Each command is :func:`sponsio.integrations.hosts.shim_command` for
+    its event; ``mode`` rides on it. ``binary`` is what the shim starts
+    a daemon with when none answers.
 
     Side effect: bootstraps ``_host_subagent`` library if absent, so
     Cursor Task-spawned subagent tool calls (routed there by
@@ -104,25 +101,19 @@ def install(
     else:
         target = host.config_path_user
 
-    bin_cmd = _resolve_binary(binary)
-
     sponsio_hooks: dict[str, list[dict]] = {}
     for event in _INSTALLED_EVENTS_FAILCLOSED:
         sponsio_hooks[event] = [
             {
-                "command": hook_command(
-                    bin_cmd, "host", "guard", "cursor", "--event", event, mode=mode
+                "command": shim_command(
+                    "cursor", event=event, mode=mode, sponsio=binary
                 ),
                 "failClosed": fail_closed,
             }
         ]
     for event in _INSTALLED_EVENTS_SOFT:
         sponsio_hooks[event] = [
-            {
-                "command": hook_command(
-                    bin_cmd, "host", "guard", "cursor", "--event", event, mode=mode
-                ),
-            }
+            {"command": shim_command("cursor", event=event, mode=mode, sponsio=binary)}
         ]
 
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -154,10 +145,7 @@ def install(
                 if (
                     isinstance(prior, dict)
                     and isinstance(prior.get("command"), str)
-                    and (
-                        "host guard cursor" in prior["command"]
-                        or "cursor guard --event" in prior["command"]
-                    )
+                    and is_sponsio_hook_command(prior["command"], "cursor")
                 ):
                     continue
                 keep.append(prior)
@@ -214,9 +202,7 @@ def uninstall(host: HookHost, *, scope: str = "user") -> HostUninstallResult:
         kept: list[dict] = []
         for entry in entries:
             cmd = isinstance(entry, dict) and entry.get("command")
-            if isinstance(cmd, str) and (
-                "host guard cursor" in cmd or "cursor guard --event" in cmd
-            ):
+            if isinstance(cmd, str) and is_sponsio_hook_command(cmd, "cursor"):
                 removed += 1
                 continue
             kept.append(entry)

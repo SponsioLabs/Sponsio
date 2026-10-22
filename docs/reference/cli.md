@@ -192,12 +192,32 @@ reinstalls, and the host library is covered by `capability/self-modify`
 so the agent cannot change it. `SPONSIO_UNCONFIGURED=deny|allow` overrides
 it for one shell.
 
+The installed hook runs a small shim, `sponsio_shim.py`, under the
+interpreter that ran the install (`python -I -S`). The shim forwards each
+event to the daemon (see `sponsio daemon` below), starts one when none
+answers, and denies the call, with exit code 2 and the host's deny body,
+when no daemon can be reached within its deadline (2 s). Every value the
+shim needs (socket, plugin root, state dir, mode, deadline) is written on
+the hook command, and the shim reads no environment variable, so an `env`
+block in the host's settings cannot change it. On Claude Code the
+`PreToolUse` entry also carries `"onFailure": "block"` and a 10 s
+`timeout`, so a hook that cannot start blocks the call (Claude Code
+v2.1.295 or later).
+
 The hook enforces by default. `--mode observe` is carried on the hook
-command itself (`env SPONSIO_GUARD_MODE=observe sponsio host guard ...`),
-not in the host library, so the agent under guard cannot change it; re-run
-`host install` to switch. The hook command names the absolute path of the
-`sponsio` that ran the install, so a second install elsewhere on `PATH` is
-not picked up.
+command itself (`--mode observe` on the shim), not in the host library,
+so the agent under guard cannot change it; re-run `host install` to
+switch, or to move hooks installed by an earlier release onto the shim.
+
+While the daemon cannot be reached, every tool call is denied, including
+the ones the agent would use to fix it. The deny reason names the
+recovery, to run from your own terminal: `sponsio daemon run --detach`,
+or `sponsio host uninstall <host>` to remove the hook.
+
+```bash
+sponsio host guard <host> [--event E]   # legacy hook entry: same as the shim, through the daemon
+sponsio host guard <host> --direct      # debugging: evaluate in-process from the files on disk
+```
 
 See [plugins.md](../plugins.md) for the host-plugin walkthrough.
 

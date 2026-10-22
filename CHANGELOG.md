@@ -10,6 +10,41 @@ broke.
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **Installed hooks run a shim that talks to the daemon, and fail closed.**
+  `sponsio host install claude-code` / `cursor` now write a hook command
+  that runs `sponsio_shim.py` (standard library only) under the installing
+  interpreter with `-I -S`, with the socket, plugin root, state dir, mode
+  and a 2 s deadline pinned on the command line. The shim forwards the
+  event to the daemon, starts one (`sponsio daemon run --detach`) when
+  none answers, and denies with the host's deny body and exit 2 when no
+  daemon can be reached. It reads no environment variable, so an `env`
+  block in the host settings no longer changes the mode or where the hook
+  connects. Claude Code `PreToolUse` entries carry `"onFailure": "block"`
+  and `"timeout": 10`, so a hook that cannot start blocks the call
+  (Claude Code v2.1.295 or later; older releases ignore the key and the
+  shim's own exit 2 is the only signal). Reinstall to switch existing
+  hooks over.
+- **`sponsio host guard` and `sponsio plugin guard` go through the daemon
+  too**, with the same fail-closed behaviour; `--direct` keeps the old
+  in-process evaluation for debugging. The marketplace plugin's
+  `hooks.json` adds `onFailure` and `timeout`.
+- **One daemon per state dir.** The daemon holds `<state-dir>/daemon.lock`
+  and never removes a socket another daemon answers on, so hooks that
+  start it concurrently end with one daemon and one trace. Starts and
+  restarts are recorded in `<state-dir>/audit.jsonl`.
+
+### Fixed
+
+- **The installer tests no longer write the developer's own host config.**
+  Host config, skill and credential paths were fixed at import time, so a
+  test that moved `HOME` still wrote the real `~/.claude/settings.json`
+  and `~/.cursor/hooks.json`. They now resolve per call, and the suite
+  stops and restores the file if any test writes under the real home.
+
 ## [0.2.0a19]: 2026-10-14
 
 ### Fixed

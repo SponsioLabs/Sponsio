@@ -1133,7 +1133,15 @@ def plugin_prompt(target_host: str):
         "PreToolUse / PostToolUse protocol)."
     ),
 )
-def plugin_guard(use_stdin: bool):
+@click.option(
+    "--direct",
+    is_flag=True,
+    help=(
+        "Evaluate in this process from the files on disk instead of "
+        "through the daemon. For debugging."
+    ),
+)
+def plugin_guard(use_stdin: bool, direct: bool):
     """Plugin-system hook entry point. evaluates one tool call.
 
     Wired into a Claude Code plugin via ``hooks/hooks.json``::
@@ -1143,22 +1151,24 @@ def plugin_guard(use_stdin: bool):
             "PreToolUse": [
               {"matcher": "*",
                "hooks": [{"type": "command",
-                          "command": "sponsio plugin guard --stdin"}]}
+                          "command": "sponsio plugin guard --stdin",
+                          "timeout": 10, "onFailure": "block"}]}
             ]
           }
         }
 
-    Reads the event JSON from stdin, derives the plugin id from the
-    tool name (``Bash`` → ``_host``; ``acme:fetch`` → ``acme``;
-    ``mcp__acme__fetch`` → ``acme``), loads the matching library at
-    ``~/.sponsio/plugins/<plugin>/sponsio.yaml`` (override with
-    ``$SPONSIO_PLUGIN_ROOT``), and writes the deny / allow reply that
-    Claude Code expects.
-
-    Exits 0 in every code path: a Sponsio bug must never wedge an
-    agent's tool call. Diagnostics go to stderr; deny verdicts go to
-    stdout in the documented hook reply schema.
+    Reads the event JSON from stdin and forwards it to the daemon, which
+    derives the plugin id from the tool name (``Bash`` → the host
+    bucket; ``acme:fetch`` → ``acme``; ``mcp__acme__fetch`` → ``acme``),
+    evaluates the matching library under ``~/.sponsio/plugins/``, and
+    renders the deny / allow reply Claude Code expects. Starts a daemon
+    when none answers; denies with exit 2 when none can be reached.
     """
-    from sponsio.guard_stdin import run_stdin
+    if direct:
+        from sponsio.guard_stdin import run_stdin
 
-    sys.exit(run_stdin())
+        sys.exit(run_stdin())
+
+    from sponsio.hook_client import run_hook
+
+    sys.exit(run_hook("claude-code", None))

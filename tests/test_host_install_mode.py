@@ -1,4 +1,4 @@
-"""The hook command names the right binary and the mode the operator chose.
+"""The hook command is the pinned shim, and the mode the operator chose.
 
 Two things ``sponsio host install`` wrote were not what it said. The
 binary: ``_resolve_binary`` only accepted an already-absolute ``argv[0]``
@@ -70,40 +70,127 @@ def test_observe_rides_on_the_command_and_enforce_adds_nothing():
     )
 
 
-def _claude_commands(path: Path) -> list[str]:
+def _claude_hooks(path: Path) -> dict[str, list[dict]]:
     data = json.loads(path.read_text())
-    return [
-        h["command"]
-        for entries in data["hooks"].values()
-        for entry in entries
-        for h in entry["hooks"]
-    ]
+    return {
+        event: [h for entry in entries for h in entry["hooks"]]
+        for event, entries in data["hooks"].items()
+    }
 
 
-def test_claude_code_install_carries_the_mode_and_a_reinstall_switches_it(
-    isolated_home,
-):
+def _claude_commands(path: Path) -> list[str]:
+    return [h["command"] for hooks in _claude_hooks(path).values() for h in hooks]
+
+
+def test_the_shim_command_is_pinned_end_to_end(isolated_home):
+    from sponsio.integrations.hosts import shim_command
+    from sponsio.shim import shim_path
+
+    cmd = shim_command("claude-code")
+    parts = cmd.split()
+    assert parts[:3] == [sys.executable, "-I", "-S"]
+    assert parts[3] == str(shim_path()) and parts[4] == "claude-code"
+    assert "--socket" in parts and "--plugin-root" in parts and "--state-dir" in parts
+    assert "--deadline" in parts and "--mode" not in parts
+    sock = parts[parts.index("--socket") + 1]
+    assert Path(sock).is_absolute() and sock.startswith(str(isolated_home))
+    root = parts[parts.index("--plugin-root") + 1]
+    assert root == str(isolated_home / ".sponsio" / "plugins")
+
+    observe = shim_command("cursor", event="beforeReadFile", mode="observe")
+    assert "cursor --event beforeReadFile" in observe
+    assert observe.endswith("--mode observe")
+    assert "SPONSIO_GUARD_MODE" not in observe
+
+
+def test_claude_code_install_writes_the_shim_with_block_on_failure(isolated_home):
     from sponsio.integrations.claude_code_install import install
 
     spec = hosts.get("claude-code")
     r = install(spec, mode="observe", binary="/x/sponsio")
-    cmds = _claude_commands(r.config_path)
-    assert cmds and all(
-        c.startswith("env SPONSIO_GUARD_MODE=observe /x/sponsio") for c in cmds
-    )
+    hooks = _claude_hooks(r.config_path)
+    assert set(hooks) == {"PreToolUse", "PostToolUse"}
+    for event, entries in hooks.items():
+        assert len(entries) == 1
+        h = entries[0]
+        assert "sponsio_shim.py claude-code" in h["command"]
+        assert h["command"].endswith("--mode observe --sponsio /x/sponsio")
+        assert h["timeout"] == 10
+        if event == "PreToolUse":
+            assert h["onFailure"] == "block"
+        else:
+            assert "onFailure" not in h
 
+    # A reinstall switches the mode and replaces, not duplicates.
     r = install(spec, mode="enforce", binary="/x/sponsio")
     cmds = _claude_commands(r.config_path)
-    assert cmds == ["/x/sponsio host guard claude-code --stdin"] * len(cmds)
+    assert len(cmds) == 2 and all(
+        c.endswith("--deadline 2 --sponsio /x/sponsio") for c in cmds
+    )
 
 
-def test_cursor_install_carries_the_mode(isolated_home):
+def test_a_reinstall_replaces_hooks_of_every_earlier_generation(isolated_home):
+    from sponsio.integrations.claude_code_install import install, uninstall
+
+    spec = hosts.get("claude-code")
+    settings = spec.config_path_user
+    assert settings.is_relative_to(isolated_home), settings
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    settings.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "PreToolUse": [
+                        {
+                            "matcher": "*",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "sponsio plugin guard --stdin",
+                                }
+                            ],
+                        },
+                        {
+                            "matcher": "*",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "env SPONSIO_GUARD_MODE=observe "
+                                    "/old/sponsio host guard claude-code --stdin",
+                                }
+                            ],
+                        },
+                        {
+                            "matcher": "Bash",
+                            "hooks": [{"type": "command", "command": "mine"}],
+                        },
+                    ]
+                }
+            }
+        )
+    )
+    install(spec)
+    hooks = _claude_hooks(settings)
+    pre = [h["command"] for h in hooks["PreToolUse"]]
+    assert pre[0] == "mine"
+    assert len(pre) == 2 and "sponsio_shim.py" in pre[1]
+    r = uninstall(spec)
+    assert r.removed_entries == 2
+    assert _claude_commands(settings) == ["mine"]
+
+
+def test_cursor_install_writes_the_shim_per_event(isolated_home):
     from sponsio.integrations.cursor_install import install
 
     r = install(hosts.get("cursor"), mode="observe", binary="/x/sponsio")
     data = json.loads(Path(r.config_path).read_text())
-    cmds = [h["command"] for entries in data["hooks"].values() for h in entries]
-    assert cmds and all(c.startswith("env SPONSIO_GUARD_MODE=observe ") for c in cmds)
+    for event, entries in data["hooks"].items():
+        assert len(entries) == 1
+        cmd = entries[0]["command"]
+        assert f"sponsio_shim.py cursor --event {event} " in cmd
+        assert cmd.endswith("--mode observe --sponsio /x/sponsio")
+        assert "SPONSIO_GUARD_MODE" not in cmd
+    assert data["hooks"]["beforeShellExecution"][0]["failClosed"] is True
 
 
 def test_the_hook_honours_the_mode_on_its_command(tmp_path, monkeypatch):
