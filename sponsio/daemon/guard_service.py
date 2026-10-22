@@ -24,11 +24,13 @@ daemon keeps:
 from __future__ import annotations
 
 import io
+import itertools
 import json
 import os
 import sys
 import threading
 import time
+from collections import OrderedDict
 from contextlib import redirect_stderr
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -170,12 +172,40 @@ class SnapshotStore:
 # ---------------------------------------------------------------------------
 
 
+_GENERATION = itertools.count(1)
+
+
 @dataclass
 class _Conversation:
     key: str
     wal_path: Path
     events: list[tuple[str, dict]] = field(default_factory=list)
+    attaches: list[tuple[int, str]] = field(default_factory=list)
+    """``(index into events, content)`` per attached output, in order."""
     last_activity: float = field(default_factory=time.time)
+    generation: int = field(default_factory=lambda: next(_GENERATION))
+    """Distinct per conversation object, so an expired and recreated
+    conversation under the same key never looks like the old one."""
+
+
+Revision = tuple[int, int, int]
+"""``(generation, events, attaches)``: what a cached guard was synced to."""
+
+
+def _to_event(d: dict):
+    from sponsio.models.trace import Event
+
+    return Event(
+        ts=int(d["ts"]),
+        agent=d["agent"],
+        event_type=d["type"],
+        tool=d.get("tool"),
+        key=d.get("key"),
+        contains=d.get("contains"),
+        to=d.get("to"),
+        args=d.get("args"),
+        content=d.get("content"),
+    )
 
 
 class MemoryTraceStore:
@@ -310,33 +340,56 @@ class MemoryTraceStore:
     # ---- TraceStore protocol ----
 
     def events(self, plugin_id: str, conversation_id: str | None) -> list:
-        from sponsio.models.trace import Event
+        return [e for _i, e in self.records(conversation_id)]
 
+    def records(self, conversation_id: str | None) -> list[tuple[int, Any]]:
+        """``(index, Event)`` for every event of the conversation, in the
+        order :meth:`events` returns them (by ``ts``, then agent)."""
         with self._lock:
             conv = self._conv(conversation_id, create=False)
             if conv is None:
                 return []
-            records = list(conv.events)
-        events = []
-        for _bucket, d in records:
+            raw = list(enumerate(d for _b, d in conv.events))
+        out = []
+        for i, d in raw:
             try:
-                events.append(
-                    Event(
-                        ts=int(d["ts"]),
-                        agent=d["agent"],
-                        event_type=d["type"],
-                        tool=d.get("tool"),
-                        key=d.get("key"),
-                        contains=d.get("contains"),
-                        to=d.get("to"),
-                        args=d.get("args"),
-                        content=d.get("content"),
-                    )
-                )
+                out.append((i, _to_event(d)))
             except (KeyError, ValueError, TypeError):
                 continue
-        events.sort(key=lambda e: (e.ts, e.agent or ""))
-        return events
+        out.sort(key=lambda r: (r[1].ts, r[1].agent or ""))
+        return out
+
+    def revision(self, conversation_id: str | None) -> Revision | None:
+        """Where the conversation stands, or ``None`` if it does not exist."""
+        with self._lock:
+            conv = self._conv(conversation_id, create=False)
+            if conv is None:
+                return None
+            return (conv.generation, len(conv.events), len(conv.attaches))
+
+    def changes_since(
+        self, conversation_id: str | None, rev: Revision
+    ) -> tuple[list[tuple[int, Any]], list[tuple[int, str]], Revision] | None:
+        """Events and attached outputs recorded after ``rev``, plus the
+        new revision. ``None`` when ``rev`` is not a past state of this
+        conversation (it expired and was recreated)."""
+        with self._lock:
+            conv = self._conv(conversation_id, create=False)
+            if conv is None or conv.generation != rev[0]:
+                return None
+            if len(conv.events) < rev[1] or len(conv.attaches) < rev[2]:
+                return None
+            start = rev[1]
+            new_events = [(start + k, rec) for k, rec in enumerate(conv.events[start:])]
+            new_attaches = list(conv.attaches[rev[2] :])
+            now: Revision = (conv.generation, len(conv.events), len(conv.attaches))
+        events = []
+        for i, (_b, d) in new_events:
+            try:
+                events.append((i, _to_event(d)))
+            except (KeyError, ValueError, TypeError):
+                return None
+        return events, new_attaches, now
 
     def append(self, plugin_id: str, conversation_id: str | None, event: dict) -> None:
         record = dict(event)
@@ -373,7 +426,8 @@ class MemoryTraceStore:
     ) -> bool:
         if not isinstance(tool_name, str) or not isinstance(content, str):
             return False
-        for b, d in reversed(conv.events):
+        for i in range(len(conv.events) - 1, -1, -1):
+            b, d = conv.events[i]
             if (
                 b == bucket
                 and d.get("type") == "tool_call"
@@ -381,6 +435,7 @@ class MemoryTraceStore:
                 and d.get("content") is None
             ):
                 d["content"] = content
+                conv.attaches.append((i, content))
                 return True
         return False
 
@@ -392,6 +447,183 @@ class MemoryTraceStore:
             os.write(fd, line.encode("utf-8"))
         finally:
             os.close(fd)
+
+
+# ---------------------------------------------------------------------------
+# Live guards: one per (bucket, library content, conversation, mode)
+# ---------------------------------------------------------------------------
+
+_CONTENT_READING_ATOMS = ("output_has", "llm_said", "prompt_contains")
+"""Atoms whose grounding reads an event's ``content``. Only these make an
+attached output change past valuations."""
+
+
+def _reads_content(guard: Any) -> bool:
+    try:
+        from sponsio.runtime.verifier import _collect_det_formulas
+        from sponsio.tracer.grounding import collect_content_atoms
+
+        atoms = collect_content_atoms(_collect_det_formulas(guard._system.contracts))
+    except Exception:  # noqa: BLE001 - unknown means assume it does
+        return True
+    return any(atoms.get(name) for name in _CONTENT_READING_ATOMS)
+
+
+def _order(ev: Any) -> tuple[int, str]:
+    """The key :meth:`MemoryTraceStore.records` sorts a history by."""
+    return (ev.ts, ev.agent or "")
+
+
+@dataclass
+class _Live:
+    guard: Any
+    rev: Revision
+    positions: dict[int, int]
+    """Store index of each event -> its position in the guard's trace."""
+    reads_content: bool
+
+
+class LiveGuards:
+    """A :class:`~sponsio.guard_stdin.GuardCache` over a
+    :class:`MemoryTraceStore`.
+
+    Without it every check builds a guard and grounds the whole session
+    again, so a check costs time linear in the session's length. With
+    it, a check appends the events recorded since the guard last saw the
+    conversation (other buckets' calls, usually none) and grounds only
+    the new one.
+
+    The reused guard must decide exactly as a rebuilt one would. It is
+    dropped, and the next call rebuilds, whenever that is not certain:
+    the conversation expired and was recreated; the store's history and
+    the guard's trace disagree; a new event would sort before the
+    guard's last one; or an output was attached to a call whose position
+    the cache cannot find. An attached output is applied in place; when
+    the library has an atom that reads outputs (``output_has``), the
+    guard's grounding is reset so it is recomputed with the output, as a
+    rebuild would.
+
+    Least recently used guards are evicted past ``capacity``.
+    """
+
+    def __init__(self, traces: MemoryTraceStore, *, capacity: int = 128) -> None:
+        self._traces = traces
+        self.capacity = capacity
+        self._lock = threading.Lock()
+        self._idle: OrderedDict[tuple, _Live] = OrderedDict()
+        self._busy: dict[tuple, _Live] = {}
+        self.hits = 0
+        self.misses = 0
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._idle) + len(self._busy)
+
+    def checkout(self, key: tuple, conversation_id: str | None) -> Any | None:
+        with self._lock:
+            live = self._idle.pop(key, None)
+        if live is None or not self._sync(live, conversation_id):
+            with self._lock:
+                self.misses += 1
+            return None
+        live.guard._violations.clear()
+        with self._lock:
+            self.hits += 1
+            self._busy[key] = live
+        return live.guard
+
+    def _sync(self, live: _Live, conversation_id: str | None) -> bool:
+        changes = self._traces.changes_since(conversation_id, live.rev)
+        if changes is None:
+            return False
+        events, attaches, now = changes
+        trace = live.guard._monitor.trace.events
+        if len(trace) != len(live.positions):
+            return False
+        last = trace[-1] if trace else None
+        for idx, ev in events:
+            if last is not None and _order(ev) < _order(last):
+                return False
+            live.positions[idx] = len(trace)
+            trace.append(ev)
+            last = ev
+        regrounding = False
+        for idx, content in attaches:
+            pos = live.positions.get(idx)
+            if pos is None:
+                return False
+            trace[pos].content = content
+            regrounding = regrounding or live.reads_content
+        if regrounding:
+            live.guard._monitor._verifier.reset()
+        live.rev = now
+        return True
+
+    def checkin(self, key: tuple, guard: Any, conversation_id: str | None) -> None:
+        with self._lock:
+            live = self._busy.pop(key, None)
+        rev = self._traces.revision(conversation_id)
+        if rev is None:
+            return
+        trace = guard._monitor.trace.events
+        if live is None or live.guard is not guard:
+            live = self._fresh(guard, rev, conversation_id)
+        elif not self._advance(live, rev, trace):
+            return
+        if live is None:
+            return
+        with self._lock:
+            self._idle[key] = live
+            self._idle.move_to_end(key)
+            while len(self._idle) > self.capacity:
+                self._idle.popitem(last=False)
+
+    def _fresh(
+        self, guard: Any, rev: Revision, conversation_id: str | None
+    ) -> _Live | None:
+        """Adopt a guard built from scratch, if its trace is the store's."""
+        records = self._traces.records(conversation_id)
+        trace = guard._monitor.trace.events
+        if len(records) != len(trace):
+            return None
+        for (_idx, stored), held in zip(records, trace):
+            if (stored.ts, stored.tool, stored.event_type) != (
+                held.ts,
+                held.tool,
+                held.event_type,
+            ):
+                return None
+        positions = {idx: i for i, (idx, _e) in enumerate(records)}
+        return _Live(guard, rev, positions, _reads_content(guard))
+
+    @staticmethod
+    def _advance(live: _Live, rev: Revision, trace: list) -> bool:
+        """Account for the decision: one event admitted, or none."""
+        if rev[0] != live.rev[0] or rev[2] != live.rev[2]:
+            return False
+        if rev[1] == live.rev[1] + 1 and len(trace) == len(live.positions) + 1:
+            # A rebuild orders the history by (ts, agent). An admitted
+            # event that ties an earlier one's ts (possible after a
+            # context_update, which takes a ts the store never records)
+            # and sorts before it would be placed earlier by a rebuild,
+            # so this guard's order would no longer be the rebuild's.
+            if len(trace) >= 2 and _order(trace[-1]) < _order(trace[-2]):
+                return False
+            live.positions[rev[1] - 1] = len(trace) - 1
+        elif rev[1] != live.rev[1] or len(trace) != len(live.positions):
+            return False
+        live.rev = rev
+        return True
+
+    def discard(self, key: tuple) -> None:
+        with self._lock:
+            self._busy.pop(key, None)
+            self._idle.pop(key, None)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._idle.clear()
+            self._busy.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -418,6 +650,7 @@ class GuardService:
         state_dir: Path | None = None,
         policy: GuardPolicy | Callable[[], GuardPolicy] | None = None,
         on_change: OnChange | None = None,
+        reuse_guards: bool = True,
     ) -> None:
         self.state_dir = (
             Path(state_dir) if state_dir is not None else default_state_dir()
@@ -429,6 +662,9 @@ class GuardService:
             ttl_seconds=lambda: self.policy().trace_ttl_hours * 3600,
         )
         self.traces.load()
+        self.guards: LiveGuards | None = (
+            LiveGuards(self.traces) if reuse_guards else None
+        )
         self._locks_lock = threading.Lock()
         self._conv_locks: dict[str, threading.Lock] = {}
 
@@ -527,7 +763,11 @@ class GuardService:
             try:
                 with redirect_stderr(err):
                     outcome = evaluate(
-                        event, store=self.store, traces=self.traces, policy=policy
+                        event,
+                        store=self.store,
+                        traces=self.traces,
+                        policy=policy,
+                        guards=self.guards,
                     )
             except Exception as e:  # noqa: BLE001 - every failure is a decision
                 outcome = _error_outcome(e, "", None, policy.on_error)

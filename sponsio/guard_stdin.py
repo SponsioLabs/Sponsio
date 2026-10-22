@@ -736,6 +736,24 @@ class TraceStore(Protocol):
         ...
 
 
+class GuardCache(Protocol):
+    """Live guards kept between calls (the daemon's), so a check on a long
+    session adds one event instead of rebuilding the whole history.
+
+    ``checkout`` returns a guard already synced to the conversation's
+    current history, or ``None`` (build a fresh one). ``checkin`` offers
+    the guard back after a decision; the cache keeps it only if it still
+    matches the store. ``discard`` drops it (the decision failed, or the
+    guard's trace now holds something the store does not).
+    """
+
+    def checkout(self, key: tuple, conversation_id: str | None) -> Any | None: ...
+
+    def checkin(self, key: tuple, guard: Any, conversation_id: str | None) -> None: ...
+
+    def discard(self, key: tuple) -> None: ...
+
+
 def _content_hash(paths: list[str] | tuple[str, ...]) -> str:
     """Hash the content of every file in ``paths``, in order, prefixed
     with its path so a swap of two files does not collide."""
@@ -981,12 +999,17 @@ def evaluate(
     store: RuleStore,
     traces: TraceStore,
     policy: GuardPolicy,
+    guards: GuardCache | None = None,
 ) -> GuardOutcome:
     """Decide one hook event. Pure in its inputs: no file, no environment.
 
     The caller serialises calls that share a conversation (the per-call
     path holds a file lock; the daemon holds one lock per conversation),
     because the decision reads history and then appends to it.
+
+    ``guards`` (the daemon's) reuses a live guard per (bucket, library
+    content, conversation, mode) instead of building one and replaying
+    the history on every call; the decision is the same either way.
     """
     tool_name = event.get("tool_name") or ""
     tool_input = event.get("tool_input") or {}
@@ -1078,35 +1101,39 @@ def evaluate(
     # contracts (must_precede / cooldown) see the session's full
     # history, merged across buckets.
     conversation_id = conversation_key(event)
-
-    prior_events = traces.events(plugin_id, conversation_id)
+    cache_key = (plugin_id, snap.content_hash, conversation_id, policy.mode)
+    guard = guards.checkout(cache_key, conversation_id) if guards else None
+    used_context = False
 
     try:
         with (
             contextlib.redirect_stdout(captured_out),
             contextlib.redirect_stderr(captured_err),
         ):
-            # ``env_mode=False``: the policy's mode is the decision's
-            # mode. The process environment is not consulted, so a
-            # daemon serving several hosts can hold a mode per host, and
-            # a client's environment never reaches the decision.
-            guard = BaseGuard(
-                agent_id=snap.agent_id,
-                parsed_config=snap.config,
-                verbose=False,
-                verbosity=0,
-                mode=policy.mode,
-                env_mode=False,
-                init_banner=False,
-                auto_summary=False,
-            )
-            # Seed the monitor with the reconstructed trace so trace-aware
-            # contracts (must_precede, cooldown, A→G temporal, …) see the
-            # full session history rather than an empty trace.
-            if prior_events:
-                from sponsio.models.trace import Trace
+            if guard is None:
+                # ``env_mode=False``: the policy's mode is the decision's
+                # mode. The process environment is not consulted, so a
+                # daemon serving several hosts can hold a mode per host,
+                # and a client's environment never reaches the decision.
+                guard = BaseGuard(
+                    agent_id=snap.agent_id,
+                    parsed_config=snap.config,
+                    verbose=False,
+                    verbosity=0,
+                    mode=policy.mode,
+                    env_mode=False,
+                    init_banner=False,
+                    auto_summary=False,
+                )
+                # Seed the monitor with the reconstructed trace so
+                # trace-aware contracts (must_precede, cooldown, A→G
+                # temporal, …) see the full session history rather than
+                # an empty trace.
+                prior_events = traces.events(plugin_id, conversation_id)
+                if prior_events:
+                    from sponsio.models.trace import Trace
 
-                guard._monitor.import_trace(Trace(events=list(prior_events)))
+                    guard._monitor.import_trace(Trace(events=list(prior_events)))
             # Bridge any host-supplied context facts (caller identity,
             # tenant, signed-message metadata, …) into the contract layer
             # before the tool call is evaluated. The host plugin packs
@@ -1124,8 +1151,11 @@ def evaluate(
                 }
                 if clean:
                     guard.observe_context(clean)
+                    used_context = True
             result = guard.guard_before(tool_name=tool_name, args=tool_input)
     except Exception as e:
+        if guards:
+            guards.discard(cache_key)
         return _error_outcome(e, plugin_id, snap.path, policy.on_error)
     # ``not stop_original`` rather than ``allowed``: ``allowed`` is False
     # only on ``blocked``, so a redirected verdict fell through here as a
@@ -1154,11 +1184,13 @@ def evaluate(
             sys.stderr.write(
                 f"sponsio shield guard:could not append trace event: {e}\n"
             )
+        _return_guard(guards, cache_key, guard, conversation_id, used_context)
         return GuardOutcome(
             allowed=True,
             plugin_id=plugin_id,
             library_path=snap.path,
         )
+    _return_guard(guards, cache_key, guard, conversation_id, used_context)
 
     # Concatenate violation messages for the deny reason. The plugin
     # runtime shows this string back to the model, so we want a
@@ -1185,6 +1217,24 @@ def evaluate(
         plugin_id=plugin_id,
         library_path=snap.path,
     )
+
+
+def _return_guard(
+    guards: GuardCache | None,
+    key: tuple,
+    guard: Any,
+    conversation_id: str | None,
+    used_context: bool,
+) -> None:
+    """Offer the guard back to the cache, unless its trace now holds a
+    ``context_update`` event the store never records: a rebuilt guard
+    would not have it, so a reused one must not either."""
+    if guards is None:
+        return
+    if used_context:
+        guards.discard(key)
+    else:
+        guards.checkin(key, guard, conversation_id)
 
 
 def render_reply(event: dict, outcome: GuardOutcome) -> tuple[str, int]:
