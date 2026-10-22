@@ -22,6 +22,9 @@ from sponsio.guard_stdin import GuardPolicy
 
 BUCKET = "_host_claude_code"
 HOST = "claude-code"
+KEY = "claude-code:c1"
+"""The session key ``_bash()`` events land under (host-prefixed id)."""
+WAL_NAME = "claude-code_c1.jsonl"
 
 
 @pytest.fixture
@@ -230,7 +233,7 @@ agents:
     assert svc.check(host=HOST, payload=_bash("ls"))["allowed"] is True
     assert svc.check(host=HOST, payload=_bash("ls"))["allowed"] is True
     assert svc.check(host=HOST, payload=_bash("ls"))["allowed"] is False
-    assert len(svc.traces.events(BUCKET, "c1")) == 2
+    assert len(svc.traces.events(BUCKET, KEY)) == 2
 
 
 def test_conversations_are_isolated(root: Path, short_tmp: Path):
@@ -248,7 +251,7 @@ def test_post_event_attaches_output_without_counting(root: Path, short_tmp: Path
     post = {**_bash("ls"), "hook_event_name": "PostToolUse", "tool_response": "a.txt"}
     res = svc.observe(host=HOST, payload=post)
     assert res["allowed"] is True and res["stdout"] == ""
-    events = svc.traces.events(BUCKET, "c1")
+    events = svc.traces.events(BUCKET, KEY)
     assert [e.tool for e in events] == ["Bash"]
     assert events[0].content == "a.txt"
     assert svc.check(host=HOST, payload=_bash("ls"))["allowed"] is True
@@ -263,11 +266,11 @@ def test_wal_restores_traces_across_two_restarts(root: Path, short_tmp: Path):
     svc1.observe(host=HOST, payload=post)
     del svc1
     svc2 = _service(root, short_tmp)
-    assert svc2.traces.events(BUCKET, "c1")[0].content == "out"
+    assert svc2.traces.events(BUCKET, KEY)[0].content == "out"
     assert svc2.check(host=HOST, payload=_bash("ls"))["allowed"] is True
     del svc2
     svc3 = _service(root, short_tmp)
-    assert len(svc3.traces.events(BUCKET, "c1")) == 2
+    assert len(svc3.traces.events(BUCKET, KEY)) == 2
     assert svc3.check(host=HOST, payload=_bash("ls"))["allowed"] is False
 
 
@@ -279,7 +282,7 @@ def test_wal_records_carry_the_legacy_event_fields_only(root: Path, short_tmp: P
         host=HOST,
         payload={**_bash("ls"), "hook_event_name": "PostToolUse", "tool_response": "x"},
     )
-    wal = short_tmp / "state" / "wal" / "c1.jsonl"
+    wal = short_tmp / "state" / "wal" / WAL_NAME
     lines = [json.loads(line) for line in wal.read_text().splitlines()]
     assert set(lines[0]) == {"b", "e"}
     assert set(lines[0]["e"]) == {"ts", "agent", "type", "tool", "args"}
@@ -293,7 +296,7 @@ def test_wal_files_are_private(root: Path, short_tmp: Path):
     svc.check(host=HOST, payload=_bash("ls"))
     wal_dir = short_tmp / "state" / "wal"
     assert stat.S_IMODE(wal_dir.stat().st_mode) == 0o700
-    assert stat.S_IMODE((wal_dir / "c1.jsonl").stat().st_mode) == 0o600
+    assert stat.S_IMODE((wal_dir / WAL_NAME).stat().st_mode) == 0o600
 
 
 def test_expired_conversation_is_dropped_with_its_log(root: Path, short_tmp: Path):
@@ -304,12 +307,12 @@ def test_expired_conversation_is_dropped_with_its_log(root: Path, short_tmp: Pat
     assert svc.check(host=HOST, payload=_bash("ls"))["allowed"] is False
     time.sleep(0.3)
     assert svc.check(host=HOST, payload=_bash("ls"))["allowed"] is True
-    assert svc.traces.conversations() == ["c1"]
+    assert svc.traces.conversations() == [WAL_NAME[:-6]]
     # And an expired log is not replayed on start.
     time.sleep(0.3)
     store = MemoryTraceStore(short_tmp / "state" / "wal", ttl_seconds=0.2)
     assert store.load() == 0
-    assert not (short_tmp / "state" / "wal" / "c1.jsonl").exists()
+    assert not (short_tmp / "state" / "wal" / WAL_NAME).exists()
 
 
 def test_concurrent_checks_respect_the_budget(root: Path, short_tmp: Path):
@@ -331,7 +334,7 @@ def test_concurrent_checks_respect_the_budget(root: Path, short_tmp: Path):
     for t in threads:
         t.join()
     assert sum(results) == 3
-    assert len(svc.traces.events(BUCKET, "c1")) == 3
+    assert len(svc.traces.events(BUCKET, KEY)) == 3
 
 
 def test_policy_mode_observe_does_not_block(root: Path, short_tmp: Path):
@@ -427,3 +430,75 @@ def test_daemon_without_guard_service_has_no_guard_methods(short_tmp: Path):
         assert e.value.code == "not_found"
     finally:
         server.stop(join_timeout_s=0.5)
+
+
+# ---------------------------------------------------------------------------
+# Session keys
+# ---------------------------------------------------------------------------
+
+
+def _claude(command: str, session: str | None, **extra) -> dict:
+    ev = {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": command},
+        **extra,
+    }
+    if session is not None:
+        ev["session_id"] = session
+    return ev
+
+
+def test_each_claude_code_session_counts_on_its_own(root: Path, short_tmp: Path):
+    """Claude Code sends ``session_id`` and no ``conversation_id``; every
+    session used to share one history, so a rate limit counted across
+    all of them."""
+    _write(root, BUCKET, _rate_limit(2))
+    svc = _service(root, short_tmp)
+    for _ in range(2):
+        assert svc.check(host=HOST, payload=_claude("ls", "s1"))["allowed"] is True
+    assert svc.check(host=HOST, payload=_claude("ls", "s1"))["allowed"] is False
+    # A second session starts from zero.
+    assert svc.check(host=HOST, payload=_claude("ls", "s2"))["allowed"] is True
+    assert len(svc.traces.events(BUCKET, "claude-code:s1")) == 2
+    assert len(svc.traces.events(BUCKET, "claude-code:s2")) == 1
+
+
+def test_a_subagent_shares_its_parents_session(root: Path, short_tmp: Path):
+    _write(root, BUCKET, _rate_limit(2))
+    _write(
+        root, "_host_claude_code_subagent", _rate_limit(2, "_host_claude_code_subagent")
+    )
+    svc = _service(root, short_tmp)
+    assert svc.check(host=HOST, payload=_claude("ls", "s1"))["allowed"] is True
+    sub = _claude("ls", "s1", agent_id="sub-1")
+    assert svc.check(host=HOST, payload=sub)["allowed"] is True
+    # Parent and sub-agent calls are one session's history.
+    assert svc.traces.conversations() == ["claude-code_s1"]
+    assert len(svc.traces.events(BUCKET, "claude-code:s1")) == 2
+
+
+def test_conversation_id_wins_over_session_id_and_hosts_do_not_collide(
+    root: Path, short_tmp: Path
+):
+    from sponsio.guard_stdin import conversation_key
+
+    assert (
+        conversation_key({"host": "cursor", "conversation_id": "x", "session_id": "y"})
+        == "cursor:x"
+    )
+    assert (
+        conversation_key({"host": "claude-code", "session_id": "x"}) == "claude-code:x"
+    )
+    assert conversation_key({"host": "openclaw", "session_id": " x "}) == "openclaw:x"
+    assert conversation_key({"session_id": "x"}) == "_:x"
+    assert conversation_key({"session_id": "  "}) is None
+    assert conversation_key({}) is None
+
+    _write(root, BUCKET, _rate_limit(1))
+    _write(root, "_host_openclaw", _rate_limit(1, "_host_openclaw"))
+    svc = _service(root, short_tmp)
+    assert svc.check(host=HOST, payload=_claude("ls", "same"))["allowed"] is True
+    # Same id from another host is another session.
+    assert svc.check(host="openclaw", payload=_claude("ls", "same"))["allowed"] is True
+    assert sorted(svc.traces.conversations()) == ["claude-code_same", "openclaw_same"]

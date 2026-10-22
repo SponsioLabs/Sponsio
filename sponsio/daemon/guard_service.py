@@ -42,6 +42,7 @@ from sponsio.guard_stdin import (
     _error_outcome,
     _resolve_library,
     _safe_conv_id,
+    conversation_key,
     evaluate,
     library_root,
     load_snapshot,
@@ -180,8 +181,8 @@ class _Conversation:
 class MemoryTraceStore:
     """A :class:`~sponsio.guard_stdin.TraceStore` held in memory.
 
-    One conversation per ``conversation_id`` (``"default"`` when the
-    host sends none), merged across buckets, the same view
+    One conversation per session key (:func:`sponsio.guard_stdin.conversation_key`,
+    ``"default"`` when the host sends no id), merged across buckets, the same view
     ``_load_prior_events`` builds from the per-bucket files. Every
     append is written to ``<wal_dir>/<conversation>.jsonl`` before it
     is acknowledged; :meth:`load` replays those files on start.
@@ -520,9 +521,7 @@ class GuardService:
         policy = self.policy()
         if mode in ("enforce", "observe") and mode != policy.mode:
             policy = replace(policy, mode=mode)
-        conversation_id = event.get("conversation_id")
-        if not isinstance(conversation_id, str):
-            conversation_id = None
+        conversation_id = conversation_key(event)
         err = io.StringIO()
         with self._lock_for(conversation_id):
             try:

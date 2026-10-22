@@ -339,6 +339,28 @@ def _safe_conv_id(conversation_id: str) -> str:
     return safe[:64] or "default"
 
 
+def conversation_key(event: dict) -> str | None:
+    """The key a hook event's history is kept under: one per session.
+
+    Cursor sends ``conversation_id``; Claude Code and OpenClaw send
+    ``session_id`` (Claude Code has no ``conversation_id`` at all, so
+    before this every Claude Code session shared one history and a
+    ``rate_limit`` counted across sessions). The id is prefixed with
+    the host (``claude-code:<session_id>``) so two hosts that happen to
+    use the same id do not share a trace. A Task sub-agent carries its
+    parent's ``session_id``, so its calls stay in the parent's history,
+    as they always have. ``None`` when the event carries neither: such
+    events share the ``default`` history.
+    """
+    for field_name in ("conversation_id", "session_id"):
+        raw = event.get(field_name)
+        if isinstance(raw, str) and raw.strip():
+            host = event.get("host")
+            prefix = host.strip() if isinstance(host, str) and host.strip() else "_"
+            return f"{prefix}:{raw.strip()}"
+    return None
+
+
 def _trace_file_for(plugin_id: str, conversation_id: str | None = None) -> Path:
     """Per-plugin shield trace log path.
 
@@ -906,9 +928,7 @@ def _observe_post_event(
         output = event.get("output")
     if output is not None and tool_name:
         text = output if isinstance(output, str) else json.dumps(output, default=str)
-        conversation_id = event.get("conversation_id")
-        if not isinstance(conversation_id, str):
-            conversation_id = None
+        conversation_id = conversation_key(event)
         try:
             traces.attach_output(plugin_id, conversation_id, tool_name, text)
         except OSError as e:  # pragma: no cover - log-write failure
@@ -1052,18 +1072,12 @@ def evaluate(
     captured_out = io.StringIO()
     captured_err = io.StringIO()
 
-    # Per-conversation trace bucketing. Cursor and Claude Code both
-    # emit a ``conversation_id`` per IDE conversation; routing the
-    # trace by that id keeps cumulative contracts (rate_limit /
-    # idempotent / count-based) honest — without it, every Bash call
-    # in the user's history compounds across conversations and
-    # ``rate_limit(Bash, 50)`` blows past its session budget within
-    # the first day. Other temporal contracts (must_precede /
-    # cooldown / R2 prod-read-only) still see the full conversation
-    # history because that's where they need to be coherent.
-    conversation_id = event.get("conversation_id")
-    if not isinstance(conversation_id, str):
-        conversation_id = None
+    # Per-session trace bucketing (see :func:`conversation_key`): keeps
+    # cumulative contracts (rate_limit / idempotent / count-based)
+    # counting one session, not the user's whole history. Ordering
+    # contracts (must_precede / cooldown) see the session's full
+    # history, merged across buckets.
+    conversation_id = conversation_key(event)
 
     prior_events = traces.events(plugin_id, conversation_id)
 

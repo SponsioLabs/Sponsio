@@ -39,6 +39,17 @@ broke.
 
 ### Fixed
 
+- **Each Claude Code session keeps its own history.** Claude Code's hook
+  payload carries `session_id`, not `conversation_id`, so every Claude Code
+  session on a machine shared one trace. The history key is now
+  `conversation_id`, else `session_id`, prefixed with the host
+  (`claude-code:<session_id>`) so two hosts cannot share one. **Behaviour
+  change:** count-based rules (`rate_limit`, `idempotent`,
+  `bounded_retry`) and ordering state now apply per session instead of
+  accumulating across every session. A Task sub-agent carries its
+  parent's `session_id` and stays in the parent's history. Cursor traces
+  move to the prefixed key too; traces recorded under the old key are not
+  carried over (they expire with the usual TTL).
 - **The installer tests no longer write the developer's own host config.**
   Host config, skill and credential paths were fixed at import time, so a
   test that moved `HOME` still wrote the real `~/.claude/settings.json`
