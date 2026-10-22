@@ -23,16 +23,35 @@ from sponsio.integrations.hosts import hook_command, resolve_binary
 
 
 @pytest.fixture
-def isolated_home(tmp_path, monkeypatch):
-    home = tmp_path / "home"
-    home.mkdir()
+def isolated_home(monkeypatch):
+    # Short: the daemon socket under this HOME must be bindable, or the
+    # installers (rightly) refuse to write a hook pinned to it.
+    import shutil
+    import tempfile
+
+    home = Path(tempfile.mkdtemp(prefix="sph-", dir="/tmp")).resolve()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(home / ".sponsio" / "plugins"))
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
     # Every host config the installers write must land under the sandbox.
     for spec in hosts.available():
         assert spec.config_path_user.is_relative_to(home), spec.config_path_user
-    return home
+    yield home
+    shutil.rmtree(home, ignore_errors=True)
+
+
+def test_install_refuses_a_socket_path_too_long_to_bind(isolated_home, monkeypatch):
+    from sponsio.integrations.claude_code_install import install
+
+    monkeypatch.setenv("SPONSIO_DAEMON_SOCKET", "/tmp/" + "x" * 120 + "/sock")
+    r = install(hosts.get("claude-code"))
+    assert r.written is False and "refusing to install" in r.note
+    assert not hosts.get("claude-code").config_path_user.exists()
+
+    from sponsio.integrations.cursor_install import install as cursor_install
+
+    r = cursor_install(hosts.get("cursor"))
+    assert r.written is False and "longer than this platform can bind" in r.note
 
 
 def test_a_relative_invocation_resolves_to_its_own_binary(tmp_path, monkeypatch):

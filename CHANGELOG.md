@@ -42,6 +42,12 @@ broke.
   answers the plugin starts one, and blocks the call if it still cannot be
   reached. `--mode` on `host install openclaw` now applies. Reinstall with
   `--force` to replace an already deployed plugin.
+- **`sponsio doctor` checks the host hooks.** "Hook wiring" reports, per
+  host, a hook whose interpreter or shim is gone, whose socket path cannot
+  be bound, or that has no daemon and no way to start one, with the command
+  that fixes it. "Claude Code" warns when the installed release predates
+  v2.1.295 and so ignores `onFailure`. `sponsio host install` refuses to
+  write a hook pinned to a socket path too long to bind.
 - **One daemon per state dir.** The daemon holds `<state-dir>/daemon.lock`
   and never removes a socket another daemon answers on, so hooks that
   start it concurrently end with one daemon and one trace. Starts and

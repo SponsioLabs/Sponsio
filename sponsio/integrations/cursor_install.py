@@ -17,8 +17,10 @@ from sponsio.integrations.hosts import (
     HookHost,
     HostInstallResult,
     HostUninstallResult,
+    _default_socket_path,
     is_sponsio_hook_command,
     shim_command,
+    socket_path_problem,
 )
 
 # Events Sponsio wires up.  Keep this in sync with the
@@ -115,6 +117,19 @@ def install(
         sponsio_hooks[event] = [
             {"command": shim_command("cursor", event=event, mode=mode, sponsio=binary)}
         ]
+
+    problem = socket_path_problem(_default_socket_path())
+    if problem:
+        return HostInstallResult(
+            host=host.name,
+            config_path=target,
+            written=False,
+            note=(
+                f"refusing to install: {problem}. A hook that cannot reach "
+                "the daemon denies every tool call. Set SPONSIO_DAEMON_SOCKET "
+                "to a shorter path and re-run"
+            ),
+        )
 
     target.parent.mkdir(parents=True, exist_ok=True)
 

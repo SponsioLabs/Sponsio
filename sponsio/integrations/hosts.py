@@ -273,6 +273,31 @@ def shim_command(
     return " ".join(parts)
 
 
+def socket_path_limit() -> int:
+    """Longest AF_UNIX path this platform binds, in bytes, without the NUL."""
+    import sys
+
+    return 103 if sys.platform == "darwin" else 107
+
+
+def socket_path_problem(path: Path | str) -> str | None:
+    """Why a hook pinned to ``path`` could never reach a daemon, or ``None``.
+
+    A shim hook denies every call it cannot forward, so writing one whose
+    socket can never be bound turns the host's tools off. The installers
+    refuse instead, and ``sponsio doctor`` reports existing ones.
+    """
+    import os
+
+    size = len(os.fsencode(str(path)))
+    if size > socket_path_limit():
+        return (
+            f"socket path is {size} bytes, longer than this platform can bind "
+            f"({socket_path_limit()}): {path}"
+        )
+    return None
+
+
 def is_shim_command(command: str) -> bool:
     """Does this hook command run the Sponsio shim?"""
     return "sponsio_shim.py" in command

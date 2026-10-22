@@ -240,6 +240,21 @@ Health checks: install integrity, config syntax, framework wiring.
 sponsio doctor
 ```
 
+Two checks cover the host hooks. **Hook wiring** reads every Sponsio
+hook in the Claude Code and Cursor settings (user and project) and the
+OpenClaw plugin config, and checks that each can run: the interpreter
+and shim it names still exist, its daemon socket path is short enough to
+bind, and a daemon answers or can be started. A hook that cannot run
+denies every tool call, so a failure names the fix to run from your
+terminal (`sponsio host install <host>` or `sponsio host uninstall
+<host>`). **Claude Code** reports the installed version: before v2.1.295
+Claude Code ignores the hooks' `onFailure: "block"`, so a hook that
+cannot start lets the tool run and only the shim's own deadline applies.
+
+`sponsio host install` refuses to write a hook whose daemon socket path
+is too long to bind (more than 103 bytes on macOS, 107 on Linux); set
+`SPONSIO_DAEMON_SOCKET` to a shorter path.
+
 ## sponsio packs
 
 List shipped contract packs with rule counts and `include:` syntax.
