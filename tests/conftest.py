@@ -19,9 +19,12 @@ This is the same pattern ``tests/test_doctor.py`` and
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import pwd
 import shutil
+import socket
+import sys
 import tempfile
 from pathlib import Path
 
@@ -111,6 +114,15 @@ def _take_baseline() -> None:
 
 
 def _restore_file(rel: str, test_id: str) -> str:
+    global _guard_bypass
+    _guard_bypass += 1
+    try:
+        return _restore_file_unguarded(rel, test_id)
+    finally:
+        _guard_bypass -= 1
+
+
+def _restore_file_unguarded(rel: str, test_id: str) -> str:
     assert _BACKUP_DIR is not None
     target = _REAL_HOME / rel
     safe_id = "".join(c if c.isalnum() or c in "._-" else "_" for c in test_id)[-120:]
@@ -126,6 +138,81 @@ def _restore_file(rel: str, test_id: str) -> str:
         target.unlink()
         return f"removed {target}, which did not exist before (kept at {kept})"
     return f"{target} changed and is gone again"
+
+
+# ---------------------------------------------------------------------------
+# Reads and the network
+# ---------------------------------------------------------------------------
+#
+# The snapshot catches writes, not reads. The cloud client falls back to
+# ``~/.sponsio/credentials`` when ``SPONSIO_API_KEY`` is unset and its
+# default endpoint is production, so a test that cleared the variable to
+# exercise the no-key path would read the developer's real key and could
+# upload with it. For the whole session HOME is an empty temp dir and the
+# cloud variables are cleared; an audit hook refuses to open the guarded
+# files or anything under the real ``~/.sponsio``; and sockets refuse any
+# peer that is not loopback, so cloud calls fail. A test that needs a
+# cloud serves one on loopback. Subprocesses inherit HOME and the cleared
+# variables but not the hook or the socket guard.
+
+_OFF_LIMITS_FILES = frozenset(str(_REAL_HOME / rel) for rel in _GUARDED_FILES)
+_OFF_LIMITS_TREE = str(_REAL_HOME / ".sponsio") + os.sep
+_guard_bypass = 0
+"""Above zero while the guard itself restores a file it backed up."""
+
+
+def _refuse_real_home_reads(event: str, args: tuple) -> None:
+    if event != "open" or _guard_bypass:
+        return
+    path = args[0]
+    if isinstance(path, int):
+        return
+    try:
+        full = os.path.abspath(os.fsdecode(path))
+    except (TypeError, ValueError):
+        return
+    if full in _OFF_LIMITS_FILES or full.startswith(_OFF_LIMITS_TREE):
+        raise PermissionError(
+            f"tests may not open {full}: it is under the real home directory"
+        )
+
+
+class NetworkDisabledInTests(ConnectionRefusedError):
+    """A test tried to reach a host that is not loopback."""
+
+
+def _is_loopback(host: str) -> bool:
+    if host in ("", "localhost"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host.split("%", 1)[0])
+    except ValueError:
+        return False
+    mapped = getattr(ip, "ipv4_mapped", None)
+    if mapped is not None:
+        ip = mapped
+    return ip.is_loopback or ip.is_unspecified
+
+
+def _refuse_remote(real):
+    def connect(self, address):
+        if self.family in (socket.AF_INET, socket.AF_INET6) and not _is_loopback(
+            str(address[0])
+        ):
+            raise NetworkDisabledInTests(f"network disabled in tests: {address[0]}")
+        return real(self, address)
+
+    return connect
+
+
+def _isolate_session() -> None:
+    home = Path(tempfile.mkdtemp(prefix="sponsio-test-home-"))
+    os.environ["HOME"] = str(home)
+    for name in ("SPONSIO_API_KEY", "SPONSIO_API_URL", "SPONSIO_PROJECT"):
+        os.environ.pop(name, None)
+    sys.addaudithook(_refuse_real_home_reads)
+    socket.socket.connect = _refuse_remote(socket.socket.connect)
+    socket.socket.connect_ex = _refuse_remote(socket.socket.connect_ex)
 
 
 @pytest.fixture(autouse=True)
@@ -160,6 +247,7 @@ def pytest_configure(config):  # noqa: ARG001 — pytest hook signature
     # production default to find what the next round of fixes is.
     os.environ.setdefault("SPONSIO_MODE", "enforce")
     _take_baseline()
+    _isolate_session()
 
 
 @pytest.fixture(autouse=True)

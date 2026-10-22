@@ -89,12 +89,19 @@ plugin starts on a socket under a temp dir (HOME is pointed there too,
 so the tests never touch your real `~/.sponsio`):
 
 ```bash
-SPONSIO_TEST_PYTHON=$(which python) npm test
+SPONSIO_TEST_PYTHON=/path/to/python npm test
 ```
 
-The end-to-end cases skip when `$SPONSIO_TEST_PYTHON` (default
-`python3`) cannot import sponsio. Requires Node 22.6+ for
-`--experimental-strip-types`.
+Requirements:
+
+- **Node 22.6 or later**, for `--experimental-strip-types`. Older Node
+  stops with `bad option: --experimental-strip-types`.
+- **`SPONSIO_TEST_PYTHON`** pointing at a Python that imports the sponsio
+  you are testing, usually the repo's venv
+  (`SPONSIO_TEST_PYTHON=$PWD/../../.venv/bin/python` from this directory).
+  There is no default, so the tests never pick up some other installed
+  sponsio. Without it the end-to-end cases skip locally with a banner
+  saying so, and fail in CI (`CI` set).
 
 ## Layout
 

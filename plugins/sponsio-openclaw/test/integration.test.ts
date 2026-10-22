@@ -14,9 +14,11 @@
  *   - handler(event, ctx) — ctx is the SECOND arg, not event.ctx.
  *   - opts.name is the hook's unique identifier (NOT the event).
  *
- * Run with: ``npm test``. The end-to-end cases need a Python with
- * sponsio importable: ``$SPONSIO_TEST_PYTHON`` (default ``python3``).
- * They are skipped when it cannot import sponsio.
+ * Run with: ``SPONSIO_TEST_PYTHON=/path/to/python npm test`` on Node
+ * 22.6 or later. The end-to-end cases need that Python to import the
+ * sponsio under test. There is no default: a bare ``python3`` may import
+ * some other installed sponsio and test that instead. In CI a missing or
+ * broken interpreter fails those cases; locally they skip and say why.
  */
 
 import { test } from "node:test";
@@ -35,16 +37,43 @@ import sponsioOpenClawPlugin, {
   type SponsioOpenClawOptions,
 } from "../src/index.ts";
 
-const PYTHON = process.env.SPONSIO_TEST_PYTHON ?? "python3";
-let SPONSIO_AVAILABLE = false;
-try {
-  execFileSync(PYTHON, ["-c", "import sponsio"], { stdio: "pipe" });
-  SPONSIO_AVAILABLE = true;
-} catch {
-  SPONSIO_AVAILABLE = false;
+const PYTHON = process.env.SPONSIO_TEST_PYTHON ?? "";
+let unavailable: string | null = null;
+if (!PYTHON) {
+  unavailable = "SPONSIO_TEST_PYTHON is not set";
+} else {
+  try {
+    execFileSync(PYTHON, ["-c", "import sponsio"], { stdio: "pipe" });
+  } catch {
+    unavailable = `SPONSIO_TEST_PYTHON=${PYTHON} cannot import sponsio`;
+  }
+}
+const IN_CI = Boolean(process.env.CI);
+const WHY =
+  `${unavailable}. The end-to-end cases need a Python that imports this ` +
+  "checkout's sponsio, on Node 22.6 or later, e.g. from the repo root: " +
+  "SPONSIO_TEST_PYTHON=$PWD/.venv/bin/python npm --prefix plugins/sponsio-openclaw test";
+
+if (unavailable && !IN_CI) {
+  process.stderr.write(
+    "\n" + "!".repeat(72) + "\n" +
+      `!! sponsio-openclaw: end-to-end cases SKIPPED\n!! ${WHY}\n` +
+      "!".repeat(72) + "\n\n",
+  );
 }
 
-const skipUnlessSponsio = SPONSIO_AVAILABLE ? test : test.skip;
+/** An end-to-end case: runs, fails in CI, or skips locally with a reason. */
+function e2e(name: string, fn: () => Promise<void> | void): void {
+  if (!unavailable) {
+    test(name, fn);
+  } else if (IN_CI) {
+    test(name, () => {
+      throw new Error(`${WHY}. CI must run the end-to-end cases.`);
+    });
+  } else {
+    test(name, { skip: WHY }, fn);
+  }
+}
 
 // ----------------------------------------------------------------------------
 // Mock OpenClaw API
@@ -234,7 +263,7 @@ async function run(
   return api.__lastRegistration!.handler(makeEvent(tool, params), ctx as BeforeToolCallContext);
 }
 
-skipUnlessSponsio("no library: allowed, and the plugin started the daemon", async () => {
+e2e("no library: allowed, and the plugin started the daemon", async () => {
   const sb = makeSandbox();
   try {
     assert.equal(await run(sb, "Bash", { command: "ls" }), undefined);
@@ -244,7 +273,7 @@ skipUnlessSponsio("no library: allowed, and the plugin started the daemon", asyn
   }
 });
 
-skipUnlessSponsio("a violating call is blocked with the daemon's reason", async () => {
+e2e("a violating call is blocked with the daemon's reason", async () => {
   const sb = makeSandbox({ _host_openclaw: lib("_host_openclaw", NO_RM) });
   try {
     const blocked = await run(sb, "Bash", { command: "rm -rf /tmp/x" });
@@ -257,7 +286,7 @@ skipUnlessSponsio("a violating call is blocked with the daemon's reason", async 
   }
 });
 
-skipUnlessSponsio("observe mode logs and lets the call through", async () => {
+e2e("observe mode logs and lets the call through", async () => {
   const sb = makeSandbox({ _host_openclaw: lib("_host_openclaw", NO_RM) });
   sb.options.mode = "observe";
   try {
@@ -267,7 +296,7 @@ skipUnlessSponsio("observe mode logs and lets the call through", async () => {
   }
 });
 
-skipUnlessSponsio("routes server__tool to the matching MCP library", async () => {
+e2e("routes server__tool to the matching MCP library", async () => {
   const sb = makeSandbox({
     acme: lib(
       "acme",
@@ -290,7 +319,7 @@ skipUnlessSponsio("routes server__tool to the matching MCP library", async () =>
   }
 });
 
-skipUnlessSponsio("a missing ctx argument does not crash", async () => {
+e2e("a missing ctx argument does not crash", async () => {
   const sb = makeSandbox({ _host_openclaw: lib("_host_openclaw", NO_RM) });
   try {
     assert.equal(await run(sb, "Bash", { command: "ls" }, undefined), undefined);
