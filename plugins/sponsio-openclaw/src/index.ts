@@ -213,7 +213,9 @@ export interface SponsioOpenClawOptions {
    * (``[python, "-m", "sponsio.cli"]`` from the installer). Default
    * ``["sponsio"]``. */
   sponsio?: string[];
-  /** ``enforce`` (default) or ``observe``. */
+  /** Ignored. The mode is the daemon's (``daemon.yaml``, set by
+   * ``sponsio host install openclaw --mode``); kept so an older
+   * ``sponsio-config.json`` still loads. */
   mode?: "enforce" | "observe";
   /** Budget for one decision, start to answer. Default 2000 ms. */
   deadlineMs?: number;
@@ -344,7 +346,6 @@ interface ResolvedOptions {
   pluginRoot?: string;
   stateDir?: string;
   sponsio: string[];
-  mode?: "enforce" | "observe";
   deadlineMs: number;
   failOpen: boolean;
 }
@@ -360,7 +361,6 @@ function resolveOptions(o: SponsioOpenClawOptions): ResolvedOptions {
     pluginRoot: o.pluginRoot,
     stateDir: o.stateDir,
     sponsio: Array.isArray(o.sponsio) && o.sponsio.length ? o.sponsio : ["sponsio"],
-    mode: o.mode === "observe" || o.mode === "enforce" ? o.mode : undefined,
     deadlineMs:
       typeof o.deadlineMs === "number" && o.deadlineMs > 0
         ? o.deadlineMs
@@ -499,7 +499,6 @@ function recoveryReason(cause: string, o: ResolvedOptions): string {
 async function decide(o: ResolvedOptions, payload: object): Promise<Verdict> {
   const deadline = Date.now() + o.deadlineMs;
   const params: Record<string, unknown> = { host: "openclaw", payload };
-  if (o.mode) params.mode = o.mode;
   const ask = async () => {
     const r = await callDaemon(o.socketPath, "guard.check", params, deadline - Date.now());
     return {

@@ -287,11 +287,27 @@ e2e("a violating call is blocked with the daemon's reason", async () => {
   }
 });
 
-e2e("observe mode logs and lets the call through", async () => {
+e2e("observe mode in the daemon's config lets the call through", async () => {
+  const sb = makeSandbox({ _host_openclaw: lib("_host_openclaw", NO_RM) });
+  // Where `sponsio host install openclaw --mode observe` puts it.
+  mkdirSync(join(sb.dir, "state"), { recursive: true });
+  writeFileSync(
+    join(sb.dir, "state", "daemon.yaml"),
+    "hosts:\n  openclaw: {mode: observe}\n",
+  );
+  try {
+    assert.equal(await run(sb, "Bash", { command: "rm -rf /tmp/x" }), undefined);
+  } finally {
+    await sb.close();
+  }
+});
+
+e2e("a mode in the plugin's own config changes nothing", async () => {
   const sb = makeSandbox({ _host_openclaw: lib("_host_openclaw", NO_RM) });
   sb.options.mode = "observe";
   try {
-    assert.equal(await run(sb, "Bash", { command: "rm -rf /tmp/x" }), undefined);
+    const result = await run(sb, "Bash", { command: "rm -rf /tmp/x" });
+    assert.equal(result?.block, true);
   } finally {
     await sb.close();
   }

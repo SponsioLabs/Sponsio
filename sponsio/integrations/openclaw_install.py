@@ -166,11 +166,12 @@ def _deploy_extension(force: bool) -> tuple[bool, str, Path]:
 PLUGIN_CONFIG = "sponsio-config.json"
 
 
-def plugin_config(*, mode: str = "enforce", binary: str | None = None) -> dict:
+def plugin_config(*, binary: str | None = None) -> dict:
     """What the deployed plugin reads from ``sponsio-config.json``: where
-    the daemon socket is, what a daemon it starts serves, how to start
-    it, and the mode. Every path is absolute and fixed here, the same
-    values the Claude Code and Cursor shim commands carry."""
+    the daemon socket is, what a daemon it starts serves, and how to
+    start it. Every path is absolute and fixed here, the same values the
+    Claude Code and Cursor shim commands carry. The mode is not here: it
+    is in the daemon's config."""
     import shlex
     import sys
 
@@ -187,19 +188,18 @@ def plugin_config(*, mode: str = "enforce", binary: str | None = None) -> dict:
         "sponsio": shlex.split(binary)
         if binary
         else [sys.executable, "-m", "sponsio.cli"],
-        "mode": "observe" if mode == "observe" else "enforce",
         "deadlineMs": int(DEFAULT_SHIM_DEADLINE_S * 1000),
     }
 
 
-def _write_plugin_config(mode: str, binary: str | None) -> tuple[bool, str, Path]:
+def _write_plugin_config(binary: str | None) -> tuple[bool, str, Path]:
     """Write ``sponsio-config.json`` into the deployed extension. Written
-    on every install, so a reinstall picks up a new interpreter or mode
-    even when the extension itself is already current."""
+    on every install, so a reinstall picks up a new interpreter even
+    when the extension itself is already current."""
     target = _extension_target() / PLUGIN_CONFIG
     if not target.parent.is_dir():
         return False, "extension not deployed; config not written", target
-    text = json.dumps(plugin_config(mode=mode, binary=binary), indent=2) + "\n"
+    text = json.dumps(plugin_config(binary=binary), indent=2) + "\n"
     try:
         if target.exists() and target.read_text(encoding="utf-8") == text:
             return False, "plugin config already current", target
@@ -349,7 +349,8 @@ def install(
     """End-to-end install: library + extension + plugin config +
     openclaw.json patch. ``binary`` is how the plugin starts the daemon
     when none answers (default: this interpreter, ``-m sponsio.cli``);
-    ``mode`` is written into the plugin config."""
+    ``mode`` goes into the daemon's config for OpenClaw."""
+    from sponsio.integrations.hosts import set_daemon_mode
 
     notes: list[str] = []
     any_written = False
@@ -364,9 +365,10 @@ def install(
     notes.append(f"extension: {ext_note}")
     any_written = any_written or ext_written
 
-    conf_written, conf_note, _conf_path = _write_plugin_config(mode, binary)
+    conf_written, conf_note, _conf_path = _write_plugin_config(binary)
     notes.append(f"config: {conf_note}")
     any_written = any_written or conf_written
+    notes.append(f"mode: {mode} {set_daemon_mode('openclaw', mode)}")
 
     cfg_written, cfg_note, _cfg_path = _patch_openclaw_json(force)
     notes.append(f"openclaw.json: {cfg_note}")

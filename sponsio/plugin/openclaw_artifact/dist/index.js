@@ -165,7 +165,6 @@ function resolveOptions(o) {
         pluginRoot: o.pluginRoot,
         stateDir: o.stateDir,
         sponsio: Array.isArray(o.sponsio) && o.sponsio.length ? o.sponsio : ["sponsio"],
-        mode: o.mode === "observe" || o.mode === "enforce" ? o.mode : undefined,
         deadlineMs: typeof o.deadlineMs === "number" && o.deadlineMs > 0
             ? o.deadlineMs
             : DEFAULT_DEADLINE_MS,
@@ -290,8 +289,6 @@ function recoveryReason(cause, o) {
 async function decide(o, payload) {
     const deadline = Date.now() + o.deadlineMs;
     const params = { host: "openclaw", payload };
-    if (o.mode)
-        params.mode = o.mode;
     const ask = async () => {
         const r = await callDaemon(o.socketPath, "guard.check", params, deadline - Date.now());
         return {

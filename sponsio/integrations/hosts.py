@@ -236,7 +236,6 @@ def shim_command(
     host: str,
     *,
     event: str | None = None,
-    mode: str = "enforce",
     socket_path: Path | None = None,
     plugin_root: Path | None = None,
     state_dir: Path | None = None,
@@ -247,13 +246,14 @@ def shim_command(
     """The hook command: the shim under this interpreter, fully pinned.
 
     ``<python> -I -S <shim> <host> [--event E] --socket S --plugin-root R
-    --state-dir D --deadline N [--mode observe] [--sponsio CMD]``.
+    --state-dir D --deadline N [--sponsio CMD]``.
 
     Every value is absolute and fixed at install time. The shim reads
     no environment variable, so an ``env`` block in the host's settings
     (which the agent under guard can edit) changes nothing about where
-    the hook connects, which libraries a daemon it starts serves, or
-    the mode. ``python`` defaults to the installing interpreter: ``-I -S``
+    the hook connects or which libraries a daemon it starts serves. The
+    mode is not on the command: it is in the daemon's config
+    (:func:`set_daemon_mode`). ``python`` defaults to the installing interpreter: ``-I -S``
     skips site and user-site, which is most of interpreter start-up,
     and the daemon the shim may start runs the same interpreter without
     those flags, so it imports ``sponsio`` from this install.
@@ -277,11 +277,40 @@ def shim_command(
     state = state_dir if state_dir is not None else _default_state_dir()
     parts += ["--state-dir", shlex.quote(str(state))]
     parts += ["--deadline", f"{deadline_s:g}"]
-    if mode == "observe":
-        parts += ["--mode", "observe"]
     if sponsio:
         parts += ["--sponsio", shlex.quote(sponsio)]
     return " ".join(parts)
+
+
+def set_daemon_mode(
+    host: str,
+    mode: str,
+    *,
+    state_dir: Path | None = None,
+    socket_path: Path | None = None,
+) -> str:
+    """Put ``host``'s mode in the daemon's config. Returns how.
+
+    Through the admin socket when a daemon answers there (``mode.set``,
+    audited). With none running, the config file is written directly,
+    which only the state dir's owner can do: at Tier 1 that is this
+    user; at Tier 2 it is the daemon's own.
+    """
+    from sponsio.daemon import config as daemon_config
+    from sponsio.daemon.client import DaemonClient, DaemonError
+    from sponsio.daemon.server import admin_socket_for
+
+    sock = socket_path if socket_path is not None else _default_socket_path()
+    admin = DaemonClient(socket_path=admin_socket_for(sock), timeout_s=2.0)
+    try:
+        admin.call("mode.set", {"host": host, "mode": mode})
+        return f"set through the daemon at {admin.socket_path}"
+    except DaemonError as e:
+        if e.code not in ("no_daemon", "transport"):
+            raise
+    state = state_dir if state_dir is not None else _default_state_dir()
+    daemon_config.set_host_mode(state, host, mode)
+    return f"written to {daemon_config.config_path(state)}"
 
 
 def socket_path_limit() -> int:

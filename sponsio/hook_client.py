@@ -13,7 +13,6 @@ The shapes and the recovery text are the shim's own, imported from
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -42,10 +41,11 @@ def run_hook(
 ) -> int:
     """Forward one hook invocation to the daemon; return the exit code.
 
-    The mode comes from ``SPONSIO_GUARD_MODE`` when the legacy installer
-    wrote ``env SPONSIO_GUARD_MODE=observe`` on the command; the plugin
-    root a started daemon serves comes from ``SPONSIO_PLUGIN_ROOT`` when
-    set, as the legacy entry always honoured it.
+    Like the shim, this forwards no environment variable: the mode and
+    the plugin root are the daemon's (``daemon.yaml``). A legacy hook
+    written as ``env SPONSIO_GUARD_MODE=observe sponsio host guard ...``
+    no longer observes; ``sponsio host install --mode observe`` sets it
+    in the daemon's config.
     """
     raw = stdin_text if stdin_text is not None else sys.stdin.read()
     sock = (socket_path or default_socket_path()).expanduser()
@@ -76,11 +76,6 @@ def _forward(
     deadline_s: float,
 ) -> int:
     params: dict = {"host": host, "event": hook_event, "raw": raw}
-    mode = os.environ.get("SPONSIO_GUARD_MODE", "").strip().lower()
-    if mode in ("enforce", "observe"):
-        params["mode"] = mode
-    root_env = os.environ.get("SPONSIO_PLUGIN_ROOT")
-    plugin_root = Path(root_env).expanduser() if root_env else None
 
     result = None
     cause = ""
@@ -92,7 +87,7 @@ def _forward(
             cause = str(first)
         else:
             cause = str(first)
-            if ensure_daemon(sock, wait_s=START_WAIT_S, plugin_root=plugin_root):
+            if ensure_daemon(sock, wait_s=START_WAIT_S):
                 try:
                     result = client.call(method, params)
                 except DaemonError as second:

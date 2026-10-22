@@ -142,7 +142,7 @@ rules](../sponsio-claude-code/QUICKSTART.md#customising-rules) for:
 * direct yaml edits
 * `customized:` blocks
 * `sponsio plugin scan` for unbundled plugins
-* `SPONSIO_GUARD_MODE=observe` for shadow-mode rollout
+* `sponsio host install openclaw --mode observe` for a shadow-mode rollout
 
 Any change you make to `~/.sponsio/plugins/<id>/sponsio.yaml`
 applies to **both** runtimes simultaneously — the libraries are

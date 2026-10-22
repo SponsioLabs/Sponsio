@@ -6,13 +6,14 @@ start-up is the whole budget.
 
 Usage::
 
-    sponsio_shim.py <host> [--event NAME] --socket PATH
-                    [--mode enforce|observe] [--deadline SECONDS]
+    sponsio_shim.py <host> [--event NAME] --socket PATH [--deadline SECONDS]
                     [--plugin-root DIR] [--state-dir DIR] [--sponsio CMD]
 
 ``host`` is ``claude-code``, ``cursor`` or ``openclaw``. The installer
 writes every option as an absolute value, so the shim reads nothing from
-the environment: not the socket, not the mode, not the roots. The
+the environment: not the socket, not the roots. The mode is not the
+shim's at all: it is in the daemon's config, so a ``--mode`` that an
+older installer wrote on the command is accepted and not sent. The
 daemon decides; the shim writes the daemon's stdout and exits with the
 daemon's exit code.
 
@@ -323,8 +324,6 @@ def run(argv: list[str], stdin_text: str) -> tuple[str, int, str]:
     deadline = started + opts.deadline
     method, event_name = classify(opts.host, opts.event, stdin_text)
     params: dict = {"host": opts.host or None, "event": opts.event, "raw": stdin_text}
-    if opts.mode in ("enforce", "observe"):
-        params["mode"] = opts.mode
 
     cause = ""
     try:

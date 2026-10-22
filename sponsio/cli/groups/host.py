@@ -609,12 +609,12 @@ def _uninstall_skill_for_host(host_name: str, *, scope: str) -> tuple[bool, str]
     type=click.Choice(["observe", "enforce"]),
     default=None,
     help=(
-        "Mode the installed hook runs in. ``enforce`` (default) blocks at "
+        "Mode the host's hooks run in. ``enforce`` (default) blocks at "
         "the action boundary; ``observe`` logs every violation and lets "
-        "the tool run, for a shadow first run. Carried on the hook "
-        "command itself (``env SPONSIO_GUARD_MODE=observe ...``), not in "
-        "the host library, so the agent under guard cannot change it. "
-        "Re-run to switch."
+        "the tool run, for a shadow first run. Set in the daemon's config "
+        "(``daemon.yaml``, through its admin socket), not on the hook "
+        "command or in the host's env, so the agent under guard cannot "
+        "change it. Re-run to switch."
     ),
 )
 @click.option(

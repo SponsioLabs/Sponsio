@@ -33,11 +33,12 @@ import threading
 import time
 from collections import OrderedDict
 from contextlib import redirect_stderr
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
 from sponsio.daemon import audit
+from sponsio.daemon.config import ConfigFile
 from sponsio.guard_stdin import (
     _MAX_ATTACHED_OUTPUT,
     GuardOutcome,
@@ -675,10 +676,14 @@ evaluated and the on-error policy is ``allow``."""
 class GuardService:
     """Evaluate hook events for every host, with daemon-held state.
 
-    ``policy`` is a :class:`GuardPolicy` or a callable returning one;
-    the default reads the daemon's own environment (P0.6 moves it to
-    the daemon config file). ``root`` fixes the plugin root; ``state_dir``
-    holds the write-ahead log.
+    The policy for a call (mode, on-error, unconfigured tools, trace TTL)
+    comes from ``<state_dir>/daemon.yaml`` (:mod:`sponsio.daemon.config`),
+    per host, and from nothing the client sends: a ``mode`` on the
+    request or the hook command is ignored, and no environment variable
+    is read. ``policy`` (a :class:`GuardPolicy` or a callable returning
+    one) replaces the config for tests and embedders. ``root`` is the
+    plugin root unless the config names one; ``state_dir`` holds the
+    config, the write-ahead log, the audit log and the proposals.
     """
 
     def __init__(
@@ -693,8 +698,19 @@ class GuardService:
         self.state_dir = (
             Path(state_dir) if state_dir is not None else default_state_dir()
         )
-        self._policy = policy if policy is not None else GuardPolicy.from_env
-        self.store = SnapshotStore(root, on_change=on_change)
+        self.config = ConfigFile(self.state_dir)
+        self._policy = policy
+        base = root
+
+        def _root() -> Path:
+            configured = self.config.current().plugin_root
+            if configured is not None:
+                return configured
+            if base is None:
+                return library_root()
+            return base() if callable(base) else base
+
+        self.store = SnapshotStore(_root, on_change=on_change)
         self.traces = MemoryTraceStore(
             self.state_dir / "wal",
             ttl_seconds=lambda: self.policy().trace_ttl_hours * 3600,
@@ -705,16 +721,15 @@ class GuardService:
         )
         self._locks_lock = threading.Lock()
         self._conv_locks: dict[str, threading.Lock] = {}
-        self._host_modes: dict[str, str] = {}
 
     def set_host_mode(self, host: str, mode: str) -> None:
-        """The mode for ``host``'s calls that carry none of their own
-        (``mode.set`` on the admin socket; held in memory until P0.6
-        moves it into the daemon's config file)."""
-        self._host_modes[host] = mode
+        """Persist ``host``'s mode in the daemon config (``mode.set``)."""
+        self.config.set_host_mode(host, mode)
 
-    def policy(self) -> GuardPolicy:
-        return self._policy() if callable(self._policy) else self._policy
+    def policy(self, host: str | None = None) -> GuardPolicy:
+        if self._policy is not None:
+            return self._policy() if callable(self._policy) else self._policy
+        return self.config.current().policy_for(host)
 
     def _lock_for(self, conversation_id: str | None) -> threading.Lock:
         key = _safe_conv_id(conversation_id) if conversation_id else "default"
@@ -799,11 +814,10 @@ class GuardService:
         }
 
     def _evaluate(self, event: dict, mode: str | None = None) -> GuardOutcome:
-        policy = self.policy()
-        if mode is None:
-            mode = self._host_modes.get(event.get("host") or "")
-        if mode in ("enforce", "observe") and mode != policy.mode:
-            policy = replace(policy, mode=mode)
+        # ``mode`` is what an older hook command or plugin still sends;
+        # the daemon config decides, so it is ignored.
+        del mode
+        policy = self.policy(event.get("host"))
         conversation_id = conversation_key(event)
         err = io.StringIO()
         with self._lock_for(conversation_id):

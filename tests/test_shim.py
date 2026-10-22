@@ -279,11 +279,19 @@ def test_a_post_event_is_observed_not_gated(home: Home):
     assert r.returncode == 0 and r.stdout == ""
 
 
-def test_observe_mode_on_the_command_reaches_the_daemon(home: Home):
+def test_a_mode_on_the_command_does_not_reach_the_daemon(home: Home):
+    # Hook commands live in host settings the agent can edit. The mode is
+    # the daemon's (daemon.yaml); a --mode an older installer wrote is
+    # accepted and not sent.
     r = home.shim(_bash("rm -rf /tmp/x"), mode="observe")
-    assert r.returncode == 0 and r.stdout == "", r.stderr
-    r = home.shim(_bash("rm -rf /tmp/x"))
     assert json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_observe_in_the_daemon_config_reaches_every_hook(home: Home):
+    home.state.mkdir(parents=True, exist_ok=True)
+    (home.state / "daemon.yaml").write_text("hosts:\n  claude-code: {mode: observe}\n")
+    r = home.shim(_bash("rm -rf /tmp/x"))
+    assert r.returncode == 0 and r.stdout == "", r.stderr
 
 
 def test_the_hosts_environment_does_not_reach_the_daemon(home: Home):
@@ -381,15 +389,23 @@ def test_killing_the_daemon_denies_until_it_is_back_and_records_the_restart(
 
 
 def _legacy(home: Home, args: list[str], payload: dict, **env: str):
+    # The daemon these entry points start defaults its state dir under
+    # HOME, and takes its plugin root from that dir's daemon.yaml. The
+    # SPONSIO_PLUGIN_ROOT set below is the legacy way and must not count.
+    state = home.home / ".sponsio" / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "daemon.yaml").write_text(f"plugin_root: {home.root}\n")
     return subprocess.run(
         [sys.executable, "-m", "sponsio.cli", *args],
         input=json.dumps(payload),
         capture_output=True,
         text=True,
         env=home.env(
-            SPONSIO_DAEMON_SOCKET=str(home.socket),
-            SPONSIO_PLUGIN_ROOT=str(home.root),
-            **env,
+            **{
+                "SPONSIO_DAEMON_SOCKET": str(home.socket),
+                "SPONSIO_PLUGIN_ROOT": str(home.home / "nowhere"),
+                **env,
+            },
         ),
         timeout=60,
     )
@@ -422,7 +438,13 @@ def test_host_guard_denies_when_no_daemon_can_come_up(home: Home):
 
 
 def test_direct_keeps_the_in_process_path(home: Home):
-    r = _legacy(home, ["host", "guard", "claude-code", "--direct"], _bash("rm -rf /"))
+    # --direct is the in-process debugging path: it reads the environment.
+    r = _legacy(
+        home,
+        ["host", "guard", "claude-code", "--direct"],
+        _bash("rm -rf /"),
+        SPONSIO_PLUGIN_ROOT=str(home.root),
+    )
     assert r.returncode == 0
     assert json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert not home.socket.exists()

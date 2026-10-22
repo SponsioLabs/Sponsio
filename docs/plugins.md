@@ -89,13 +89,7 @@ sponsio host install openclaw
 
 `sponsio host install` deploys the bundled prebuilt extension into `~/.openclaw/extensions/sponsio-openclaw/`, bootstraps the fallback contract library, and registers the plugin in `~/.openclaw/openclaw.json` with a backup. Verify with `sponsio host status openclaw`. Live blocks: `sponsio host trace openclaw --follow`.
 
-Configuration knobs:
-
-| Env var | configSchema field | Purpose |
-|---|---|---|
-| `SPONSIO_GUARD_BIN` | `guardBin` | Path to the `sponsio` binary |
-| `SPONSIO_PLUGIN_ROOT` | `pluginRoot` | Override `~/.sponsio/plugins` |
-| `SPONSIO_GUARD_MODE` | `guardMode` | `enforce` (default) or `observe` |
+The plugin reads its socket, plugin root, state dir and start command from `sponsio-config.json` beside it, which `sponsio host install openclaw` writes. It reads no environment variable. The mode is the daemon's: `sponsio host install openclaw --mode observe` sets it in the daemon's `daemon.yaml`. See the plugin's [configuration table](../plugins/sponsio-openclaw/README.md#configuration-knobs).
 
 Walkthrough: [plugins/sponsio-openclaw/QUICKSTART.md](../plugins/sponsio-openclaw/QUICKSTART.md).
 

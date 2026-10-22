@@ -189,25 +189,27 @@ shipped examples) runs with a one-time `running UNCHECKED` warning by
 default. `--strict` writes `defaults.unconfigured: deny` into the host
 library so those calls are refused instead; the setting survives
 reinstalls, and the host library is covered by `capability/self-modify`
-so the agent cannot change it. `SPONSIO_UNCONFIGURED=deny|allow` overrides
-it for one shell.
+so the agent cannot change it. `unconfigured: deny|allow` in the daemon's
+`daemon.yaml` overrides it for every library.
 
 The installed hook runs a small shim, `sponsio_shim.py`, under the
 interpreter that ran the install (`python -I -S`). The shim forwards each
 event to the daemon (see `sponsio daemon` below), starts one when none
 answers, and denies the call, with exit code 2 and the host's deny body,
 when no daemon can be reached within its deadline (2 s). Every value the
-shim needs (socket, plugin root, state dir, mode, deadline) is written on
-the hook command, and the shim reads no environment variable, so an `env`
+shim needs (socket, plugin root, state dir, deadline) is written on the
+hook command, and the shim reads no environment variable, so an `env`
 block in the host's settings cannot change it. On Claude Code the
 `PreToolUse` entry also carries `"onFailure": "block"` and a 10 s
 `timeout`, so a hook that cannot start blocks the call (Claude Code
 v2.1.295 or later).
 
-The hook enforces by default. `--mode observe` is carried on the hook
-command itself (`--mode observe` on the shim), not in the host library,
-so the agent under guard cannot change it; re-run `host install` to
-switch, or to move hooks installed by an earlier release onto the shim.
+The hook enforces by default. `--mode observe` sets the host's mode in
+the daemon's config (`daemon.yaml`, see `sponsio daemon` below). The mode
+is not written on the hook command, and the daemon ignores a mode sent
+with a call, so editing the hook or the host's `env` does not switch the
+guard to observe. Re-run `host install` to switch modes, or to move hooks
+installed by an earlier release onto the shim.
 
 While the daemon cannot be reached, every tool call is denied, including
 the ones the agent would use to fix it. The deny reason names the
@@ -391,7 +393,21 @@ sponsio daemon ping [--echo VALUE]                 # round-trip health check
 sponsio daemon status                              # resolved socket path + reachability
 ```
 
-Socket path resolves to `$SPONSIO_DAEMON_SOCKET`, then `/var/run/sponsio.sock` if writable, else `~/.sponsio/sponsio.sock`. The state dir defaults to `~/.sponsio/state`; the plugin root is fixed when the daemon starts.
+Socket path resolves to `$SPONSIO_DAEMON_SOCKET`, then `/var/run/sponsio.sock` if writable, else `~/.sponsio/sponsio.sock`. The state dir defaults to `~/.sponsio/state`. The plugin root is `--plugin-root`, else `~/.sponsio/plugins`; the daemon does not read `$SPONSIO_PLUGIN_ROOT`.
+
+Every setting a hook decision depends on is in `<state-dir>/daemon.yaml`, and the daemon reads no environment variable for a decision, not even its own:
+
+```yaml
+mode: enforce            # hosts not listed below
+hosts:
+  claude-code: {mode: observe}
+on_error: deny           # deny | allow: what an evaluation error becomes
+unconfigured: null       # deny | allow | null (the host library decides)
+plugin_root: null        # overrides --plugin-root when set
+trace_ttl_hours: 24
+```
+
+`sponsio host install <host> --mode` sets the host's mode through the admin socket (`mode.set`). If no daemon is running, it writes the file directly. The daemon re-reads the file when it changes. A missing file, or a key that is missing or not valid, takes the strict default (`enforce`, `deny`). `SPONSIO_GUARD_MODE`, `SPONSIO_MODE`, `SPONSIO_HOOK_ON_ERROR`, `SPONSIO_UNCONFIGURED` and `SPONSIO_SHIELD_TRACE_TTL_HOURS` no longer affect hooks. They still apply to the in-process SDK and to `host guard --direct`. Every call allowed only because `on_error: allow` is audited as `fail_open`.
 
 One daemon per state dir. The daemon holds `<state-dir>/daemon.lock` (an exclusive `flock`, holding its pid) while it runs; a second `daemon run` finds the lock taken, or a daemon answering on the socket, and exits 0 without touching anything. A socket file nobody answers on (left by a daemon that was killed) is replaced. `--detach` starts the daemon in the background, writes its output to `<state-dir>/daemon.log`, and returns once a daemon answers. Starts and restarts are recorded in `<state-dir>/audit.jsonl` (`daemon_start`, or `daemon_restart` with the previous pid when the prior instance did not stop cleanly).
 

@@ -167,7 +167,9 @@ export interface SponsioOpenClawOptions {
      * (``[python, "-m", "sponsio.cli"]`` from the installer). Default
      * ``["sponsio"]``. */
     sponsio?: string[];
-    /** ``enforce`` (default) or ``observe``. */
+    /** Ignored. The mode is the daemon's (``daemon.yaml``, set by
+     * ``sponsio host install openclaw --mode``); kept so an older
+     * ``sponsio-config.json`` still loads. */
     mode?: "enforce" | "observe";
     /** Budget for one decision, start to answer. Default 2000 ms. */
     deadlineMs?: number;
@@ -196,7 +198,6 @@ interface ResolvedOptions {
     pluginRoot?: string;
     stateDir?: string;
     sponsio: string[];
-    mode?: "enforce" | "observe";
     deadlineMs: number;
     failOpen: boolean;
 }

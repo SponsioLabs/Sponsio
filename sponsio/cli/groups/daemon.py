@@ -116,10 +116,12 @@ def daemon_run(
     from sponsio.daemon import audit
     from sponsio.daemon.handlers import register_default_handlers
     from sponsio.daemon.server import DaemonAlreadyRunning, serve_forever
-    from sponsio.guard_stdin import library_root
 
+    # Not $SPONSIO_PLUGIN_ROOT: the daemon reads no environment variable
+    # for a decision. daemon.yaml's plugin_root, when set, wins over this.
     service = GuardService(
-        root=(plugin_root or library_root()).expanduser(), state_dir=resolved_state
+        root=(plugin_root or Path.home() / ".sponsio" / "plugins").expanduser(),
+        state_dir=resolved_state,
     )
 
     def _record_start(server) -> None:
@@ -135,6 +137,7 @@ def daemon_run(
             audit.append(service.state_dir, audit.DAEMON_START, socket=str(path))
         click.echo(f"sponsio daemon listening at {path} (mode {socket_mode})")
         click.echo(f"  admin:     {server.admin_socket_path} (mode 0600)")
+        click.echo(f"  config:    {service.state_dir / 'daemon.yaml'}")
         click.echo(f"  libraries: {service.store.root}")
         click.echo(f"  state:     {service.state_dir}")
 

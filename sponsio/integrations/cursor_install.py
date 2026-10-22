@@ -20,6 +20,7 @@ from sponsio.integrations.hosts import (
     HostUninstallResult,
     _default_socket_path,
     is_sponsio_hook_command,
+    set_daemon_mode,
     shim_command,
     socket_path_problem,
 )
@@ -92,8 +93,9 @@ def install(
     """Write or merge Cursor hook entries pointing at the Sponsio shim.
 
     Each command is :func:`sponsio.integrations.hosts.shim_command` for
-    its event; ``mode`` rides on it. ``binary`` is what the shim starts
-    a daemon with when none answers.
+    its event. ``mode`` goes into the daemon's config for Cursor
+    (:func:`set_daemon_mode`). ``binary`` is what the shim starts a
+    daemon with when none answers.
 
     Side effect: bootstraps ``_host_subagent`` library if absent, so
     Cursor Task-spawned subagent tool calls (routed there by
@@ -108,15 +110,13 @@ def install(
     for event in _INSTALLED_EVENTS_FAILCLOSED:
         sponsio_hooks[event] = [
             {
-                "command": shim_command(
-                    "cursor", event=event, mode=mode, sponsio=binary
-                ),
+                "command": shim_command("cursor", event=event, sponsio=binary),
                 "failClosed": fail_closed,
             }
         ]
     for event in _INSTALLED_EVENTS_SOFT:
         sponsio_hooks[event] = [
-            {"command": shim_command("cursor", event=event, mode=mode, sponsio=binary)}
+            {"command": shim_command("cursor", event=event, sponsio=binary)}
         ]
 
     problem = socket_path_problem(_default_socket_path())
@@ -174,6 +174,7 @@ def install(
         note = "wrote fresh hooks.json"
 
     saved = config_backup.write(target, json.dumps(out, indent=2) + "\n")
+    note = f"{note}; mode {mode} {set_daemon_mode('cursor', mode)}"
     return HostInstallResult(
         host=host.name,
         config_path=target,

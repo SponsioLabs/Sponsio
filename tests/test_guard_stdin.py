@@ -413,10 +413,11 @@ def test_run_stdin_allow_is_silent(tmp_path, monkeypatch, capsys):
     assert captured.out == ""
 
 
+@pytest.mark.direct_only
 def test_run_stdin_observe_mode_does_not_block(tmp_path, monkeypatch, capsys):
-    """``SPONSIO_GUARD_MODE=observe`` lets dangerous calls through.
-
-    Useful for pilot rollouts where operators want logs first.
+    """``SPONSIO_GUARD_MODE=observe`` lets dangerous calls through on the
+    in-process path. The daemon reads no environment variable; its mode
+    is in ``daemon.yaml`` (tests/test_daemon_config.py).
     """
     monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
     monkeypatch.setenv("SPONSIO_GUARD_MODE", "observe")
@@ -640,7 +641,9 @@ def test_broken_library_denies_by_default(tmp_path, monkeypatch):
     assert "SPONSIO_HOOK_ON_ERROR" in outcome.reason
 
 
+@pytest.mark.direct_only
 def test_broken_library_allows_when_opted_into_fail_open(tmp_path, monkeypatch):
+    # The daemon's on_error lives in daemon.yaml (tests/test_daemon_config.py).
     monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
     monkeypatch.setenv("SPONSIO_HOOK_ON_ERROR", "allow")
     _write_library(

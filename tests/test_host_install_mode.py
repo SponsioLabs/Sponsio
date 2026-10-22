@@ -116,10 +116,15 @@ def test_the_shim_command_is_pinned_end_to_end(isolated_home):
     root = parts[parts.index("--plugin-root") + 1]
     assert root == str(isolated_home / ".sponsio" / "plugins")
 
-    observe = shim_command("cursor", event="beforeReadFile", mode="observe")
-    assert "cursor --event beforeReadFile" in observe
-    assert observe.endswith("--mode observe")
-    assert "SPONSIO_GUARD_MODE" not in observe
+    cursor = shim_command("cursor", event="beforeReadFile")
+    assert "cursor --event beforeReadFile" in cursor
+    assert "--mode" not in cursor and "SPONSIO_GUARD_MODE" not in cursor
+
+
+def _daemon_modes(home: Path) -> dict[str, str]:
+    from sponsio.daemon import config as daemon_config
+
+    return daemon_config.load(home / ".sponsio" / "state").hosts
 
 
 def test_claude_code_install_writes_the_shim_with_block_on_failure(isolated_home):
@@ -129,11 +134,13 @@ def test_claude_code_install_writes_the_shim_with_block_on_failure(isolated_home
     r = install(spec, mode="observe", binary="/x/sponsio")
     hooks = _claude_hooks(r.config_path)
     assert set(hooks) == {"PreToolUse", "PostToolUse"}
+    # The mode is the daemon's, not the command's.
+    assert _daemon_modes(isolated_home) == {"claude-code": "observe"}
     for event, entries in hooks.items():
         assert len(entries) == 1
         h = entries[0]
         assert "sponsio_shim.py claude-code" in h["command"]
-        assert h["command"].endswith("--mode observe --sponsio /x/sponsio")
+        assert h["command"].endswith("--deadline 2 --sponsio /x/sponsio")
         assert h["timeout"] == 10
         if event == "PreToolUse":
             assert h["onFailure"] == "block"
@@ -142,6 +149,7 @@ def test_claude_code_install_writes_the_shim_with_block_on_failure(isolated_home
 
     # A reinstall switches the mode and replaces, not duplicates.
     r = install(spec, mode="enforce", binary="/x/sponsio")
+    assert _daemon_modes(isolated_home) == {}
     cmds = _claude_commands(r.config_path)
     assert len(cmds) == 2 and all(
         c.endswith("--deadline 2 --sponsio /x/sponsio") for c in cmds
@@ -203,12 +211,13 @@ def test_cursor_install_writes_the_shim_per_event(isolated_home):
 
     r = install(hosts.get("cursor"), mode="observe", binary="/x/sponsio")
     data = json.loads(Path(r.config_path).read_text())
+    assert _daemon_modes(isolated_home) == {"cursor": "observe"}
     for event, entries in data["hooks"].items():
         assert len(entries) == 1
         cmd = entries[0]["command"]
         assert f"sponsio_shim.py cursor --event {event} " in cmd
-        assert cmd.endswith("--mode observe --sponsio /x/sponsio")
-        assert "SPONSIO_GUARD_MODE" not in cmd
+        assert cmd.endswith("--deadline 2 --sponsio /x/sponsio")
+        assert "--mode" not in cmd and "SPONSIO_GUARD_MODE" not in cmd
     assert data["hooks"]["beforeShellExecution"][0]["failClosed"] is True
 
 
@@ -265,7 +274,8 @@ def test_openclaw_install_writes_the_plugin_config(isolated_home, monkeypatch):
     conf_path = oc / "extensions" / "sponsio-openclaw" / PLUGIN_CONFIG
     assert conf_path.is_relative_to(isolated_home)
     conf = json.loads(conf_path.read_text())
-    assert conf["mode"] == "observe"
+    assert "mode" not in conf
+    assert _daemon_modes(isolated_home) == {"openclaw": "observe"}
     assert conf["sponsio"] == ["/x/sponsio", "--flag"]
     assert conf["deadlineMs"] == 2000
     for key in ("socketPath", "pluginRoot", "stateDir"):
@@ -275,7 +285,8 @@ def test_openclaw_install_writes_the_plugin_config(isolated_home, monkeypatch):
     # A reinstall rewrites the config even when the extension is current.
     install(spec, mode="enforce")
     conf = json.loads(conf_path.read_text())
-    assert conf["mode"] == "enforce" and conf["sponsio"][1:] == ["-m", "sponsio.cli"]
+    assert conf["sponsio"][1:] == ["-m", "sponsio.cli"]
+    assert _daemon_modes(isolated_home) == {}
 
     uninstall(spec)
     assert not conf_path.exists()

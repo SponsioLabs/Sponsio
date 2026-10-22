@@ -41,6 +41,7 @@ from sponsio.integrations.hosts import (
     HostUninstallResult,
     _default_socket_path,
     is_sponsio_hook_command,
+    set_daemon_mode,
     shim_command,
     socket_path_problem,
 )
@@ -121,8 +122,9 @@ def install(
     """Write or merge Sponsio entries into Claude Code's settings.json.
 
     The command is the shim (see
-    :func:`sponsio.integrations.hosts.shim_command`); ``mode`` rides on
-    it, and ``observe`` makes the daemon log without blocking. ``binary``
+    :func:`sponsio.integrations.hosts.shim_command`). ``mode`` goes into
+    the daemon's config for this host (:func:`set_daemon_mode`), not on
+    the command; ``observe`` makes the daemon log without blocking. ``binary``
     is what the shim starts a daemon with when none answers (default:
     this interpreter and ``-m sponsio.cli``).
 
@@ -139,7 +141,7 @@ def install(
     else:
         target = host.config_path_user
 
-    cmd = shim_command("claude-code", mode=mode, sponsio=binary)
+    cmd = shim_command("claude-code", sponsio=binary)
 
     problem = socket_path_problem(_default_socket_path())
     if problem:
@@ -200,6 +202,7 @@ def install(
         note = "wrote fresh settings.json"
 
     saved = config_backup.write(target, json.dumps(out, indent=2) + "\n")
+    note = f"{note}; mode {mode} {set_daemon_mode('claude-code', mode)}"
     return HostInstallResult(
         host=host.name,
         config_path=target,
