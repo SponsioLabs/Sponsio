@@ -81,6 +81,13 @@ class HookHost:
     ``{"ok": bool, "detail": str}``; one reserved key ``libraries``
     holds a list of contract-library summaries when applicable."""
 
+    host_config_fn: Callable[[str], Path] | None = None
+    """``host_config(scope) -> Path``: the host-owned file the installer
+    edits for ``scope`` (``settings.json``, ``hooks.json``,
+    ``openclaw.json``). Every change to it is backed up first (see
+    :mod:`sponsio.integrations.config_backup`); ``sponsio host
+    uninstall`` uses this to offer the most recent backup back."""
+
     trace_fn: Callable[..., object] | None = None
     """Optional ``trace(host, *, follow: bool, container: str | None)
     -> Iterator[tuple[level, line]]`` — yields a human-readable
@@ -117,6 +124,8 @@ class HostInstallResult:
     config_path: Path
     written: bool
     note: str = ""
+    backup: Path | None = None
+    """Copy of the host config as it was before this install changed it."""
 
 
 @dataclass
@@ -127,6 +136,8 @@ class HostUninstallResult:
     config_path: Path
     removed_entries: int
     note: str = ""
+    backup: Path | None = None
+    """Copy of the host config as it was before this uninstall changed it."""
 
 
 # ---------------------------------------------------------------------------
@@ -433,6 +444,12 @@ def _openclaw_runtime(host, hook_event, stdin_text):
     return run_stdin(stdin_text, default_host=getattr(host, "name", None) or "openclaw")
 
 
+def _openclaw_json() -> Path:
+    from sponsio.integrations.openclaw_install import _openclaw_json_path
+
+    return _openclaw_json_path()
+
+
 def _openclaw_status(host):
     from sponsio.integrations.openclaw_install import status as _impl
 
@@ -452,6 +469,11 @@ register(
         description="Cursor IDE 1.7+ — deny-capable preToolUse / before* hooks.",
         user_config_fn=lambda: Path.home() / ".cursor" / "hooks.json",
         config_path_project=Path(".cursor") / "hooks.json",
+        host_config_fn=lambda scope: (
+            (Path.cwd() if scope == "project" else Path.home())
+            / ".cursor"
+            / "hooks.json"
+        ),
         detect_fn=lambda: (Path.home() / ".cursor",),
         install_fn=_cursor_install,
         uninstall_fn=_cursor_uninstall,
@@ -480,6 +502,11 @@ register(
         description="Claude Code CLI — user-level PreToolUse / PostToolUse hooks via settings.json.",
         user_config_fn=lambda: Path.home() / ".claude" / "settings.json",
         config_path_project=Path(".claude") / "settings.json",
+        host_config_fn=lambda scope: (
+            (Path.cwd() if scope == "project" else Path.home())
+            / ".claude"
+            / "settings.json"
+        ),
         detect_fn=lambda: (
             Path.home() / ".claude",
             Path.home() / ".claude" / "settings.json",
@@ -501,6 +528,7 @@ register(
             Path.home() / ".sponsio" / "plugins" / "_host_openclaw" / "sponsio.yaml"
         ),
         config_path_project=None,
+        host_config_fn=lambda scope: _openclaw_json(),
         detect_fn=lambda: (Path.home() / ".openclaw",),
         install_fn=_openclaw_install,
         uninstall_fn=_openclaw_uninstall,

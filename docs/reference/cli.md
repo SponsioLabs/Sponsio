@@ -214,6 +214,21 @@ the ones the agent would use to fix it. The deny reason names the
 recovery, to run from your own terminal: `sponsio daemon run --detach`,
 or `sponsio host uninstall <host>` to remove the hook.
 
+Before `host install` or `host uninstall` changes a host's config file
+(Claude Code `settings.json`, Cursor `hooks.json`, OpenClaw
+`openclaw.json`), it copies the file to
+`<file>.sponsio-backup-YYYYmmddHHMMSS` beside it, then writes the new
+version atomically. A config file that is a symlink is written through
+to its target. `host uninstall` removes only Sponsio's entries and then
+offers to restore the most recent backup, which is the file as it was
+before Sponsio last changed it; it asks on a terminal and does nothing
+otherwise.
+
+```bash
+sponsio host uninstall <host> --restore-backup     # remove the entries, then put the latest backup back
+sponsio host uninstall <host> --no-restore-backup  # remove the entries, don't ask
+```
+
 ```bash
 sponsio host guard <host> [--event E]   # legacy hook entry: same as the shim, through the daemon
 sponsio host guard <host> --direct      # debugging: evaluate in-process from the files on disk

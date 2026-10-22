@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from sponsio.integrations import config_backup
 from sponsio.integrations.hosts import (
     CLAUDE_CODE_HOOK_TIMEOUT_S,
     HookHost,
@@ -198,12 +199,13 @@ def install(
         }
         note = "wrote fresh settings.json"
 
-    target.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    saved = config_backup.write(target, json.dumps(out, indent=2) + "\n")
     return HostInstallResult(
         host=host.name,
         config_path=target,
         written=True,
         note=note,
+        backup=saved,
     )
 
 
@@ -258,11 +260,14 @@ def uninstall(host: HookHost, *, scope: str = "user") -> HostUninstallResult:
     else:
         data.pop("hooks", None)
 
-    if data:
-        target.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    if not removed:
+        saved = None
+        note = "no sponsio entries in settings.json"
+    elif data:
+        saved = config_backup.write(target, json.dumps(data, indent=2) + "\n")
         note = f"removed {removed} sponsio entries from settings.json"
     else:
-        target.unlink()
+        saved = config_backup.remove(target)
         note = f"removed {removed} sponsio entries; deleted now-empty settings.json"
 
     return HostUninstallResult(
@@ -270,4 +275,5 @@ def uninstall(host: HookHost, *, scope: str = "user") -> HostUninstallResult:
         config_path=target,
         removed_entries=removed,
         note=note,
+        backup=saved,
     )

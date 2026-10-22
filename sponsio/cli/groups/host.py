@@ -737,6 +737,8 @@ def host_install(
             fg=colour,
         )
         click.echo(f"     {result.config_path}")
+        if result.backup is not None:
+            click.echo(f"     previous version kept at {result.backup}")
         if not result.written:
             # Existing-but-not-overwritten is informational, not a failure.
             pass
@@ -941,6 +943,30 @@ def host_migrate(names: tuple[str, ...], keep_legacy: bool, force: bool):
     click.echo("  sponsio doctor                  # verify everything wires up")
 
 
+def _offer_restore(cfg: Path, offered: Path, choice: bool | None) -> None:
+    """Restore ``offered`` over ``cfg`` if the operator says so."""
+    from sponsio.integrations import config_backup
+
+    if choice is None:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            click.echo(
+                f"     a backup from before Sponsio's last change is at {offered}; "
+                "re-run with --restore-backup to put it back"
+            )
+            return
+        choice = click.confirm(
+            f"     Restore {cfg.name} from {offered.name}? Changes made since "
+            "then are lost (the current file is backed up first)",
+            default=False,
+        )
+    if not choice:
+        return
+    replaced = config_backup.restore(cfg, offered)
+    click.secho(f"✔  restored {cfg} from {offered.name}", fg="green")
+    if replaced is not None:
+        click.echo(f"     the version it replaced is kept at {replaced}")
+
+
 @host.command(name="uninstall")
 @click.argument("names", nargs=-1, required=True)
 @click.option(
@@ -962,7 +988,22 @@ def host_migrate(names: tuple[str, ...], keep_legacy: bool, force: bool):
         "skill predates Sponsio at this host."
     ),
 )
-def host_uninstall(names: tuple[str, ...], scope: str, with_skill: bool):
+@click.option(
+    "--restore-backup/--no-restore-backup",
+    default=None,
+    help=(
+        "After removing Sponsio's entries, put back the most recent "
+        "backup of the host config (taken before Sponsio last changed "
+        "it). Asked interactively when neither flag is given; never "
+        "restored without a terminal to ask on."
+    ),
+)
+def host_uninstall(
+    names: tuple[str, ...],
+    scope: str,
+    with_skill: bool,
+    restore_backup: bool | None,
+):
     """Remove Sponsio's entries from one or more host configs.
 
     Leaves any non-Sponsio hooks untouched.  Use ``all`` to clean
@@ -970,7 +1011,13 @@ def host_uninstall(names: tuple[str, ...], scope: str, with_skill: bool):
 
     Removes the bundled Sponsio skill by default (symmetric to
     ``host install``); pass ``--keep-skill`` to leave it.
+
+    Every change to a host config is backed up first, to
+    ``<file>.sponsio-backup-<timestamp>`` beside it. If one exists, this
+    offers to restore the most recent (``--restore-backup`` to do it
+    without asking).
     """
+    from sponsio.integrations import config_backup
     from sponsio.integrations import hosts as _hosts_mod
 
     targets: list[str] = []
@@ -987,9 +1034,17 @@ def host_uninstall(names: tuple[str, ...], scope: str, with_skill: bool):
             click.secho(f"✘  {e}", fg="red", err=True)
             any_failed = True
             continue
+        # The backup to offer is chosen before the uninstall, which
+        # takes one of its own.
+        cfg = host_spec.host_config_fn(scope) if host_spec.host_config_fn else None
+        offered = config_backup.latest_backup(cfg) if cfg is not None else None
         result = host_spec.uninstall_fn(host_spec, scope=scope)
         click.secho(f"○  {result.host}: {result.note}", fg="yellow")
         click.echo(f"     {result.config_path}")
+        if result.backup is not None:
+            click.echo(f"     previous version kept at {result.backup}")
+        if cfg is not None and offered is not None:
+            _offer_restore(cfg, offered, restore_backup)
 
         if with_skill:
             removed, note = _uninstall_skill_for_host(name, scope=scope)

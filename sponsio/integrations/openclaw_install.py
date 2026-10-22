@@ -22,7 +22,10 @@ Three things happen at install time, all idempotent:
    ``plugins.entries.sponsio-openclaw = { enabled: true }`` so
    OpenClaw activates the plugin on next start.  The original
    ``openclaw.json`` is backed up to ``openclaw.json.before-sponsio``
-   on first install only — re-runs do not overwrite the backup.
+   on first install only — re-runs do not overwrite the backup. Every
+   write (install and uninstall) also leaves a timestamped copy,
+   ``openclaw.json.sponsio-backup-YYYYmmddHHMMSS``
+   (:mod:`sponsio.integrations.config_backup`).
 
 Docker scenarios (OpenClaw-in-container, with sponsio CLI absent
 inside the container) need additional steps the host installer
@@ -38,6 +41,7 @@ import shutil
 from importlib import resources
 from pathlib import Path
 
+from sponsio.integrations import config_backup
 from sponsio.integrations.hosts import (
     HookHost,
     HostInstallResult,
@@ -226,7 +230,7 @@ def _patch_openclaw_json(force: bool) -> tuple[bool, str, Path]:
     plugin's source against these paths.
 
     Idempotent.  Backs up to ``openclaw.json.before-sponsio`` on
-    first install only.
+    first install only, and to a timestamped copy on every write.
     """
     config_path = _openclaw_json_path()
     if not config_path.exists():
@@ -321,11 +325,11 @@ def _patch_openclaw_json(force: bool) -> tuple[bool, str, Path]:
 
     entries[_PLUGIN_ID] = {"enabled": True}
     installs[_PLUGIN_ID] = install_record
-    config_path.write_text(
-        json.dumps(cfg, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    return True, f"registered {_PLUGIN_ID} in {config_path}", config_path
+    saved = config_backup.write(config_path, json.dumps(cfg, indent=2) + "\n")
+    note = f"registered {_PLUGIN_ID} in {config_path}"
+    if saved is not None:
+        note += f" (previous version kept at {saved.name})"
+    return True, note, config_path
 
 
 # ---------------------------------------------------------------------------
@@ -743,6 +747,7 @@ def uninstall(host: HookHost, *, scope: str = "user") -> HostUninstallResult:
     """
     notes: list[str] = []
     removed = 0
+    saved = None
 
     # 3 → 2 → 1, mirroring the install order in reverse.
 
@@ -761,8 +766,11 @@ def uninstall(host: HookHost, *, scope: str = "user") -> HostUninstallResult:
                 if isinstance(installs, dict) and _PLUGIN_ID in installs:
                     installs.pop(_PLUGIN_ID, None)
                     removed_keys.append("installs")
+                    # Install created the section if it was missing.
+                    if not installs:
+                        plugins_section.pop("installs", None)
             if removed_keys:
-                cfg_path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+                saved = config_backup.write(cfg_path, json.dumps(cfg, indent=2) + "\n")
                 removed += 1
                 notes.append(
                     f"removed {_PLUGIN_ID} from {cfg_path} ({'+'.join(removed_keys)})"
@@ -801,4 +809,5 @@ def uninstall(host: HookHost, *, scope: str = "user") -> HostUninstallResult:
         config_path=lib_target,
         removed_entries=removed,
         note="; ".join(notes),
+        backup=saved,
     )

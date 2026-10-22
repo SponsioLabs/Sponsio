@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from sponsio.integrations import config_backup
 from sponsio.integrations.hosts import (
     HookHost,
     HostInstallResult,
@@ -172,12 +173,13 @@ def install(
         out = {"version": 1, "hooks": sponsio_hooks}
         note = "wrote fresh hooks.json"
 
-    target.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    saved = config_backup.write(target, json.dumps(out, indent=2) + "\n")
     return HostInstallResult(
         host=host.name,
         config_path=target,
         written=True,
         note=note,
+        backup=saved,
     )
 
 
@@ -226,13 +228,16 @@ def uninstall(host: HookHost, *, scope: str = "user") -> HostUninstallResult:
         else:
             del hooks[event_name]
 
-    if hooks:
+    if not removed:
+        saved = None
+        note = "no sponsio entries in hooks.json"
+    elif hooks:
         data["hooks"] = hooks
-        target.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        saved = config_backup.write(target, json.dumps(data, indent=2) + "\n")
         note = f"removed {removed} sponsio entries; kept {len(hooks)} other event(s)"
     else:
         # Whole file was sponsio-only — remove it for cleanliness.
-        target.unlink()
+        saved = config_backup.remove(target)
         note = f"removed {removed} sponsio entries; deleted now-empty hooks.json"
 
     return HostUninstallResult(
@@ -240,4 +245,5 @@ def uninstall(host: HookHost, *, scope: str = "user") -> HostUninstallResult:
         config_path=target,
         removed_entries=removed,
         note=note,
+        backup=saved,
     )
