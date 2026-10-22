@@ -37,6 +37,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable
 
+from sponsio.daemon import audit
 from sponsio.guard_stdin import (
     _MAX_ATTACHED_OUTPUT,
     GuardOutcome,
@@ -49,6 +50,8 @@ from sponsio.guard_stdin import (
     evaluate,
     library_root,
     load_snapshot,
+    malformed_outcome,
+    parse_hook_input,
     render_reply,
 )
 
@@ -659,6 +662,15 @@ class LiveGuards:
 
 _PRE_EVENTS_CLAUDE = {"PreToolUse"}
 
+KNOWN_HOSTS = frozenset({"claude-code", "cursor", "openclaw"})
+"""Hosts the daemon renders replies for. A request naming any other host
+is denied: the daemon cannot tell what that host would read as a deny.
+``None`` (no host named) is the legacy Claude Code protocol."""
+
+FAIL_OPEN = "fail_open"
+"""Audit event: a call was allowed only because it could not be
+evaluated and the on-error policy is ``allow``."""
+
 
 class GuardService:
     """Evaluate hook events for every host, with daemon-held state.
@@ -750,23 +762,23 @@ class GuardService:
         post: bool,
         mode: str | None = None,
     ) -> dict[str, Any]:
+        if host is not None and host not in KNOWN_HOSTS:
+            outcome = malformed_outcome(f"unknown host {host!r}")
+            sys.stderr.write(outcome.reason + "\n")
+            stdout, _code = render_reply({}, outcome)
+            return self._result(outcome, stdout, 2)
         if host == "cursor":
             return self._handle_cursor(hook_event, payload, raw, post=post, mode=mode)
         return self._handle_stdin_protocol(host, payload, raw, post=post, mode=mode)
 
     @staticmethod
-    def _parse_raw(raw: str, label: str) -> tuple[dict | None, str | None]:
-        """Parse hook stdin. Returns ``(payload, problem)``; a problem
-        is a host protocol error, allowed today and denied from P0.4."""
-        if not raw.strip():
-            return None, None
-        try:
-            obj = json.loads(raw)
-        except json.JSONDecodeError as e:
-            return None, f"{label}:invalid JSON on stdin: {e}"
-        if not isinstance(obj, dict):
-            return None, f"{label}:stdin payload must be a JSON object"
-        return obj, None
+    def _parse(payload: dict | None, raw: str | None) -> tuple[dict | None, str | None]:
+        """The event, from the parsed payload or the raw stdin text."""
+        if payload is not None:
+            if isinstance(payload, dict):
+                return payload, None
+            return None, "payload must be a JSON object"
+        return parse_hook_input(raw or "")
 
     @staticmethod
     def _result(outcome: GuardOutcome, stdout: str, exit_code: int) -> dict[str, Any]:
@@ -799,6 +811,16 @@ class GuardService:
                 outcome = _error_outcome(e, "", None, policy.on_error)
         if err.getvalue():
             sys.stderr.write(err.getvalue())
+        if outcome.fail_open:
+            audit.append(
+                self.state_dir,
+                FAIL_OPEN,
+                host=event.get("host"),
+                tool=event.get("tool_name"),
+                conversation=conversation_id,
+                plugin_id=outcome.plugin_id,
+                reason=outcome.reason,
+            )
         return outcome
 
     def _handle_stdin_protocol(
@@ -810,13 +832,13 @@ class GuardService:
         post: bool,
         mode: str | None = None,
     ) -> dict[str, Any]:
+        payload, problem = self._parse(payload, raw)
         if payload is None:
-            payload, problem = self._parse_raw(raw or "", "sponsio plugin guard")
-            if payload is None:
-                if problem:
-                    sys.stderr.write(problem + "\n")
-                silent = GuardOutcome(allowed=True, reason=problem or "empty stdin")
-                return self._result(silent, "", 0)
+            outcome = malformed_outcome(problem or "")
+            sys.stderr.write(outcome.reason + "\n")
+            name = "PostToolUse" if post else "PreToolUse"
+            stdout, _code = render_reply({"hook_event_name": name}, outcome)
+            return self._result(outcome, stdout, 2)
         event = dict(payload)
         if host and not (isinstance(event.get("host"), str) and event["host"].strip()):
             event["host"] = host
@@ -845,19 +867,23 @@ class GuardService:
         )
 
         hook_event = hook_event or ("postToolUse" if post else "preToolUse")
+        payload, problem = self._parse(payload, raw)
         if payload is None:
-            payload, problem = self._parse_raw(raw or "", "sponsio cursor guard")
-            if payload is None:
-                if problem:
-                    sys.stderr.write(problem + "\n")
-                silent = GuardOutcome(allowed=True, reason=problem or "empty stdin")
-                return self._result(silent, "", 0)
+            outcome = malformed_outcome(problem or "")
+            sys.stderr.write(outcome.reason + "\n")
+            stdout, code = render_cursor_reply(outcome, hook_event)
+            return self._result(outcome, stdout, code)
         if hook_event == "subagentStart":
             _record_subagent(payload)
             return self._result(
                 GuardOutcome(allowed=True, reason="subagent recorded"), "", 0
             )
-        event = cursor_event_to_sponsio_event(payload, hook_event)
+        try:
+            event = cursor_event_to_sponsio_event(payload, hook_event)
+        except Exception as e:  # noqa: BLE001 - an unconvertible event is denied
+            outcome = malformed_outcome(f"cannot convert the {hook_event} event: {e}")
+            stdout, code = render_cursor_reply(outcome, hook_event)
+            return self._result(outcome, stdout, code)
         outcome = self._evaluate(event, mode)
         rewrite_deny = os.environ.get("SPONSIO_CURSOR_REWRITE_DENY", "").lower() in (
             "1",

@@ -50,6 +50,31 @@ def run_hook(
     raw = stdin_text if stdin_text is not None else sys.stdin.read()
     sock = (socket_path or default_socket_path()).expanduser()
     method, event_name = classify(host, hook_event, raw)
+    try:
+        return _forward(host, hook_event, raw, sock, method, event_name, deadline_s)
+    except Exception as e:  # noqa: BLE001 - any failure here is a deny
+        return _deny(
+            host, event_name, f"hook failure {e.__class__.__name__}: {e}", sock
+        )
+
+
+def _deny(host: str, event_name: str, cause: str, sock: Path) -> int:
+    reason = recovery_reason(cause, str(sock), None, host)
+    out, code = deny_reply(host, event_name, reason)
+    sys.stdout.write(out + "\n")
+    sys.stderr.write(reason + "\n")
+    return code
+
+
+def _forward(
+    host: str,
+    hook_event: str | None,
+    raw: str,
+    sock: Path,
+    method: str,
+    event_name: str,
+    deadline_s: float,
+) -> int:
     params: dict = {"host": host, "event": hook_event, "raw": raw}
     mode = os.environ.get("SPONSIO_GUARD_MODE", "").strip().lower()
     if mode in ("enforce", "observe"):
@@ -75,12 +100,11 @@ def run_hook(
             else:
                 cause = f"{cause}; the daemon did not come up"
 
+    if result is not None and not isinstance(result, dict):
+        cause = "malformed daemon reply"
+        result = None
     if result is None:
-        reason = recovery_reason(cause, str(sock), None, host)
-        out, code = deny_reply(host, event_name, reason)
-        sys.stdout.write(out + "\n")
-        sys.stderr.write(reason + "\n")
-        return code
+        return _deny(host, event_name, cause, sock)
 
     out = result.get("stdout")
     if isinstance(out, str) and out:

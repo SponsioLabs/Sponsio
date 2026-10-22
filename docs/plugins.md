@@ -43,7 +43,7 @@ runs the deterministic engine, writes the deny / allow reply
 host blocks (exit non-zero or {block: true}) or proceeds
 ```
 
-The guard exits 0 in every code path. If Sponsio crashes, the tool call still goes through (fail-open). Diagnostics go to stderr; deny verdicts go to stdout in the documented hook reply schema.
+The guard fails closed. A call it cannot evaluate is denied in the host's reply schema: the daemon is unreachable, the hook names a host Sponsio does not know, the input is empty or not a JSON object, the library does not load, or the daemon answers with an error. When the input cannot be read or no daemon answers, the deny also exits 2, which blocks on every host. `SPONSIO_HOOK_ON_ERROR=allow` lets a call through when its library fails to evaluate; the daemon writes each such call to its audit log (`fail_open`). The OpenClaw plugin blocks a call it gets no verdict for unless its `failOpen` setting is `true`, and it logs a warning each time that setting is used. Diagnostics go to stderr; deny verdicts go to stdout.
 
 ## Setup (both hosts)
 

@@ -381,7 +381,7 @@ def test_rpc_check_accepts_raw_stdin(root: Path, rpc):
     )
     assert res["allowed"] is False
     empty = client.call("guard.check", {"host": HOST, "raw": "   \n"})
-    assert empty["allowed"] is True and empty["exit_code"] == 0
+    assert empty["allowed"] is False and empty["exit_code"] == 2
 
 
 def test_rpc_check_renders_cursor_deny(root: Path, rpc):

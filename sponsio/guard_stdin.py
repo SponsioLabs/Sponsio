@@ -80,6 +80,9 @@ class GuardOutcome:
     reason: str = ""
     plugin_id: str = ""
     library_path: str | None = None
+    fail_open: bool = False
+    """Allowed only because the call could not be evaluated and the
+    on-error policy is ``allow``. The daemon audits every such call."""
 
 
 def _bucket_for_host(host: str | None, is_subagent: bool) -> str:
@@ -882,6 +885,7 @@ def _error_outcome(
             reason=f"evaluation error: {exc}",
             plugin_id=plugin_id,
             library_path=library_path,
+            fail_open=True,
         )
     return GuardOutcome(
         allowed=False,
@@ -892,6 +896,34 @@ def _error_outcome(
         plugin_id=plugin_id,
         library_path=library_path,
     )
+
+
+def malformed_outcome(problem: str) -> GuardOutcome:
+    """Outcome for hook input that is not an event: empty stdin, not
+    JSON, not a JSON object, or a host Sponsio does not know.
+
+    Denied. Such input used to be allowed as "a host protocol problem",
+    so anything that could garble or truncate what reaches the hook
+    turned the guard off for that call.
+    """
+    return GuardOutcome(
+        allowed=False,
+        reason=f"Sponsio could not read this hook call ({problem}), so it is denied.",
+    )
+
+
+def parse_hook_input(raw: str) -> tuple[dict | None, str | None]:
+    """``(event, problem)`` for the text a host wrote to the hook's stdin;
+    exactly one is set."""
+    if not raw.strip():
+        return None, "empty stdin"
+    try:
+        obj = json.loads(raw)
+    except json.JSONDecodeError as e:
+        return None, f"invalid JSON on stdin: {e}"
+    if not isinstance(obj, dict):
+        return None, "stdin payload must be a JSON object"
+    return obj, None
 
 
 # Tool outputs attached to the trace are capped so one large file read
@@ -1271,8 +1303,8 @@ def render_reply(event: dict, outcome: GuardOutcome) -> tuple[str, int]:
 def run_stdin(stdin_text: str | None = None, *, default_host: str | None = None) -> int:
     """End-to-end entry point: read stdin, evaluate, write reply.
 
-    Returns the process exit code. Malformed stdin (not JSON, not an
-    object) is a host protocol problem and is allowed. An error while
+    Returns the process exit code. Malformed stdin (empty, not JSON, not
+    an object) is denied (:func:`malformed_outcome`). An error while
     evaluating the event follows :func:`_error_outcome`: denied unless
     ``SPONSIO_HOOK_ON_ERROR=allow``. Errors go to stderr so the operator
     can see them.
@@ -1286,19 +1318,15 @@ def run_stdin(stdin_text: str | None = None, *, default_host: str | None = None)
     library still ran. A ``host`` the payload does carry wins.
     """
     raw = stdin_text if stdin_text is not None else sys.stdin.read()
-    if not raw.strip():
-        # Empty stdin — no event to evaluate. Allow.
-        return 0
-
-    try:
-        event = json.loads(raw)
-    except json.JSONDecodeError as e:
-        sys.stderr.write(f"sponsio plugin guard:invalid JSON on stdin: {e}\n")
-        return 0
-
-    if not isinstance(event, dict):
-        sys.stderr.write("sponsio plugin guard:stdin payload must be a JSON object\n")
-        return 0
+    event, problem = parse_hook_input(raw)
+    if event is None:
+        outcome = malformed_outcome(problem or "")
+        payload, _code = render_reply({}, outcome)
+        sys.stdout.write(payload + "\n")
+        sys.stderr.write(outcome.reason + "\n")
+        # Exit 2 as well: input this broken may come with a host that
+        # does not read the reply either, and exit 2 blocks regardless.
+        return 2
 
     if default_host and not (
         isinstance(event.get("host"), str) and event["host"].strip()

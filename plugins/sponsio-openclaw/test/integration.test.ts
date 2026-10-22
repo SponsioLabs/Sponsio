@@ -26,6 +26,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { createServer } from "node:net";
 
 import sponsioOpenClawPlugin, {
   createSponsioOpenClawPlugin,
@@ -346,6 +347,109 @@ test("no daemon and none can start: the call is blocked with a recovery hint", a
     assert.equal(result?.block, true);
     assert.match(result!.blockReason!, /not reachable/);
     assert.match(result!.blockReason!, /sponsio host uninstall openclaw/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ----------------------------------------------------------------------------
+// No verdict: the daemon answers, but not with a decision
+// ----------------------------------------------------------------------------
+
+/** A socket that answers every request with ``reply`` (length-prefixed
+ * JSON, the daemon's framing). */
+async function fakeDaemon(reply: object): Promise<{ path: string; close(): void }> {
+  const dir = mkdtempSync("/tmp/spoc-");
+  const path = join(dir, "sock");
+  const body = Buffer.from(JSON.stringify(reply), "utf8");
+  const header = Buffer.alloc(4);
+  header.writeUInt32BE(body.length, 0);
+  const server = createServer((sock) => {
+    sock.once("data", () => sock.end(Buffer.concat([header, body])));
+  });
+  await new Promise<void>((r) => server.listen(path, r));
+  return {
+    path,
+    close() {
+      server.close();
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+function loggingApi(): MockApi & { warnings: string[]; errors: string[] } {
+  const api = makeMockApi() as MockApi & { warnings: string[]; errors: string[] };
+  api.warnings = [];
+  api.errors = [];
+  api.logger = {
+    debug() {},
+    info() {},
+    warn: (msg: string) => api.warnings.push(msg),
+    error: (msg: string) => api.errors.push(msg),
+  };
+  return api;
+}
+
+for (const [label, reply] of [
+  ["answers with an error", { ok: false, error: "handler exploded" }],
+  ["sends a reply that is not a result", { ok: true, result: "garbled" }],
+] as const) {
+  test(`the daemon ${label}: the call is blocked`, async () => {
+    const d = await fakeDaemon(reply);
+    try {
+      const api = loggingApi();
+      createSponsioOpenClawPlugin({ socketPath: d.path, deadlineMs: 1000 }).register(api);
+      const result = await api.__lastRegistration!.handler(
+        makeEvent("Bash", { command: "ls" }),
+        makeCtx("Bash"),
+      );
+      assert.equal(result?.block, true);
+      assert.match(result!.blockReason!, /could not decide/);
+      assert.equal(api.errors.length, 1);
+    } finally {
+      d.close();
+    }
+  });
+}
+
+test("failOpen lets a call with no verdict through and warns every time", async () => {
+  const d = await fakeDaemon({ ok: false, error: "handler exploded" });
+  try {
+    const api = loggingApi();
+    createSponsioOpenClawPlugin({
+      socketPath: d.path,
+      deadlineMs: 1000,
+      failOpen: true,
+    }).register(api);
+    for (let i = 0; i < 2; i++) {
+      const result = await api.__lastRegistration!.handler(
+        makeEvent("Bash", { command: "ls" }),
+        makeCtx("Bash"),
+      );
+      assert.equal(result, undefined);
+    }
+    assert.equal(api.warnings.length, 2);
+    assert.match(api.warnings[0], /failOpen/);
+  } finally {
+    d.close();
+  }
+});
+
+test("failOpen does not open an unreachable daemon", async () => {
+  const dir = mkdtempSync("/tmp/spoc-");
+  try {
+    const api = loggingApi();
+    createSponsioOpenClawPlugin({
+      socketPath: join(dir, "sock"),
+      sponsio: ["/nonexistent/sponsio"],
+      deadlineMs: 500,
+      failOpen: true,
+    }).register(api);
+    const result = await api.__lastRegistration!.handler(
+      makeEvent("Bash", { command: "ls" }),
+      makeCtx("Bash"),
+    );
+    assert.equal(result?.block, true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

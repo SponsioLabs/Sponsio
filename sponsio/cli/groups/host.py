@@ -1100,8 +1100,13 @@ def host_guard(name: str, hook_event: str | None, use_stdin: bool, direct: bool)
     try:
         host_spec = _hosts_mod.get(name)
     except KeyError as e:
-        sys.stderr.write(f"sponsio host guard: {e}\n")
-        sys.exit(0)
+        # Deny: an unknown host has no reply shape Sponsio could write,
+        # and exit 2 blocks on every host that runs this hook.
+        sys.stderr.write(
+            f"sponsio host guard: {e}. This tool call is denied; re-run "
+            "`sponsio host install <host>` from your own terminal.\n"
+        )
+        sys.exit(2)
 
     if direct:
         sys.exit(host_spec.runtime_fn(host_spec, hook_event, None))

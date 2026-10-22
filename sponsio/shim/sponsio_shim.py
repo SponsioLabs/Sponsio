@@ -51,6 +51,10 @@ _CURSOR_PRE_EVENTS = (
     "beforeSubmitPrompt",
 )
 
+KNOWN_HOSTS = ("claude-code", "cursor", "openclaw")
+"""Hosts whose deny shape the shim knows. Kept equal to
+``sponsio.daemon.guard_service.KNOWN_HOSTS`` (a test checks)."""
+
 _ENV_PASSTHROUGH = (
     "HOME",
     "PATH",
@@ -296,9 +300,25 @@ def wait_for_socket(socket_path: str, until: float) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def unknown_host_reason(host: str) -> str:
+    named = f"unknown host {host!r}" if host else "no host named"
+    return (
+        f"Sponsio: the hook command has {named}, so this tool call is denied. "
+        f"Re-run `sponsio host install <host>` from your own terminal "
+        f"(one of: {', '.join(KNOWN_HOSTS)})."
+    )
+
+
 def run(argv: list[str], stdin_text: str) -> tuple[str, int, str]:
     """``(stdout, exit_code, stderr)`` for one hook invocation."""
     opts = parse_args(argv)
+    if opts.host not in KNOWN_HOSTS:
+        # No daemon call: the daemon would deny it too, and without a
+        # known host there is no protocol to ask it in.
+        reason = unknown_host_reason(opts.host)
+        _method, event_name = classify(opts.host, opts.event, stdin_text)
+        out, code = deny_reply(opts.host, event_name, reason)
+        return out, code, reason + "\n"
     started = time.monotonic()
     deadline = started + opts.deadline
     method, event_name = classify(opts.host, opts.event, stdin_text)

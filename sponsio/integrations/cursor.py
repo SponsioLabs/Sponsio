@@ -389,25 +389,26 @@ def render_cursor_reply(
 
 def run_cursor_stdin(hook_event: str, stdin_text: str | None = None) -> int:
     """Read one Cursor hook payload from stdin, evaluate it, write the
-    Cursor-shaped reply.  Always exits cleanly: a Sponsio bug must
-    never wedge a Cursor tool call.
+    Cursor-shaped reply. Fails closed: input that is not a JSON object,
+    an event Sponsio cannot convert, and an evaluation error (unless
+    ``SPONSIO_HOOK_ON_ERROR=allow``) are all denied, with the deny JSON
+    and exit 2.
 
     Set the env var ``SPONSIO_CURSOR_REWRITE_DENY=1`` to enable the
     rewrite-deny workaround (see :func:`render_cursor_reply`); this is
     the recommended setting while the Cursor ``agent_message``
     regression is unfixed.
     """
+    from sponsio.guard_stdin import malformed_outcome, parse_hook_input
+
     raw = stdin_text if stdin_text is not None else sys.stdin.read()
-    if not raw.strip():
-        return 0
-    try:
-        cursor_payload = json.loads(raw)
-    except json.JSONDecodeError as e:
-        sys.stderr.write(f"sponsio cursor guard:invalid JSON on stdin: {e}\n")
-        return 0
-    if not isinstance(cursor_payload, dict):
-        sys.stderr.write("sponsio cursor guard:stdin payload must be a JSON object\n")
-        return 0
+    cursor_payload, problem = parse_hook_input(raw)
+    if cursor_payload is None:
+        outcome = malformed_outcome(problem or "")
+        sys.stderr.write(f"sponsio cursor guard:{problem}\n")
+        payload, code = render_cursor_reply(outcome, hook_event)
+        sys.stdout.write(payload + "\n")
+        return code
 
     # ``subagentStart`` doesn't gate any tool call — it's the signal that
     # later preToolUse events from this conversation_id should route to
@@ -416,7 +417,13 @@ def run_cursor_stdin(hook_event: str, stdin_text: str | None = None) -> int:
         _record_subagent(cursor_payload)
         return 0
 
-    sponsio_event = cursor_event_to_sponsio_event(cursor_payload, hook_event)
+    try:
+        sponsio_event = cursor_event_to_sponsio_event(cursor_payload, hook_event)
+    except Exception as e:  # noqa: BLE001 - an unconvertible event is denied
+        outcome = malformed_outcome(f"cannot convert the {hook_event} event: {e}")
+        payload, code = render_cursor_reply(outcome, hook_event)
+        sys.stdout.write(payload + "\n")
+        return code
 
     rewrite_deny = os.environ.get("SPONSIO_CURSOR_REWRITE_DENY", "").lower() in (
         "1",

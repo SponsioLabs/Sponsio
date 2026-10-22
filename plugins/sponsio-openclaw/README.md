@@ -133,6 +133,7 @@ variable; edit the file (or reinstall) and restart OpenClaw.
 | `sponsio` | Command that runs the Sponsio CLI, as a list (default `["sponsio"]`). |
 | `mode` | `enforce` (default) or `observe`. |
 | `deadlineMs` | Budget for one decision (default 2000). |
+| `failOpen` | `false` (default): a call the plugin gets no verdict for (the daemon answered with an error, or the plugin failed) is blocked. `true` lets it through and logs a warning each time. An unreachable daemon blocks either way. |
 
 ## Known gaps
 

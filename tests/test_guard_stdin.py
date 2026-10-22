@@ -362,16 +362,22 @@ def test_render_posttooluse_deny_uses_top_level_decision():
 # ---------------------------------------------------------------------------
 
 
-def test_run_stdin_empty_input_allows():
-    assert run_stdin("") == 0
-    assert run_stdin("   \n") == 0
+def test_run_stdin_empty_input_denies(capsys):
+    # No event is not "nothing to check": whatever garbled the input
+    # must not turn the guard off for this call.
+    for raw in ("", "   \n"):
+        assert run_stdin(raw) == 2
+        out = json.loads(capsys.readouterr().out)
+        assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-def test_run_stdin_invalid_json_does_not_block(capsys):
-    assert run_stdin("not json") == 0
+def test_run_stdin_invalid_json_denies(capsys):
+    assert run_stdin("not json") == 2
     captured = capsys.readouterr()
     assert "invalid JSON" in captured.err
-    assert captured.out == ""
+    assert json.loads(captured.out)["hookSpecificOutput"]["permissionDecision"] == (
+        "deny"
+    )
 
 
 def test_run_stdin_block_emits_deny_json(tmp_path, monkeypatch, capsys):

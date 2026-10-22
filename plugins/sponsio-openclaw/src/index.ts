@@ -217,6 +217,11 @@ export interface SponsioOpenClawOptions {
   mode?: "enforce" | "observe";
   /** Budget for one decision, start to answer. Default 2000 ms. */
   deadlineMs?: number;
+  /** Let a call through when the plugin cannot get a verdict (the
+   * daemon answered with an error, or the plugin itself failed).
+   * Default false: such a call is blocked. Every call let through this
+   * way logs a warning. An unreachable daemon blocks either way. */
+  failOpen?: boolean;
 }
 
 const DEFAULT_DEADLINE_MS = 2000;
@@ -261,29 +266,41 @@ export function createSponsioOpenClawPlugin(
           // routing and library files serve both hosts. ``ctx`` is the
           // second handler arg in the OpenClaw runtime, not a field on
           // event.
-          const payload = {
-            hook_event_name: "PreToolUse",
-            tool_name: event?.toolName ?? "",
-            tool_input: event?.params ?? {},
-            // Routes the fallback to _host_openclaw.
-            host: "openclaw",
-            // The daemon keys session history on this.
-            session_id: ctx?.sessionId,
-            agent_id: ctx?.agentId,
-            tool_use_id: event?.toolCallId ?? ctx?.toolCallId,
-          };
           let verdict: Verdict;
           try {
+            const payload = {
+              hook_event_name: "PreToolUse",
+              tool_name: event?.toolName ?? "",
+              tool_input: event?.params ?? {},
+              // Routes the fallback to _host_openclaw.
+              host: "openclaw",
+              // The daemon keys session history on this.
+              session_id: ctx?.sessionId,
+              agent_id: ctx?.agentId,
+              tool_use_id: event?.toolCallId ?? ctx?.toolCallId,
+            };
             verdict = await decide(opts, payload);
           } catch (err) {
-            // A daemon that answered with an error. Fail-closed for this
-            // case lands with the fail-closed audit (P0.4); an
-            // unreachable daemon is already a block, see ``decide``.
+            // No verdict: the daemon answered with an error, or this
+            // handler failed. Blocked, the same as an unreachable daemon
+            // (see ``decide``), unless the operator chose failOpen.
+            const cause = err instanceof Error ? err.message : String(err);
+            if (opts.failOpen) {
+              api.logger?.warn?.(
+                `[sponsio-openclaw] no verdict (${cause}); failOpen is set, ` +
+                  "so this tool call runs unchecked",
+              );
+              return undefined;
+            }
             api.logger?.error?.(
-              "[sponsio-openclaw] guard call failed; allowing through",
-              err,
+              `[sponsio-openclaw] no verdict (${cause}); blocking the call`,
             );
-            return undefined;
+            return {
+              block: true,
+              blockReason:
+                `Sponsio could not decide this call (${cause}), so it is ` +
+                "blocked. Check `sponsio doctor` from your own terminal.",
+            };
           }
           if (!verdict.allowed) {
             return {
@@ -329,6 +346,7 @@ interface ResolvedOptions {
   sponsio: string[];
   mode?: "enforce" | "observe";
   deadlineMs: number;
+  failOpen: boolean;
 }
 
 interface Verdict {
@@ -347,6 +365,7 @@ function resolveOptions(o: SponsioOpenClawOptions): ResolvedOptions {
       typeof o.deadlineMs === "number" && o.deadlineMs > 0
         ? o.deadlineMs
         : DEFAULT_DEADLINE_MS,
+    failOpen: o.failOpen === true,
   };
 }
 

@@ -171,6 +171,11 @@ export interface SponsioOpenClawOptions {
     mode?: "enforce" | "observe";
     /** Budget for one decision, start to answer. Default 2000 ms. */
     deadlineMs?: number;
+    /** Let a call through when the plugin cannot get a verdict (the
+     * daemon answered with an error, or the plugin itself failed).
+     * Default false: such a call is blocked. Every call let through this
+     * way logs a warning. An unreachable daemon blocks either way. */
+    failOpen?: boolean;
 }
 /** Read ``sponsio-config.json`` next to this module, if present. */
 export declare function loadInstalledOptions(): SponsioOpenClawOptions;
@@ -193,6 +198,7 @@ interface ResolvedOptions {
     sponsio: string[];
     mode?: "enforce" | "observe";
     deadlineMs: number;
+    failOpen: boolean;
 }
 interface Verdict {
     allowed: boolean;
