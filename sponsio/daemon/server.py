@@ -146,7 +146,9 @@ class DaemonServer:
         self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._sock.bind(str(self.socket_path))
         self._sock.settimeout(self._accept_timeout_s)
-        self._sock.listen(16)
+        # The full backlog: on macOS a connect to a Unix socket whose
+        # backlog is full is refused at once, and a refused hook denies.
+        self._sock.listen(socket.SOMAXCONN)
         os.chmod(self.socket_path, self._socket_mode)
         self._stop_event.clear()
         self._accept_thread = threading.Thread(
