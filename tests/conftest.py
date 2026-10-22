@@ -20,8 +20,135 @@ This is the same pattern ``tests/test_doctor.py`` and
 from __future__ import annotations
 
 import os
+import pwd
+import shutil
+import tempfile
+from pathlib import Path
 
 import pytest
+
+# ---------------------------------------------------------------------------
+# The real home directory is off limits
+# ---------------------------------------------------------------------------
+#
+# Host config files are global and live: Claude Code re-reads
+# ``~/.claude/settings.json`` on every tool call of every session on the
+# machine. A test that wrote a fail-closed hook there (it happened: the
+# host registry fixed its paths at import, before the test moved HOME)
+# denied every tool call of every Claude Code session until the file was
+# fixed by hand, and destroyed the settings it overwrote.
+#
+# So the suite snapshots what Sponsio could write under the real HOME
+# (resolved from the password database, which no test patches), and
+# checks it after every test. A config file that changed is put back from
+# the session-start copy at once (the changed version is kept next to
+# the backup) and the run stops. Anything else that appeared or changed
+# is reported, not touched, and the run stops.
+
+_REAL_HOME = Path(pwd.getpwuid(os.getuid()).pw_dir)
+
+_GUARDED_FILES = (
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+    ".cursor/hooks.json",
+    ".openclaw/openclaw.json",
+    ".sponsio/credentials",
+)
+"""Restored on change: each is read live by a host or by Sponsio."""
+
+_GUARDED_TREES = (
+    ".claude/skills/sponsio",
+    ".cursor/skills/sponsio",
+    ".openclaw/skills/sponsio",
+    ".openclaw/extensions/sponsio-openclaw",
+    ".sponsio/plugins",
+    ".sponsio/state",
+    ".sponsio/sponsio.sock",
+    ".sponsio/admin.sock",
+)
+"""Reported on change, never modified by the guard."""
+
+
+def _signature(path: Path):
+    try:
+        st = path.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError as e:  # unreadable: compare the error, not a stat
+        return ("error", type(e).__name__)
+    if path.is_dir() and not path.is_symlink():
+        entries = []
+        for sub in sorted(path.rglob("*")):
+            try:
+                sst = sub.lstat()
+            except OSError:
+                continue
+            entries.append((str(sub.relative_to(path)), sst.st_mtime_ns, sst.st_size))
+        return ("dir", tuple(entries))
+    return ("file", st.st_mtime_ns, st.st_size, st.st_ino)
+
+
+def _snapshot() -> dict[str, object]:
+    return {
+        rel: _signature(_REAL_HOME / rel) for rel in _GUARDED_FILES + _GUARDED_TREES
+    }
+
+
+_BASELINE: dict[str, object] = {}
+_BACKUP_DIR: Path | None = None
+
+
+def _take_baseline() -> None:
+    global _BACKUP_DIR
+    _BASELINE.update(_snapshot())
+    _BACKUP_DIR = Path(tempfile.mkdtemp(prefix="sponsio-real-home-backup-"))
+    for rel in _GUARDED_FILES:
+        src = _REAL_HOME / rel
+        if src.is_file():
+            dst = _BACKUP_DIR / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+
+
+def _restore_file(rel: str, test_id: str) -> str:
+    assert _BACKUP_DIR is not None
+    target = _REAL_HOME / rel
+    safe_id = "".join(c if c.isalnum() or c in "._-" else "_" for c in test_id)[-120:]
+    kept = _BACKUP_DIR / "changed" / safe_id / rel
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        shutil.copy2(target, kept)
+    original = _BACKUP_DIR / rel
+    if original.is_file():
+        shutil.copy2(original, target)
+        return f"restored {target} (changed version kept at {kept})"
+    if target.exists():
+        target.unlink()
+        return f"removed {target}, which did not exist before (kept at {kept})"
+    return f"{target} changed and is gone again"
+
+
+@pytest.fixture(autouse=True)
+def _real_home_is_off_limits(request):
+    yield
+    now = _snapshot()
+    changed = [rel for rel, sig in now.items() if sig != _BASELINE.get(rel)]
+    if not changed:
+        return
+    notes = []
+    for rel in changed:
+        if rel in _GUARDED_FILES:
+            notes.append(_restore_file(rel, request.node.nodeid))
+            _BASELINE[rel] = _signature(_REAL_HOME / rel)
+        else:
+            notes.append(f"changed: {_REAL_HOME / rel} (left as is)")
+    pytest.exit(
+        f"{request.node.nodeid} wrote under the real home directory "
+        f"{_REAL_HOME}. Tests must write only under their own temp dir.\n  "
+        + "\n  ".join(notes)
+        + f"\n  session-start backup: {_BACKUP_DIR}",
+        returncode=3,
+    )
 
 
 def pytest_configure(config):  # noqa: ARG001 — pytest hook signature
@@ -32,6 +159,7 @@ def pytest_configure(config):  # noqa: ARG001 — pytest hook signature
     # still wins — useful for running the suite against the new
     # production default to find what the next round of fixes is.
     os.environ.setdefault("SPONSIO_MODE", "enforce")
+    _take_baseline()
 
 
 @pytest.fixture(autouse=True)

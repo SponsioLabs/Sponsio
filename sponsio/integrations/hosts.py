@@ -36,17 +36,20 @@ class HookHost:
     description: str
     """One-line summary surfaced by ``sponsio host list``."""
 
-    config_path_user: Path
-    """Path to the host's user-scope hook config file."""
+    user_config_fn: Callable[[], Path]
+    """Returns the host's user-scope hook config file. Resolved on every
+    access (see :attr:`config_path_user`), never at import: the path
+    depends on ``HOME``, and a value fixed when this module loaded kept
+    pointing at the real ``~/.claude/settings.json`` after a caller
+    (a test, a sandboxed run) had moved ``HOME`` somewhere else."""
 
     config_path_project: Path | None
     """Path to the host's project-scope hook config (relative to cwd),
     or ``None`` if the host has no project-scope concept."""
 
-    detect_paths: tuple[Path, ...]
-    """Paths whose existence implies the host is installed on this
-    machine.  ``sponsio host install auto`` iterates the registry and
-    installs any host where at least one of these exists."""
+    detect_fn: Callable[[], tuple[Path, ...]]
+    """Returns the paths whose existence implies the host is installed
+    on this machine (see :attr:`detect_paths`)."""
 
     install_fn: Callable[..., "HostInstallResult"]
     """``install(host: HookHost, scope: str, fail_closed: bool, force: bool,
@@ -91,6 +94,19 @@ class HookHost:
     functions read.  Keeps the dataclass closed-shape while allowing
     per-host configuration (e.g. Claude Code's ``settings.json`` key
     naming)."""
+
+    @property
+    def config_path_user(self) -> Path:
+        """The host's user-scope hook config file, under the current
+        ``HOME``."""
+        return self.user_config_fn()
+
+    @property
+    def detect_paths(self) -> tuple[Path, ...]:
+        """Paths whose existence implies the host is installed on this
+        machine.  ``sponsio host install auto`` iterates the registry and
+        installs any host where at least one of these exists."""
+        return self.detect_fn()
 
 
 @dataclass
@@ -308,9 +324,9 @@ register(
     HookHost(
         name="cursor",
         description="Cursor IDE 1.7+ — deny-capable preToolUse / before* hooks.",
-        config_path_user=Path.home() / ".cursor" / "hooks.json",
+        user_config_fn=lambda: Path.home() / ".cursor" / "hooks.json",
         config_path_project=Path(".cursor") / "hooks.json",
-        detect_paths=(Path.home() / ".cursor",),
+        detect_fn=lambda: (Path.home() / ".cursor",),
         install_fn=_cursor_install,
         uninstall_fn=_cursor_uninstall,
         runtime_fn=_cursor_runtime,
@@ -336,9 +352,9 @@ register(
     HookHost(
         name="claude-code",
         description="Claude Code CLI — user-level PreToolUse / PostToolUse hooks via settings.json.",
-        config_path_user=Path.home() / ".claude" / "settings.json",
+        user_config_fn=lambda: Path.home() / ".claude" / "settings.json",
         config_path_project=Path(".claude") / "settings.json",
-        detect_paths=(
+        detect_fn=lambda: (
             Path.home() / ".claude",
             Path.home() / ".claude" / "settings.json",
         ),
@@ -355,13 +371,11 @@ register(
     HookHost(
         name="openclaw",
         description="OpenClaw — agent runtime that loads ``openclaw.plugin.json`` plugins.",
-        config_path_user=Path.home()
-        / ".sponsio"
-        / "plugins"
-        / "_host_openclaw"
-        / "sponsio.yaml",
+        user_config_fn=lambda: (
+            Path.home() / ".sponsio" / "plugins" / "_host_openclaw" / "sponsio.yaml"
+        ),
         config_path_project=None,
-        detect_paths=(Path.home() / ".openclaw",),
+        detect_fn=lambda: (Path.home() / ".openclaw",),
         install_fn=_openclaw_install,
         uninstall_fn=_openclaw_uninstall,
         runtime_fn=_openclaw_runtime,

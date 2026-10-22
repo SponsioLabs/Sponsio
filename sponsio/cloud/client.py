@@ -26,7 +26,13 @@ DEFAULT_TIMEOUT = 10.0
 # but not for long: a slow cloud must not become a slow agent start.
 DEFAULT_RETRIES = 2
 
-CREDENTIALS_PATH = Path.home() / ".sponsio" / "credentials"
+CREDENTIALS_REL = Path(".sponsio") / "credentials"
+
+
+def credentials_path() -> Path:
+    """The credentials file under the current ``HOME``. Resolved per
+    call: a path fixed at import ignores a later change of ``HOME``."""
+    return Path.home() / CREDENTIALS_REL
 
 
 def write_api_key(
@@ -41,7 +47,7 @@ def write_api_key(
     0600 matters: this file is a bearer credential, and the default umask on
     a shared box would leave it world-readable.
     """
-    target = path or CREDENTIALS_PATH
+    target = path or credentials_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     lines = ["# Sponsio credentials. Keep private.", f"api_key={key}"]
     if url:
@@ -54,7 +60,7 @@ def write_api_key(
 def read_saved_url() -> str | None:
     """The endpoint ``sponsio login`` verified the saved key against."""
     try:
-        raw = CREDENTIALS_PATH.read_text()
+        raw = credentials_path().read_text()
     except OSError:
         return None
     for line in raw.splitlines():
@@ -97,7 +103,7 @@ def read_api_key() -> str | None:
     if key:
         return key
     try:
-        raw = CREDENTIALS_PATH.read_text()
+        raw = credentials_path().read_text()
     except OSError:
         return None
     for line in raw.splitlines():

@@ -266,20 +266,21 @@ def _resolve_host_targets(name_or_set: str) -> list[str]:
 # we install to ``~/.openclaw/skills/`` by convention so the skill is
 # materialised somewhere predictable, even if OpenClaw itself doesn't yet
 # auto-discover it. the user (or a future OpenClaw release) can wire it in.
+# HOME-relative, resolved per call by :func:`_skill_dirs`: a path fixed
+# at import time ignores a later change of ``HOME`` (tests, sandboxes)
+# and writes into the real home directory.
 _HOST_SKILL_DIRS: dict[str, tuple[Path, Path | None]] = {
-    "cursor": (
-        Path.home() / ".cursor" / "skills",
-        Path(".cursor") / "skills",
-    ),
-    "claude-code": (
-        Path.home() / ".claude" / "skills",
-        Path(".claude") / "skills",
-    ),
-    "openclaw": (
-        Path.home() / ".openclaw" / "skills",
-        Path(".openclaw") / "skills",
-    ),
+    "cursor": (Path(".cursor") / "skills", Path(".cursor") / "skills"),
+    "claude-code": (Path(".claude") / "skills", Path(".claude") / "skills"),
+    "openclaw": (Path(".openclaw") / "skills", Path(".openclaw") / "skills"),
 }
+
+
+def _skill_dirs(host_name: str) -> tuple[Path, Path | None]:
+    """``(user_parent, project_parent)`` for ``host_name``'s skills, the
+    user one under the current ``HOME``."""
+    user_rel, project_parent = _HOST_SKILL_DIRS[host_name]
+    return Path.home() / user_rel, project_parent
 
 
 def _resolve_runtime_mode(
@@ -492,7 +493,7 @@ def _install_skill_for_host(
     if host_name not in _HOST_SKILL_DIRS:
         return False, f"{host_name}: no skill discovery path standard. skipped"
 
-    user_parent, project_parent = _HOST_SKILL_DIRS[host_name]
+    user_parent, project_parent = _skill_dirs(host_name)
     parent = project_parent if scope == "project" and project_parent else user_parent
     target = parent / "sponsio"
 
@@ -529,7 +530,7 @@ def _uninstall_skill_for_host(host_name: str, *, scope: str) -> tuple[bool, str]
     if host_name not in _HOST_SKILL_DIRS:
         return False, f"{host_name}: no skill discovery path standard. skipped"
 
-    user_parent, project_parent = _HOST_SKILL_DIRS[host_name]
+    user_parent, project_parent = _skill_dirs(host_name)
     parent = project_parent if scope == "project" and project_parent else user_parent
     target = parent / "sponsio"
 

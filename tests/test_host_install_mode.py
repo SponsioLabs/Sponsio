@@ -29,6 +29,9 @@ def isolated_home(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(home / ".sponsio" / "plugins"))
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    # Every host config the installers write must land under the sandbox.
+    for spec in hosts.available():
+        assert spec.config_path_user.is_relative_to(home), spec.config_path_user
     return home
 
 
