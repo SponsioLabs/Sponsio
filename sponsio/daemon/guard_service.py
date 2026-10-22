@@ -14,8 +14,9 @@ daemon keeps:
 * :class:`MemoryTraceStore` keeps one trace per conversation in memory,
   merged across buckets the way the file layout merges them, with a
   write-ahead log under the daemon state dir so a restart restores
-  every live conversation. Log records carry the same event fields as
-  the legacy ``.shield-trace.jsonl`` lines, no more and no fewer.
+  every live conversation. Log records carry the event fields of the
+  legacy ``.shield-trace.jsonl`` lines plus ``seq``, the event's place
+  in its conversation, which is the order traces are rebuilt in.
 * :class:`GuardService` serialises calls per conversation, runs the
   decision, and renders the host's reply, so a client (the shim, the
   OpenClaw plugin, the legacy CLI) only forwards bytes.
@@ -182,6 +183,8 @@ class _Conversation:
     events: list[tuple[str, dict]] = field(default_factory=list)
     attaches: list[tuple[int, str]] = field(default_factory=list)
     """``(index into events, content)`` per attached output, in order."""
+    next_seq: int = 0
+    """The ``seq`` the next appended event gets."""
     last_activity: float = field(default_factory=time.time)
     generation: int = field(default_factory=lambda: next(_GENERATION))
     """Distinct per conversation object, so an expired and recreated
@@ -193,10 +196,19 @@ Revision = tuple[int, int, int]
 
 
 def _to_event(d: dict):
+    """An :class:`Event` whose ``ts`` is the record's ``seq``.
+
+    The ``ts`` a guard assigned is its trace length at the time, which
+    counts a ``context_update`` the store never records; a later event
+    could then share it, and ordering by ``(ts, agent)`` put the two the
+    wrong way round. ``seq`` is unique and gap-free per conversation, so
+    ``now`` and ``time_since`` count stored steps too.
+    """
     from sponsio.models.trace import Event
 
+    seq = d.get("seq")
     return Event(
-        ts=int(d["ts"]),
+        ts=seq if isinstance(seq, int) else int(d["ts"]),
         agent=d["agent"],
         event_type=d["type"],
         tool=d.get("tool"),
@@ -219,9 +231,16 @@ class MemoryTraceStore:
 
     Records are one JSON object per line: ``{"b": bucket, "e": event}``
     for an admitted event, ``{"b": bucket, "a": {"tool", "content"}}``
-    for an output attached by a post-event. ``event`` has exactly the
-    fields the legacy trace lines have (``ts``, ``agent``, ``type``,
-    ``tool``, ``args``, and ``content`` once attached).
+    for an output attached by a post-event. ``event`` has the fields the
+    legacy trace lines have (``ts``, ``agent``, ``type``, ``tool``,
+    ``args``, and ``content`` once attached) plus ``seq``.
+
+    The daemon is the only writer, so it numbers each conversation's
+    events as it admits them: ``seq`` is 0, 1, 2, ... in admission order
+    across buckets, survives a restart, and is the order every rebuilt
+    trace follows. A logged event without one (written before ``seq``
+    existed) is numbered by its place in the log, which is the order it
+    was appended in.
 
     A conversation idle for longer than the TTL is dropped with its log
     on next access or at load, which is the legacy rotation rule and
@@ -292,7 +311,12 @@ class MemoryTraceStore:
             if not isinstance(bucket, str):
                 continue
             if isinstance(rec.get("e"), dict):
-                conv.events.append((bucket, rec["e"]))
+                event = rec["e"]
+                seq = event.get("seq")
+                if not isinstance(seq, int) or seq < conv.next_seq:
+                    event["seq"] = seq = conv.next_seq
+                conv.next_seq = seq + 1
+                conv.events.append((bucket, event))
             elif isinstance(rec.get("a"), dict):
                 MemoryTraceStore._apply_attach(
                     conv, bucket, rec["a"].get("tool"), rec["a"].get("content")
@@ -344,7 +368,7 @@ class MemoryTraceStore:
 
     def records(self, conversation_id: str | None) -> list[tuple[int, Any]]:
         """``(index, Event)`` for every event of the conversation, in the
-        order :meth:`events` returns them (by ``ts``, then agent)."""
+        order :meth:`events` returns them: by ``seq``, admission order."""
         with self._lock:
             conv = self._conv(conversation_id, create=False)
             if conv is None:
@@ -356,7 +380,7 @@ class MemoryTraceStore:
                 out.append((i, _to_event(d)))
             except (KeyError, ValueError, TypeError):
                 continue
-        out.sort(key=lambda r: (r[1].ts, r[1].agent or ""))
+        out.sort(key=lambda r: r[1].ts)
         return out
 
     def revision(self, conversation_id: str | None) -> Revision | None:
@@ -396,7 +420,9 @@ class MemoryTraceStore:
         with self._lock:
             conv = self._conv(conversation_id, create=True)
             assert conv is not None
+            record["seq"] = conv.next_seq
             self._write(conv, {"b": plugin_id, "e": record})
+            conv.next_seq += 1
             conv.events.append((plugin_id, record))
             conv.last_activity = time.time()
 
@@ -469,9 +495,10 @@ def _reads_content(guard: Any) -> bool:
     return any(atoms.get(name) for name in _CONTENT_READING_ATOMS)
 
 
-def _order(ev: Any) -> tuple[int, str]:
-    """The key :meth:`MemoryTraceStore.records` sorts a history by."""
-    return (ev.ts, ev.agent or "")
+def _order(ev: Any) -> int:
+    """The key :meth:`MemoryTraceStore.records` sorts a history by: the
+    event's ``seq``, which the store hands out as ``ts``."""
+    return ev.ts
 
 
 @dataclass
@@ -602,12 +629,11 @@ class LiveGuards:
         if rev[0] != live.rev[0] or rev[2] != live.rev[2]:
             return False
         if rev[1] == live.rev[1] + 1 and len(trace) == len(live.positions) + 1:
-            # A rebuild orders the history by (ts, agent). An admitted
-            # event that ties an earlier one's ts (possible after a
-            # context_update, which takes a ts the store never records)
-            # and sorts before it would be placed earlier by a rebuild,
-            # so this guard's order would no longer be the rebuild's.
-            if len(trace) >= 2 and _order(trace[-1]) < _order(trace[-2]):
+            # A rebuild orders the history by seq, which the store gave
+            # the admitted event as the next number. The guard numbered
+            # it by its trace length; if that is behind its last event,
+            # the trace is not the store's and a rebuild would differ.
+            if len(trace) >= 2 and _order(trace[-1]) <= _order(trace[-2]):
                 return False
             live.positions[rev[1] - 1] = len(trace) - 1
         elif rev[1] != live.rev[1] or len(trace) != len(live.positions):

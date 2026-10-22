@@ -274,7 +274,7 @@ def test_wal_restores_traces_across_two_restarts(root: Path, short_tmp: Path):
     assert svc3.check(host=HOST, payload=_bash("ls"))["allowed"] is False
 
 
-def test_wal_records_carry_the_legacy_event_fields_only(root: Path, short_tmp: Path):
+def test_wal_records_carry_the_legacy_event_fields_and_seq(root: Path, short_tmp: Path):
     _write(root, BUCKET, _rate_limit(5))
     svc = _service(root, short_tmp)
     svc.check(host=HOST, payload=_bash("ls"))
@@ -285,7 +285,8 @@ def test_wal_records_carry_the_legacy_event_fields_only(root: Path, short_tmp: P
     wal = short_tmp / "state" / "wal" / WAL_NAME
     lines = [json.loads(line) for line in wal.read_text().splitlines()]
     assert set(lines[0]) == {"b", "e"}
-    assert set(lines[0]["e"]) == {"ts", "agent", "type", "tool", "args"}
+    assert set(lines[0]["e"]) == {"ts", "agent", "type", "tool", "args", "seq"}
+    assert lines[0]["e"]["seq"] == 0
     assert set(lines[1]) == {"b", "a"}
     assert set(lines[1]["a"]) == {"tool", "content"}
 
