@@ -14,6 +14,14 @@ sees the full method table.
 Method names use a dotted convention (``plugin.append``,
 ``hooks.load``) so groupings stay obvious in logs and ``ping`` /
 unknown-method handling stays in :mod:`sponsio.daemon.server`.
+
+Which socket serves a method is part of its contract:
+
+* agent socket: ``ping``, ``guard.check``, ``guard.observe``,
+  ``proposal.submit``
+* admin socket: ``ping``, ``plugin.append``, ``mode.set``,
+  ``proposal.list``, ``proposal.show``, ``proposal.approve``,
+  ``proposal.reject``
 """
 
 from __future__ import annotations
@@ -22,23 +30,84 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from sponsio.daemon.server import DaemonServer, RpcError
+from sponsio.daemon.proposals import ProposalError, ProposalStore
+from sponsio.daemon.server import DaemonServer, RpcError, current_peer
 
 if TYPE_CHECKING:
     from sponsio.daemon.guard_service import GuardService
 
 
 def register_default_handlers(
-    server: DaemonServer, *, guard_service: "GuardService | None" = None
+    server: DaemonServer,
+    *,
+    guard_service: "GuardService | None" = None,
+    state_dir: Path | None = None,
 ) -> None:
-    """Install the daemon's privileged-operation handlers.
+    """Install the daemon's handlers on both sockets.
 
     ``guard_service`` adds the hook-evaluation methods (``guard.check``,
-    ``guard.observe``); without one the daemon serves rule writes only.
+    ``guard.observe``) and ``mode.set``, and its state dir holds the
+    audit log and the proposals; without one the daemon serves rule
+    writes only, with proposals when ``state_dir`` is given.
     """
-    server.register("plugin.append", _handle_plugin_append)
+    server.register("plugin.append", _handle_plugin_append, admin=True)
     if guard_service is not None:
         register_guard_handlers(server, guard_service)
+        state_dir = guard_service.state_dir
+    if state_dir is not None:
+        if server.audit_dir is None:
+            server.audit_dir = Path(state_dir)
+        register_proposal_handlers(
+            server, ProposalStore(Path(state_dir), {"plugin.append": _apply_append})
+        )
+
+
+def register_proposal_handlers(server: DaemonServer, store: ProposalStore) -> None:
+    """``proposal.submit`` on the agent socket; review on the admin socket."""
+
+    def _wrap(fn):
+        def handler(params: dict[str, Any]) -> Any:
+            try:
+                return fn(params)
+            except ProposalError as e:
+                raise RpcError(str(e), code=e.code) from e
+
+        return handler
+
+    def submit(params: dict[str, Any]) -> dict[str, Any]:
+        kind = params.get("kind")
+        inner = params.get("params")
+        if not isinstance(kind, str) or not isinstance(inner, dict):
+            raise RpcError(
+                "`kind` (string) and `params` (object) are required", code="validation"
+            )
+        return store.submit(
+            kind, inner, current_peer(), dry_run=bool(params.get("dry_run"))
+        )
+
+    def _id(params: dict[str, Any]) -> str:
+        pid = params.get("id")
+        if not isinstance(pid, str) or not pid:
+            raise RpcError("`id` is required", code="validation")
+        return pid
+
+    server.register("proposal.submit", _wrap(submit))
+    server.register(
+        "proposal.list",
+        _wrap(lambda p: {"proposals": store.list(p.get("status"))}),
+        admin=True,
+    )
+    server.register("proposal.show", _wrap(lambda p: store.get(_id(p))), admin=True)
+    server.register(
+        "proposal.approve",
+        _wrap(lambda p: store.decide(_id(p), True, current_peer())),
+        admin=True,
+    )
+    server.register(
+        "proposal.reject",
+        _wrap(lambda p: store.decide(_id(p), False, current_peer())),
+        admin=True,
+    )
 
 
 def register_guard_handlers(server: DaemonServer, service: "GuardService") -> None:
@@ -86,6 +155,21 @@ def register_guard_handlers(server: DaemonServer, service: "GuardService") -> No
     server.register("guard.check", lambda params: service.check(**_args(params)))
     server.register("guard.observe", lambda params: service.observe(**_args(params)))
 
+    def mode_set(params: dict[str, Any]) -> dict[str, Any]:
+        from sponsio.daemon.guard_service import KNOWN_HOSTS
+
+        host, mode = params.get("host"), params.get("mode")
+        if host not in KNOWN_HOSTS:
+            raise RpcError(
+                f"`host` must be one of {sorted(KNOWN_HOSTS)}", code="validation"
+            )
+        if mode not in ("enforce", "observe"):
+            raise RpcError('`mode` must be "enforce" or "observe"', code="validation")
+        service.set_host_mode(host, mode)
+        return {"host": host, "mode": mode}
+
+    server.register("mode.set", mode_set, admin=True)
+
 
 def _resolve_plugin_root(params: dict[str, Any]) -> Path:
     """Resolve the per-plugin library root from RPC params or env.
@@ -120,12 +204,18 @@ def _handle_plugin_append(params: dict[str, Any]) -> dict[str, Any]:
     Result: an :class:`AppendResult`-shaped dict the client converts
     back into the dataclass.  Errors come back as :class:`RpcError`
     with codes ``"validation"`` / ``"not_found"`` / ``"internal"``.
+
+    Admin socket only. From the agent side the same change is a
+    ``proposal.submit`` of kind ``plugin.append``.
     """
+    return _apply_append(params, bool(params.get("dry_run", False)))
+
+
+def _apply_append(params: dict[str, Any], dry_run: bool) -> dict[str, Any]:
     from sponsio.plugin.append_ops import AppendError, merge_staging_into_target
 
     target_name = params.get("target")
     staging_yaml = params.get("staging_yaml")
-    dry_run = bool(params.get("dry_run", False))
 
     if not isinstance(target_name, str) or not target_name:
         raise RpcError("`target` is required and must be a string", code="validation")

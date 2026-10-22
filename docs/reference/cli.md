@@ -395,7 +395,16 @@ Socket path resolves to `$SPONSIO_DAEMON_SOCKET`, then `/var/run/sponsio.sock` i
 
 One daemon per state dir. The daemon holds `<state-dir>/daemon.lock` (an exclusive `flock`, holding its pid) while it runs; a second `daemon run` finds the lock taken, or a daemon answering on the socket, and exits 0 without touching anything. A socket file nobody answers on (left by a daemon that was killed) is replaced. `--detach` starts the daemon in the background, writes its output to `<state-dir>/daemon.log`, and returns once a daemon answers. Starts and restarts are recorded in `<state-dir>/audit.jsonl` (`daemon_start`, or `daemon_restart` with the previous pid when the prior instance did not stop cleanly).
 
-RPC methods: `ping`, `plugin.append`, `guard.check` (pre-event: decide and render the host's reply), `guard.observe` (post-event: record the tool output).
+The daemon listens on two sockets. The agent socket is the one above. The admin socket sits beside it (`sponsio.sock` → `sponsio.admin.sock`) and is always mode 0600. Each serves its own methods, and a method called on the other socket is `not_found`:
+
+| Socket | Methods |
+|---|---|
+| agent | `ping`, `guard.check` (pre-event: decide and render the host's reply), `guard.observe` (post-event: record the tool output), `proposal.submit` |
+| admin | `ping`, `plugin.append`, `mode.set`, `proposal.list`, `proposal.show`, `proposal.approve`, `proposal.reject` |
+
+The daemon reads every caller's uid, gid and pid from the kernel (`SO_PEERCRED` on Linux, `LOCAL_PEERCRED` and `LOCAL_PEERPID` on macOS), not from the request. An admin call runs only for the daemon's own uid or root, and every admin call, allowed or refused, is written to `audit.jsonl` as `admin_call` with the method, the peer and a SHA-256 of the parameters.
+
+The agent side cannot change rules directly. `proposal.submit` validates the change as a dry run and stores it under `<state-dir>/proposals/`. Nothing applies until `proposal.approve` arrives on the admin socket. `sponsio plugin append` submits and then approves. That works when the caller can reach the admin socket, which is the case when the daemon runs as the same user. Otherwise the proposal waits for an operator.
 
 ## sponsio cursor
 

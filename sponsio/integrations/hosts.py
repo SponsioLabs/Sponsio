@@ -296,16 +296,21 @@ def socket_path_problem(path: Path | str) -> str | None:
 
     A shim hook denies every call it cannot forward, so writing one whose
     socket can never be bound turns the host's tools off. The installers
-    refuse instead, and ``sponsio doctor`` reports existing ones.
+    refuse instead, and ``sponsio doctor`` reports existing ones. The
+    daemon binds the admin socket beside it too (``<stem>.admin<suffix>``,
+    six bytes longer) and does not start if either cannot be bound.
     """
     import os
 
-    size = len(os.fsencode(str(path)))
-    if size > socket_path_limit():
-        return (
-            f"socket path is {size} bytes, longer than this platform can bind "
-            f"({socket_path_limit()}): {path}"
-        )
+    from sponsio.daemon.server import admin_socket_for
+
+    for candidate in (Path(path), admin_socket_for(path)):
+        size = len(os.fsencode(str(candidate)))
+        if size > socket_path_limit():
+            return (
+                f"socket path is {size} bytes, longer than this platform can bind "
+                f"({socket_path_limit()}): {candidate}"
+            )
     return None
 
 

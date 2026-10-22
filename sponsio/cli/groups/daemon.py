@@ -134,6 +134,7 @@ def daemon_run(
         else:
             audit.append(service.state_dir, audit.DAEMON_START, socket=str(path))
         click.echo(f"sponsio daemon listening at {path} (mode {socket_mode})")
+        click.echo(f"  admin:     {server.admin_socket_path} (mode 0600)")
         click.echo(f"  libraries: {service.store.root}")
         click.echo(f"  state:     {service.state_dir}")
 

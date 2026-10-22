@@ -72,6 +72,13 @@ def default_socket_path() -> Path:
     return Path.home() / ".sponsio" / "sponsio.sock"
 
 
+def default_admin_socket_path() -> Path:
+    """The admin socket beside :func:`default_socket_path`."""
+    from sponsio.daemon.server import admin_socket_for
+
+    return admin_socket_for(default_socket_path())
+
+
 def daemon_is_running(
     socket_path: Path | None = None, *, timeout_s: float = 0.5
 ) -> bool:

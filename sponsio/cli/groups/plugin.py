@@ -726,7 +726,12 @@ def plugin_append(
         sponsio plugin append --from .sponsio.staging.yaml --target _host_cursor
         sponsio plugin append --from /tmp/policy-rules.yaml --target github --dry-run
     """
-    from sponsio.daemon.client import DaemonClient, DaemonError, daemon_is_running
+    from sponsio.daemon.client import (
+        DaemonClient,
+        DaemonError,
+        daemon_is_running,
+        default_admin_socket_path,
+    )
     from sponsio.plugin.append_ops import (
         AppendError,
         AppendResult,
@@ -740,21 +745,42 @@ def plugin_append(
     staging_text = from_path.read_text(encoding="utf-8")
 
     # Daemon route: when a daemon is reachable AND --no-daemon is not
-    # set, send the merge over IPC.  This is the only write path that
-    # works in a system install (where the host bucket is owned by a
-    # privileged UID and direct in-process file I/O would EACCES).
+    # set, the change goes through the daemon. This is the only write
+    # path that works in a system install (where the host bucket is
+    # owned by a privileged UID and direct in-process file I/O would
+    # EACCES). The agent socket only takes proposals: the change is
+    # validated and stored, then applied by ``proposal.approve`` on the
+    # admin socket. At Tier 1 this user can reach that socket, so the
+    # proposal is approved at once (both calls are audited); where it
+    # cannot, the proposal waits for an operator.
     if not no_daemon and daemon_is_running():
-        client = DaemonClient()
+        params = {
+            "target": target_name,
+            "staging_yaml": staging_text,
+            "dry_run": dry_run,
+            "root": str(root),
+        }
         try:
-            result_dict = client.call(
-                "plugin.append",
-                {
-                    "target": target_name,
-                    "staging_yaml": staging_text,
-                    "dry_run": dry_run,
-                    "root": str(root),
-                },
+            submitted = DaemonClient().call(
+                "proposal.submit",
+                {"kind": "plugin.append", "params": params, "dry_run": dry_run},
             )
+            if dry_run:
+                result_dict = submitted["preview"]
+            else:
+                admin = DaemonClient(socket_path=default_admin_socket_path())
+                try:
+                    decided = admin.call("proposal.approve", {"id": submitted["id"]})
+                except DaemonError as e:
+                    if e.code not in ("permission", "no_daemon", "transport"):
+                        raise
+                    click.secho(
+                        f"proposal {submitted['id']} submitted; it applies once an "
+                        f"operator approves it ({e})",
+                        fg="yellow",
+                    )
+                    return
+                result_dict = decided["result"]
         except DaemonError as e:
             # Surface the daemon's structured error code as a normal
             # CLI failure; the user shouldn't have to know about IPC.

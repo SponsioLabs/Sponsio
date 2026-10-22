@@ -705,6 +705,13 @@ class GuardService:
         )
         self._locks_lock = threading.Lock()
         self._conv_locks: dict[str, threading.Lock] = {}
+        self._host_modes: dict[str, str] = {}
+
+    def set_host_mode(self, host: str, mode: str) -> None:
+        """The mode for ``host``'s calls that carry none of their own
+        (``mode.set`` on the admin socket; held in memory until P0.6
+        moves it into the daemon's config file)."""
+        self._host_modes[host] = mode
 
     def policy(self) -> GuardPolicy:
         return self._policy() if callable(self._policy) else self._policy
@@ -793,6 +800,8 @@ class GuardService:
 
     def _evaluate(self, event: dict, mode: str | None = None) -> GuardOutcome:
         policy = self.policy()
+        if mode is None:
+            mode = self._host_modes.get(event.get("host") or "")
         if mode in ("enforce", "observe") and mode != policy.mode:
             policy = replace(policy, mode=mode)
         conversation_id = conversation_key(event)
