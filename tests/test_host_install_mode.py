@@ -232,3 +232,31 @@ def test_the_installer_no_longer_writes_a_mode_the_hook_ignores(tmp_path):
     _refresh_per_host_bundles("claude-code", root)
     text = (root / "_host_claude_code" / "sponsio.yaml").read_text()
     assert "mode:" not in text.split("agents:")[0]
+
+
+def test_openclaw_install_writes_the_plugin_config(isolated_home, monkeypatch):
+    from sponsio.integrations.openclaw_install import PLUGIN_CONFIG, install, uninstall
+
+    oc = isolated_home / ".openclaw"
+    oc.mkdir()
+    (oc / "openclaw.json").write_text("{}")
+    monkeypatch.setenv("OPENCLAW_HOME", str(oc))
+    spec = hosts.get("openclaw")
+    install(spec, mode="observe", binary="/x/sponsio --flag")
+    conf_path = oc / "extensions" / "sponsio-openclaw" / PLUGIN_CONFIG
+    assert conf_path.is_relative_to(isolated_home)
+    conf = json.loads(conf_path.read_text())
+    assert conf["mode"] == "observe"
+    assert conf["sponsio"] == ["/x/sponsio", "--flag"]
+    assert conf["deadlineMs"] == 2000
+    for key in ("socketPath", "pluginRoot", "stateDir"):
+        assert Path(conf[key]).is_absolute()
+        assert Path(conf[key]).resolve().is_relative_to(isolated_home.resolve())
+
+    # A reinstall rewrites the config even when the extension is current.
+    install(spec, mode="enforce")
+    conf = json.loads(conf_path.read_text())
+    assert conf["mode"] == "enforce" and conf["sponsio"][1:] == ["-m", "sponsio.cli"]
+
+    uninstall(spec)
+    assert not conf_path.exists()

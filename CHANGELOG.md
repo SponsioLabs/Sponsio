@@ -32,6 +32,16 @@ broke.
   too**, with the same fail-closed behaviour; `--direct` keeps the old
   in-process evaluation for debugging. The marketplace plugin's
   `hooks.json` adds `onFailure` and `timeout`.
+- **The OpenClaw plugin talks to the daemon over its socket.** It no longer
+  spawns `sponsio plugin guard` per tool call. `sponsio host install
+  openclaw` writes `sponsio-config.json` beside the deployed plugin (socket,
+  plugin root, state dir, how to start the daemon, mode); the plugin reads
+  no environment variable, so `SPONSIO_GUARD_BIN`, `SPONSIO_PLUGIN_ROOT` and
+  `SPONSIO_GUARD_MODE` no longer affect it, and the `guardBin` /
+  `pluginRoot` / `guardMode` manifest keys are ignored. When no daemon
+  answers the plugin starts one, and blocks the call if it still cannot be
+  reached. `--mode` on `host install openclaw` now applies. Reinstall with
+  `--force` to replace an already deployed plugin.
 - **One daemon per state dir.** The daemon holds `<state-dir>/daemon.lock`
   and never removes a socket another daemon answers on, so hooks that
   start it concurrently end with one daemon and one trace. Starts and

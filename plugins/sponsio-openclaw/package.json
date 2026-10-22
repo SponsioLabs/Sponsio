@@ -1,7 +1,7 @@
 {
   "name": "@sponsio/openclaw",
   "version": "0.1.0",
-  "description": "Runtime contract guardrails for OpenClaw plugins — delegates each `before_tool_call` to the same `sponsio plugin guard --stdin` backend used by the sponsio-claude-code plugin, so per-plugin libraries under `~/.sponsio/plugins/` work with both runtimes.",
+  "description": "Runtime contract guardrails for OpenClaw plugins — sends each `before_tool_call` to the Sponsio daemon over its Unix socket, the same daemon the Claude Code and Cursor hooks use, so per-plugin libraries under `~/.sponsio/plugins/` work with every runtime.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -159,6 +159,52 @@ def _deploy_extension(force: bool) -> tuple[bool, str, Path]:
     return True, f"deployed plugin to {target}", target
 
 
+PLUGIN_CONFIG = "sponsio-config.json"
+
+
+def plugin_config(*, mode: str = "enforce", binary: str | None = None) -> dict:
+    """What the deployed plugin reads from ``sponsio-config.json``: where
+    the daemon socket is, what a daemon it starts serves, how to start
+    it, and the mode. Every path is absolute and fixed here, the same
+    values the Claude Code and Cursor shim commands carry."""
+    import shlex
+    import sys
+
+    from sponsio.integrations.hosts import (
+        DEFAULT_SHIM_DEADLINE_S,
+        _default_socket_path,
+        _default_state_dir,
+    )
+
+    return {
+        "socketPath": str(_default_socket_path()),
+        "pluginRoot": str(_library_root().expanduser().resolve()),
+        "stateDir": str(_default_state_dir()),
+        "sponsio": shlex.split(binary)
+        if binary
+        else [sys.executable, "-m", "sponsio.cli"],
+        "mode": "observe" if mode == "observe" else "enforce",
+        "deadlineMs": int(DEFAULT_SHIM_DEADLINE_S * 1000),
+    }
+
+
+def _write_plugin_config(mode: str, binary: str | None) -> tuple[bool, str, Path]:
+    """Write ``sponsio-config.json`` into the deployed extension. Written
+    on every install, so a reinstall picks up a new interpreter or mode
+    even when the extension itself is already current."""
+    target = _extension_target() / PLUGIN_CONFIG
+    if not target.parent.is_dir():
+        return False, "extension not deployed; config not written", target
+    text = json.dumps(plugin_config(mode=mode, binary=binary), indent=2) + "\n"
+    try:
+        if target.exists() and target.read_text(encoding="utf-8") == text:
+            return False, "plugin config already current", target
+        target.write_text(text, encoding="utf-8")
+    except OSError as e:
+        return False, f"could not write {target}: {e}", target
+    return True, f"wrote plugin config to {target}", target
+
+
 # ---------------------------------------------------------------------------
 # Step 3 — patch openclaw.json's plugins.entries
 # ---------------------------------------------------------------------------
@@ -293,9 +339,13 @@ def install(
     scope: str = "user",
     fail_closed: bool = True,  # accepted for API parity; OpenClaw plugin owns this
     force: bool = False,
-    binary: str | None = None,  # accepted for API parity
+    binary: str | None = None,
+    mode: str = "enforce",
 ) -> HostInstallResult:
-    """End-to-end install: library + extension + openclaw.json patch."""
+    """End-to-end install: library + extension + plugin config +
+    openclaw.json patch. ``binary`` is how the plugin starts the daemon
+    when none answers (default: this interpreter, ``-m sponsio.cli``);
+    ``mode`` is written into the plugin config."""
 
     notes: list[str] = []
     any_written = False
@@ -309,6 +359,10 @@ def install(
     ext_written, ext_note, _ext_path = _deploy_extension(force)
     notes.append(f"extension: {ext_note}")
     any_written = any_written or ext_written
+
+    conf_written, conf_note, _conf_path = _write_plugin_config(mode, binary)
+    notes.append(f"config: {conf_note}")
+    any_written = any_written or conf_written
 
     cfg_written, cfg_note, _cfg_path = _patch_openclaw_json(force)
     notes.append(f"openclaw.json: {cfg_note}")

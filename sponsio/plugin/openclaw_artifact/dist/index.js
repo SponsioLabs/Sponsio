@@ -5,20 +5,24 @@
  * The OpenClaw counterpart to plugins/sponsio-claude-code (the Claude
  * Code plugin). Same architecture, different transport:
  *
- *   sponsio-claude-code (Mode A)           sponsio-openclaw (this file)
+ *   Claude Code / Cursor hook              sponsio-openclaw (this file)
  *   ──────────────────────────────         ─────────────────────────────
- *   PreToolUse hook fires        →         api.registerHook("before_tool_call", h, …)
- *   shell command sponsio guard  →         child_process spawn() of same
- *   stdin: PreToolUse JSON       →         same payload, manually built
- *   stdout: deny JSON / silent   →         parsed → BeforeToolCallResult
+ *   PreToolUse hook fires        →         api.on("before_tool_call", h, …)
+ *   shim → daemon guard.check    →         Unix socket → daemon guard.check
+ *   deny JSON / silent           →         {allowed, reason} → BeforeToolCallResult
  *
- * Why subprocess instead of pure-TS evaluation: the Sponsio config
- * loader, contract-pack include resolution, tool_rename / workspace
- * substitution, override merging, and the runtime monitor are all
- * Python today. Spawning the existing CLI gets us 100% logic reuse
- * with ~80ms per-call cost — same as the Claude Code plugin. A pure-
- * TS evaluation path is possible (the ts-sdk has the det engine) but
- * requires porting the YAML config loader; that's a separate effort.
+ * The decision is made by the Sponsio daemon (Python): the config
+ * loader, contract-pack includes, and the runtime monitor all live
+ * there, and the daemon keeps each session's history in memory. This
+ * plugin speaks the daemon's wire protocol directly (a 4-byte
+ * big-endian length, then a JSON body) over its Unix socket, so a tool
+ * call costs one round trip instead of a Python process start.
+ *
+ * Where the socket is, which libraries a daemon it starts serves, and
+ * the mode come from ``sponsio-config.json`` next to this file, which
+ * ``sponsio host install openclaw`` writes. When no daemon answers the
+ * plugin starts one, waits briefly, retries once, and otherwise blocks
+ * the call: a guard that cannot be reached is not a pass.
  *
  * Routing: this plugin doesn't override sponsio's per-plugin
  * routing. Every tool call goes through the same
@@ -43,6 +47,11 @@
  * here — the subprocess transport itself doesn't care.
  */
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { createConnection } from "node:net";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 // ----------------------------------------------------------------------------
 // Public entry point — what OpenClaw loads.
 // ----------------------------------------------------------------------------
@@ -54,121 +63,257 @@ const PLUGIN_HOOK_PRIORITY = 1000;
  * registry. Distinct from the event name (``before_tool_call``)
  * which can have many handlers. */
 const HOOK_NAME = "sponsio-openclaw-before-tool-call";
-/** The plugin object the OpenClaw runtime expects.
+const DEFAULT_DEADLINE_MS = 2000;
+const START_WAIT_MS = 1500;
+/** Read ``sponsio-config.json`` next to this module, if present. */
+export function loadInstalledOptions() {
+    try {
+        const here = dirname(fileURLToPath(import.meta.url));
+        // The config sits next to the extension root (dist/..).
+        for (const dir of [join(here, ".."), here]) {
+            try {
+                const raw = readFileSync(join(dir, "sponsio-config.json"), "utf8");
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === "object")
+                    return parsed;
+            }
+            catch {
+                // try the next location
+            }
+        }
+    }
+    catch {
+        // import.meta.url unavailable: fall through to defaults
+    }
+    return {};
+}
+/** Build the plugin object for a given daemon configuration. */
+export function createSponsioOpenClawPlugin(options = {}) {
+    const opts = resolveOptions(options);
+    return {
+        id: "sponsio-openclaw",
+        name: "Sponsio for OpenClaw",
+        description: "Runtime contract guardrails for every tool call — decided by the " +
+            "Sponsio daemon against per-plugin libraries under ~/.sponsio/plugins/.",
+        register(api) {
+            api.on("before_tool_call", async (event, ctx) => {
+                // The Claude Code event shape on the wire, so the same
+                // routing and library files serve both hosts. ``ctx`` is the
+                // second handler arg in the OpenClaw runtime, not a field on
+                // event.
+                const payload = {
+                    hook_event_name: "PreToolUse",
+                    tool_name: event?.toolName ?? "",
+                    tool_input: event?.params ?? {},
+                    // Routes the fallback to _host_openclaw.
+                    host: "openclaw",
+                    // The daemon keys session history on this.
+                    session_id: ctx?.sessionId,
+                    agent_id: ctx?.agentId,
+                    tool_use_id: event?.toolCallId ?? ctx?.toolCallId,
+                };
+                let verdict;
+                try {
+                    verdict = await decide(opts, payload);
+                }
+                catch (err) {
+                    // A daemon that answered with an error. Fail-closed for this
+                    // case lands with the fail-closed audit (P0.4); an
+                    // unreachable daemon is already a block, see ``decide``.
+                    api.logger?.error?.("[sponsio-openclaw] guard call failed; allowing through", err);
+                    return undefined;
+                }
+                if (!verdict.allowed) {
+                    return {
+                        block: true,
+                        blockReason: verdict.reason || "blocked by Sponsio contract",
+                    };
+                }
+                return undefined;
+            }, {
+                name: HOOK_NAME,
+                description: "Sponsio runtime contract guard — denies tool calls that " +
+                    "violate per-plugin libraries under ~/.sponsio/plugins/.",
+                priority: PLUGIN_HOOK_PRIORITY,
+            });
+        },
+    };
+}
+/** The plugin object the OpenClaw runtime expects, configured from the
+ * installed ``sponsio-config.json``.
  *
  * Wrap with ``definePluginEntry(...)`` from
  * ``openclaw/plugin-sdk/plugin-entry`` if you want the official
  * helper's type-checking + future-proofing. The raw shape is
  * exported as default for environments that resolve it directly.
  */
-export const sponsioOpenClawPlugin = {
-    id: "sponsio-openclaw",
-    name: "Sponsio for OpenClaw",
-    description: "Runtime contract guardrails for every tool call — backed by " +
-        "per-plugin contract libraries under ~/.sponsio/plugins/.",
-    register(api) {
-        api.on("before_tool_call", async (event, ctx) => {
-            let reply;
-            try {
-                reply = await callGuard({
-                    // Reuse the Claude Code event shape on the wire so the
-                    // same backend, routing, and library files work for
-                    // both transports. The OpenClaw event names differ
-                    // (``toolName`` / ``params``) but the JSON we send the
-                    // guard is normalised to PreToolUse.
-                    hook_event_name: "PreToolUse",
-                    tool_name: event?.toolName ?? "",
-                    tool_input: event?.params ?? {},
-                    // Tells the guard which host's fallback library to use
-                    // when the tool name doesn't match a namespace pattern
-                    // (mcp__*, plugin:skill).  OpenClaw uses canonical names
-                    // (exec / read / write / ...) so the fallback lands in
-                    // _host_openclaw, not the Claude-Code-shaped _host.
-                    host: "openclaw",
-                    // Pass session metadata so a future daemon-mode runtime
-                    // can correlate calls; today's stateless backend just
-                    // ignores these fields. ``ctx`` is the second handler
-                    // arg in the OpenClaw runtime — NOT a field on event.
-                    session_id: ctx?.sessionId,
-                    agent_id: ctx?.agentId,
-                    tool_use_id: event?.toolCallId ?? ctx?.toolCallId,
-                });
-            }
-            catch (err) {
-                // Never wedge a tool call on a Sponsio bug. Same fail-open
-                // policy as ``sponsio.guard_stdin.run_stdin``.
-                api.logger?.error?.("[sponsio-openclaw] guard call failed; allowing through", err);
-                return undefined;
-            }
-            if (reply?.permissionDecision === "deny") {
-                return {
-                    block: true,
-                    blockReason: reply.permissionDecisionReason ??
-                        "blocked by Sponsio contract",
-                };
-            }
-            return undefined;
-        }, {
-            name: HOOK_NAME,
-            description: "Sponsio runtime contract guard — denies tool calls that " +
-                "violate per-plugin libraries under ~/.sponsio/plugins/.",
-            priority: PLUGIN_HOOK_PRIORITY,
-        });
-    },
-};
+export const sponsioOpenClawPlugin = createSponsioOpenClawPlugin(loadInstalledOptions());
 export default sponsioOpenClawPlugin;
-/**
- * Spawn ``sponsio plugin guard --stdin``, pipe ``payload`` as JSON,
- * parse the reply.
- *
- * Returns the decoded ``hookSpecificOutput`` block (or null if the
- * guard emitted nothing — meaning ``allow``). Errors propagate so
- * the caller can decide whether to fail-open or fail-closed; the
- * default ``register`` above fails open.
- *
- * Override the binary with ``$SPONSIO_GUARD_BIN`` if your install
- * keeps it elsewhere (eg. a venv-local path inside an IDE).
- */
-async function callGuard(payload) {
-    const bin = process.env.SPONSIO_GUARD_BIN ?? "sponsio";
-    const args = ["plugin", "guard", "--stdin"];
+function resolveOptions(o) {
+    return {
+        socketPath: o.socketPath || join(homedir(), ".sponsio", "sponsio.sock"),
+        pluginRoot: o.pluginRoot,
+        stateDir: o.stateDir,
+        sponsio: Array.isArray(o.sponsio) && o.sponsio.length ? o.sponsio : ["sponsio"],
+        mode: o.mode === "observe" || o.mode === "enforce" ? o.mode : undefined,
+        deadlineMs: typeof o.deadlineMs === "number" && o.deadlineMs > 0
+            ? o.deadlineMs
+            : DEFAULT_DEADLINE_MS,
+    };
+}
+/** No daemon answered: missing socket, refused, or out of time. */
+class Unreachable extends Error {
+}
+/** One RPC over the daemon socket. Rejects with ``Unreachable`` when no
+ * daemon answers, with a plain ``Error`` when one answers with an error. */
+export function callDaemon(socketPath, method, params, timeoutMs) {
     return new Promise((resolve, reject) => {
-        const child = spawn(bin, args, { stdio: ["pipe", "pipe", "pipe"] });
-        let stdout = "";
-        child.stdout.on("data", (chunk) => {
-            stdout += chunk.toString("utf8");
-        });
-        // Discard stderr — Sponsio writes diagnostic banners + load
-        // logs there; not part of the deny protocol.
-        child.stderr.on("data", () => { });
-        child.on("error", (err) => reject(err));
-        child.on("close", () => {
-            const text = stdout.trim();
-            if (!text) {
-                // Empty stdout = allow. Match the sponsio-claude-code
-                // "exit 0 silent" semantics.
-                return resolve(null);
-            }
-            try {
-                const parsed = JSON.parse(text);
-                const out = parsed?.hookSpecificOutput;
-                if (out && typeof out === "object") {
-                    resolve({
-                        permissionDecision: out.permissionDecision,
-                        permissionDecisionReason: out.permissionDecisionReason,
-                    });
+        if (timeoutMs <= 0) {
+            reject(new Unreachable("deadline passed"));
+            return;
+        }
+        const body = Buffer.from(JSON.stringify({ method, params }), "utf8");
+        const header = Buffer.alloc(4);
+        header.writeUInt32BE(body.length, 0);
+        let buf = Buffer.alloc(0);
+        let settled = false;
+        const sock = createConnection({ path: socketPath });
+        const finish = (fn) => {
+            if (settled)
+                return;
+            settled = true;
+            clearTimeout(timer);
+            sock.destroy();
+            fn();
+        };
+        const timer = setTimeout(() => finish(() => reject(new Unreachable("timed out"))), timeoutMs);
+        sock.on("connect", () => sock.write(Buffer.concat([header, body])));
+        sock.on("data", (chunk) => {
+            buf = Buffer.concat([buf, chunk]);
+            if (buf.length < 4)
+                return;
+            const len = buf.readUInt32BE(0);
+            if (buf.length < 4 + len)
+                return;
+            finish(() => {
+                try {
+                    const reply = JSON.parse(buf.subarray(4, 4 + len).toString("utf8"));
+                    if (!reply || reply.ok !== true || typeof reply.result !== "object") {
+                        reject(new Error(`daemon error: ${reply?.error ?? "malformed reply"}`));
+                    }
+                    else {
+                        resolve(reply.result);
+                    }
                 }
-                else {
-                    resolve(null);
+                catch (err) {
+                    reject(err);
                 }
-            }
-            catch (err) {
-                reject(err);
-            }
+            });
         });
-        child.stdin.write(JSON.stringify(payload));
-        child.stdin.end();
+        sock.on("error", (err) => finish(() => reject(new Unreachable(err.code === "ENOENT" ? `no socket at ${socketPath}` : String(err.code ?? err)))));
+        sock.on("close", () => finish(() => reject(new Unreachable("daemon closed the connection"))));
     });
+}
+const ENV_PASSTHROUGH = [
+    "HOME",
+    "PATH",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TMPDIR",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "TZ",
+    "OPENCLAW_HOME",
+];
+/** Spawn ``sponsio daemon run --detach`` for our socket, detached, with
+ * locale and path basics only (no SPONSIO_* from the host's process). */
+function startDaemon(o) {
+    const [bin, ...prefix] = o.sponsio;
+    const args = [...prefix, "daemon", "run", "--detach", "--socket", o.socketPath];
+    if (o.pluginRoot)
+        args.push("--plugin-root", o.pluginRoot);
+    if (o.stateDir)
+        args.push("--state-dir", o.stateDir);
+    const env = {};
+    for (const k of ENV_PASSTHROUGH) {
+        const v = process.env[k];
+        if (v !== undefined)
+            env[k] = v;
+    }
+    try {
+        const child = spawn(bin, args, { detached: true, stdio: "ignore", env });
+        child.on("error", () => { });
+        child.unref();
+    }
+    catch {
+        // reported as "did not come up" below
+    }
+}
+function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+}
+async function waitForSocket(o, until) {
+    while (Date.now() < until) {
+        try {
+            await callDaemon(o.socketPath, "ping", {}, Math.min(200, until - Date.now()));
+            return true;
+        }
+        catch {
+            await sleep(50);
+        }
+    }
+    return false;
+}
+function recoveryReason(cause, o) {
+    return (`Sponsio: the enforcement daemon is not reachable (${cause}). ` +
+        `This tool call is blocked, and every tool call will be blocked until ` +
+        `this is fixed; the agent cannot repair it itself. From your own ` +
+        `terminal: (1) run \`sponsio daemon run --detach --socket ${o.socketPath}\` ` +
+        `and then \`sponsio doctor\`; (2) if that does not help, remove the ` +
+        `plugin with \`sponsio host uninstall openclaw\`.`);
+}
+/** Ask the daemon for a verdict, starting it once if needed. An
+ * unreachable daemon is a block. */
+async function decide(o, payload) {
+    const deadline = Date.now() + o.deadlineMs;
+    const params = { host: "openclaw", payload };
+    if (o.mode)
+        params.mode = o.mode;
+    const ask = async () => {
+        const r = await callDaemon(o.socketPath, "guard.check", params, deadline - Date.now());
+        return {
+            allowed: r.allowed === true,
+            reason: typeof r.reason === "string" ? r.reason : "",
+        };
+    };
+    try {
+        return await ask();
+    }
+    catch (first) {
+        if (!(first instanceof Unreachable))
+            throw first;
+        startDaemon(o);
+        const up = await waitForSocket(o, Math.min(deadline, Date.now() + START_WAIT_MS));
+        if (!up) {
+            return {
+                allowed: false,
+                reason: recoveryReason(`${first.message}; the daemon did not come up`, o),
+            };
+        }
+        try {
+            return await ask();
+        }
+        catch (second) {
+            if (!(second instanceof Unreachable))
+                throw second;
+            return {
+                allowed: false,
+                reason: recoveryReason(`${first.message}; after restart: ${second.message}`, o),
+            };
+        }
+    }
 }
 // ----------------------------------------------------------------------------
 // Backward-compat: the prior 0.1.0-alpha.0 export was a default ``register``
@@ -184,4 +329,4 @@ export function register(api) {
     sponsioOpenClawPlugin.register(api);
 }
 /** Internal — exported for tests + advanced wrappers only. */
-export const __internal = { callGuard };
+export const __internal = { callDaemon, decide, resolveOptions };

@@ -1,45 +1,44 @@
 /**
  * Integration tests for sponsio-openclaw.
  *
- * These don't run an OpenClaw runtime — they exercise the
- * subprocess protocol against the real ``sponsio plugin guard
- * --stdin`` binary, with ``$SPONSIO_PLUGIN_ROOT`` pointed at a
- * temp dir we set up by hand.
+ * These don't run an OpenClaw runtime. They drive the plugin's hook
+ * handler against a real Sponsio daemon, which the plugin itself starts
+ * on a socket under a temp dir, with HOME pointed at that temp dir so
+ * nothing here touches the real home directory. Each test stops the
+ * daemon it caused by the pid in its own lock file.
  *
  * Mock OpenClaw API surface tracks the runtime observed in
  * ghcr.io/openclaw/openclaw:2026.4.14:
  *
- *   - registerHook(events, handler, opts) — three positional args.
+ *   - api.on(hookName, handler, opts) — three positional args.
  *   - handler(event, ctx) — ctx is the SECOND arg, not event.ctx.
  *   - opts.name is the hook's unique identifier (NOT the event).
  *
- * Run with: ``npm test``.
- *
- * Skipped automatically when ``sponsio`` isn't on PATH so the test
- * doesn't false-positive in environments without the Python CLI
- * installed.
+ * Run with: ``npm test``. The end-to-end cases need a Python with
+ * sponsio importable: ``$SPONSIO_TEST_PYTHON`` (default ``python3``).
+ * They are skipped when it cannot import sponsio.
  */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 import sponsioOpenClawPlugin, {
+  createSponsioOpenClawPlugin,
   type BeforeToolCallEvent,
   type BeforeToolCallContext,
   type BeforeToolCallResult,
   type OpenClawPluginApi,
   type RegisterHookOptions,
+  type SponsioOpenClawOptions,
 } from "../src/index.ts";
 
-// Skip the whole suite if the user doesn't have the Python CLI
-// installed locally.
+const PYTHON = process.env.SPONSIO_TEST_PYTHON ?? "python3";
 let SPONSIO_AVAILABLE = false;
 try {
-  execSync("sponsio --version", { stdio: "pipe" });
+  execFileSync(PYTHON, ["-c", "import sponsio"], { stdio: "pipe" });
   SPONSIO_AVAILABLE = true;
 } catch {
   SPONSIO_AVAILABLE = false;
@@ -104,26 +103,76 @@ function makeCtx(toolName: string): BeforeToolCallContext {
 }
 
 // ----------------------------------------------------------------------------
-// Library helpers
+// Sandbox: a temp HOME with a plugin root, a socket path, a state dir
 // ----------------------------------------------------------------------------
 
-function makePluginRoot(): string {
-  return mkdtempSync(join(tmpdir(), "sponsio-openclaw-test-"));
+interface Sandbox {
+  dir: string;
+  options: SponsioOpenClawOptions;
+  close(): Promise<void>;
 }
 
-function writeLib(root: string, plugin: string, body: string): void {
-  const dir = join(root, plugin);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "sponsio.yaml"), body);
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-// Minimal _host library that bans ``rm -rf`` on Bash.
-const HOST_LIBRARY = `
+function makeSandbox(libs: Record<string, string> = {}): Sandbox {
+  // AF_UNIX paths are capped near 104 bytes on macOS: keep it short.
+  const dir = mkdtempSync("/tmp/spoc-");
+  const root = join(dir, "plugins");
+  for (const [bucket, body] of Object.entries(libs)) {
+    mkdirSync(join(root, bucket), { recursive: true });
+    writeFileSync(join(root, bucket, "sponsio.yaml"), body);
+  }
+  const savedHome = process.env.HOME;
+  process.env.HOME = dir;
+  const options: SponsioOpenClawOptions = {
+    socketPath: join(dir, "sock"),
+    pluginRoot: root,
+    stateDir: join(dir, "state"),
+    sponsio: [PYTHON, "-m", "sponsio.cli"],
+    deadlineMs: 5000,
+  };
+  return {
+    dir,
+    options,
+    async close() {
+      // Stop the daemon this test caused, by the pid in its own lock
+      // file, and wait for it to exit: it writes its stop record into
+      // the state dir on the way out.
+      const lock = join(dir, "state", "daemon.lock");
+      if (existsSync(lock)) {
+        const pid = Number(readFileSync(lock, "utf8").trim());
+        if (pid > 0 && alive(pid)) {
+          process.kill(pid, "SIGTERM");
+          const until = Date.now() + 5000;
+          while (alive(pid) && Date.now() < until) {
+            await new Promise((r) => setTimeout(r, 50));
+          }
+        }
+      }
+      process.env.HOME = savedHome;
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+function lib(agent: string, contracts: string): string {
+  return `
 version: "1"
 agents:
-  _host:
+  ${agent}:
     contracts:
-      - desc: "ban rm"
+${contracts}`;
+}
+
+// ``rm -rf`` on Bash is refused.
+const NO_RM = `      - desc: "ban rm"
         G:
           pattern: arg_blacklist
           args:
@@ -171,89 +220,58 @@ test("register installs a single before_tool_call hook with high priority", () =
 });
 
 // ----------------------------------------------------------------------------
-// End-to-end against the real sponsio plugin guard backend
+// End to end against a real daemon
 // ----------------------------------------------------------------------------
 
-skipUnlessSponsio(
-  "before_tool_call: undefined when no library exists (vacuous allow)",
-  async () => {
-    const api = makeMockApi();
-    const root = makePluginRoot();
-    process.env.SPONSIO_PLUGIN_ROOT = root;
-    try {
-      sponsioOpenClawPlugin.register(api);
-      const result = await api.__lastRegistration!.handler(
-        makeEvent("Bash", { command: "ls" }),
-        makeCtx("Bash"),
-      );
-      assert.equal(result, undefined);
-    } finally {
-      delete process.env.SPONSIO_PLUGIN_ROOT;
-      rmSync(root, { recursive: true, force: true });
-    }
-  },
-);
+async function run(
+  sb: Sandbox,
+  tool: string,
+  params: Record<string, unknown>,
+  ctx: BeforeToolCallContext | undefined = makeCtx(tool),
+): Promise<BeforeToolCallResult | undefined> {
+  const api = makeMockApi();
+  createSponsioOpenClawPlugin(sb.options).register(api);
+  return api.__lastRegistration!.handler(makeEvent(tool, params), ctx as BeforeToolCallContext);
+}
 
-skipUnlessSponsio(
-  "before_tool_call: {block: true, blockReason} when guard denies",
-  async () => {
-    const api = makeMockApi();
-    const root = makePluginRoot();
-    writeLib(root, "_host", HOST_LIBRARY);
-    process.env.SPONSIO_PLUGIN_ROOT = root;
-    try {
-      sponsioOpenClawPlugin.register(api);
-      const result = await api.__lastRegistration!.handler(
-        makeEvent("Bash", { command: "rm -rf /tmp/x" }),
-        makeCtx("Bash"),
-      );
-      assert.ok(result, "expected a block result, got undefined");
-      assert.equal(result.block, true);
-      // OpenClaw uses ``blockReason`` (not ``reason``).
-      assert.ok(result.blockReason, "blockReason should be populated");
-      assert.match(result.blockReason!, /Bash/);
-    } finally {
-      delete process.env.SPONSIO_PLUGIN_ROOT;
-      rmSync(root, { recursive: true, force: true });
-    }
-  },
-);
+skipUnlessSponsio("no library: allowed, and the plugin started the daemon", async () => {
+  const sb = makeSandbox();
+  try {
+    assert.equal(await run(sb, "Bash", { command: "ls" }), undefined);
+    assert.ok(existsSync(join(sb.dir, "state", "daemon.lock")), "no daemon came up");
+  } finally {
+    await sb.close();
+  }
+});
 
-skipUnlessSponsio(
-  "before_tool_call: undefined for benign commands when library loaded",
-  async () => {
-    const api = makeMockApi();
-    const root = makePluginRoot();
-    writeLib(root, "_host", HOST_LIBRARY);
-    process.env.SPONSIO_PLUGIN_ROOT = root;
-    try {
-      sponsioOpenClawPlugin.register(api);
-      const result = await api.__lastRegistration!.handler(
-        makeEvent("Bash", { command: "ls -la" }),
-        makeCtx("Bash"),
-      );
-      assert.equal(result, undefined);
-    } finally {
-      delete process.env.SPONSIO_PLUGIN_ROOT;
-      rmSync(root, { recursive: true, force: true });
-    }
-  },
-);
+skipUnlessSponsio("a violating call is blocked with the daemon's reason", async () => {
+  const sb = makeSandbox({ _host_openclaw: lib("_host_openclaw", NO_RM) });
+  try {
+    const blocked = await run(sb, "Bash", { command: "rm -rf /tmp/x" });
+    assert.ok(blocked, "expected a block result");
+    assert.equal(blocked.block, true);
+    assert.match(blocked.blockReason!, /Bash/);
+    assert.equal(await run(sb, "Bash", { command: "ls -la" }), undefined);
+  } finally {
+    await sb.close();
+  }
+});
 
-skipUnlessSponsio(
-  "before_tool_call: routes mcp__server__tool to the matching library",
-  async () => {
-    const api = makeMockApi();
-    const root = makePluginRoot();
-    writeLib(
-      root,
+skipUnlessSponsio("observe mode logs and lets the call through", async () => {
+  const sb = makeSandbox({ _host_openclaw: lib("_host_openclaw", NO_RM) });
+  sb.options.mode = "observe";
+  try {
+    assert.equal(await run(sb, "Bash", { command: "rm -rf /tmp/x" }), undefined);
+  } finally {
+    await sb.close();
+  }
+});
+
+skipUnlessSponsio("routes server__tool to the matching MCP library", async () => {
+  const sb = makeSandbox({
+    acme: lib(
       "acme",
-      `
-version: "1"
-agents:
-  acme:
-    contracts:
-      - desc: "ban evil URLs"
+      `      - desc: "ban evil URLs"
         G:
           pattern: arg_blacklist
           args:
@@ -261,134 +279,45 @@ agents:
             - url
             - - "evil"
 `,
+    ),
+  });
+  try {
+    const blocked = await run(sb, "acme__fetch", { url: "https://evil.com" });
+    assert.equal(blocked?.block, true);
+    assert.equal(await run(sb, "acme__fetch", { url: "https://example.com" }), undefined);
+  } finally {
+    await sb.close();
+  }
+});
+
+skipUnlessSponsio("a missing ctx argument does not crash", async () => {
+  const sb = makeSandbox({ _host_openclaw: lib("_host_openclaw", NO_RM) });
+  try {
+    assert.equal(await run(sb, "Bash", { command: "ls" }, undefined), undefined);
+  } finally {
+    await sb.close();
+  }
+});
+
+test("no daemon and none can start: the call is blocked with a recovery hint", async () => {
+  const dir = mkdtempSync("/tmp/spoc-");
+  try {
+    const api = makeMockApi();
+    createSponsioOpenClawPlugin({
+      socketPath: join(dir, "sock"),
+      sponsio: ["/nonexistent/sponsio"],
+      deadlineMs: 500,
+    }).register(api);
+    const t0 = Date.now();
+    const result = await api.__lastRegistration!.handler(
+      makeEvent("Bash", { command: "ls" }),
+      makeCtx("Bash"),
     );
-    process.env.SPONSIO_PLUGIN_ROOT = root;
-    try {
-      sponsioOpenClawPlugin.register(api);
-      const handler = api.__lastRegistration!.handler;
-
-      const blocked = await handler(
-        makeEvent("mcp__acme__fetch", { url: "https://evil.com" }),
-        makeCtx("mcp__acme__fetch"),
-      );
-      assert.ok(blocked, "expected block on evil URL");
-      assert.equal(blocked.block, true);
-
-      const allowed = await handler(
-        makeEvent("mcp__acme__fetch", { url: "https://example.com" }),
-        makeCtx("mcp__acme__fetch"),
-      );
-      assert.equal(allowed, undefined);
-    } finally {
-      delete process.env.SPONSIO_PLUGIN_ROOT;
-      rmSync(root, { recursive: true, force: true });
-    }
-  },
-);
-
-// ----------------------------------------------------------------------------
-// Edge-case + robustness tests
-// ----------------------------------------------------------------------------
-
-skipUnlessSponsio(
-  "missing ctx argument doesn't crash — fail-open allow",
-  async () => {
-    const api = makeMockApi();
-    const root = makePluginRoot();
-    writeLib(root, "_host", HOST_LIBRARY);
-    process.env.SPONSIO_PLUGIN_ROOT = root;
-    try {
-      sponsioOpenClawPlugin.register(api);
-      // Some OpenClaw versions may invoke the handler without ctx.
-      // Our handler reads ctx?.sessionId / ctx?.agentId defensively
-      // so this should not throw.
-      const result = await api.__lastRegistration!.handler(
-        makeEvent("Bash", { command: "ls" }),
-        undefined as unknown as BeforeToolCallContext,
-      );
-      assert.equal(result, undefined);
-    } finally {
-      delete process.env.SPONSIO_PLUGIN_ROOT;
-      rmSync(root, { recursive: true, force: true });
-    }
-  },
-);
-
-skipUnlessSponsio(
-  "subprocess crash → fail open (logger error called, no throw)",
-  async () => {
-    const api = makeMockApi();
-    let errors = 0;
-    api.logger = {
-      debug: () => {},
-      info: () => {},
-      warn: () => {},
-      error: () => {
-        errors += 1;
-      },
-    };
-    // Force a missing binary by pointing SPONSIO_GUARD_BIN at /nonexistent
-    process.env.SPONSIO_GUARD_BIN = "/definitely/nonexistent/sponsio-bin";
-    try {
-      sponsioOpenClawPlugin.register(api);
-      const result = await api.__lastRegistration!.handler(
-        makeEvent("Bash", { command: "rm -rf /tmp/x" }),
-        makeCtx("Bash"),
-      );
-      // Crashed → no decision → undefined → caller proceeds.
-      assert.equal(result, undefined);
-      assert.equal(errors, 1, "logger.error should have been called once");
-    } finally {
-      delete process.env.SPONSIO_GUARD_BIN;
-    }
-  },
-);
-
-skipUnlessSponsio(
-  "passes session metadata through to the backend payload",
-  async () => {
-    // We can't intercept the subprocess from outside; verify
-    // indirectly by writing a library that depends on tool routing
-    // (which uses tool_name, the most important wire field).
-    const api = makeMockApi();
-    const root = makePluginRoot();
-    writeLib(root, "github", `
-version: "1"
-agents:
-  github:
-    contracts:
-      - desc: "ban delete_repo"
-        G:
-          pattern: rate_limit
-          args: [mcp__github__delete_repository, 0]
-`);
-    process.env.SPONSIO_PLUGIN_ROOT = root;
-    try {
-      sponsioOpenClawPlugin.register(api);
-      const result = await api.__lastRegistration!.handler(
-        makeEvent("mcp__github__delete_repository", { name: "test" }),
-        makeCtx("mcp__github__delete_repository"),
-      );
-      assert.ok(result, "expected block");
-      assert.equal(result.block, true);
-    } finally {
-      delete process.env.SPONSIO_PLUGIN_ROOT;
-      rmSync(root, { recursive: true, force: true });
-    }
-  },
-);
-
-// ----------------------------------------------------------------------------
-// Backward compat: the deprecated `register` named export still works
-// ----------------------------------------------------------------------------
-
-test("deprecated register() named export is still callable", async () => {
-  const { register } = await import("../src/index.ts");
-  const api = makeMockApi();
-  register(api);
-  assert.ok(
-    api.__lastRegistration,
-    "deprecated register() should still install hook",
-  );
-  assert.equal(api.__lastRegistration.hookName, "before_tool_call");
+    assert.ok(Date.now() - t0 < 2000, "took longer than the deadline allows");
+    assert.equal(result?.block, true);
+    assert.match(result!.blockReason!, /not reachable/);
+    assert.match(result!.blockReason!, /sponsio host uninstall openclaw/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

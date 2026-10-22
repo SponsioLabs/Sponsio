@@ -4,10 +4,10 @@ The OpenClaw equivalent of [the
 sponsio-claude-code plugin](../sponsio-claude-code/QUICKSTART.md).
 Same engine, same library files, different runtime hook protocol.
 
-> Verified against the `sponsio plugin guard --stdin` backend
-> (10 Node integration tests, including edge cases and subprocess
-> crash recovery). Type definitions track the public OpenClaw docs
-> (manifest / hooks / sdk-entrypoints) verbatim as of 2026-04-26.
+> Verified against a real Sponsio daemon (Node integration tests,
+> including an unreachable daemon). Type definitions track the public
+> OpenClaw docs (manifest / hooks / sdk-entrypoints) verbatim as of
+> 2026-04-26.
 
 ---
 
@@ -84,14 +84,14 @@ sponsio plugin scan --plugin-id <name> --target-host openclaw \
 
 ## Installing into a running Docker container
 
-If OpenClaw runs inside a container that doesn't have the Sponsio Python CLI on PATH, the host-side `sponsio host install openclaw` plants the *files* but the in-container plugin still can't subprocess-spawn `sponsio`. For that case use the dedicated docker installer:
+If OpenClaw runs inside a container that doesn't have the Sponsio Python CLI, the host-side `sponsio host install openclaw` plants the *files* but the in-container plugin has no daemon to talk to and cannot start one. For that case use the dedicated docker installer:
 
 ```bash
 plugins/sponsio-openclaw/install_into_running_openclaw.sh \
     --container openclaw-openclaw-gateway-1
 ```
 
-This builds the plugin in an ephemeral container matching the running gateway's node version, copies it into the bind-mounted `~/.openclaw/extensions/sponsio-openclaw/`, `pip install -e`'s the Sponsio repo into the running container at `/opt/sponsio`, and bootstraps `~/.sponsio/plugins/` inside the container so the subprocess transport finds its libraries. See the script header for assumptions and dry-run mode.
+This builds the plugin in an ephemeral container matching the running gateway's node version, copies it into the bind-mounted `~/.openclaw/extensions/sponsio-openclaw/`, `pip install -e`'s the Sponsio repo into the running container at `/opt/sponsio`, and bootstraps `~/.sponsio/plugins/` inside the container so the daemon the plugin starts there finds its libraries. See the script header for assumptions and dry-run mode.
 
 ---
 
@@ -115,12 +115,12 @@ The `sponsio host install openclaw` flow uses the prebuilt `dist/index.js` shipp
 
 ```bash
 cd plugins/sponsio-openclaw
-npm test
+SPONSIO_TEST_PYTHON=$(which python) npm test
 ```
 
-Spawns the real `sponsio plugin guard` binary and exercises five
-end-to-end paths (allow / block / multi-plugin routing / no-library
-fallback / mocked API surface). Requires Node 22+ for
+Starts a real daemon under a temp dir and exercises allow / block /
+observe / MCP routing / no library / unreachable daemon against it,
+with a mocked OpenClaw API. Requires Node 22.6+ for
 `--experimental-strip-types`.
 
 ### Inside a live OpenClaw session
@@ -158,8 +158,8 @@ Sponsio/
 │   ├── sponsio-claude-code/                    ← Claude Code transport (stdin hooks)
 │   └── sponsio-openclaw/           ← OpenClaw transport (TS register fn)
 │       ├── openclaw.plugin.json           — OpenClaw manifest
-│       ├── src/index.ts                   — register(api) entry + subprocess transport
-│       ├── test/integration.test.ts       — 5 end-to-end tests
+│       ├── src/index.ts                   — register(api) entry + daemon socket client
+│       ├── test/integration.test.ts       — end-to-end tests against a real daemon
 │       ├── package.json
 │       ├── tsconfig.json
 │       ├── README.md                      — internals
@@ -169,7 +169,8 @@ Sponsio/
     ├── plugin/
     │   ├── defaults/                      — same per-plugin libraries
     │   └── ...
-    ├── guard_stdin.py                     — `sponsio plugin guard --stdin` core
+    ├── daemon/                            — the daemon every host talks to
+    ├── guard_stdin.py                     — the decision itself
     └── ...
 ```
 
@@ -181,11 +182,18 @@ A user running both runtimes installs libraries once.
 
 ## Configuration knobs
 
-| Env var | Purpose |
+`~/.openclaw/extensions/sponsio-openclaw/sponsio-config.json`, written
+by `sponsio host install openclaw` (re-run it to rewrite the file). The
+plugin reads no environment variable.
+
+| Key | Purpose |
 |---|---|
-| `SPONSIO_GUARD_BIN` | Path to the `sponsio` Python binary (default: looked up on `$PATH`). Set this if OpenClaw is launched from an environment where `sponsio` isn't on PATH (e.g. inside a containerized agent runtime). |
-| `SPONSIO_PLUGIN_ROOT` | Override the per-plugin library root (default: `~/.sponsio/plugins`). |
-| `SPONSIO_GUARD_MODE` | `enforce` (default) or `observe`. |
+| `socketPath` | The daemon socket (default `~/.sponsio/sponsio.sock`). |
+| `pluginRoot` | Library root a daemon started by the plugin serves. |
+| `stateDir` | State dir a daemon started by the plugin uses. |
+| `sponsio` | Command that runs the Sponsio CLI, as a list (default `["sponsio"]`). |
+| `mode` | `enforce` (default) or `observe`. |
+| `deadlineMs` | Budget for one decision (default 2000). |
 
 ---
 
@@ -194,23 +202,26 @@ A user running both runtimes installs libraries once.
 | Gap | Workaround / status |
 |---|---|
 | `{block: true, reason: "…"}` — `reason` may be ignored by some OpenClaw versions | The sponsio-claude-code plugin's deny reason makes it back to the model via `is_error` content. OpenClaw's runtime decides whether to do the same. |
-| 80ms per-call subprocess startup | Same daemon-mode mitigation as the sponsio-claude-code plugin. |
 | Tool name conventions differ from Claude Code (no `mcp__server__tool` standard for native OpenClaw tools) | Per-plugin routing falls back to `_host` for unrecognised names; author libraries explicitly under `~/.sponsio/plugins/<openclaw-tool-prefix>/sponsio.yaml`. |
 
 ---
 
 ## Troubleshooting
 
-**"`spawn sponsio ENOENT`"**
+**Every tool call is blocked with "the enforcement daemon is not reachable"**
 
-The Node process can't find the Python `sponsio` CLI. Either add it
-to PATH or set `SPONSIO_GUARD_BIN=/full/path/to/sponsio`.
+The plugin could not reach the daemon and could not start one. From
+your own terminal run `sponsio daemon run --detach` (with the `--socket`
+the message names) and `sponsio doctor`; if the `sponsio` command in
+`sponsio-config.json` no longer exists (a rebuilt venv), re-run
+`sponsio host install openclaw`. `sponsio host uninstall openclaw`
+removes the plugin.
 
 **"Hook fires but my rule doesn't block"**
 
 Same diagnostics as the sponsio-claude-code plugin (see [its
 QUICKSTART](../sponsio-claude-code/QUICKSTART.md#troubleshooting)) —
-the underlying `sponsio plugin guard --stdin` is identical.
+the daemon makes the same decision for both.
 
 **"Plugin loaded but `before_tool_call` never fires"**
 
@@ -225,7 +236,3 @@ loading docs.
 
 * When OpenClaw lifecycle gets exercised end to end, fold the
   observed event shape back into [`src/index.ts`](src/index.ts).
-* Daemon mode (Stage 3) — same plan as the sponsio-claude-code plugin;
-  this plugin's transport switches automatically because the
-  subprocess call goes to the same `sponsio plugin guard --stdin`
-  endpoint.

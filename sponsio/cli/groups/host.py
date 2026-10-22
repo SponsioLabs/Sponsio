@@ -725,8 +725,9 @@ def host_install(
             force=force,
             binary=binary_override,
         )
-        if name in ("claude-code", "cursor"):
-            # The mode rides on the hook command these two hosts run.
+        if name in ("claude-code", "cursor", "openclaw"):
+            # The mode rides on the hook command (Claude Code, Cursor) or
+            # in the plugin's config file (OpenClaw).
             install_kwargs["mode"] = chosen_mode
         result = host_spec.install_fn(host_spec, **install_kwargs)
         glyph = "✔" if result.written else "○"
