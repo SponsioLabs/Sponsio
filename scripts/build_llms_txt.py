@@ -39,6 +39,7 @@ FILES = [
     # Concepts.
     "docs/concepts/overview.md",
     "docs/concepts/architecture.md",
+    "docs/concepts/threat-model.md",
     "docs/concepts/stochastic.md",
     # Guides.
     "docs/guides/onboarding.md",

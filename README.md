@@ -83,6 +83,20 @@ run = sponsio.bridge.attach(guard)
 
 ---
 
+## Can the agent switch Sponsio off?
+
+It depends on how Sponsio is deployed. Each deployment tier states what it guarantees, and `sponsio doctor` tells you which tier a machine is in.
+
+| Tier | Deployment | Guarantee |
+|---|---|---|
+| 1. Dev (default) | Daemon runs as the agent's user | Every hook path fails closed; changes to rules, mode, wiring and engine are detected and recorded, and weakening changes wait for your review |
+| 2. Team | Daemon runs as its own system user, root-owned engine, managed host settings | The agent's user cannot change rules, mode, history, wiring or logs |
+| 3. Enterprise | Agent sandboxed; Sponsio owns the tool gateway, credentials and egress | Every tool call and network connection goes through Sponsio |
+
+This release provides Tier 1. See the [threat model](docs/concepts/threat-model.md) for the assumptions behind each tier and what each does not cover.
+
+---
+
 ## Contract Library
 
 **22 contract bundles** ship out of the box, organized by tier (always-on / per-tool / per-incident). Each bundle is a YAML pack composed from Sponsio's deterministic patterns. Drop one into `sponsio.yaml` and your agent is guarded against a known failure class in one line, with no per-contract authoring.
