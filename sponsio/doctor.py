@@ -940,6 +940,57 @@ def check_hook_wiring() -> CheckResult:
     return CheckResult("Hook wiring", "skip", "no Sponsio host hooks installed")
 
 
+def _hooks_through_daemon() -> bool:
+    from sponsio.integrations.hosts import is_shim_command
+
+    for host in ("claude-code", "cursor"):
+        if any(is_shim_command(cmd) for _p, cmd in _sponsio_hook_commands(host)):
+            return True
+    return _openclaw_plugin_config() is not None
+
+
+TIER_NAMES = {
+    0: "below Tier 1",
+    1: "Tier 1 (dev)",
+    2: "Tier 2 (team)",
+    3: "Tier 3 (enterprise)",
+}
+
+
+def check_tier() -> CheckResult:
+    """The enforcement tier, and what the next one needs (sponsio.tier)."""
+    from sponsio.tier import assess_this_machine
+
+    report = assess_this_machine(_hooks_through_daemon())
+    name = TIER_NAMES[report.tier]
+    nxt = report.tier + 1
+    missing = report.missing(nxt) if nxt <= 3 else []
+    detail = name
+    if missing:
+        detail += f"; Tier {nxt} needs: " + "; ".join(m.name.lower() for m in missing)
+    detail += " (`sponsio doctor --tier` for each guarantee)"
+    return CheckResult("Enforcement tier", "ok" if report.tier >= 1 else "warn", detail)
+
+
+def print_tier_report() -> int:
+    """Each guarantee, pass or fail, with the fix. Returns the tier."""
+    from sponsio.tier import assess_this_machine
+
+    report = assess_this_machine(_hooks_through_daemon())
+    click.echo()
+    click.echo(click.style(f"Enforcement: {TIER_NAMES[report.tier]}", bold=True))
+    for t in (1, 2, 3):
+        click.echo()
+        click.echo(click.style(f"  Tier {t}", bold=True))
+        for g in (x for x in report.guarantees if x.tier == t):
+            icon = click.style("✓" if g.ok else "✗", fg="green" if g.ok else "red")
+            click.echo(f"    {icon} {g.name}: {g.detail}")
+            if not g.ok and g.fix:
+                click.echo(f"        fix: {g.fix}")
+    click.echo()
+    return report.tier
+
+
 def _openclaw_plugin_config() -> tuple[Path, Any] | None:
     try:
         from sponsio.integrations.openclaw_install import (
@@ -1077,6 +1128,7 @@ def run_doctor(path: Path, *, with_llm: bool = False) -> tuple[list[CheckResult]
         check_guard_smoke,
         check_hook_wiring,
         check_claude_code_version,
+        check_tier,
         check_cloud,
         # Skill check last: it's informational ("the Agent Skill
         # feature is optional"), so it should never distract from

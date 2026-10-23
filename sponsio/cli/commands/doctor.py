@@ -38,7 +38,16 @@ from sponsio.cli.app import cli
         "`jq` / wrapper scripts."
     ),
 )
-def doctor(path: Path, llm: bool, as_json: bool):
+@click.option(
+    "--tier",
+    "tier_only",
+    is_flag=True,
+    help=(
+        "Report the enforcement tier only: each guarantee of Tier 1, 2 "
+        "and 3 with pass or fail and the fix. With --json, as JSON."
+    ),
+)
+def doctor(path: Path, llm: bool, as_json: bool, tier_only: bool):
     """Diagnose your Sponsio install and project wiring.
 
     Runs a short battery of mostly-offline checks. Python version,
@@ -59,9 +68,21 @@ def doctor(path: Path, llm: bool, as_json: bool):
         sponsio doctor\n
         sponsio doctor src/\n
         sponsio doctor --llm\n
+        sponsio doctor --tier\n
         sponsio doctor path/to/sponsio.yaml --llm
     """
     from sponsio.doctor import print_report, report_to_dict, run_doctor
+
+    if tier_only:
+        from sponsio.doctor import _hooks_through_daemon, print_tier_report
+        from sponsio.tier import assess_this_machine
+
+        if as_json:
+            report = assess_this_machine(_hooks_through_daemon())
+            click.echo(json.dumps(report.as_dict(), indent=2))
+        else:
+            print_tier_report()
+        sys.exit(0)
 
     results, exit_code = run_doctor(path, with_llm=llm)
     if as_json:

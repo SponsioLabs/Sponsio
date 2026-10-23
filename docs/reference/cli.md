@@ -268,6 +268,8 @@ terminal (`sponsio host install <host>` or `sponsio host uninstall
 Claude Code ignores the hooks' `onFailure: "block"`, so a hook that
 cannot start lets the tool run and only the shim's own deadline applies.
 
+**Enforcement tier** reports which tier the machine is in (see [the threat model](../concepts/threat-model.md)) and what the next tier needs. `sponsio doctor --tier` lists every guarantee of Tier 1, 2 and 3 with pass or fail and the fix (`--json` for a machine-readable form). The checks read the filesystem and the daemon's socket. Tier 1: host hooks go through the daemon. Tier 2 adds: the daemon runs as its own user, this user cannot reach the admin socket, the shim and engine are root-owned and read-only, the rule store belongs to the daemon's user, Claude Code's hooks come from managed settings only, and the host sandbox is on. Tier 3 adds Sponsio's tool gateway and egress proxy, which this release does not include. A default install is Tier 1.
+
 `sponsio host install` refuses to write a hook whose daemon socket path
 is too long to bind (more than 103 bytes on macOS, 107 on Linux); set
 `SPONSIO_DAEMON_SOCKET` to a shorter path.
