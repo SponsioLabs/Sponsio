@@ -82,6 +82,32 @@ def rules_diff(socket_path: Path | None):
             click.secho(f"  + {name}", fg="green")
 
 
+@rules.command(name="verify")
+@_socket_option
+def rules_verify(socket_path: Path | None):
+    """Compare loaded rules with the book the cloud publishes, now.
+
+    Uses the ``cloud:`` section of the daemon's daemon.yaml (project, and
+    which agent each host bucket should match). The daemon also does this
+    on its own every ``verify_interval_s``.
+    """
+    results = _call(socket_path, "rules.verify")
+    if not results:
+        click.echo("no buckets linked to a cloud project (cloud: in daemon.yaml)")
+        return
+    colours = {"match": "green", "stronger": "green", "weaker": "red"}
+    for bucket, r in sorted(results.items()):
+        status = r.get("status", "?")
+        line = f"{status:12} {bucket}"
+        if r.get("published_version") is not None:
+            line += f"  (cloud {r.get('agent')} v{r['published_version']})"
+        click.secho(line, fg=colours.get(status, "yellow"))
+        for name in r.get("missing", []):
+            click.echo(f"  - {name}")
+        if r.get("detail"):
+            click.echo(f"  {r['detail']}")
+
+
 @rules.command(name="reload")
 @_socket_option
 @click.option("--bucket", default=None, help="Only this bucket (default: all).")

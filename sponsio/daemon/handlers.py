@@ -20,7 +20,7 @@ Which socket serves a method is part of its contract:
 * agent socket: ``ping``, ``guard.check``, ``guard.observe``,
   ``proposal.submit``
 * admin socket: ``ping``, ``plugin.append``, ``mode.set``,
-  ``rules.status``, ``rules.reload``, ``proposal.list``,
+  ``rules.status``, ``rules.reload``, ``rules.verify``, ``proposal.list``,
   ``proposal.show``, ``proposal.approve``, ``proposal.reject``
 """
 
@@ -178,6 +178,7 @@ def register_guard_handlers(server: DaemonServer, service: "GuardService") -> No
         return service.rules_reload(bucket, peer.as_dict() if peer else None)
 
     server.register("rules.status", lambda _p: service.rules_status(), admin=True)
+    server.register("rules.verify", lambda _p: service.verify_cloud(), admin=True)
     server.register("rules.reload", rules_reload, admin=True)
 
 

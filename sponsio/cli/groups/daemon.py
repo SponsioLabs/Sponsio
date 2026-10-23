@@ -155,6 +155,8 @@ def daemon_run(
             click.echo("  --watch:   every rule change applies at once (audited)")
         # Rule files, their packs and the engine modules, every 2 s.
         service.start_watch()
+        if service.config.current().cloud_buckets:
+            service.start_cloud_verify()
 
     try:
         serve_forever(
@@ -173,6 +175,7 @@ def daemon_run(
         raise click.ClickException(str(e)) from e
     finally:
         service.stop_watch()
+        service.stop_cloud_verify()
     audit.append(service.state_dir, audit.DAEMON_STOP, socket=str(path))
     click.echo("daemon stopped")
 

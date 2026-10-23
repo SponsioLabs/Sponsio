@@ -46,6 +46,10 @@ RULESET_STRENGTHENED = "ruleset_strengthened"
 RULESET_RELOADED = "ruleset_reloaded"
 TRACE_DELETED = "trace_deleted"
 TAMPER_ATTEMPT = "tamper_attempt"
+CLOUD_DRIFT = "cloud_drift"
+"""The loaded rules lack contracts the cloud publishes for the agent."""
+CLOUD_VERIFIED = "cloud_verified"
+"""A cloud comparison's outcome changed (and is not ``weaker``)."""
 
 IDS_ALGO = "sponsio-ruleset-v1"
 """Name of the id algorithm, for anything that compares id sets made by
@@ -120,6 +124,38 @@ def ruleset(config: Any) -> dict[str, str]:
             f"setting `{name}`"
         )
     return out
+
+
+def agent_ruleset(config: Any, agent_id: str) -> dict[str, str]:
+    """``{id: label}`` for one agent's contracts, with ids that do not
+    depend on the agent's name.
+
+    For comparing the same rules held in two places under different
+    names: a host bucket (``_host_claude_code``) against the book a
+    cloud project publishes for an agent. Contracts only: the two
+    documents' settings (defaults, runtime, envelope) differ by design.
+    Same canonical form as :func:`ruleset`.
+    """
+    if config is None:
+        return {}
+    out: dict[str, str] = {}
+    agent = getattr(config, "agents", {}).get(agent_id)
+    for entry in getattr(agent, "contracts", []) or []:
+        # Where a contract came from (a pack here, inline there) is not
+        # what it enforces.
+        body = _strip(_canonical(entry), ("desc", "pack_source", "source"))
+        if isinstance(body, dict) and body.get("mode") is None:
+            body["mode"] = "enforce"  # no mode: the hook path enforces
+        out[_digest({"contract": body})] = entry.desc or "contract"
+    return out
+
+
+def _strip(value: Any, keys: tuple[str, ...]) -> Any:
+    if isinstance(value, dict):
+        return {k: _strip(v, keys) for k, v in value.items() if k not in keys}
+    if isinstance(value, list):
+        return [_strip(v, keys) for v in value]
+    return value
 
 
 @dataclass(frozen=True)

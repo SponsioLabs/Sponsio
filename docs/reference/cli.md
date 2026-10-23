@@ -407,6 +407,10 @@ on_error: deny           # deny | allow: what an evaluation error becomes
 unconfigured: null       # deny | allow | null (the host library decides)
 plugin_root: null        # overrides --plugin-root when set
 trace_ttl_hours: 24
+cloud:                   # optional: compare loaded rules with the published book
+  project: my-project
+  buckets: {_host_claude_code: my-agent}
+  verify_interval_s: 300
 ```
 
 `sponsio host install <host> --mode` sets the host's mode through the admin socket (`mode.set`). If no daemon is running, it writes the file directly. The daemon re-reads the file when it changes. A missing file, or a key that is missing or not valid, takes the strict default (`enforce`, `deny`). `SPONSIO_GUARD_MODE`, `SPONSIO_MODE`, `SPONSIO_HOOK_ON_ERROR`, `SPONSIO_UNCONFIGURED` and `SPONSIO_SHIELD_TRACE_TTL_HOURS` no longer affect hooks. They still apply to the in-process SDK and to `host guard --direct`. Every call allowed only because `on_error: allow` is audited as `fail_open`.
@@ -432,6 +436,7 @@ What the daemon enforces, and rule changes waiting for review. These commands ta
 sponsio rules status [--json]          # loaded libraries; HELD marks a change waiting for review
 sponsio rules diff                     # what a reload would apply: - removed or changed, + added
 sponsio rules reload [--bucket B] [--yes]
+sponsio rules verify                   # compare with the book the cloud publishes, now
 ```
 
 The daemon gives every compiled contract a stable id. The id is a hash of the contract's agent, the pack it came from, its formula, strategy and parameters, but not its description. Settings that change decisions (`defaults`, `tools`, `tool_policy`, `runtime`) get ids too. When a library or one of its packs changes on disk:
@@ -442,6 +447,8 @@ The daemon gives every compiled contract a stable id. The id is a hash of the co
 Each applied ruleset is kept in `<state-dir>/rules/`. A daemon that starts onto a library weaker than the last applied ruleset, with nothing older in memory, denies that bucket's calls until a reload. `sponsio daemon run --watch` applies every change at once, for working on Sponsio's own rules, and still records each one.
 
 The daemon also polls the library files, their packs and the engine modules on the hook path every 2 s, and records `config_drift` with the old and new SHA-256 of each file that changed. A deleted or truncated trace log is restored from memory and recorded as `trace_deleted`. A call denied by `capability/self-modify` or `capability/host-config-integrity` is recorded as `tamper_attempt`. At Tier 1 these records make tampering visible. They do not prevent it.
+
+With a `cloud:` section in `daemon.yaml`, the daemon also checks every `verify_interval_s` (and on `sponsio rules verify`) that each linked bucket enforces the book the project publishes for its agent. It sends the bucket's contract ids to `POST /v1/rulebook/verify`, and the service computes the published book's ids with the same algorithm. The ids ignore descriptions and whether a contract came from a pack, and keep its mode. The answer is `match`, `stronger` (local additions), `weaker` (published contracts missing locally, recorded as `cloud_drift` and announced on the next hook reply), `incomparable` (different SDK versions disagree) or `unsupported`. This check never runs on the decision path. A failed check is reported as a status and never causes a deny.
 
 ## sponsio cursor
 

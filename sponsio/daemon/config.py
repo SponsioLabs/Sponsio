@@ -17,6 +17,10 @@ The file::
     unconfigured: null       # deny | allow | null (the host library decides)
     plugin_root: null        # null: the --plugin-root the daemon started with
     trace_ttl_hours: 24
+    cloud:                   # compare loaded rules with the published book
+      project: my-project
+      buckets: {_host_claude_code: my-agent}
+      verify_interval_s: 300
 
 It is changed through the admin socket (``mode.set``; ``sponsio host
 install --mode``); with no daemon running, ``sponsio host install``
@@ -60,6 +64,10 @@ class DaemonConfig:
     unconfigured: str | None = None
     plugin_root: Path | None = None
     trace_ttl_hours: float = 24.0
+    cloud_project: str | None = None
+    cloud_buckets: dict[str, str] = field(default_factory=dict)
+    """Host bucket -> the cloud agent whose published book it should match."""
+    cloud_verify_interval_s: float = 300.0
 
     def mode_for(self, host: str | None) -> str:
         return self.hosts.get(host or "", self.mode)
@@ -96,6 +104,20 @@ class DaemonConfig:
         ttl = raw.get("trace_ttl_hours")
         if isinstance(ttl, (int, float)) and not isinstance(ttl, bool) and ttl > 0:
             kw["trace_ttl_hours"] = float(ttl)
+        cloud = raw.get("cloud")
+        if isinstance(cloud, dict):
+            if isinstance(cloud.get("project"), str) and cloud["project"]:
+                kw["cloud_project"] = cloud["project"]
+            buckets = cloud.get("buckets")
+            if isinstance(buckets, dict):
+                kw["cloud_buckets"] = {
+                    str(b): str(a)
+                    for b, a in buckets.items()
+                    if isinstance(a, str) and a
+                }
+            iv = cloud.get("verify_interval_s")
+            if isinstance(iv, (int, float)) and not isinstance(iv, bool) and iv >= 30:
+                kw["cloud_verify_interval_s"] = float(iv)
         return cls(**kw)
 
     def to_dict(self) -> dict[str, Any]:
@@ -106,6 +128,13 @@ class DaemonConfig:
             "unconfigured": self.unconfigured,
             "plugin_root": str(self.plugin_root) if self.plugin_root else None,
             "trace_ttl_hours": self.trace_ttl_hours,
+            "cloud": {
+                "project": self.cloud_project,
+                "buckets": dict(sorted(self.cloud_buckets.items())),
+                "verify_interval_s": self.cloud_verify_interval_s,
+            }
+            if self.cloud_buckets
+            else None,
         }
 
 

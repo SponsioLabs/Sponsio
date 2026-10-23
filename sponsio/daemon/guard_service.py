@@ -41,12 +41,16 @@ from typing import Any, Callable
 from sponsio.daemon import audit
 from sponsio.daemon.config import ConfigFile
 from sponsio.daemon.integrity import (
+    CLOUD_DRIFT,
+    CLOUD_VERIFIED,
+    IDS_ALGO,
     SELF_PROTECTION_PACKS,
     TAMPER_ATTEMPT,
     TRACE_DELETED,
     IntegrityWatcher,
     RulePolicy,
     RulesetDiff,
+    agent_ruleset,
     engine_files,
 )
 from sponsio.guard_stdin import (
@@ -796,6 +800,8 @@ class GuardService:
         self._conv_locks: dict[str, threading.Lock] = {}
         self._tamper_guards: dict[str, Any] = {}
         self._tamper_packs: dict[str, set[str]] = {}
+        self._cloud_status: dict[str, dict[str, Any]] = {}
+        self._cloud_stop: threading.Event | None = None
 
     @staticmethod
     def _held_snapshot(new: LibrarySnapshot, diff: RulesetDiff) -> LibrarySnapshot:
@@ -850,6 +856,98 @@ class GuardService:
             self._watcher.stop()
             self._watcher = None
 
+    # ---- the published book (P0.7 step 4) ----
+
+    def verify_cloud(self, client: Any = None) -> dict[str, dict[str, Any]]:
+        """Compare each linked bucket's served rules with the book the
+        cloud publishes for its agent (``cloud:`` in daemon.yaml).
+
+        Never on the decision path; a failure is a status, not a deny.
+        A change of outcome is audited (``cloud_drift`` when weaker,
+        ``cloud_verified`` otherwise), and weaker rules are announced on
+        the next hook reply.
+        """
+        import socket as _socket
+
+        import sponsio
+        from sponsio.cloud.client import CloudClient, CloudError
+
+        cfg = self.config.current()
+        if not cfg.cloud_buckets:
+            return {}
+        if client is None:
+            client = CloudClient(timeout=10.0, retries=0)
+        results: dict[str, dict[str, Any]] = {}
+        for bucket, agent in sorted(cfg.cloud_buckets.items()):
+            if not client.configured:
+                result: dict[str, Any] = {"status": "no_key"}
+            else:
+                snap = self.store.resolve(bucket)
+                if snap is None or snap.config is None:
+                    result = {"status": "not_loaded"}
+                else:
+                    try:
+                        result = client.verify_rulebook(
+                            cfg.cloud_project,
+                            agent=agent,
+                            ids=sorted(agent_ruleset(snap.config, snap.agent_id)),
+                            ids_algo=IDS_ALGO,
+                            sponsio_version=getattr(sponsio, "__version__", None),
+                            machine=_socket.gethostname(),
+                            bucket=bucket,
+                        )
+                    except CloudError as e:
+                        result = {
+                            "status": "unreachable" if e.status is None else "error",
+                            "http_status": e.status,
+                            "detail": str(e),
+                        }
+            results[bucket] = result
+            prev = self._cloud_status.get(bucket, {}).get("status")
+            self._cloud_status[bucket] = result
+            if result.get("status") == prev:
+                continue
+            weaker = result.get("status") == "weaker"
+            audit.append(
+                self.state_dir,
+                CLOUD_DRIFT if weaker else CLOUD_VERIFIED,
+                bucket=bucket,
+                agent=agent,
+                project=cfg.cloud_project,
+                status=result.get("status"),
+                published_version=result.get("published_version"),
+                missing=result.get("missing", []),
+            )
+            if weaker:
+                self.rules.warn(
+                    f"Sponsio: the rules for {bucket} lack "
+                    f"{len(result.get('missing', []))} contract(s) the cloud publishes "
+                    f"for {agent} (v{result.get('published_version')}); "
+                    f"run `sponsio rules verify` from your own terminal."
+                )
+        return results
+
+    def start_cloud_verify(self) -> None:
+        """Verify every ``cloud_verify_interval_s`` on a background thread."""
+        stop = threading.Event()
+        self._cloud_stop = stop
+
+        def loop() -> None:
+            while True:
+                try:
+                    self.verify_cloud()
+                except Exception as e:  # noqa: BLE001 - the loop must not die
+                    sys.stderr.write(f"sponsio: cloud verification failed: {e}\n")
+                if stop.wait(self.config.current().cloud_verify_interval_s):
+                    return
+
+        threading.Thread(target=loop, name="sponsio-cloud-verify", daemon=True).start()
+
+    def stop_cloud_verify(self) -> None:
+        if self._cloud_stop is not None:
+            self._cloud_stop.set()
+            self._cloud_stop = None
+
     def rules_status(self) -> dict[str, Any]:
         loaded = {}
         for snap in self.store.snapshots():
@@ -862,6 +960,7 @@ class GuardService:
             "loaded": loaded,
             "held": self.rules.status(),
             "watch": self.rules.watch,
+            "cloud": dict(self._cloud_status),
         }
 
     def rules_reload(self, bucket: str | None, peer: dict | None) -> dict[str, Any]:
