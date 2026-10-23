@@ -137,6 +137,9 @@ def test_reused_guards_decide_like_rebuilt_ones(root, monkeypatch, seed):
 
 def test_a_library_edit_starts_a_new_guard(root, monkeypatch):
     reuse, _ = _services(root, monkeypatch)
+    # Tightening a limit changes the contract's id, which the daemon
+    # holds as a weakening by default; this test is about the cache.
+    reuse.rules.watch = True
     ev = {
         "hook_event_name": "PreToolUse",
         "tool_name": "Bash",

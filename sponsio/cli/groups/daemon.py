@@ -78,12 +78,22 @@ def daemon():
         "<state-dir>/daemon.log."
     ),
 )
+@click.option(
+    "--watch",
+    is_flag=True,
+    help=(
+        "Apply every rule change on disk at once, weakening ones too, "
+        "instead of holding those until `sponsio rules reload`. For "
+        "working on Sponsio's own rules; every change is still audited."
+    ),
+)
 def daemon_run(
     socket_path_arg: Path | None,
     socket_mode: str,
     state_dir: Path | None,
     plugin_root: Path | None,
     detach: bool,
+    watch: bool,
 ):
     """Start the daemon.  Foreground by default; blocks until SIGINT/SIGTERM.
 
@@ -111,7 +121,7 @@ def daemon_run(
     resolved_state = (state_dir or default_state_dir()).expanduser()
 
     if detach:
-        sys.exit(_run_detached(path, socket_mode, resolved_state, plugin_root))
+        sys.exit(_run_detached(path, socket_mode, resolved_state, plugin_root, watch))
 
     from sponsio.daemon import audit
     from sponsio.daemon.handlers import register_default_handlers
@@ -122,6 +132,7 @@ def daemon_run(
     service = GuardService(
         root=(plugin_root or Path.home() / ".sponsio" / "plugins").expanduser(),
         state_dir=resolved_state,
+        watch=watch,
     )
 
     def _record_start(server) -> None:
@@ -140,6 +151,10 @@ def daemon_run(
         click.echo(f"  config:    {service.state_dir / 'daemon.yaml'}")
         click.echo(f"  libraries: {service.store.root}")
         click.echo(f"  state:     {service.state_dir}")
+        if watch:
+            click.echo("  --watch:   every rule change applies at once (audited)")
+        # Rule files, their packs and the engine modules, every 2 s.
+        service.start_watch()
 
     try:
         serve_forever(
@@ -156,12 +171,18 @@ def daemon_run(
         return
     except RuntimeError as e:
         raise click.ClickException(str(e)) from e
+    finally:
+        service.stop_watch()
     audit.append(service.state_dir, audit.DAEMON_STOP, socket=str(path))
     click.echo("daemon stopped")
 
 
 def _run_detached(
-    path: Path, socket_mode: str, state_dir: Path, plugin_root: Path | None
+    path: Path,
+    socket_mode: str,
+    state_dir: Path,
+    plugin_root: Path | None,
+    watch: bool = False,
 ) -> int:
     """Spawn a foreground ``daemon run`` in its own session and wait for
     the socket to answer. Exit 0 when a daemon answers (ours or one
@@ -194,6 +215,8 @@ def _run_detached(
     ]
     if plugin_root is not None:
         cmd += ["--plugin-root", str(plugin_root)]
+    if watch:
+        cmd.append("--watch")
     log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     try:
         proc = subprocess.Popen(

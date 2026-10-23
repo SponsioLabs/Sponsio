@@ -178,6 +178,7 @@ def test_the_configured_plugin_root_wins(tmp):
         'version: "1"\nagents:\n  _host_claude_code:\n    contracts: []\n'
     )
     svc = _svc(tmp)
+    svc.rules.watch = True  # the other root's library is weaker; apply it
     assert svc.check(host="claude-code", payload=_rm())["allowed"] is False
     _write(tmp, f"plugin_root: {tmp / 'other'}\n")
     assert svc.check(host="claude-code", payload=_rm())["allowed"] is True

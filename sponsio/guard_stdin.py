@@ -700,6 +700,10 @@ class LibrarySnapshot:
     content_hash: str
     config: Any = None
     error: BaseException | None = None
+    held_reason: str | None = None
+    """Set when the daemon will not serve this library: it is weaker
+    than the last approved ruleset and nothing older is loaded. Every
+    call to the bucket is denied with this reason, whatever on_error."""
 
     @property
     def defaults(self) -> dict:
@@ -1114,6 +1118,13 @@ def evaluate(
             library_path=None,
         )
 
+    if snap.held_reason is not None:
+        return GuardOutcome(
+            allowed=False,
+            reason=snap.held_reason,
+            plugin_id=plugin_id,
+            library_path=snap.path,
+        )
     if snap.error is not None:
         return _error_outcome(snap.error, plugin_id, snap.path, policy.on_error)
 

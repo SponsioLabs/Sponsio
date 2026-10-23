@@ -422,6 +422,25 @@ The daemon reads every caller's uid, gid and pid from the kernel (`SO_PEERCRED` 
 
 The agent side cannot change rules directly. `proposal.submit` validates the change as a dry run and stores it under `<state-dir>/proposals/`. Nothing applies until `proposal.approve` arrives on the admin socket. `sponsio plugin append` submits and then approves. That works when the caller can reach the admin socket, which is the case when the daemon runs as the same user. Otherwise the proposal waits for an operator.
 
+## sponsio rules
+
+What the daemon enforces, and rule changes waiting for review. These commands talk to the admin socket, so run them from your own terminal. The agent's hooks deny `sponsio rules reload`.
+
+```bash
+sponsio rules status [--json]          # loaded libraries; HELD marks a change waiting for review
+sponsio rules diff                     # what a reload would apply: - removed or changed, + added
+sponsio rules reload [--bucket B] [--yes]
+```
+
+The daemon gives every compiled contract a stable id. The id is a hash of the contract's agent, the pack it came from, its formula, strategy and parameters, but not its description. Settings that change decisions (`defaults`, `tools`, `tool_policy`, `runtime`) get ids too. When a library or one of its packs changes on disk:
+
+- If every loaded id is still present, the new rules apply at once, and `ruleset_strengthened` is recorded with what was added.
+- If any id was removed or changed, the daemon keeps enforcing the rules it has loaded. It records `config_drift` with the removed and changed contracts and adds a one-line warning to the next hook reply (stderr, and the reason of a deny). The new rules apply only after `sponsio rules reload`, which records `ruleset_reloaded` with the caller's uid and pid. A changed parameter counts as one removal plus one addition. A library that no longer loads counts as removing everything.
+
+Each applied ruleset is kept in `<state-dir>/rules/`. A daemon that starts onto a library weaker than the last applied ruleset, with nothing older in memory, denies that bucket's calls until a reload. `sponsio daemon run --watch` applies every change at once, for working on Sponsio's own rules, and still records each one.
+
+The daemon also polls the library files, their packs and the engine modules on the hook path every 2 s, and records `config_drift` with the old and new SHA-256 of each file that changed. A deleted or truncated trace log is restored from memory and recorded as `trace_deleted`. A call denied by `capability/self-modify` or `capability/host-config-integrity` is recorded as `tamper_attempt`. At Tier 1 these records make tampering visible. They do not prevent it.
+
 ## sponsio cursor
 
 Cursor IDE integration. Cursor 1.7+ ships a deny-capable hook system (`hooks.json`); Sponsio plugs in as the command for the relevant pre-* events so every Shell/Read/Write/MCP call is evaluated against the contract library before Cursor executes it.

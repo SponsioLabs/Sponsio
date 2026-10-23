@@ -20,8 +20,8 @@ Which socket serves a method is part of its contract:
 * agent socket: ``ping``, ``guard.check``, ``guard.observe``,
   ``proposal.submit``
 * admin socket: ``ping``, ``plugin.append``, ``mode.set``,
-  ``proposal.list``, ``proposal.show``, ``proposal.approve``,
-  ``proposal.reject``
+  ``rules.status``, ``rules.reload``, ``proposal.list``,
+  ``proposal.show``, ``proposal.approve``, ``proposal.reject``
 """
 
 from __future__ import annotations
@@ -169,6 +169,16 @@ def register_guard_handlers(server: DaemonServer, service: "GuardService") -> No
         return {"host": host, "mode": mode}
 
     server.register("mode.set", mode_set, admin=True)
+
+    def rules_reload(params: dict[str, Any]) -> dict[str, Any]:
+        bucket = params.get("bucket")
+        if bucket is not None and not isinstance(bucket, str):
+            raise RpcError("`bucket` must be a string or null", code="validation")
+        peer = current_peer()
+        return service.rules_reload(bucket, peer.as_dict() if peer else None)
+
+    server.register("rules.status", lambda _p: service.rules_status(), admin=True)
+    server.register("rules.reload", rules_reload, admin=True)
 
 
 def _resolve_plugin_root(params: dict[str, Any]) -> Path:

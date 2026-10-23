@@ -367,6 +367,21 @@ agents:
             - - "\\b(rm|mv|rmdir|chmod|chown|chattr|ln)\\b[^|&;\\n]*\\.sponsio(/plugins(/[\\w-]+)?)?/?(?![\\w./-])"
           source: "library:tier1.self-modify"
 
+      # The daemon holds a rule change that removes a contract until
+      # someone runs `sponsio rules reload`. At Tier 1 that someone could
+      # be the agent, approving its own weakening; the same goes for
+      # starting a daemon that applies every change (`--watch`), switching
+      # a host to observe, or removing the hooks. These belong to the
+      # person at their own terminal.
+      - desc: "Host agent must not approve its own rule changes, or switch Sponsio to observe or off"
+        G:
+          pattern: arg_blacklist
+          args:
+            - Bash
+            - command
+            - - "\\bsponsio\\b[^|&;\\n]*\\b(rules\\s+reload|admin\\b|daemon\\s+run\\b[^|&;\\n]*--watch|host\\s+uninstall|host\\s+install\\b[^|&;\\n]*--mode[\\s=]+observe)"
+          source: "library:tier1.self-modify"
+
 # -----------------------------------------------------------------------------
 # Integration requirements
 # -----------------------------------------------------------------------------

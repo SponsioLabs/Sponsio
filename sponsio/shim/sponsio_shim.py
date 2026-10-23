@@ -358,10 +358,11 @@ def run(argv: list[str], stdin_text: str) -> tuple[str, int, str]:
         return out, code, reason + "\n"
     out = result.get("stdout")
     code = result.get("exit_code")
+    warning = result.get("stderr")
     return (
         out if isinstance(out, str) else "",
         code if isinstance(code, int) else 2,
-        "",
+        warning + "\n" if isinstance(warning, str) and warning else "",
     )
 
 

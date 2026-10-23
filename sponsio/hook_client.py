@@ -106,5 +106,8 @@ def _forward(
         sys.stdout.write(out)
         if not out.endswith("\n"):
             sys.stdout.write("\n")
+    warning = result.get("stderr")
+    if isinstance(warning, str) and warning:
+        sys.stderr.write(warning + "\n")
     code = result.get("exit_code")
     return code if isinstance(code, int) else 2

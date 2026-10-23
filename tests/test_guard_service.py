@@ -161,7 +161,9 @@ agents:
       - local-pack.yaml
 """,
     )
-    svc = _service(root, short_tmp)
+    # watch: every change applies, so this tests the cache key, not the
+    # hold-weakening policy (tests/test_rules_integrity.py).
+    svc = _service(root, short_tmp, watch=True)
     assert svc.check(host=HOST, payload=_bash("ls"))["allowed"] is True
     assert svc.check(host=HOST, payload=_bash("rm -rf /"))["allowed"] is False
     # Only the pack changes; the including yaml is untouched.
