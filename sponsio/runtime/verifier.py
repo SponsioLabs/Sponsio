@@ -105,6 +105,10 @@ class Verdict:
     suggestion: str = ""
     policy_key: str = ""
     fresh: bool = True
+    contract_desc: str = ""
+    """The ``desc`` of the contract this formula belongs to, when it was
+    checked as part of one (:meth:`TraceVerifier.check_contract`): the
+    rule as its author named it, where ``desc`` names the formula."""
 
     def __bool__(self) -> bool:
         return self.holds
@@ -835,8 +839,13 @@ class TraceVerifier:
             A :class:`ContractVerdict` with per-constraint verdicts.
         """
         if contract.activate_at == "first_match":
-            return self._check_contract_reactive(contract, include_liveness)
-        return self._check_contract_global(contract, include_liveness)
+            result = self._check_contract_reactive(contract, include_liveness)
+        else:
+            result = self._check_contract_global(contract, include_liveness)
+        if contract.desc:
+            for v in [*result.assumptions, *result.guarantees]:
+                v.contract_desc = contract.desc
+        return result
 
     def _check_contract_global(
         self,

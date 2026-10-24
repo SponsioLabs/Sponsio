@@ -1247,19 +1247,45 @@ def evaluate(
         # Canonical stopping set: a redirected verdict denies here too,
         # so its message must be eligible as the deny reason.
         if is_stopping_action(getattr(v, "action", "") or ""):
-            msg = getattr(v, "message", "") or ""
-            # Strip the redundant ``BLOCKED: …`` prefix Claude Code's
-            # UI will render the deny separately.
-            if ":" in msg:
-                msg = msg.split(":", 1)[1].strip()
-            reasons.append(msg or "policy violation")
-    reason = "; ".join(reasons) or "blocked by Sponsio contract"
+            reasons.append(_deny_reason(v))
+    reason = "; ".join(dict.fromkeys(reasons)) or "blocked by Sponsio contract"
     return GuardOutcome(
         allowed=False,
         reason=reason,
         plugin_id=plugin_id,
         library_path=snap.path,
     )
+
+
+_VIOLATED = "det constraint violated: "
+
+
+def _looks_like_formula(text: str) -> bool:
+    return text.startswith(("G(", "F(", "X(", "(")) or "->" in text
+
+
+def _deny_reason(v: Any) -> str:
+    """One violation, said the way its author named the rule.
+
+    The contract's own ``desc`` first; the formula's description after it
+    in parentheses when it says something more and is not a raw formula.
+    A contract without a ``desc`` is named by its pattern (``rule_id``),
+    so "Bash.command must not match forbidden patterns" still says which
+    rule it was.
+    """
+    msg = getattr(v, "message", "") or ""
+    detail = msg.split(_VIOLATED, 1)[1].strip() if _VIOLATED in msg else ""
+    if not detail and ":" in msg:
+        detail = msg.split(":", 1)[1].strip()
+    rule = (getattr(v, "contract_desc", "") or "").strip()
+    if rule:
+        if detail and detail != rule and not _looks_like_formula(detail):
+            return f"{rule} ({detail})"
+        return rule
+    rule_id = (getattr(v, "rule_id", "") or "").strip()
+    if rule_id and detail:
+        return f"[{rule_id}] {detail}"
+    return detail or rule_id or "policy violation"
 
 
 def _return_guard(
