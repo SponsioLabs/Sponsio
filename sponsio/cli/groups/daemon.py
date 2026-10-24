@@ -176,6 +176,7 @@ def daemon_run(
     finally:
         service.stop_watch()
         service.stop_cloud_verify()
+        service.close_gateway()
     audit.append(service.state_dir, audit.DAEMON_STOP, socket=str(path))
     click.echo("daemon stopped")
 

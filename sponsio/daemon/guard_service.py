@@ -61,7 +61,9 @@ from sponsio.guard_stdin import (
     _error_outcome,
     _resolve_library,
     _safe_conv_id,
+    allowed_tools,
     conversation_key,
+    derive_plugin_id,
     evaluate,
     library_root,
     load_snapshot,
@@ -802,6 +804,8 @@ class GuardService:
         self._tamper_packs: dict[str, set[str]] = {}
         self._cloud_status: dict[str, dict[str, Any]] = {}
         self._cloud_stop: threading.Event | None = None
+        self._gateway: Any = None
+        self._gateway_lock = threading.Lock()
 
     @staticmethod
     def _held_snapshot(new: LibrarySnapshot, diff: RulesetDiff) -> LibrarySnapshot:
@@ -1173,23 +1177,42 @@ class GuardService:
             outcome = replace(outcome, reason=f"{outcome.reason} [{warning}]")
         return outcome, warning
 
-    def _evaluate(self, event: dict, mode: str | None = None) -> GuardOutcome:
+    def _evaluate(
+        self, event: dict, mode: str | None = None, *, offered_only: bool = False
+    ) -> GuardOutcome:
         # ``mode`` is what an older hook command or plugin still sends;
         # the daemon config decides, so it is ignored.
         del mode
-        policy = self.policy(event.get("host"))
+        host = event.get("host")
+        policy = self.policy(host)
         conversation_id = conversation_key(event)
         err = io.StringIO()
         with self._lock_for(conversation_id):
             try:
                 with redirect_stderr(err):
-                    outcome = evaluate(
-                        event,
-                        store=self.store,
-                        traces=self.traces,
-                        policy=policy,
-                        guards=self.guards,
-                    )
+                    tool = event.get("tool_name") or ""
+                    if offered_only and not self._offered(
+                        tool, host, conversation_id, policy
+                    ):
+                        # The gateway lists only these tools; a call by
+                        # name to one it did not list is refused even
+                        # where the call's arguments would pass.
+                        outcome = GuardOutcome(
+                            allowed=False,
+                            reason=(
+                                f"Sponsio: `{tool}` is not available in this "
+                                f"session's current state."
+                            ),
+                            plugin_id=derive_plugin_id(tool, host=host),
+                        )
+                    else:
+                        outcome = evaluate(
+                            event,
+                            store=self.store,
+                            traces=self.traces,
+                            policy=policy,
+                            guards=self.guards,
+                        )
             except Exception as e:  # noqa: BLE001 - every failure is a decision
                 outcome = _error_outcome(e, "", None, policy.on_error)
         if err.getvalue():
@@ -1206,6 +1229,62 @@ class GuardService:
             )
         self._audit_tamper(event, outcome)
         return outcome
+
+    def _offered(
+        self, tool: str, host: Any, conversation_id: str | None, policy: GuardPolicy
+    ) -> bool:
+        return bool(
+            allowed_tools(
+                [tool],
+                host=host if isinstance(host, str) else None,
+                conversation_id=conversation_id,
+                store=self.store,
+                traces=self.traces,
+                policy=policy,
+                guards=self.guards,
+            )
+        )
+
+    def allowed_tools(
+        self, host: str, conversation_id: str, names: list[str]
+    ) -> list[str]:
+        """The tools in ``names`` a call to which the conversation's current
+        state admits (:func:`sponsio.guard_stdin.allowed_tools`)."""
+        with self._lock_for(conversation_id):
+            with redirect_stderr(io.StringIO()):
+                return allowed_tools(
+                    names,
+                    host=host,
+                    conversation_id=conversation_id,
+                    store=self.store,
+                    traces=self.traces,
+                    policy=self.policy(host),
+                    guards=self.guards,
+                )
+
+    def decide(self, event: dict, *, offered_only: bool = False) -> GuardOutcome:
+        """Decide a Sponsio-shaped event (``tool_name``, ``tool_input``,
+        ``hook_event_name``, ``host``, ``session_id``) for a caller that is
+        not a host hook. ``offered_only`` also refuses a tool that
+        :meth:`allowed_tools` would not list."""
+        return self._evaluate(event, offered_only=offered_only)
+
+    @property
+    def gateway(self) -> Any:
+        """The MCP gateway (:mod:`sponsio.daemon.gateway`), started on
+        first use."""
+        with self._gateway_lock:
+            if self._gateway is None:
+                from sponsio.daemon.gateway import Gateway
+
+                self._gateway = Gateway(self)
+            return self._gateway
+
+    def close_gateway(self) -> None:
+        with self._gateway_lock:
+            gateway, self._gateway = self._gateway, None
+        if gateway is not None:
+            gateway.close()
 
     def _handle_stdin_protocol(
         self,

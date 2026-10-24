@@ -1,6 +1,6 @@
 ---
 title: Daemon reference
-description: daemon.yaml, the agent and admin sockets, proposals, held rule changes, and every audit event the daemon writes.
+description: daemon.yaml, the agent and admin sockets, proposals, held rule changes, the MCP gateway, and every audit event the daemon writes.
 ---
 
 # Daemon reference
@@ -16,6 +16,7 @@ Everything lives under the state dir, `~/.sponsio/state` by default (`sponsio da
 | File | What it holds |
 |---|---|
 | `daemon.yaml` | Every setting a hook decision depends on. |
+| `gateway.yaml` | The upstream MCP servers the gateway runs, with their credentials. See [MCP gateway](#mcp-gateway). |
 | `daemon.lock` | An exclusive `flock` while a daemon runs, holding its pid. One daemon per state dir. |
 | `daemon.log` | Output of a daemon started with `--detach`. |
 | `wal/<session>.jsonl` | Each live session's history, one admitted event per line, numbered by `seq`. Replayed on start. |
@@ -46,7 +47,7 @@ cloud:                   # optional: compare loaded rules with the published boo
 | Key | Default | Meaning |
 |---|---|---|
 | `mode` | `enforce` | Mode for hosts not listed under `hosts`. |
-| `hosts.<host>.mode` | | `enforce` or `observe` for one host. Set with `sponsio host install <host> --mode`. |
+| `hosts.<host>.mode` | | `enforce` or `observe` for one host. Set with `sponsio host install <host> --mode`. `gateway` is the MCP gateway's entry. |
 | `on_error` | `deny` | `allow` lets a call through when its library cannot be evaluated. Every such call is audited as `fail_open`. |
 | `unconfigured` | `null` | `deny` or `allow` for a tool with no library. `null` lets the host library's `defaults.unconfigured` decide. |
 | `plugin_root` | `null` | Library root. When unset, the `--plugin-root` the daemon started with, else `~/.sponsio/plugins`. |
@@ -70,9 +71,11 @@ The daemon listens on two Unix sockets. The agent socket is the one hooks use (`
 | agent | `ping` | Health check; returns pid and version. |
 | agent | `guard.check` | Decide a pre-event and render the host's reply (`stdout`, `exit_code`, and `stderr` when a warning is pending). |
 | agent | `guard.observe` | Record a post-event (the tool's output). Never gates. |
+| agent | `gateway.list_tools` | The MCP tools a session may call now. See [MCP gateway](#mcp-gateway). |
+| agent | `gateway.call_tool` | Decide an MCP tool call, run it upstream when allowed, and record it. |
 | agent | `proposal.submit` | Validate a rule change as a dry run and store it. Nothing applies. |
 | admin | `ping` | As above. |
-| admin | `mode.set` | Persist a host's mode in `daemon.yaml`. |
+| admin | `mode.set` | Persist a host's mode in `daemon.yaml` (`claude-code`, `cursor`, `openclaw` or `gateway`). |
 | admin | `rules.status` | Loaded libraries, held changes, the last cloud comparison. |
 | admin | `rules.reload` | Apply held changes, for one bucket or all. |
 | admin | `rules.verify` | Compare linked buckets with the cloud's published books now. |
@@ -105,6 +108,41 @@ Every compiled contract gets a stable id: a hash of its agent, the pack it came 
 - **The daemon restarts onto a library weaker than `rules/<bucket>.json`.** With nothing older in memory to serve, it denies that bucket's calls until a reload, and says so in the deny reason.
 
 `sponsio daemon run --watch` applies every change at once and still records each one. It is for working on Sponsio's own rules.
+
+---
+
+## MCP gateway
+
+The gateway puts the daemon between the agent and its MCP servers. The daemon starts the upstream servers itself, with the credentials in `gateway.yaml`, and the agent's host is given one MCP server, the gateway shim. The agent never holds an upstream's credentials, so it cannot call the upstream another way.
+
+```yaml
+# <state-dir>/gateway.yaml, mode 0600
+servers:
+  github:
+    command: [npx, -y, "@modelcontextprotocol/server-github"]
+    env: {GITHUB_PERSONAL_ACCESS_TOKEN: "..."}
+    cwd: null          # optional
+    timeout_s: 60      # start-up and per-call budget
+```
+
+| Key | Meaning |
+|---|---|
+| `servers.<name>` | One upstream. Letters, digits, and single `-` or `_` between them. `sponsio` is taken. |
+| `command` | The argv, as a list or a string split like a shell would. Only stdio servers are supported. |
+| `env` | Added to the daemon's own environment for this server. This is where credentials go. |
+| `timeout_s` | How long start-up and each call may take. Default 60. |
+
+A server starts on first use and again after it exits. A change to the file applies on the next call, and a server whose entry changed or went away is stopped.
+
+**What the agent sees.** Each upstream tool is listed as `<server>__<tool>`. Claude Code calls it `mcp__sponsio__<server>__<tool>`. Contracts name it `mcp__<server>__<tool>`, as for any MCP tool, and live in the server's own library, `<plugin-root>/<server>/sponsio.yaml`. The `_gateway` library's `defaults` apply to every server, for example `unconfigured: deny`.
+
+**Per session.** One shim process is one session, with its own history under `gateway:<id>`. `tools/list` returns only the tools a call to which the session's current state would admit. A tool behind a `must_precede` is not listed until its prerequisite has run. A call is decided again with its arguments. A call to a tool that is not listed is refused even when its arguments would pass. A refused call never reaches the upstream. When a call changes the list, the shim sends `notifications/tools/list_changed`. In observe mode (`hosts: {gateway: {mode: observe}}`) every tool is listed and every call runs.
+
+**When there is no daemon.** The shim starts one, as the hook shim does. If none answers, `tools/list` returns an error and every call returns an error result.
+
+**Coexisting with hooks.** When Claude Code's hooks are also installed, the hook decides `mcp__sponsio__<server>__<tool>` as `mcp__<server>__<tool>`, against the same library.
+
+The gateway alone does not make Tier 3: an agent that can still run commands can reach the network another way. That needs the sandbox runner.
 
 ---
 

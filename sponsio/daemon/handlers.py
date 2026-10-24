@@ -18,7 +18,7 @@ unknown-method handling stays in :mod:`sponsio.daemon.server`.
 Which socket serves a method is part of its contract:
 
 * agent socket: ``ping``, ``guard.check``, ``guard.observe``,
-  ``proposal.submit``
+  ``gateway.list_tools``, ``gateway.call_tool``, ``proposal.submit``
 * admin socket: ``ping``, ``plugin.append``, ``mode.set``,
   ``rules.status``, ``rules.reload``, ``rules.verify``, ``proposal.list``,
   ``proposal.show``, ``proposal.approve``, ``proposal.reject``
@@ -53,6 +53,7 @@ def register_default_handlers(
     server.register("plugin.append", _handle_plugin_append, admin=True)
     if guard_service is not None:
         register_guard_handlers(server, guard_service)
+        register_gateway_handlers(server, guard_service)
         state_dir = guard_service.state_dir
     if state_dir is not None:
         if server.audit_dir is None:
@@ -156,13 +157,13 @@ def register_guard_handlers(server: DaemonServer, service: "GuardService") -> No
     server.register("guard.observe", lambda params: service.observe(**_args(params)))
 
     def mode_set(params: dict[str, Any]) -> dict[str, Any]:
+        from sponsio.daemon.gateway import HOST as GATEWAY
         from sponsio.daemon.guard_service import KNOWN_HOSTS
 
         host, mode = params.get("host"), params.get("mode")
-        if host not in KNOWN_HOSTS:
-            raise RpcError(
-                f"`host` must be one of {sorted(KNOWN_HOSTS)}", code="validation"
-            )
+        hosts = sorted(KNOWN_HOSTS | {GATEWAY})
+        if host not in hosts:
+            raise RpcError(f"`host` must be one of {hosts}", code="validation")
         if mode not in ("enforce", "observe"):
             raise RpcError('`mode` must be "enforce" or "observe"', code="validation")
         service.set_host_mode(host, mode)
@@ -180,6 +181,40 @@ def register_guard_handlers(server: DaemonServer, service: "GuardService") -> No
     server.register("rules.status", lambda _p: service.rules_status(), admin=True)
     server.register("rules.verify", lambda _p: service.verify_cloud(), admin=True)
     server.register("rules.reload", rules_reload, admin=True)
+
+
+def register_gateway_handlers(server: DaemonServer, service: "GuardService") -> None:
+    """``gateway.list_tools`` and ``gateway.call_tool`` on the agent socket
+    (:mod:`sponsio.daemon.gateway`).
+
+    Params: ``session`` (the shim's id for one host session), and for a
+    call ``name`` (as listed) and ``arguments``. Results carry
+    ``digest``, which changes when the listed tools do. A refused or
+    failed call is a result with ``isError``, as MCP reports a tool
+    error, not an RPC error.
+    """
+
+    def _wrap(fn):
+        def handler(params: dict[str, Any]) -> Any:
+            try:
+                return fn(params)
+            except ValueError as e:
+                raise RpcError(str(e), code="validation") from e
+
+        return handler
+
+    server.register(
+        "gateway.list_tools",
+        _wrap(lambda p: service.gateway.list_tools(p.get("session"))),
+    )
+    server.register(
+        "gateway.call_tool",
+        _wrap(
+            lambda p: service.gateway.call_tool(
+                p.get("session"), p.get("name"), p.get("arguments")
+            )
+        ),
+    )
 
 
 def _resolve_plugin_root(params: dict[str, Any]) -> Path:

@@ -191,11 +191,25 @@ def assess(
         )
     )
 
-    for name in (
-        "Tool calls go through Sponsio's gateway",
-        "Network egress goes through Sponsio's proxy",
-    ):
-        g.append(Guarantee(3, name, False, "not available in this release", "P3"))
+    g.append(
+        Guarantee(
+            3,
+            "Tool calls go through Sponsio's gateway",
+            False,
+            "the MCP gateway is available (`sponsio gateway`), but nothing yet "
+            "keeps the agent off other routes",
+            "run the agent inside `sponsio run --sandbox` (P3.3)",
+        )
+    )
+    g.append(
+        Guarantee(
+            3,
+            "Network egress goes through Sponsio's proxy",
+            False,
+            "not available in this release",
+            "P3.4",
+        )
+    )
 
     tier = 0
     for t in (1, 2, 3):

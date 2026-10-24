@@ -46,6 +46,7 @@ from sponsio.cli.commands.validate import validate
 # Command groups.
 from sponsio.cli.groups.cursor import cursor
 from sponsio.cli.groups.daemon import daemon
+from sponsio.cli.groups.gateway import gateway
 from sponsio.cli.groups.host import _refresh_per_host_bundles, host
 from sponsio.cli.groups.plugin import _stamp_bundled_source, plugin
 from sponsio.cli.groups.rules import rules
@@ -92,6 +93,7 @@ __all__ = [
     "plugin",
     "host",
     "daemon",
+    "gateway",
     "rules",
     "cursor",
     # helpers imported elsewhere

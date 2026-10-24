@@ -17,4 +17,9 @@ def shim_path() -> Path:
     return (Path(__file__).parent / "sponsio_shim.py").resolve()
 
 
-__all__ = ["shim_path"]
+def mcp_shim_path() -> Path:
+    """Absolute path of the MCP gateway shim (:mod:`.sponsio_mcp`)."""
+    return (Path(__file__).parent / "sponsio_mcp.py").resolve()
+
+
+__all__ = ["mcp_shim_path", "shim_path"]

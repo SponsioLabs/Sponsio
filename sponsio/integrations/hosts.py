@@ -282,6 +282,42 @@ def shim_command(
     return " ".join(parts)
 
 
+def gateway_server_entry(
+    *,
+    socket_path: Path | None = None,
+    plugin_root: Path | None = None,
+    state_dir: Path | None = None,
+    python: str | None = None,
+) -> dict:
+    """The MCP server entry that points a host at the gateway shim.
+
+    ``{"command": <python>, "args": ["-I", "-S", <shim>, "--socket", S,
+    "--plugin-root", R, "--state-dir", D]}``, pinned like
+    :func:`shim_command`: the shim reads no environment variable.
+    """
+    import sys
+
+    from sponsio.shim import mcp_shim_path
+
+    sock = socket_path if socket_path is not None else _default_socket_path()
+    root = plugin_root if plugin_root is not None else _default_plugin_root()
+    state = state_dir if state_dir is not None else _default_state_dir()
+    return {
+        "command": python or sys.executable,
+        "args": [
+            "-I",
+            "-S",
+            str(mcp_shim_path()),
+            "--socket",
+            str(sock),
+            "--plugin-root",
+            str(root),
+            "--state-dir",
+            str(state),
+        ],
+    }
+
+
 def set_daemon_mode(
     host: str,
     mode: str,

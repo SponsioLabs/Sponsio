@@ -427,6 +427,18 @@ The daemon also polls the library files, their packs and the engine modules on t
 
 With a `cloud:` section in `daemon.yaml`, the daemon also checks every `verify_interval_s` (and on `sponsio rules verify`) that each linked bucket enforces the book the project publishes for its agent. It sends the bucket's contract ids to `POST /v1/rulebook/verify`, and the service computes the published book's ids with the same algorithm. The ids ignore descriptions and whether a contract came from a pack, and keep its mode. The answer is `match`, `stronger` (local additions), `weaker` (published contracts missing locally, recorded as `cloud_drift` and announced on the next hook reply), `incomparable` (different SDK versions disagree) or `unsupported`. This check never runs on the decision path. A failed check is reported as a status and never causes a deny.
 
+## sponsio gateway
+
+The MCP gateway. The daemon runs the agent's MCP servers with the credentials in `<state-dir>/gateway.yaml`, and the host is given one MCP server that lists only the tools the session's state allows.
+
+```bash
+sponsio gateway command [--socket PATH] [--state-dir DIR] [--plugin-root DIR]
+                                       # print the MCP server entry for the host's config
+sponsio gateway tools [--socket PATH]  # the tools a new session is offered, and servers that failed
+```
+
+Put the entry `gateway command` prints under `mcpServers` in `.mcp.json` (Claude Code) or `~/.cursor/mcp.json` (Cursor), and remove the servers it replaces: their credentials move to `gateway.yaml`. The file format and how listing and calls are decided are in the [daemon reference](daemon.md#mcp-gateway).
+
 ## sponsio cursor
 
 Cursor IDE integration. Cursor 1.7+ ships a deny-capable hook system (`hooks.json`); Sponsio plugs in as the command for the relevant pre-* events so every Shell/Read/Write/MCP call is evaluated against the contract library before Cursor executes it.

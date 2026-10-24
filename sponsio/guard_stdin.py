@@ -113,6 +113,10 @@ def _bucket_for_host(host: str | None, is_subagent: bool) -> str:
     """
     if host == "openclaw":
         return "_host_openclaw"
+    if host == "gateway":
+        # The MCP gateway's own library: its ``defaults`` (e.g.
+        # ``unconfigured: deny``) cover every upstream server.
+        return "_gateway"
     if host == "cursor":
         return "_host_cursor_subagent" if is_subagent else "_host_cursor"
     if host == "claude-code":
@@ -200,6 +204,27 @@ def derive_plugin_id(
         if plugin:
             return plugin
     return fallback
+
+
+GATEWAY_SERVER = "sponsio"
+"""The name the MCP gateway shim is registered under in a host's MCP
+config (``sponsio gateway command``)."""
+
+
+def gateway_inner_name(tool_name: str) -> str:
+    """``mcp__sponsio__<server>__<tool>`` -> ``mcp__<server>__<tool>``.
+
+    A host hook sees a gateway tool under the gateway's server name. It is
+    decided under the upstream's own name, against the upstream's library,
+    as the gateway decides it, so a server that merely calls itself
+    ``sponsio`` gets no library of its own to hide behind.
+    """
+    prefix = f"mcp__{GATEWAY_SERVER}__"
+    if tool_name[: len(prefix)].casefold() == prefix:
+        inner = tool_name[len(prefix) :]
+        if "__" in inner.strip("_"):
+            return f"mcp__{inner}"
+    return tool_name
 
 
 def library_root() -> Path:
@@ -1075,6 +1100,7 @@ def evaluate(
     # drift).
     raw_agent_id = event.get("agent_id")
     is_subagent = isinstance(raw_agent_id, str) and bool(raw_agent_id.strip())
+    tool_name = gateway_inner_name(tool_name)
     plugin_id = derive_plugin_id(tool_name, host=host, is_subagent=is_subagent)
     hook_event = event.get("hook_event_name") or "PreToolUse"
     if hook_event != "PreToolUse":
@@ -1128,9 +1154,6 @@ def evaluate(
     if snap.error is not None:
         return _error_outcome(snap.error, plugin_id, snap.path, policy.on_error)
 
-    # Lazy import — keeps cold-start cheap when no library exists.
-    from sponsio.integrations.base import BaseGuard
-
     # BaseGuard prints a live reporter banner on each event regardless
     # of ``verbose``. Claude Code's hook protocol expects either nothing
     # or the deny JSON on stdout — anything else corrupts the channel.
@@ -1145,7 +1168,7 @@ def evaluate(
     # history, merged across buckets.
     conversation_id = conversation_key(event)
     cache_key = (plugin_id, snap.content_hash, conversation_id, policy.mode)
-    guard = guards.checkout(cache_key, conversation_id) if guards else None
+    guard = None
     used_context = False
 
     try:
@@ -1153,30 +1176,9 @@ def evaluate(
             contextlib.redirect_stdout(captured_out),
             contextlib.redirect_stderr(captured_err),
         ):
-            if guard is None:
-                # ``env_mode=False``: the policy's mode is the decision's
-                # mode. The process environment is not consulted, so a
-                # daemon serving several hosts can hold a mode per host,
-                # and a client's environment never reaches the decision.
-                guard = BaseGuard(
-                    agent_id=snap.agent_id,
-                    parsed_config=snap.config,
-                    verbose=False,
-                    verbosity=0,
-                    mode=policy.mode,
-                    env_mode=False,
-                    init_banner=False,
-                    auto_summary=False,
-                )
-                # Seed the monitor with the reconstructed trace so
-                # trace-aware contracts (must_precede, cooldown, A→G
-                # temporal, …) see the full session history rather than
-                # an empty trace.
-                prior_events = traces.events(plugin_id, conversation_id)
-                if prior_events:
-                    from sponsio.models.trace import Trace
-
-                    guard._monitor.import_trace(Trace(events=list(prior_events)))
+            guard = _session_guard(
+                snap, plugin_id, conversation_id, policy, traces, guards
+            )
             # Bridge any host-supplied context facts (caller identity,
             # tenant, signed-message metadata, …) into the contract layer
             # before the tool call is evaluated. The host plugin packs
@@ -1255,6 +1257,108 @@ def evaluate(
         plugin_id=plugin_id,
         library_path=snap.path,
     )
+
+
+def _session_guard(
+    snap: LibrarySnapshot,
+    plugin_id: str,
+    conversation_id: str | None,
+    policy: GuardPolicy,
+    traces: TraceStore,
+    guards: GuardCache | None,
+) -> Any:
+    """A guard for ``snap`` that has seen the conversation's history:
+    the cached one when ``guards`` holds it, otherwise a new one."""
+    cache_key = (plugin_id, snap.content_hash, conversation_id, policy.mode)
+    guard = guards.checkout(cache_key, conversation_id) if guards else None
+    if guard is not None:
+        return guard
+    from sponsio.integrations.base import BaseGuard
+
+    # ``env_mode=False``: the policy's mode is the decision's mode. The
+    # process environment is not consulted, so a daemon serving several
+    # hosts can hold a mode per host, and a client's environment never
+    # reaches the decision.
+    guard = BaseGuard(
+        agent_id=snap.agent_id,
+        parsed_config=snap.config,
+        verbose=False,
+        verbosity=0,
+        mode=policy.mode,
+        env_mode=False,
+        init_banner=False,
+        auto_summary=False,
+    )
+    # Seed the monitor with the reconstructed trace so trace-aware
+    # contracts (must_precede, cooldown, A→G temporal, …) see the full
+    # session history rather than an empty trace.
+    prior_events = traces.events(plugin_id, conversation_id)
+    if prior_events:
+        from sponsio.models.trace import Trace
+
+        guard._monitor.import_trace(Trace(events=list(prior_events)))
+    return guard
+
+
+def allowed_tools(
+    tool_names: list[str],
+    *,
+    host: str | None,
+    conversation_id: str | None,
+    store: RuleStore,
+    traces: TraceStore,
+    policy: GuardPolicy,
+    guards: GuardCache | None = None,
+) -> list[str]:
+    """The subset of ``tool_names`` a call to which would be admitted now.
+
+    The name-level question :meth:`BaseGuard.filter_tools` answers, asked
+    of each tool's own library with the conversation's history, so a
+    gateway can list only the tools the session's current state allows.
+    Arguments are not known yet; a call is still decided by
+    :func:`evaluate`. A library that is held or broken (with ``on_error:
+    deny``) allows none of its tools; a tool with no library is allowed
+    unless unconfigured tools are denied. In observe mode every tool is
+    allowed: :meth:`BaseGuard.filter_tools` answers regardless of mode,
+    and observe blocks nothing. Order is kept. Like :func:`evaluate`, the
+    caller serialises calls per conversation.
+    """
+    if policy.mode == "observe":
+        return list(tool_names)
+    groups: dict[str, list[str]] = {}
+    for name in tool_names:
+        groups.setdefault(derive_plugin_id(name, host=host), []).append(name)
+    allowed: set[str] = set()
+    for plugin_id, names in groups.items():
+        snap = store.resolve(plugin_id)
+        if snap is None:
+            if not _unconfigured_denies(policy, store, _bucket_for_host(host, False)):
+                allowed.update(names)
+            continue
+        if snap.held_reason is not None:
+            continue
+        if snap.error is not None:
+            if policy.on_error == "allow":
+                allowed.update(names)
+            continue
+        cache_key = (plugin_id, snap.content_hash, conversation_id, policy.mode)
+        try:
+            with (
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                guard = _session_guard(
+                    snap, plugin_id, conversation_id, policy, traces, guards
+                )
+                allowed.update(guard.filter_tools(names))
+        except Exception:  # noqa: BLE001 - an unevaluable library offers nothing
+            if guards:
+                guards.discard(cache_key)
+            if policy.on_error == "allow":
+                allowed.update(names)
+            continue
+        _return_guard(guards, cache_key, guard, conversation_id, False)
+    return [n for n in tool_names if n in allowed]
 
 
 _VIOLATED = "det constraint violated: "
