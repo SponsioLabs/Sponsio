@@ -290,3 +290,33 @@ def test_rules_cli_shows_and_reloads_a_held_change(tmp):
         server.stop(join_timeout_s=0.5)
     (rec,) = _records(tmp, RULESET_RELOADED)
     assert rec["peer"]["uid"] == os.getuid()
+
+
+def test_an_applied_strengthening_does_not_warn(tmp):
+    _write(tmp, _lib(NO_RM))
+    svc = _svc(tmp)
+    assert not _allowed(svc, "rm -rf /")  # loaded, so the watcher hashes it
+    watcher = svc.start_watch(start=False)
+    _write(tmp, _lib(NO_RM, NO_CURL))
+    watcher.poll()  # the file change is recorded...
+    assert any(r.get("file") for r in _records(tmp, CONFIG_DRIFT))
+    res = svc.check(host=HOST, payload=_bash("curl x"))
+    assert res["allowed"] is False  # ...and the new rule applies
+    assert "on record" not in res["reason"] and "stderr" not in res
+    assert _records(tmp, RULESET_STRENGTHENED)
+
+
+def test_an_engine_change_still_warns(tmp, monkeypatch):
+    from sponsio.daemon import guard_service as gs
+
+    _write(tmp, _lib(NO_RM))
+    svc = _svc(tmp)
+    module = tmp / "fake_engine.py"
+    module.write_text("x = 1\n")
+    monkeypatch.setattr(gs, "engine_files", lambda _root: [module])
+    monkeypatch.setattr(svc, "watched_files", lambda: [module])
+    watcher = svc.start_watch(start=False)
+    module.write_text("x = 2\n")
+    watcher.poll()
+    res = svc.check(host=HOST, payload=_bash("rm -rf /"))
+    assert "fake_engine.py changed on disk" in res["reason"]

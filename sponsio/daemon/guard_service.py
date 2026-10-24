@@ -838,17 +838,31 @@ class GuardService:
         files.extend(engine_files(Path(sponsio.__file__).parent))
         return files
 
-    def start_watch(self, interval_s: float = 2.0) -> IntegrityWatcher:
-        """Poll the watched files for changes (``sponsio daemon run``)."""
+    def start_watch(
+        self, interval_s: float = 2.0, *, start: bool = True
+    ) -> IntegrityWatcher:
+        """Poll the watched files for changes (``sponsio daemon run``).
+
+        Every change is recorded. Only an engine module's change is also
+        announced on the next hook reply: a rule file's change is the rule
+        policy's to announce, and it does so only when the change is held
+        (a strengthening applies with nothing to act on).
+        """
+        import sponsio
+
+        engine = {str(p) for p in engine_files(Path(sponsio.__file__).parent)}
+
+        def on_drift(rec: dict[str, Any]) -> None:
+            if rec.get("file") in engine:
+                self.rules.warn(
+                    f"Sponsio: {rec.get('file')} changed on disk; it is on record."
+                )
+
         self._watcher = IntegrityWatcher(
-            self.state_dir,
-            self.watched_files,
-            interval_s=interval_s,
-            on_drift=lambda rec: self.rules.warn(
-                f"Sponsio: {rec.get('file')} changed on disk; it is on record."
-            ),
+            self.state_dir, self.watched_files, interval_s=interval_s, on_drift=on_drift
         )
-        self._watcher.start()
+        if start:
+            self._watcher.start()
         return self._watcher
 
     def stop_watch(self) -> None:
