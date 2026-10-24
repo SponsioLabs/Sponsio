@@ -41,6 +41,7 @@ from sponsio.cli.commands.scan import (
     scan,
 )
 from sponsio.cli.commands.serve import serve
+from sponsio.cli.commands.system import install_cmd, uninstall_cmd
 from sponsio.cli.commands.validate import validate
 
 # Command groups.
@@ -80,6 +81,8 @@ __all__ = [
     "replay",
     "report",
     "serve",
+    "install_cmd",
+    "uninstall_cmd",
     "scan",
     "export_cmd",
     "export_sessions_cmd",

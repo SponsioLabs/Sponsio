@@ -53,12 +53,26 @@ def gateway_command(
     """
     from sponsio.guard_stdin import GATEWAY_SERVER
     from sponsio.integrations.hosts import gateway_server_entry
+    from sponsio.system_install import installed_layout
 
-    entry = gateway_server_entry(
-        socket_path=socket_path.expanduser() if socket_path else None,
-        plugin_root=plugin_root.expanduser() if plugin_root else None,
-        state_dir=state_dir.expanduser() if state_dir else None,
-    )
+    lay = installed_layout()
+    if lay is not None and not (socket_path or plugin_root or state_dir):
+        # A system install: the root-owned shim, the engine's interpreter,
+        # and a shim that never starts a daemon of its own.
+        entry = gateway_server_entry(
+            socket_path=lay.socket,
+            plugin_root=lay.plugins,
+            state_dir=lay.state,
+            python=str(lay.python),
+            shim=lay.mcp_shim,
+            no_start=True,
+        )
+    else:
+        entry = gateway_server_entry(
+            socket_path=socket_path.expanduser() if socket_path else None,
+            plugin_root=plugin_root.expanduser() if plugin_root else None,
+            state_dir=state_dir.expanduser() if state_dir else None,
+        )
     click.echo(json.dumps({"mcpServers": {GATEWAY_SERVER: entry}}, indent=2))
 
 

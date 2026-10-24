@@ -77,6 +77,8 @@ class Bridge:
             return transport.call(self.opts.socket, method, params, deadline)
         except transport.Unreachable as first:
             cause = str(first)
+        if self.opts.no_start:
+            raise RuntimeError(transport.system_recovery_reason(cause))
         failure = transport.start_daemon(self.opts)
         if failure is None:
             until = min(deadline, time.monotonic() + transport.START_WAIT_S)

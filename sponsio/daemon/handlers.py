@@ -54,16 +54,27 @@ def register_default_handlers(
     writes only, with proposals when ``state_dir`` is given.
     """
     server.register("plugin.append", _handle_plugin_append, admin=True)
+    apply_append = _apply_append
     if guard_service is not None:
         register_guard_handlers(server, guard_service)
         register_gateway_handlers(server, guard_service)
         register_sdk_handlers(server, guard_service)
         state_dir = guard_service.state_dir
+
+        def apply_append(params: dict[str, Any], dry_run: bool) -> dict[str, Any]:
+            # A proposal comes from the agent side: it changes the
+            # daemon's own rule store, whatever ``root`` it names. At
+            # Tier 2 the daemon writes as its own user, and an approved
+            # proposal must not write anywhere else.
+            return _apply_append(
+                {**params, "root": str(guard_service.store.root)}, dry_run
+            )
+
     if state_dir is not None:
         if server.audit_dir is None:
             server.audit_dir = Path(state_dir)
         register_proposal_handlers(
-            server, ProposalStore(Path(state_dir), {"plugin.append": _apply_append})
+            server, ProposalStore(Path(state_dir), {"plugin.append": apply_append})
         )
         register_audit_handlers(server, Path(state_dir))
 

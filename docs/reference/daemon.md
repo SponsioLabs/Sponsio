@@ -25,7 +25,7 @@ Everything lives under the state dir, `~/.sponsio/state` by default (`sponsio da
 | `cloud.key` | The daemon's own cloud API key (`sponsio admin cloud-key set`). |
 | `audit.jsonl` | Append-only, hash-chained record of what the daemon did and saw. |
 
-All of these are created owner-only (0600 files, 0700 directories).
+All of these are created owner-only (0600 files, 0700 directories). After `sudo sponsio install --system` the state dir is `/Library/Application Support/Sponsio/state` (macOS) or `/var/lib/sponsio` (Linux), owned by `_sponsio`. The sockets are then `run/agent.sock` (macOS, beside `state`) or `/run/sponsio/agent.sock` (Linux), with the admin socket `agent.admin.sock` beside it.
 
 ---
 

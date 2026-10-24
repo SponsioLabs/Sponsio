@@ -77,6 +77,32 @@ The hook fails closed: if it cannot reach a daemon, or the daemon cannot read it
 2. `sponsio rules status`. A HELD library after a restart is denied until `sponsio rules reload`.
 3. If neither helps, remove the hook: `sponsio host uninstall claude-code` (add `--scope project` for a project install).
 
+## Tier 2: the system install
+
+At Tier 1 the daemon runs as you, so the agent, which also runs as you, could change Sponsio's files; Sponsio records it but cannot stop it. The system install moves Sponsio out of your user's reach:
+
+```bash
+sudo sponsio install --system --dry-run      # read every step first
+sudo sponsio install --system                # Claude Code
+sudo sponsio install --system --host claude-code --host cursor
+```
+
+It creates a `_sponsio` system user and runs the daemon as that user under launchd (macOS) or systemd (Linux). The engine goes into a root-owned `/opt/sponsio`, the hook shims into `/usr/local/libexec/sponsio`, and the rules, history, audit log and config into a directory only `_sponsio` can open: `/Library/Application Support/Sponsio/state` on macOS, `/var/lib/sponsio` on Linux. Your libraries under `~/.sponsio/plugins` are copied in once; after that the daemon reads only its own copy.
+
+For Claude Code it writes `managed-settings.d/50-sponsio.json` beside Claude Code's managed settings. Your own settings cannot remove those hooks. It also turns off user and project hooks (`allowManagedHooksOnly`), denies edits to Sponsio's paths, turns on Claude Code's sandbox with no unsandboxed fallback, and refuses Claude Code versions older than 2.1.295. `--allow-user-hooks` leaves user and project hooks loading; doctor then reports Tier 2 (degraded).
+
+Things to know:
+
+- **The engine needs a root-owned Python 3.10 or newer.** Its standard library is part of the engine, so a Python under your home or under Homebrew does not count. On macOS install one from python.org; the system `/usr/bin/python3` is too old. Pass `--python` to choose.
+- **An MDM profile can hide the file.** Claude Code reads a managed MDM profile before the managed settings files, and ignores the files unless the profile sets `managedSourcesBehavior: merge`. `sponsio doctor --tier` says when this is the case.
+- **The sandbox has exceptions.** Commands listed in `sandbox.excludedCommands`, and commands you run yourself with `!`, run outside it. On Linux it needs `bubblewrap` and `socat`.
+- **Cursor stays at Tier 1.** Its system hooks file is used, but nothing documented stops a user from turning system hooks off, Cursor's local SDK runtime loads no hooks, and a prompt right after startup can run before they load. Turn on "Block until hooks are ready" in Cursor's admin settings.
+- **OpenClaw** reaches Tier 2 only when OpenClaw itself is installed system-wide.
+
+Afterwards, commands that change Sponsio need root: `sudo sponsio rules reload`, `sudo sponsio admin proposals approve <id>`, `sudo sponsio admin audit verify`. Check the result as your own user with `sponsio doctor --tier`.
+
+To remove it: `sudo sponsio uninstall --system` (add `--keep-state` to keep the rules and the audit log).
+
 ## Uninstall
 
 ```bash

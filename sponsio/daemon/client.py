@@ -55,8 +55,8 @@ def default_socket_path() -> Path:
     Resolution order:
 
     1. ``$SPONSIO_DAEMON_SOCKET`` env var (override for tests / custom installs)
-    2. System-installed socket at ``/var/run/sponsio.sock`` (when daemon
-       is registered as a launchd / systemd service)
+    2. The system install's socket (``sudo sponsio install --system``),
+       then ``/var/run/sponsio.sock``
     3. Per-user dev-mode socket at ``~/.sponsio/sponsio.sock``
 
     The dev-mode default keeps ``sponsio daemon run`` zero-config — the
@@ -66,6 +66,11 @@ def default_socket_path() -> Path:
     env = os.environ.get("SPONSIO_DAEMON_SOCKET")
     if env:
         return Path(env).expanduser()
+    from sponsio.system_install import installed_layout
+
+    layout = installed_layout()
+    if layout is not None and layout.socket.exists():
+        return layout.socket
     system_path = Path("/var/run/sponsio.sock")
     if system_path.exists():
         return system_path

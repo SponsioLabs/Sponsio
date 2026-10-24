@@ -61,6 +61,64 @@ jobs:
         working-directory: plugins/sponsio-openclaw
         run: SPONSIO_TEST_PYTHON="$(command -v python)" npm test
 
+  tier2:
+    name: Tier 2 (system install, Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The engine is built on the root-owned system interpreter; a
+      # setup-python install under the runner's home would not count.
+      - name: System Python with venv
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-venv
+          /usr/bin/python3 --version
+
+      - name: Sources every user can read
+        run: |
+          cp -r "$GITHUB_WORKSPACE" /tmp/src
+          chmod -R a+rX /tmp/src
+
+      - name: The operator's CLI
+        run: |
+          /usr/bin/python3 -m venv /tmp/operator
+          /tmp/operator/bin/pip install --quiet /tmp/src
+
+      - name: sudo sponsio install --system
+        run: |
+          sudo /tmp/operator/bin/sponsio install --system \
+            --python /usr/bin/python3 --package "/tmp/src[signing]" --no-migrate
+
+      - name: An unprivileged agent user
+        run: |
+          sudo useradd --create-home agentuser
+          sudo -u agentuser /usr/bin/python3 -m venv /home/agentuser/venv
+          sudo -u agentuser /home/agentuser/venv/bin/pip install --quiet /tmp/src pytest
+
+      - name: Tier 2 from the agent's side
+        working-directory: /tmp/src
+        run: |
+          sudo -u agentuser env SPONSIO_TEST_TIER=2 HOME=/home/agentuser \
+            /home/agentuser/venv/bin/python -m pytest -v -p no:cacheprovider \
+            tests/test_tier2_live.py
+
+      - name: Daemon log
+        if: failure()
+        run: |
+          sudo cat /var/log/sponsio/daemon.log || true
+          sudo journalctl -u sponsio --no-pager | tail -50 || true
+
+      - name: Uninstall leaves nothing behind
+        run: |
+          sudo /tmp/operator/bin/sponsio uninstall --system
+          for p in /opt/sponsio /usr/local/libexec/sponsio /var/lib/sponsio \
+                   /var/log/sponsio /run/sponsio /etc/systemd/system/sponsio.service \
+                   /etc/claude-code/managed-settings.d/50-sponsio.json; do
+            if sudo test -e "$p"; then echo "left behind: $p"; exit 1; fi
+          done
+          if id _sponsio 2>/dev/null; then echo "user _sponsio left behind"; exit 1; fi
+
   build-smoke-test:
     name: Build wheel + install smoke test
     runs-on: ubuntu-latest

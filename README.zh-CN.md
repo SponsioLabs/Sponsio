@@ -94,7 +94,7 @@ run = sponsio.bridge.attach(guard)
 | 2. Team | daemon 以独立系统用户运行，引擎归 root，宿主设置由管理员统一下发 | agent 的系统用户改不了规则、模式、历史、接线和日志 |
 | 3. Enterprise | agent 运行在沙箱中，Sponsio 掌管工具网关、凭证和出网 | 每次工具调用和每个网络连接都经过 Sponsio |
 
-本版本提供 Tier 1。各层级的前提假设和不覆盖的范围见[威胁模型](docs/concepts/threat-model.md)。
+默认安装是 Tier 1。Tier 2 用 `sudo sponsio install --system`，适用于 macOS 和 Linux 上的 Claude Code；Cursor 即使这样安装也仍是 Tier 1。Tier 3 还不完整：MCP 网关已经提供，沙箱运行器和出网代理还没有。各层级的前提假设和不覆盖的范围见[威胁模型](docs/concepts/threat-model.md)。
 
 ---
 

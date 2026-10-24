@@ -427,6 +427,19 @@ The daemon also polls the library files, their packs and the engine modules on t
 
 With a `cloud:` section in `daemon.yaml`, the daemon also checks every `verify_interval_s` (and on `sponsio rules verify`) that each linked bucket enforces the book the project publishes for its agent. It sends the bucket's contract ids to `POST /v1/rulebook/verify`, and the service computes the published book's ids with the same algorithm. The ids ignore descriptions and whether a contract came from a pack, and keep its mode. The answer is `match`, `stronger` (local additions), `weaker` (published contracts missing locally, recorded as `cloud_drift` and announced on the next hook reply), `incomparable` (different SDK versions disagree) or `unsupported`. This check never runs on the decision path. A failed check is reported as a status and never causes a deny.
 
+## sponsio install --system
+
+Tier 2: Sponsio for the whole machine, out of the agent's reach. Run with `sudo`.
+
+```bash
+sudo sponsio install --system [--host claude-code] [--host cursor]
+                              [--python PATH] [--package SPEC] [--allow-user-hooks]
+                              [--no-migrate] [--dry-run]
+sudo sponsio uninstall --system [--keep-state] [--dry-run]
+```
+
+`install --system` creates the `_sponsio` user, a root-owned engine in `/opt/sponsio` on a root-owned Python 3.10+ (`--python`), root-owned hook shims, the daemon's private state and its launchd or systemd service. It imports `~/.sponsio/plugins` (unless `--no-migrate`) and writes the host's managed settings. `--package` is what pip installs into the engine: a version spec, a wheel or a source directory. `--dry-run` prints every step and changes nothing. What it sets up and what to know about it: [Running Sponsio on a host](../guides/host-operations.md#tier-2-the-system-install).
+
 ## sponsio admin
 
 Operator commands. They talk to the daemon's admin socket: at Tier 1 that is your own daemon, at Tier 2 run them with `sudo`. The agent's hooks deny them.

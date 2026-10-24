@@ -8,6 +8,7 @@ Usage::
 
     sponsio_shim.py <host> [--event NAME] --socket PATH [--deadline SECONDS]
                     [--plugin-root DIR] [--state-dir DIR] [--sponsio CMD]
+                    [--no-start]
 
 ``host`` is ``claude-code``, ``cursor`` or ``openclaw``. The installer
 writes every option as an absolute value, so the shim reads nothing from
@@ -19,7 +20,8 @@ daemon's exit code.
 
 If no daemon answers, the shim starts one (``sponsio daemon run
 --detach``, with a scrubbed environment), waits for the socket, and
-retries once. If that fails too, or the deadline passes, it writes the
+retries once. With ``--no-start`` (a system install, where the service
+manager runs the daemon as its own user) it does not try. If that fails too, or the deadline passes, it writes the
 host's deny shape and exits 2, so a host that reads either signal
 blocks the call. The deny reason says how to recover; the agent cannot,
 since its own tools are denied too.
@@ -82,6 +84,7 @@ class Options:
         self.plugin_root: str | None = None
         self.state_dir: str | None = None
         self.sponsio: list[str] | None = None
+        self.no_start = False
 
 
 def parse_args(argv: list[str]) -> Options:
@@ -106,6 +109,8 @@ def parse_args(argv: list[str]) -> Options:
         elif arg == "--sponsio":
             raw = next(it, None)
             opts.sponsio = shlex.split(raw) if raw else None
+        elif arg == "--no-start":
+            opts.no_start = True
         elif arg.startswith("--"):
             next(it, None)
         elif not opts.host:
@@ -147,6 +152,20 @@ _HOST_CONFIG = {
     "claude-code": "~/.claude/settings.json",
     "cursor": "~/.cursor/hooks.json",
 }
+
+
+def system_recovery_reason(cause: str) -> str:
+    """The deny reason when the system daemon (Tier 2) does not answer."""
+    if sys.platform == "darwin":
+        restart = "sudo launchctl kickstart -k system/dev.sponsio.daemon"
+    else:
+        restart = "sudo systemctl restart sponsio"
+    return (
+        f"Sponsio: the system enforcement daemon is not reachable ({cause}). "
+        f"This tool call is denied, and every tool call will be denied until "
+        f"it is back. From your own terminal: `{restart}`, then "
+        f"`sponsio doctor`."
+    )
 
 
 def recovery_reason(
@@ -329,6 +348,10 @@ def run(argv: list[str], stdin_text: str) -> tuple[str, int, str]:
     try:
         result = call(opts.socket, method, params, deadline)
     except Unreachable as first:
+        if opts.no_start:
+            reason = system_recovery_reason(str(first))
+            out, code = deny_reply(opts.host, event_name, reason)
+            return out, code, reason + "\n"
         cause = str(first)
         failure = start_daemon(opts)
         if failure is not None:

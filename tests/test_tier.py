@@ -38,6 +38,8 @@ def _assess(tmp: Path, **kw):
         engine_dir=tmp,
         plugin_root=tmp / "plugins",
         managed_settings=(tmp / "managed.json",),
+        mdm_settings=tmp / "no-mdm.plist",
+        cursor_hooks=tmp / "no-cursor.json",
     )
     args.update(kw)
     return assess(**args)
@@ -48,7 +50,7 @@ def test_a_same_user_daemon_with_hooks_is_tier_1(tmp):
     assert report.tier == 1
     names = [g.name for g in report.missing(2)]
     assert "The daemon runs as its own user" in names
-    assert "Host hooks come from managed settings only" in names
+    assert "Host hooks come from managed settings" in names
     assert all(g.fix for g in report.missing(2))
 
 
@@ -67,25 +69,82 @@ def test_tier_2_needs_every_guarantee(tmp):
     assert report.tier == 1
 
 
-def test_managed_settings_must_name_the_shim_and_lock_hooks(tmp):
+SYSTEM_SETTINGS = {
+    "allowManagedHooksOnly": True,
+    "requiredMinimumVersion": "2.1.295",
+    "hooks": {"PreToolUse": [{"hooks": [{"command": "x sponsio_shim.py"}]}]},
+    "sandbox": {
+        "enabled": True,
+        "failIfUnavailable": True,
+        "allowUnsandboxedCommands": False,
+    },
+}
+
+
+def _g(tmp, **kw):
+    return {x.name: x for x in _assess(tmp, **kw).guarantees}
+
+
+def test_managed_settings_must_name_the_shim(tmp):
     managed = tmp / "managed.json"
     managed.write_text(json.dumps({"hooks": {"PreToolUse": []}}))
-    g = {x.name: x for x in _assess(tmp).guarantees}
-    assert not g["Host hooks come from managed settings only"].ok
-    managed.write_text(
-        json.dumps(
-            {
-                "allowManagedHooksOnly": True,
-                "hooks": {
-                    "PreToolUse": [{"hooks": [{"command": "x sponsio_shim.py"}]}]
-                },
-                "sandbox": {"enabled": True},
-            }
-        )
+    g = _g(tmp)
+    assert not g["Host hooks come from managed settings"].ok
+    managed.write_text(json.dumps(SYSTEM_SETTINGS))
+    g = _g(tmp)
+    assert g["Host hooks come from managed settings"].ok
+    assert g["Only managed hooks load"].ok
+    assert g["The host sandbox is on and cannot be bypassed"].ok
+    assert g["Claude Code older than 2.1.295 will not start"].ok
+
+
+def test_drop_ins_merge_after_the_main_file(tmp):
+    main = tmp / "managed.json"
+    main.write_text(json.dumps({"permissions": {"deny": []}}))
+    dropin = tmp / "50-sponsio.json"
+    dropin.write_text(json.dumps(SYSTEM_SETTINGS))
+    g = _g(tmp, managed_settings=(main, dropin))
+    assert g["Host hooks come from managed settings"].ok
+
+
+def test_user_hooks_allowed_is_degraded_not_lower(tmp):
+    settings = dict(SYSTEM_SETTINGS, allowManagedHooksOnly=False)
+    (tmp / "managed.json").write_text(json.dumps(settings))
+    report = _assess(tmp)
+    only = next(g for g in report.guarantees if g.name == "Only managed hooks load")
+    assert not only.ok and not only.required
+    # Not a Tier 2 requirement: it does not appear in what Tier 2 needs.
+    assert only not in report.missing(2)
+
+
+def test_a_sandbox_that_lets_commands_out_does_not_count(tmp):
+    settings = dict(SYSTEM_SETTINGS)
+    settings["sandbox"] = dict(settings["sandbox"], allowUnsandboxedCommands=True)
+    (tmp / "managed.json").write_text(json.dumps(settings))
+    assert not _g(tmp)["The host sandbox is on and cannot be bypassed"].ok
+
+
+def test_an_mdm_profile_hides_the_files(tmp):
+    import plistlib
+
+    (tmp / "managed.json").write_text(json.dumps(SYSTEM_SETTINGS))
+    mdm = tmp / "mdm.plist"
+    mdm.write_bytes(plistlib.dumps({"permissions": {}}))
+    g = _g(tmp, mdm_settings=mdm)
+    assert not g["Host hooks come from managed settings"].ok
+    assert "ignores them" in g["Host hooks come from managed settings"].detail
+    mdm.write_bytes(plistlib.dumps({"managedSourcesBehavior": "merge"}))
+    assert _g(tmp, mdm_settings=mdm)["Host hooks come from managed settings"].ok
+
+
+def test_cursor_system_hooks_are_reported_as_tier_1(tmp):
+    cursor = tmp / "cursor.json"
+    cursor.write_text(
+        json.dumps({"hooks": {"preToolUse": [{"command": "x sponsio_shim.py"}]}})
     )
-    g = {x.name: x for x in _assess(tmp).guarantees}
-    assert g["Host hooks come from managed settings only"].ok
-    assert g["The host sandbox is on"].ok
+    report = _assess(tmp, cursor_hooks=cursor)
+    assert any("Cursor stays at Tier 1" in n for n in report.notes)
+    assert "Block until hooks are ready" in report.notes[0]
 
 
 def test_doctor_says_tier_1_after_a_default_install(monkeypatch):
