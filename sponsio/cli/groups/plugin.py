@@ -390,6 +390,10 @@ def _stamp_bundled_source(bundled_text: str, name: str) -> str:
     return yaml.safe_dump(doc, sort_keys=False)
 
 
+def _without_source(contract: dict) -> dict:
+    return {k: v for k, v in contract.items() if k != "source"}
+
+
 def _install_one(name: str, target: Path) -> dict | None:
     """Install or upgrade a single bundled library at ``target``.
 
@@ -444,10 +448,22 @@ def _install_one(name: str, target: Path) -> dict | None:
         # optional ``A:``); tweaks live in their own ``customized:``
         # block, handled below.
         existing_contracts = existing_agent.get("contracts") or []
+        # A contract identical to a shipped default but for the bundle
+        # marker is that default, not the user's: an installer once wrote
+        # the starter unstamped, and every later upgrade kept the whole
+        # starter as "user-authored" beside the new defaults, so each
+        # default was enforced twice.
+        defaults = [
+            _without_source(c)
+            for c in new_agent.get("contracts") or []
+            if isinstance(c, dict)
+        ]
         kept = [
             c
             for c in existing_contracts
-            if isinstance(c, dict) and c.get("source") != marker
+            if isinstance(c, dict)
+            and c.get("source") != marker
+            and _without_source(c) not in defaults
         ]
         if kept:
             new_agent.setdefault("contracts", []).extend(kept)

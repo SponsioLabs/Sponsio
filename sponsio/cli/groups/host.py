@@ -11,7 +11,7 @@ import click
 
 from sponsio.cli._shared import _contract_guarantee
 from sponsio.cli.app import cli
-from sponsio.cli.groups.plugin import _bootstrap_default_buckets, _install_one
+from sponsio.cli.groups.plugin import _install_one
 from sponsio.cli.groups.skill import _packaged_skill_source
 
 
@@ -383,7 +383,10 @@ def _apply_strict_to_host_buckets(host_name: str) -> list[tuple[Path, str]]:
 
 
 def _refresh_per_host_bundles(
-    host_name: str, plugin_root: Path
+    host_name: str,
+    plugin_root: Path,
+    *,
+    existed_before: dict[str, bool] | None = None,
 ) -> list[tuple[str, str]]:
     """Install or smart-merge the ``_host_<host>`` + subagent bundles.
 
@@ -402,6 +405,10 @@ def _refresh_per_host_bundles(
       and the ``customized:`` block survive verbatim).
     * Bundle name not in the registry (e.g. host has no shipped
       starter for the subagent slot) → silently skipped.
+
+    ``existed_before`` says which buckets existed before the calling
+    command started (an installer may write a starter first); a bucket
+    that did not is reported as created, not upgraded.
     """
     from sponsio.plugin.registry import list_bundled
 
@@ -414,8 +421,13 @@ def _refresh_per_host_bundles(
         target = plugin_root / bucket / "sponsio.yaml"
         target.parent.mkdir(parents=True, exist_ok=True)
         kept = _install_one(bucket, target)
-        if kept is None:
-            out.append((f"✔  {host_name} bundle: wrote {target}", "green"))
+        created = (
+            kept is None
+            if existed_before is None
+            else not existed_before.get(bucket, kept is not None)
+        )
+        if created:
+            out.append((f"✔  {host_name} bundle: created {target}", "green"))
         else:
             out.append(
                 (
@@ -672,26 +684,17 @@ def host_install(
     chosen_mode = _resolve_install_mode(mode, default="enforce")
     click.echo(f"Hook mode: {chosen_mode}")
 
-    # Bootstrap the default contract library buckets (``_host`` etc.)
-    # the hook will read at runtime. folded in here so users don't
-    # have to remember a separate ``sponsio plugin init`` step. Silent
-    # if everything already exists; reports any fresh writes.
+    # Each host gets its own ``_host_<name>`` buckets below. The legacy
+    # shared ``_host`` / ``_host_subagent`` buckets are not created here
+    # any more: nothing a fresh install routes reads them, and creating
+    # one only to warn about it as legacy two lines later helped nobody.
+    # ``sponsio plugin init`` still lays them down for those who want them.
     plugin_root_env = os.environ.get("SPONSIO_PLUGIN_ROOT")
     plugin_root = (
         Path(plugin_root_env).expanduser()
         if plugin_root_env
         else Path.home() / ".sponsio" / "plugins"
     )
-    for path, status in _bootstrap_default_buckets(plugin_root):
-        if status == "wrote":
-            click.secho(f"✔  bootstrapped contract library: {path}", fg="green")
-        elif status.startswith("error:"):
-            click.secho(
-                f"✘  could not bootstrap {path.parent.name!r}: "
-                f"{status[len('error:') :].strip()}. reinstall sponsio.",
-                fg="red",
-                err=True,
-            )
 
     # Detect the legacy ``_host/sponsio.yaml`` and suggest migration.
     # Without this, the user installs ``_host_<name>`` thinking they
@@ -729,6 +732,12 @@ def host_install(
             # The mode rides on the hook command (Claude Code, Cursor) or
             # in the plugin's config file (OpenClaw).
             install_kwargs["mode"] = chosen_mode
+        # Which bundles this install creates: the installer may write a
+        # starter before the refresh below runs, so ask now.
+        existed_before = {
+            bucket: (plugin_root / bucket / "sponsio.yaml").exists()
+            for bucket in _bucket_for_host_name(name)
+        }
         result = host_spec.install_fn(host_spec, **install_kwargs)
         glyph = "✔" if result.written else "○"
         colour = "green" if result.written else "yellow"
@@ -752,7 +761,9 @@ def host_install(
         # write; existing bundle → smart-merge upgrade (default
         # contracts replaced from the new bundled YAML; user-authored
         # contracts and the ``customized:`` block survive verbatim).
-        bundle_summary = _refresh_per_host_bundles(name, plugin_root)
+        bundle_summary = _refresh_per_host_bundles(
+            name, plugin_root, existed_before=existed_before
+        )
         for line, colour in bundle_summary:
             click.secho(line, fg=colour)
 

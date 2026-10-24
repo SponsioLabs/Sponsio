@@ -66,8 +66,12 @@ def _ensure_bundled_library(bucket: str) -> None:
         text = read_bundled(bucket)
     except (FileNotFoundError, ModuleNotFoundError):
         return
+    # Stamped like ``sponsio host install``'s own refresh writes it, so a
+    # later upgrade tells the shipped contracts from the user's.
+    from sponsio.cli.groups.plugin import _stamp_bundled_source
+
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(text, encoding="utf-8")
+    target.write_text(_stamp_bundled_source(text, bucket), encoding="utf-8")
 
 
 def _ensure_subagent_library() -> None:

@@ -352,9 +352,9 @@ def test_host_install_writes_per_host_bundle(tmp_path):
     from sponsio.cli import _refresh_per_host_bundles
 
     out = _refresh_per_host_bundles("cursor", tmp_path)
-    # Two buckets, two "wrote" entries:
+    # Two buckets, two "created" entries:
     assert len(out) == 2
-    assert all("wrote" in line for line, _ in out)
+    assert all("created" in line for line, _ in out)
     assert (tmp_path / "_host_cursor" / "sponsio.yaml").exists()
     assert (tmp_path / "_host_cursor_subagent" / "sponsio.yaml").exists()
 
