@@ -17,6 +17,29 @@ How far those hold depends on how Sponsio is deployed. A deployment that comes w
 
 This release provides Tier 1. Tier 2 needs the system install, and Tier 3 needs the gateway and egress proxy. Neither ships in this release. `sponsio doctor --tier` shows what each one is missing on your machine.
 
+### Which tier fits
+
+| Tier | Fits | Status |
+|---|---|---|
+| **1. Dev** | A developer running Claude Code, Cursor or OpenClaw on their own machine. A trial, or a first run in observe mode. | This release |
+| **2. Team** | Machines a company manages for its staff. Teams that need an audit trail the agent cannot edit. Rules owned by a security team rather than the developer. | Not in this release |
+| **3. Enterprise** | Unattended agents in production that touch money, customer data or production systems. | Not in this release |
+
+The tiers differ in two things: who can change Sponsio, and whether every action the agent takes has to go through Sponsio. At Tier 1 the agent's OS user can still change Sponsio's files, and Sponsio records it. At Tier 2 file ownership stops it. At Tier 3 the agent has no route to a tool or the network that skips Sponsio.
+
+### Checking your tier
+
+```bash
+sponsio doctor          # one line: the tier, and what the next one needs
+sponsio doctor --tier   # every guarantee of Tier 1, 2 and 3, pass or fail, with the fix
+```
+
+Each check reads the filesystem and the daemon's socket. Nothing the agent's user writes can make a machine report a higher tier.
+
+### What it costs
+
+A hook call goes through a short-lived shim process and the daemon, so it costs more than an in-process check. On macOS the hook path measures 32.6 ms p50 at 10 events in a session and 37.9 ms at 500. An in-process `guard_before()` takes 0.1 to 1 ms. See [Benchmarks](../reference/benchmarks.md#host-hook-path).
+
 ## Assumptions
 
 Tier 2 and Tier 3 rest on these:
