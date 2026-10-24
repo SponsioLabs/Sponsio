@@ -218,8 +218,12 @@ def test_eight_concurrent_detached_starts_leave_one_daemon(home: Path):
     assert seen == {pids[0]}
     # Exactly one start record; the losers wrote nothing.
     assert len(audit.read(home / "state", audit.DAEMON_START)) == 1
+    # One daemon got past the lock. A loser either reached the lock and
+    # logged "already running", or found the winner answering before it
+    # started anything and logged nothing; which, depends on timing.
     log = (home / "state" / "daemon.log").read_text()
-    assert log.count("already running") == 7, log
+    assert log.count("listening at") == 1, log
+    assert log.count("already running") <= 7, log
 
 
 def test_foreground_run_exits_zero_when_another_daemon_holds_the_lock(home: Path):
