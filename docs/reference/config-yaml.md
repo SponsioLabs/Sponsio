@@ -310,6 +310,15 @@ Broader. Also checks framework detection, provider credentials, and session-log 
 
 ---
 
+## A protected library with a project layer
+
+`sponsio.config.load_layered_config(protected, project)` reads a library the agent cannot write (the protected layer) with a file it can write on top (the project layer). The project file may add contracts, and may customize its own. It cannot weaken the protected layer:
+
+- a `customized:` entry that matches a protected contract is dropped;
+- the project file's `defaults`, `runtime`, `tool_policy`, `mode`, `performance`, `extractor` and `judge` are ignored.
+
+The function returns the effective config, with every contract tagged `layer: protected` or `layer: project`, and one line for each thing it dropped. The daemon does not read a project layer for host hooks yet.
+
 ## Loading from Python
 
 ```python

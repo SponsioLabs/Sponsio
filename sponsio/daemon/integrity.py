@@ -115,6 +115,9 @@ def ruleset(config: Any) -> dict[str, str]:
             label = entry.desc or "contract"
             if isinstance(body, dict):
                 body.pop("desc", None)
+                # Which layer a contract came from is not what it
+                # enforces, and ids must not move when a field is added.
+                body.pop("layer", None)
             out[_digest({"agent": agent_id, "contract": body})] = f"{agent_id}: {label}"
     for name in _SETTINGS:
         value = getattr(config, name, None)
@@ -143,7 +146,7 @@ def agent_ruleset(config: Any, agent_id: str) -> dict[str, str]:
     for entry in getattr(agent, "contracts", []) or []:
         # Where a contract came from (a pack here, inline there) is not
         # what it enforces.
-        body = _strip(_canonical(entry), ("desc", "pack_source", "source"))
+        body = _strip(_canonical(entry), ("desc", "pack_source", "source", "layer"))
         if isinstance(body, dict) and body.get("mode") is None:
             body["mode"] = "enforce"  # no mode: the hook path enforces
         out[_digest({"contract": body})] = entry.desc or "contract"
