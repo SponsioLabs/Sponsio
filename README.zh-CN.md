@@ -29,7 +29,7 @@ Sponsio 在 Agent 调用工具之前先检查这次调用。一条规则可以�
 
 > **Agent 合约**是一条运行时规则，在每一次 Agent 操作时检查，[由形式化方法支撑](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a19 alpha 已发布。** `pip install --pre sponsio`。kta1kri 几轮报告的后续：YAML 里用 LTL 写的规则（`called(Issue_Refund)`）和 `ArgValue` 项现在会命中工具的所有拼写，包括 `mcp__server__` 形式；`sponsio host install` 写入的是运行它的那个安装的绝对路径，`--mode observe` 成为真正的影子模式，随 hook 命令一起下发。TypeScript `@sponsio/sdk@0.2.0-alpha.9` 包含同样的修复。详见[发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a19)。
+> **v0.2.0a20 alpha 已发布。** `pip install --pre sponsio`。Claude Code、Cursor 和 OpenClaw 的宿主 hook 现在由 Sponsio daemon 判定，所有路径都 fail closed；模式和策略来自 daemon 自己的配置，而不是 hook 的环境变量；会削弱执行的规则改动会被扣住，直到你用 `sponsio rules reload` 审核。`sponsio doctor --tier` 告诉你在这台机器上 agent 能对 Sponsio 做什么、不能做什么（[威胁模型](docs/concepts/threat-model.md)）。重新安装 hook 即可切换，行为变化见[发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a20)。TypeScript `@sponsio/sdk@0.2.0-alpha.10` 同步发布。
 
 ---
 
