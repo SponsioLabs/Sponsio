@@ -156,7 +156,7 @@ def _detect_pii_classes(output: Any) -> list[str]:
     return hits
 
 
-def _resolve_mode(mode: str | None) -> str:
+def _resolve_mode(mode: str | None, *, env_wins: bool = True) -> str:
     """Resolve the effective mode from explicit arg + ``SPONSIO_MODE`` env.
 
     Default is ``observe`` (shadow mode) so that ``pip install sponsio``
@@ -167,8 +167,13 @@ def _resolve_mode(mode: str | None) -> str:
     Precedence: env var > explicit argument > default.  The env var
     wins so ops can flip modes per-deploy without a code change
     (``SPONSIO_MODE=enforce`` to roll out, ``=observe`` to revert).
+
+    ``env_wins=False`` makes the explicit argument authoritative. The
+    daemon uses it: a long-running process serving several hosts cannot
+    let one process-wide variable decide every host's mode, and the
+    client's environment must never reach a decision (D4).
     """
-    env = os.environ.get("SPONSIO_MODE")
+    env = os.environ.get("SPONSIO_MODE") if env_wins else None
     resolved = env.strip() if env else (mode or "observe")
     if resolved not in _VALID_MODES:
         raise ValueError(f"mode must be one of {_VALID_MODES}, got {resolved!r}")
@@ -550,27 +555,41 @@ class BaseGuard:
         tag_pii: bool = False,
         tool_policy: Any | None = None,
         evidence: Any | None = None,
+        parsed_config: Any | None = None,
+        env_mode: bool = True,
     ) -> None:
         # --- Config file support ---
-        if config is not None:
+        #
+        # ``parsed_config`` is an already-loaded ``SponsoConfig``. It takes
+        # the same branch as ``config=`` so a caller that caches the parse
+        # (the daemon compiles each library once per change, not once per
+        # hook call) gets identical behaviour, including ``performance:``
+        # and ``tool_policy:`` from the yaml.
+        if config is not None or parsed_config is not None:
             if contracts is not None:
                 raise ValueError(
                     "Cannot combine 'config' with 'contracts'. "
                     "Use either a config file or inline contracts, not both."
                 )
+            if config is not None and parsed_config is not None:
+                raise ValueError("Pass either 'config' or 'parsed_config', not both.")
             from sponsio.config import config_to_guard_kwargs, load_config
 
-            try:
-                parsed = load_config(config)
-            except Exception as exc:
-                # A cloud config that cannot resolve fails with a sentence
-                # worth reading; a raw traceback buries it under a stack the
-                # user cannot act on. Re-raise as a clean error.
-                from sponsio.cloud.ref import CloudRefError
+            if parsed_config is not None:
+                parsed = parsed_config
+            else:
+                try:
+                    parsed = load_config(config)
+                except Exception as exc:
+                    # A cloud config that cannot resolve fails with a
+                    # sentence worth reading; a raw traceback buries it
+                    # under a stack the user cannot act on. Re-raise as a
+                    # clean error.
+                    from sponsio.cloud.ref import CloudRefError
 
-                if isinstance(exc, CloudRefError):
-                    raise RuntimeError(str(exc)) from None
-                raise
+                    if isinstance(exc, CloudRefError):
+                        raise RuntimeError(str(exc)) from None
+                    raise
             # Auto-infer agent_id
             if agent_id == "agent" and agent_id not in parsed.agents:
                 if len(parsed.agents) == 1:
@@ -598,7 +617,7 @@ class BaseGuard:
             self._yaml_tool_policy = None
 
         self.agent_id = agent_id
-        self._mode = _resolve_mode(mode)
+        self._mode = _resolve_mode(mode, env_wins=env_mode)
         self._session_log_dir = (
             Path(session_log_dir) if session_log_dir is not None else None
         )
@@ -935,7 +954,11 @@ class BaseGuard:
         # + slow-DFA warning still run independently.
         self._rich_view_printed: bool = False
         self._auto_summary: bool = auto_summary
-        atexit.register(self._auto_print_summary)
+        # Registered only when wanted: a daemon builds one guard per hook
+        # call, and an unconditional registration leaked one atexit entry
+        # per call for the life of the process.
+        if auto_summary:
+            atexit.register(self._auto_print_summary)
 
         # --- Seal the enforcement state ---
         # Nothing after construction changes the mode, the contract set

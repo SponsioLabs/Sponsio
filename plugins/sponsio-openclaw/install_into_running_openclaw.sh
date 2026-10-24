@@ -22,11 +22,12 @@
 #      on the host — which the container sees as
 #      ``/home/node/.openclaw/extensions/sponsio-openclaw/``.
 #   3. Installs the Sponsio Python CLI inside the running container
-#      (``pip install -e /opt/sponsio``) so the plugin's subprocess
-#      transport can spawn ``sponsio plugin guard --stdin``.
+#      (``pip install -e /opt/sponsio``) so the plugin can start the
+#      Sponsio daemon there (``sponsio daemon run --detach``) and talk
+#      to it over its socket.
 #   4. Bootstraps per-plugin contract libraries at
 #      ``~/.sponsio/plugins/`` — but inside the container, since the
-#      plugin's subprocess runs there.  Bind-mounting the host's
+#      daemon runs there.  Bind-mounting the host's
 #      ``~/.sponsio`` into the container is the cleanest version of
 #      this; this script does that via a writable host dir + cp.
 #   5. Patches ``~/.openclaw/openclaw.json`` to register

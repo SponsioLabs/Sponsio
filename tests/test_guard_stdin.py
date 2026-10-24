@@ -14,6 +14,8 @@ parser or runtime regression breaks pytest, not Claude Code itself.
 from __future__ import annotations
 
 import json
+import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -25,6 +27,59 @@ from sponsio.guard_stdin import (
     render_reply,
     run_stdin,
 )
+
+
+# ---------------------------------------------------------------------------
+# Two backends: the file-backed per-call path, and the daemon
+# ---------------------------------------------------------------------------
+#
+# Every decision test below runs twice. ``direct`` is the legacy entry
+# point as the hook calls it today. ``daemon`` starts an in-process
+# ``DaemonServer`` with a ``GuardService`` on a temp socket and routes
+# ``evaluate_event`` through the ``guard.check`` RPC, so the same
+# library, payload and expectation hold when the daemon decides.
+# Tests that inspect the legacy trace files, or monkeypatch the
+# evaluator itself, are marked ``direct_only``.
+
+
+@pytest.fixture(params=["direct", "daemon"], autouse=True)
+def backend(request, monkeypatch):
+    if request.param == "direct":
+        yield "direct"
+        return
+    if request.node.get_closest_marker("direct_only"):
+        pytest.skip("exercises the file-backed path only")
+    from sponsio.daemon.client import DaemonClient
+    from sponsio.daemon.guard_service import GuardService
+    from sponsio.daemon.handlers import register_default_handlers
+    from sponsio.daemon.server import DaemonServer
+    from sponsio.guard_stdin import library_root
+
+    state = Path(tempfile.mkdtemp(prefix="sp-", dir="/tmp"))
+    # The root is resolved per call because each test points
+    # ``SPONSIO_PLUGIN_ROOT`` at its own tmp_path after this fixture ran.
+    service = GuardService(root=library_root, state_dir=state / "state")
+    server = DaemonServer(state / "sock", accept_timeout_s=0.05)
+    register_default_handlers(server, guard_service=service)
+    server.start()
+    client = DaemonClient(socket_path=server.socket_path, timeout_s=10.0)
+
+    def via_daemon(event: dict) -> GuardOutcome:
+        res = client.call("guard.check", {"host": event.get("host"), "payload": event})
+        return GuardOutcome(
+            allowed=res["allowed"],
+            reason=res["reason"],
+            plugin_id=res["plugin_id"],
+            library_path=res["library_path"],
+        )
+
+    monkeypatch.setattr("sponsio.guard_stdin.evaluate_event", via_daemon)
+    monkeypatch.setattr("tests.test_guard_stdin.evaluate_event", via_daemon)
+    try:
+        yield "daemon"
+    finally:
+        server.stop(join_timeout_s=0.5)
+        shutil.rmtree(state, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
@@ -307,16 +362,22 @@ def test_render_posttooluse_deny_uses_top_level_decision():
 # ---------------------------------------------------------------------------
 
 
-def test_run_stdin_empty_input_allows():
-    assert run_stdin("") == 0
-    assert run_stdin("   \n") == 0
+def test_run_stdin_empty_input_denies(capsys):
+    # No event is not "nothing to check": whatever garbled the input
+    # must not turn the guard off for this call.
+    for raw in ("", "   \n"):
+        assert run_stdin(raw) == 2
+        out = json.loads(capsys.readouterr().out)
+        assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-def test_run_stdin_invalid_json_does_not_block(capsys):
-    assert run_stdin("not json") == 0
+def test_run_stdin_invalid_json_denies(capsys):
+    assert run_stdin("not json") == 2
     captured = capsys.readouterr()
     assert "invalid JSON" in captured.err
-    assert captured.out == ""
+    assert json.loads(captured.out)["hookSpecificOutput"]["permissionDecision"] == (
+        "deny"
+    )
 
 
 def test_run_stdin_block_emits_deny_json(tmp_path, monkeypatch, capsys):
@@ -352,10 +413,11 @@ def test_run_stdin_allow_is_silent(tmp_path, monkeypatch, capsys):
     assert captured.out == ""
 
 
+@pytest.mark.direct_only
 def test_run_stdin_observe_mode_does_not_block(tmp_path, monkeypatch, capsys):
-    """``SPONSIO_GUARD_MODE=observe`` lets dangerous calls through.
-
-    Useful for pilot rollouts where operators want logs first.
+    """``SPONSIO_GUARD_MODE=observe`` lets dangerous calls through on the
+    in-process path. The daemon reads no environment variable; its mode
+    is in ``daemon.yaml`` (tests/test_daemon_config.py).
     """
     monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
     monkeypatch.setenv("SPONSIO_GUARD_MODE", "observe")
@@ -504,6 +566,7 @@ agents:
 """
 
 
+@pytest.mark.direct_only
 def test_posttooluse_records_output_and_appends_nothing(tmp_path, monkeypatch):
     """Both hooks are installed with the same command. Running the
     pre-check on PostToolUse appended a second event per execution, so a
@@ -578,7 +641,9 @@ def test_broken_library_denies_by_default(tmp_path, monkeypatch):
     assert "SPONSIO_HOOK_ON_ERROR" in outcome.reason
 
 
+@pytest.mark.direct_only
 def test_broken_library_allows_when_opted_into_fail_open(tmp_path, monkeypatch):
+    # The daemon's on_error lives in daemon.yaml (tests/test_daemon_config.py).
     monkeypatch.setenv("SPONSIO_PLUGIN_ROOT", str(tmp_path))
     monkeypatch.setenv("SPONSIO_HOOK_ON_ERROR", "allow")
     _write_library(
@@ -589,6 +654,7 @@ def test_broken_library_allows_when_opted_into_fail_open(tmp_path, monkeypatch):
     assert "evaluation error" in outcome.reason
 
 
+@pytest.mark.direct_only
 def test_run_stdin_internal_error_denies(monkeypatch, capsys):
     import sponsio.guard_stdin as gs
 

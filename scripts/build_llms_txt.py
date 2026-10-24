@@ -39,16 +39,19 @@ FILES = [
     # Concepts.
     "docs/concepts/overview.md",
     "docs/concepts/architecture.md",
+    "docs/concepts/threat-model.md",
     "docs/concepts/stochastic.md",
     # Guides.
     "docs/guides/onboarding.md",
     "docs/guides/observe-vs-enforce.md",
     "docs/guides/reporting.md",
+    "docs/guides/host-operations.md",
     "docs/reference/observability.md",
     # Integrations.
     "docs/integrations/index.md",
     # Reference.
     "docs/reference/cli.md",
+    "docs/reference/daemon.md",
     "docs/reference/patterns.md",
     "docs/reference/sto-atoms.md",
     "docs/reference/config-yaml.md",

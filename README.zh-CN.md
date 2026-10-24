@@ -41,7 +41,7 @@ Sponsio 在 Agent 调用工具之前先检查这次调用。一条规则可以�
 
 在 [ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench)（12 个前沿 LLM × 80 条执行轨迹）上，无防护的模型在 11.5%–66.7% 的运行中作弊。**接入 Sponsio 后平均规避 95.6% 的不当行为；24/36 高风险场景 100% 拦截**。在 `Financial-Audit-Fraud-Finding` 场景中，前沿模型 16/24 次实施欺诈，**Sponsio 拦截 18/19**。RedCode-Exec（1,410 用例）综合拦截率 **98.9%**（bash 98.3% · python 99.4%，经 4 轮自我改进从 92.4% 提升），60 文件干净代码审计 0 误报。以上是开源核心版的数据；Cloud 版的自我演进循环会从执行轨迹中挖掘新的契约，借此 ODCV-Bench 达到 **~99%**、RedCode-Exec 达到 **99.4%**。执行检查仍然是确定性的。[预约 demo](https://calendar.app.google/ZZmthdxsDXCsHbJk9) 了解 Cloud 与 Enterprise 版本。
 
-逻辑检查器单合约热路径 p50 **0.0052 ms**，最重 ODCV 工作负载（每次调用 19 条合约）p50 **0.139 ms**，**比任何 LLM-as-judge 护栏快 5,000×–60,000×**（每次检查 50–800 ms），热路径零 LLM 成本。p99 在所有测得工作负载下保持约 1 ms。
+逻辑检查器单合约热路径 p50 **0.0052 ms**，最重 ODCV 工作负载（每次调用 19 条合约）p50 **0.139 ms**，**比任何 LLM-as-judge 护栏快 5,000×–60,000×**（每次检查 50–800 ms），热路径零 LLM 成本。p99 在所有测得工作负载下保持约 1 ms。以上是进程内检查；通过宿主 hook（Claude Code、Cursor）时，每次工具调用还要启动一个短生命周期进程，p50 约 33 到 38 ms（见 [host hook 路径](docs/reference/benchmarks.md#host-hook-path)）。
 
 查阅[完整 benchmark 方法论与按模型拆分](docs/reference/benchmarks.md)、[与提示词过滤器 / 输出校验器 / LLM-as-judge / 沙箱的对比](docs/why.md)，或深入[架构](docs/concepts/architecture.md)与[形式化方法入门](docs/concepts/formal-methods.md)。
 
@@ -81,6 +81,20 @@ run = sponsio.bridge.attach(guard)
 `sponsio push sponsio.yaml` 上传的是草稿,不会生效。由人在控制台发布,之后 `sponsio pull` 或 `config="sponsio://default"` 把审过的版本取回来。发送是尽力而为的,控制台挂了也不会挡住 agent。见[托管控制台](docs/getting-started/hosted-console.md)。
 
 **用自然语言起草合约。** `sponsio validate "<一句话规则>"` 会把一条自然语言规则转成一份你能读回来的合约。把输出当作起点草稿，enforce 之前先自己 review、按需调整。确定性在于合约在运行时如何被*强制执行*，而不在于它如何被起草。
+
+---
+
+## Agent 能把 Sponsio 关掉吗？
+
+取决于部署方式。每个部署层级（Tier）都写明了它能保证什么，`sponsio doctor` 会告诉你这台机器处在哪一级。
+
+| Tier | 部署方式 | 保证 |
+|---|---|---|
+| 1. Dev（默认） | daemon 与 agent 以同一系统用户运行 | 所有 hook 路径 fail closed；对规则、模式、接线和引擎的改动都会被发现并记录，削弱规则的改动要等你审核才生效 |
+| 2. Team | daemon 以独立系统用户运行，引擎归 root，宿主设置由管理员统一下发 | agent 的系统用户改不了规则、模式、历史、接线和日志 |
+| 3. Enterprise | agent 运行在沙箱中，Sponsio 掌管工具网关、凭证和出网 | 每次工具调用和每个网络连接都经过 Sponsio |
+
+本版本提供 Tier 1。各层级的前提假设和不覆盖的范围见[威胁模型](docs/concepts/threat-model.md)。
 
 ---
 

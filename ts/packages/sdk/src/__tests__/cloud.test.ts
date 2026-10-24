@@ -11,6 +11,9 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import * as privacy from "../cloud/privacy.js";
 import {
@@ -162,15 +165,31 @@ describe("the run the cloud stores", () => {
     assert.notEqual((g.viewModel() as any).session.id, first);
   });
 
-  test("uploading without a key is a no, not a throw", () => {
-    // Losing telemetry must never change what an agent does.
-    const before = process.env.SPONSIO_API_KEY;
+  test("uploading without a key is a no, not a throw", async () => {
+    // Losing telemetry must never change what an agent does. No key means
+    // no env var and no credentials file, so HOME points at an empty dir:
+    // with only the env var cleared, this read the developer's real key
+    // and uploaded the run.
+    const saved = {
+      key: process.env.SPONSIO_API_KEY,
+      home: process.env.HOME,
+      fetch: globalThis.fetch,
+    };
+    let requests = 0;
     delete process.env.SPONSIO_API_KEY;
+    process.env.HOME = mkdtempSync(join(tmpdir(), "sponsio-no-key-"));
+    globalThis.fetch = (async () => {
+      requests += 1;
+      throw new Error("no request expected");
+    }) as typeof fetch;
     try {
       const g = new Sponsio({ agentId: "a", contracts: [], mode: "observe" });
-      return g.uploadSession().then((ok) => assert.equal(ok, false));
+      assert.equal(await g.uploadSession(), false);
+      assert.equal(requests, 0);
     } finally {
-      if (before !== undefined) process.env.SPONSIO_API_KEY = before;
+      if (saved.key !== undefined) process.env.SPONSIO_API_KEY = saved.key;
+      process.env.HOME = saved.home;
+      globalThis.fetch = saved.fetch;
     }
   });
 

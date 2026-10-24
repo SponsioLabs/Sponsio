@@ -224,11 +224,13 @@ MCP servers produces multiple files.
 For pilot rollouts:
 
 ```bash
-export SPONSIO_GUARD_MODE=observe
+sponsio host install claude-code --mode observe
 ```
 
-Only affects this plugin. Other Sponsio integrations in the same
-shell still respect `SPONSIO_MODE` independently.
+The mode is stored in the Sponsio daemon's config, not in an environment
+variable or the hook command, so the agent under guard cannot change it.
+Run the same command with `--mode enforce` to switch back. Other Sponsio
+integrations (the in-process SDK) still read `SPONSIO_MODE` on their own.
 
 ---
 

@@ -13,6 +13,8 @@ wired correctly into that protocol.
 
 from __future__ import annotations
 
+import os
+
 import tempfile
 import threading
 from pathlib import Path
@@ -50,7 +52,7 @@ def short_tmp() -> Path:
 @pytest.fixture
 def server(short_tmp: Path) -> DaemonServer:
     s = DaemonServer(short_tmp / "sock", accept_timeout_s=0.05)
-    register_default_handlers(s)
+    register_default_handlers(s, state_dir=short_tmp / "state")
     s.start()
     yield s
     s.stop(join_timeout_s=0.5)
@@ -78,7 +80,8 @@ def plugin_root(short_tmp: Path) -> Path:
 
 @pytest.fixture
 def client(server: DaemonServer) -> DaemonClient:
-    return DaemonClient(socket_path=server.socket_path, timeout_s=2.0)
+    # plugin.append is an admin method: it is served on the admin socket.
+    return DaemonClient(socket_path=server.admin_socket_path, timeout_s=2.0)
 
 
 # ---------------------------------------------------------------------------
@@ -327,6 +330,15 @@ def test_cli_routes_through_running_daemon(
 
     on_disk = (plugin_root / "_host_cursor" / "sponsio.yaml").read_text()
     assert "daemon-routed rule" in on_disk
+    # It went in as a proposal, approved over the admin socket, and both
+    # steps are audited with this user as the peer.
+    from sponsio.daemon import audit
+
+    state = server.audit_dir
+    approved = audit.read(state, "proposal_approved")
+    assert len(approved) == 1 and approved[0]["peer"]["uid"] == os.getuid()
+    calls = audit.read(state, "admin_call")
+    assert [c["method"] for c in calls] == ["proposal.approve"]
 
 
 def test_cli_no_daemon_flag_skips_daemon(
@@ -401,7 +413,7 @@ def test_concurrent_appends_are_serialised(
         )
 
     def _go(desc: str) -> dict:
-        c = DaemonClient(server.socket_path, timeout_s=5.0)
+        c = DaemonClient(server.admin_socket_path, timeout_s=5.0)
         return c.call(
             "plugin.append",
             {

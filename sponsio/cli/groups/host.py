@@ -11,7 +11,7 @@ import click
 
 from sponsio.cli._shared import _contract_guarantee
 from sponsio.cli.app import cli
-from sponsio.cli.groups.plugin import _bootstrap_default_buckets, _install_one
+from sponsio.cli.groups.plugin import _install_one
 from sponsio.cli.groups.skill import _packaged_skill_source
 
 
@@ -266,20 +266,21 @@ def _resolve_host_targets(name_or_set: str) -> list[str]:
 # we install to ``~/.openclaw/skills/`` by convention so the skill is
 # materialised somewhere predictable, even if OpenClaw itself doesn't yet
 # auto-discover it. the user (or a future OpenClaw release) can wire it in.
+# HOME-relative, resolved per call by :func:`_skill_dirs`: a path fixed
+# at import time ignores a later change of ``HOME`` (tests, sandboxes)
+# and writes into the real home directory.
 _HOST_SKILL_DIRS: dict[str, tuple[Path, Path | None]] = {
-    "cursor": (
-        Path.home() / ".cursor" / "skills",
-        Path(".cursor") / "skills",
-    ),
-    "claude-code": (
-        Path.home() / ".claude" / "skills",
-        Path(".claude") / "skills",
-    ),
-    "openclaw": (
-        Path.home() / ".openclaw" / "skills",
-        Path(".openclaw") / "skills",
-    ),
+    "cursor": (Path(".cursor") / "skills", Path(".cursor") / "skills"),
+    "claude-code": (Path(".claude") / "skills", Path(".claude") / "skills"),
+    "openclaw": (Path(".openclaw") / "skills", Path(".openclaw") / "skills"),
 }
+
+
+def _skill_dirs(host_name: str) -> tuple[Path, Path | None]:
+    """``(user_parent, project_parent)`` for ``host_name``'s skills, the
+    user one under the current ``HOME``."""
+    user_rel, project_parent = _HOST_SKILL_DIRS[host_name]
+    return Path.home() / user_rel, project_parent
 
 
 def _resolve_runtime_mode(
@@ -382,7 +383,10 @@ def _apply_strict_to_host_buckets(host_name: str) -> list[tuple[Path, str]]:
 
 
 def _refresh_per_host_bundles(
-    host_name: str, plugin_root: Path
+    host_name: str,
+    plugin_root: Path,
+    *,
+    existed_before: dict[str, bool] | None = None,
 ) -> list[tuple[str, str]]:
     """Install or smart-merge the ``_host_<host>`` + subagent bundles.
 
@@ -401,6 +405,10 @@ def _refresh_per_host_bundles(
       and the ``customized:`` block survive verbatim).
     * Bundle name not in the registry (e.g. host has no shipped
       starter for the subagent slot) → silently skipped.
+
+    ``existed_before`` says which buckets existed before the calling
+    command started (an installer may write a starter first); a bucket
+    that did not is reported as created, not upgraded.
     """
     from sponsio.plugin.registry import list_bundled
 
@@ -413,8 +421,13 @@ def _refresh_per_host_bundles(
         target = plugin_root / bucket / "sponsio.yaml"
         target.parent.mkdir(parents=True, exist_ok=True)
         kept = _install_one(bucket, target)
-        if kept is None:
-            out.append((f"✔  {host_name} bundle: wrote {target}", "green"))
+        created = (
+            kept is None
+            if existed_before is None
+            else not existed_before.get(bucket, kept is not None)
+        )
+        if created:
+            out.append((f"✔  {host_name} bundle: created {target}", "green"))
         else:
             out.append(
                 (
@@ -492,7 +505,7 @@ def _install_skill_for_host(
     if host_name not in _HOST_SKILL_DIRS:
         return False, f"{host_name}: no skill discovery path standard. skipped"
 
-    user_parent, project_parent = _HOST_SKILL_DIRS[host_name]
+    user_parent, project_parent = _skill_dirs(host_name)
     parent = project_parent if scope == "project" and project_parent else user_parent
     target = parent / "sponsio"
 
@@ -529,7 +542,7 @@ def _uninstall_skill_for_host(host_name: str, *, scope: str) -> tuple[bool, str]
     if host_name not in _HOST_SKILL_DIRS:
         return False, f"{host_name}: no skill discovery path standard. skipped"
 
-    user_parent, project_parent = _HOST_SKILL_DIRS[host_name]
+    user_parent, project_parent = _skill_dirs(host_name)
     parent = project_parent if scope == "project" and project_parent else user_parent
     target = parent / "sponsio"
 
@@ -543,7 +556,12 @@ def _uninstall_skill_for_host(host_name: str, *, scope: str) -> tuple[bool, str]
             shutil.rmtree(target)
     except OSError as e:
         return False, f"could not remove {target}: {e}"
-    return True, f"removed skill from {target}"
+    # The skills directory install made for it, if nothing else is in it.
+    try:
+        parent.rmdir()
+    except OSError:
+        return True, f"removed skill from {target}"
+    return True, f"removed skill from {target} and the now-empty {parent}"
 
 
 @host.command(name="install")
@@ -608,12 +626,12 @@ def _uninstall_skill_for_host(host_name: str, *, scope: str) -> tuple[bool, str]
     type=click.Choice(["observe", "enforce"]),
     default=None,
     help=(
-        "Mode the installed hook runs in. ``enforce`` (default) blocks at "
+        "Mode the host's hooks run in. ``enforce`` (default) blocks at "
         "the action boundary; ``observe`` logs every violation and lets "
-        "the tool run, for a shadow first run. Carried on the hook "
-        "command itself (``env SPONSIO_GUARD_MODE=observe ...``), not in "
-        "the host library, so the agent under guard cannot change it. "
-        "Re-run to switch."
+        "the tool run, for a shadow first run. Set in the daemon's config "
+        "(``daemon.yaml``, through its admin socket), not on the hook "
+        "command or in the host's env, so the agent under guard cannot "
+        "change it. Re-run to switch."
     ),
 )
 @click.option(
@@ -671,26 +689,17 @@ def host_install(
     chosen_mode = _resolve_install_mode(mode, default="enforce")
     click.echo(f"Hook mode: {chosen_mode}")
 
-    # Bootstrap the default contract library buckets (``_host`` etc.)
-    # the hook will read at runtime. folded in here so users don't
-    # have to remember a separate ``sponsio plugin init`` step. Silent
-    # if everything already exists; reports any fresh writes.
+    # Each host gets its own ``_host_<name>`` buckets below. The legacy
+    # shared ``_host`` / ``_host_subagent`` buckets are not created here
+    # any more: nothing a fresh install routes reads them, and creating
+    # one only to warn about it as legacy two lines later helped nobody.
+    # ``sponsio plugin init`` still lays them down for those who want them.
     plugin_root_env = os.environ.get("SPONSIO_PLUGIN_ROOT")
     plugin_root = (
         Path(plugin_root_env).expanduser()
         if plugin_root_env
         else Path.home() / ".sponsio" / "plugins"
     )
-    for path, status in _bootstrap_default_buckets(plugin_root):
-        if status == "wrote":
-            click.secho(f"✔  bootstrapped contract library: {path}", fg="green")
-        elif status.startswith("error:"):
-            click.secho(
-                f"✘  could not bootstrap {path.parent.name!r}: "
-                f"{status[len('error:') :].strip()}. reinstall sponsio.",
-                fg="red",
-                err=True,
-            )
 
     # Detect the legacy ``_host/sponsio.yaml`` and suggest migration.
     # Without this, the user installs ``_host_<name>`` thinking they
@@ -724,9 +733,16 @@ def host_install(
             force=force,
             binary=binary_override,
         )
-        if name in ("claude-code", "cursor"):
-            # The mode rides on the hook command these two hosts run.
+        if name in ("claude-code", "cursor", "openclaw"):
+            # The mode rides on the hook command (Claude Code, Cursor) or
+            # in the plugin's config file (OpenClaw).
             install_kwargs["mode"] = chosen_mode
+        # Which bundles this install creates: the installer may write a
+        # starter before the refresh below runs, so ask now.
+        existed_before = {
+            bucket: (plugin_root / bucket / "sponsio.yaml").exists()
+            for bucket in _bucket_for_host_name(name)
+        }
         result = host_spec.install_fn(host_spec, **install_kwargs)
         glyph = "✔" if result.written else "○"
         colour = "green" if result.written else "yellow"
@@ -735,6 +751,8 @@ def host_install(
             fg=colour,
         )
         click.echo(f"     {result.config_path}")
+        if result.backup is not None:
+            click.echo(f"     previous version kept at {result.backup}")
         if not result.written:
             # Existing-but-not-overwritten is informational, not a failure.
             pass
@@ -748,7 +766,9 @@ def host_install(
         # write; existing bundle → smart-merge upgrade (default
         # contracts replaced from the new bundled YAML; user-authored
         # contracts and the ``customized:`` block survive verbatim).
-        bundle_summary = _refresh_per_host_bundles(name, plugin_root)
+        bundle_summary = _refresh_per_host_bundles(
+            name, plugin_root, existed_before=existed_before
+        )
         for line, colour in bundle_summary:
             click.secho(line, fg=colour)
 
@@ -939,6 +959,30 @@ def host_migrate(names: tuple[str, ...], keep_legacy: bool, force: bool):
     click.echo("  sponsio doctor                  # verify everything wires up")
 
 
+def _offer_restore(cfg: Path, offered: Path, choice: bool | None) -> None:
+    """Restore ``offered`` over ``cfg`` if the operator says so."""
+    from sponsio.integrations import config_backup
+
+    if choice is None:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            click.echo(
+                f"     a backup from before Sponsio's last change is at {offered}; "
+                "re-run with --restore-backup to put it back"
+            )
+            return
+        choice = click.confirm(
+            f"     Restore {cfg.name} from {offered.name}? Changes made since "
+            "then are lost (the current file is backed up first)",
+            default=False,
+        )
+    if not choice:
+        return
+    replaced = config_backup.restore(cfg, offered)
+    click.secho(f"✔  restored {cfg} from {offered.name}", fg="green")
+    if replaced is not None:
+        click.echo(f"     the version it replaced is kept at {replaced}")
+
+
 @host.command(name="uninstall")
 @click.argument("names", nargs=-1, required=True)
 @click.option(
@@ -960,7 +1004,22 @@ def host_migrate(names: tuple[str, ...], keep_legacy: bool, force: bool):
         "skill predates Sponsio at this host."
     ),
 )
-def host_uninstall(names: tuple[str, ...], scope: str, with_skill: bool):
+@click.option(
+    "--restore-backup/--no-restore-backup",
+    default=None,
+    help=(
+        "After removing Sponsio's entries, put back the most recent "
+        "backup of the host config (taken before Sponsio last changed "
+        "it). Asked interactively when neither flag is given; never "
+        "restored without a terminal to ask on."
+    ),
+)
+def host_uninstall(
+    names: tuple[str, ...],
+    scope: str,
+    with_skill: bool,
+    restore_backup: bool | None,
+):
     """Remove Sponsio's entries from one or more host configs.
 
     Leaves any non-Sponsio hooks untouched.  Use ``all`` to clean
@@ -968,7 +1027,13 @@ def host_uninstall(names: tuple[str, ...], scope: str, with_skill: bool):
 
     Removes the bundled Sponsio skill by default (symmetric to
     ``host install``); pass ``--keep-skill`` to leave it.
+
+    Every change to a host config is backed up first, to
+    ``<file>.sponsio-backup-<timestamp>`` beside it. If one exists, this
+    offers to restore the most recent (``--restore-backup`` to do it
+    without asking).
     """
+    from sponsio.integrations import config_backup
     from sponsio.integrations import hosts as _hosts_mod
 
     targets: list[str] = []
@@ -985,9 +1050,22 @@ def host_uninstall(names: tuple[str, ...], scope: str, with_skill: bool):
             click.secho(f"✘  {e}", fg="red", err=True)
             any_failed = True
             continue
+        # The backup to offer is chosen before the uninstall, which
+        # takes one of its own.
+        cfg = host_spec.host_config_fn(scope) if host_spec.host_config_fn else None
+        offered = config_backup.latest_backup(cfg) if cfg is not None else None
         result = host_spec.uninstall_fn(host_spec, scope=scope)
         click.secho(f"○  {result.host}: {result.note}", fg="yellow")
         click.echo(f"     {result.config_path}")
+        if result.backup is not None:
+            click.echo(f"     previous version kept at {result.backup}")
+        if cfg is not None and offered is not None and offered.exists():
+            _offer_restore(cfg, offered, restore_backup)
+        elif cfg is not None and restore_backup:
+            click.echo(
+                f"     nothing to restore: {cfg.name} held only Sponsio's "
+                "entries (it did not exist before Sponsio), so it was removed"
+            )
 
         if with_skill:
             removed, note = _uninstall_skill_for_host(name, scope=scope)
@@ -1019,21 +1097,41 @@ def host_uninstall(names: tuple[str, ...], scope: str, with_skill: bool):
     default=True,
     help="(default) Read one hook event as JSON from stdin.",
 )
-def host_guard(name: str, hook_event: str | None, use_stdin: bool):
+@click.option(
+    "--direct",
+    is_flag=True,
+    help=(
+        "Evaluate in this process from the library files and trace logs "
+        "on disk, instead of through the daemon. For debugging; the "
+        "daemon path is what the installed hooks use."
+    ),
+)
+def host_guard(name: str, hook_event: str | None, use_stdin: bool, direct: bool):
     """Runtime hook handler. called by the host's hook subprocess.
 
-    Reads a JSON payload from stdin, evaluates it against the matching
-    Sponsio contract library, and writes the host-shaped reply.  Exits
-    cleanly on internal errors so a Sponsio bug never wedges a real
-    tool call.
+    Reads one hook event from stdin and forwards it to the daemon, which
+    evaluates it against the matching contract library and renders the
+    host-shaped reply; starts a daemon when none answers. Denies with
+    exit 2 when no daemon can be reached. New installs run the shim
+    instead (``sponsio_shim.py``); this entry stays for hooks installed
+    before it and does the same thing.
     """
     from sponsio.integrations import hosts as _hosts_mod
 
     try:
         host_spec = _hosts_mod.get(name)
     except KeyError as e:
-        sys.stderr.write(f"sponsio host guard: {e}\n")
-        sys.exit(0)
+        # Deny: an unknown host has no reply shape Sponsio could write,
+        # and exit 2 blocks on every host that runs this hook.
+        sys.stderr.write(
+            f"sponsio host guard: {e}. This tool call is denied; re-run "
+            "`sponsio host install <host>` from your own terminal.\n"
+        )
+        sys.exit(2)
 
-    code = host_spec.runtime_fn(host_spec, hook_event, None)
-    sys.exit(code)
+    if direct:
+        sys.exit(host_spec.runtime_fn(host_spec, hook_event, None))
+
+    from sponsio.hook_client import run_hook
+
+    sys.exit(run_hook(host_spec.name, hook_event))

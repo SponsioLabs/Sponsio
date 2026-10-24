@@ -43,7 +43,7 @@ runs the deterministic engine, writes the deny / allow reply
 host blocks (exit non-zero or {block: true}) or proceeds
 ```
 
-The guard exits 0 in every code path. If Sponsio crashes, the tool call still goes through (fail-open). Diagnostics go to stderr; deny verdicts go to stdout in the documented hook reply schema.
+The guard fails closed. A call it cannot evaluate is denied in the host's reply schema: the daemon is unreachable, the hook names a host Sponsio does not know, the input is empty or not a JSON object, the library does not load, or the daemon answers with an error. When the input cannot be read or no daemon answers, the deny also exits 2, which blocks on every host. `SPONSIO_HOOK_ON_ERROR=allow` lets a call through when its library fails to evaluate; the daemon writes each such call to its audit log (`fail_open`). The OpenClaw plugin blocks a call it gets no verdict for unless its `failOpen` setting is `true`, and it logs a warning each time that setting is used. Diagnostics go to stderr; deny verdicts go to stdout.
 
 ## Setup (both hosts)
 
@@ -89,13 +89,7 @@ sponsio host install openclaw
 
 `sponsio host install` deploys the bundled prebuilt extension into `~/.openclaw/extensions/sponsio-openclaw/`, bootstraps the fallback contract library, and registers the plugin in `~/.openclaw/openclaw.json` with a backup. Verify with `sponsio host status openclaw`. Live blocks: `sponsio host trace openclaw --follow`.
 
-Configuration knobs:
-
-| Env var | configSchema field | Purpose |
-|---|---|---|
-| `SPONSIO_GUARD_BIN` | `guardBin` | Path to the `sponsio` binary |
-| `SPONSIO_PLUGIN_ROOT` | `pluginRoot` | Override `~/.sponsio/plugins` |
-| `SPONSIO_GUARD_MODE` | `guardMode` | `enforce` (default) or `observe` |
+The plugin reads its socket, plugin root, state dir and start command from `sponsio-config.json` beside it, which `sponsio host install openclaw` writes. It reads no environment variable. The mode is the daemon's: `sponsio host install openclaw --mode observe` sets it in the daemon's `daemon.yaml`. See the plugin's [configuration table](../plugins/sponsio-openclaw/README.md#configuration-knobs).
 
 Walkthrough: [plugins/sponsio-openclaw/QUICKSTART.md](../plugins/sponsio-openclaw/QUICKSTART.md).
 

@@ -10,6 +10,145 @@ broke.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Tamper evidence.** Every compiled contract gets a stable id. A rule
+  library change that keeps every loaded contract applies at once and is
+  recorded as `ruleset_strengthened`. One that removes or changes a
+  contract is held: the daemon keeps enforcing what it loaded, records
+  `config_drift`, and adds a note to the next deny. `sponsio rules
+  status | diff | reload` reviews and applies it; a daemon that restarts
+  onto rules weaker than the last applied set denies that library until
+  a reload. The daemon also hashes rule files, packs and its own modules
+  every 2 s, restores a deleted session log from memory
+  (`trace_deleted`), and records a call denied by the self-protection
+  packs as `tamper_attempt`. `sponsio daemon run --watch` applies every
+  change, for working on Sponsio's own rules.
+- **`sponsio doctor` reports the enforcement tier.** One line in the
+  report, and `sponsio doctor --tier` for every guarantee of Tier 1, 2 and
+  3 with pass or fail and the fix. A default install is Tier 1. See
+  [the threat model](docs/concepts/threat-model.md).
+- **`sponsio rules verify`** compares each host bucket linked under
+  `cloud:` in `daemon.yaml` with the book the cloud publishes for its
+  agent, and the daemon does so on its own every `verify_interval_s`.
+  Missing contracts are recorded as `cloud_drift`. Needs Sponsio Cloud's
+  `/v1/rulebook/verify`.
+- **Host config is backed up before every change.** `host install` and
+  `host uninstall` copy the host's config file to
+  `<file>.sponsio-backup-<timestamp>` before changing it, and write
+  atomically; a symlinked config is written through. `host uninstall
+  --restore-backup` puts the most recent backup back.
+- **Docs:** [threat model](docs/concepts/threat-model.md), [daemon
+  reference](docs/reference/daemon.md), [running Sponsio on a
+  host](docs/guides/host-operations.md), and the host hook path in
+  [benchmarks](docs/reference/benchmarks.md#host-hook-path).
+
+### Changed
+
+- **Hook decisions come from `daemon.yaml`, not the environment.** The
+  mode per host, the on-error policy, the policy for tools without rules,
+  the plugin root and the trace TTL are read from
+  `<state-dir>/daemon.yaml`. `SPONSIO_GUARD_MODE`, `SPONSIO_MODE`,
+  `SPONSIO_HOOK_ON_ERROR`, `SPONSIO_UNCONFIGURED`,
+  `SPONSIO_SHIELD_TRACE_TTL_HOURS` and `SPONSIO_PLUGIN_ROOT` no longer
+  affect hooks, and a mode on the hook command or in the OpenClaw
+  plugin's config is ignored. They still apply to the in-process SDK and
+  `host guard --direct`. **Migration:** `sponsio host install <host>
+  --mode observe` sets observe mode; an `env` entry in the host's
+  settings no longer does.
+- **Every hook path fails closed.** An unknown host name, empty or
+  malformed input, a daemon error or an unreadable reply now denies, on
+  the shim, the daemon, `host guard` and `--direct`. The OpenClaw plugin
+  blocks a call it gets no verdict for unless its `failOpen` option is
+  set. `on_error: allow` still lets an evaluation error through and each
+  such call is recorded as `fail_open`.
+- **Two daemon sockets.** State-changing calls (`mode.set`,
+  `rules.reload`, `plugin.append`) move to an admin socket beside the
+  agent socket (`sponsio.admin.sock`, mode 0600); every admin call is
+  recorded with the caller's uid, gid and pid read from the kernel.
+  `plugin.append` from the agent side becomes a proposal.
+- **A deny names the rule.** The reason leads with the contract's own
+  `desc`, with the pattern's description after it in parentheses; a
+  contract without a desc is named by its pattern.
+- **`host install` no longer creates the legacy `_host`, `_host_subagent`
+  and `_host_openclaw` buckets** and reports a bucket it just created as
+  created. `sponsio plugin init` still creates the legacy buckets.
+- **Installed hooks run a shim that talks to the daemon, and fail closed.**
+  `sponsio host install claude-code` / `cursor` now write a hook command
+  that runs `sponsio_shim.py` (standard library only) under the installing
+  interpreter with `-I -S`, with the socket, plugin root, state dir and a
+  2 s deadline pinned on the command line. The shim forwards the
+  event to the daemon, starts one (`sponsio daemon run --detach`) when
+  none answers, and denies with the host's deny body and exit 2 when no
+  daemon can be reached. It reads no environment variable, so an `env`
+  block in the host settings no longer changes the mode or where the hook
+  connects. Claude Code `PreToolUse` entries carry `"onFailure": "block"`
+  and `"timeout": 10`, so a hook that cannot start blocks the call
+  (Claude Code v2.1.295 or later; older releases ignore the key and the
+  shim's own exit 2 is the only signal). Reinstall to switch existing
+  hooks over.
+- **`sponsio host guard` and `sponsio plugin guard` go through the daemon
+  too**, with the same fail-closed behaviour; `--direct` keeps the old
+  in-process evaluation for debugging. The marketplace plugin's
+  `hooks.json` adds `onFailure` and `timeout`.
+- **The OpenClaw plugin talks to the daemon over its socket.** It no longer
+  spawns `sponsio plugin guard` per tool call. `sponsio host install
+  openclaw` writes `sponsio-config.json` beside the deployed plugin (socket,
+  plugin root, state dir, how to start the daemon); the plugin reads
+  no environment variable, so `SPONSIO_GUARD_BIN`, `SPONSIO_PLUGIN_ROOT` and
+  `SPONSIO_GUARD_MODE` no longer affect it, and the `guardBin` /
+  `pluginRoot` / `guardMode` manifest keys are ignored. When no daemon
+  answers the plugin starts one, and blocks the call if it still cannot be
+  reached. Reinstall with `--force` to replace an already deployed plugin.
+- **`sponsio doctor` checks the host hooks.** "Hook wiring" reports, per
+  host, a hook whose interpreter or shim is gone, whose socket path cannot
+  be bound, or that has no daemon and no way to start one, with the command
+  that fixes it. "Claude Code" warns when the installed release predates
+  v2.1.295 and so ignores `onFailure`. `sponsio host install` refuses to
+  write a hook pinned to a socket path too long to bind.
+- **One daemon per state dir.** The daemon holds `<state-dir>/daemon.lock`
+  and never removes a socket another daemon answers on, so hooks that
+  start it concurrently end with one daemon and one trace. Starts and
+  restarts are recorded in `<state-dir>/audit.jsonl`.
+
+### Fixed
+
+- **A fresh install held every default contract twice.** The Claude Code
+  and Cursor installers wrote the starter library without its bundle
+  stamp, and the refresh after it kept every shipped contract as the
+  user's beside a stamped copy. Each check ran every default twice.
+  Reinstall to clean an affected library: duplicates of a shipped
+  contract are dropped on upgrade.
+- **Session history is rebuilt in the order calls were admitted.** Events
+  that tied on their timestamp could come back in a different order after
+  a rebuild, which flipped `cooldown` and other ordering verdicts. The
+  daemon now numbers each session's events (`seq`) and rebuilds by it.
+- **Uninstall leaves nothing behind for a file Sponsio created.** A host
+  config that held only Sponsio's entries is deleted without a backup,
+  with its earlier Sponsio-only backups, and an emptied skills directory
+  is removed. Cursor's uninstall no longer deletes a `hooks.json` that
+  still holds the user's other keys.
+- **A burst of hooks starting the daemon is not refused.** The daemon
+  listens with the system's full backlog.
+- **Each Claude Code session keeps its own history.** Claude Code's hook
+  payload carries `session_id`, not `conversation_id`, so every Claude Code
+  session on a machine shared one trace. The history key is now
+  `conversation_id`, else `session_id`, prefixed with the host
+  (`claude-code:<session_id>`) so two hosts cannot share one. **Behaviour
+  change:** count-based rules (`rate_limit`, `idempotent`,
+  `bounded_retry`) and ordering state now apply per session instead of
+  accumulating across every session. A Task sub-agent carries its
+  parent's `session_id` and stays in the parent's history. Cursor traces
+  move to the prefixed key too; traces recorded under the old key are not
+  carried over (they expire with the usual TTL).
+- **The installer tests no longer write the developer's own host config.**
+  Host config, skill and credential paths were fixed at import time, so a
+  test that moved `HOME` still wrote the real `~/.claude/settings.json`
+  and `~/.cursor/hooks.json`. They now resolve per call, and the suite
+  stops and restores the file if any test writes under the real home.
+
 ## [0.2.0a19]: 2026-10-14
 
 ### Fixed

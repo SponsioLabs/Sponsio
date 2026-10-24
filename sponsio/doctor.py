@@ -22,6 +22,7 @@ the command always prints a full report even on a broken machine.
 from __future__ import annotations
 
 import contextlib
+import json
 import importlib
 import importlib.util
 import io
@@ -739,6 +740,293 @@ def check_guard_smoke() -> CheckResult:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Host hook wiring
+# ---------------------------------------------------------------------------
+
+CLAUDE_CODE_ON_FAILURE_MIN = (2, 1, 295)
+"""First Claude Code release that honours ``onFailure`` on a hook."""
+
+
+def _claude_code_version() -> tuple[int, int, int] | None:
+    import shutil
+    import subprocess
+
+    exe = shutil.which("claude")
+    if not exe:
+        return None
+    try:
+        out = subprocess.run(
+            [exe, "--version"], capture_output=True, text=True, timeout=5
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", out or "")
+    return (int(m[1]), int(m[2]), int(m[3])) if m else None
+
+
+def _sponsio_hook_commands(host: str) -> list[tuple[Path, str]]:
+    """``(config file, command)`` for every Sponsio hook ``host`` runs,
+    from the user config and the current project's."""
+    from sponsio.integrations import hosts
+    from sponsio.integrations.hosts import is_sponsio_hook_command
+
+    try:
+        spec = hosts.get(host)
+    except KeyError:
+        return []
+    paths = [spec.config_path_user]
+    if spec.config_path_project is not None:
+        paths.append(Path.cwd() / spec.config_path_project)
+    found: list[tuple[Path, str]] = []
+    seen: set[str] = set()
+    for path in paths:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        hooks = data.get("hooks") if isinstance(data, dict) else None
+        if not isinstance(hooks, dict):
+            continue
+        for entries in hooks.values():
+            for entry in entries if isinstance(entries, list) else []:
+                if not isinstance(entry, dict):
+                    continue
+                inner = (
+                    entry.get("hooks")
+                    if isinstance(entry.get("hooks"), list)
+                    else [entry]
+                )
+                for h in inner:
+                    cmd = h.get("command") if isinstance(h, dict) else None
+                    if (
+                        isinstance(cmd, str)
+                        and is_sponsio_hook_command(cmd, host)
+                        and cmd not in seen
+                    ):
+                        seen.add(cmd)
+                        found.append((path, cmd))
+    return found
+
+
+def _executable(path: str) -> bool:
+    return os.path.isfile(path) and os.access(path, os.X_OK)
+
+
+def _command_resolves(argv0: str) -> bool:
+    import shutil
+
+    return _executable(argv0) if os.sep in argv0 else shutil.which(argv0) is not None
+
+
+def _check_shim_command(cmd: str) -> tuple[list[str], list[str], bool]:
+    """``(blocking problems, warnings, daemon answers)`` for one shim
+    hook command."""
+    import shlex
+
+    from sponsio.daemon.client import daemon_is_running
+    from sponsio.integrations.hosts import socket_path_problem
+
+    fails: list[str] = []
+    warns: list[str] = []
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError as e:
+        return [f"unparseable hook command ({e})"], [], False
+    interp = tokens[0] if tokens else ""
+    if not _executable(interp):
+        fails.append(f"interpreter {interp} no longer exists (a rebuilt venv?)")
+    shim = next((t for t in tokens if t.endswith("sponsio_shim.py")), "")
+    if not shim or not os.path.isfile(shim):
+        fails.append(f"shim {shim or '(none)'} is missing")
+
+    def opt(name: str) -> str | None:
+        return tokens[tokens.index(name) + 1] if name in tokens[:-1] else None
+
+    sock = opt("--socket") or str(Path.home() / ".sponsio" / "sponsio.sock")
+    too_long = socket_path_problem(sock)
+    if too_long:
+        fails.append(too_long)
+    up = daemon_is_running(Path(sock), timeout_s=0.3)
+    starter = opt("--sponsio")
+    if starter:
+        argv0 = shlex.split(starter)[0] if starter.strip() else ""
+        starter_ok = bool(argv0) and _command_resolves(argv0)
+    else:
+        starter_ok = _executable(interp)
+    if not up:
+        if starter_ok:
+            warns.append(f"no daemon at {sock}; the next hook will start one")
+        else:
+            fails.append(
+                f"no daemon at {sock}, and the hook cannot start one "
+                f"({starter or interp} not found)"
+            )
+    return fails, warns, up
+
+
+def check_hook_wiring() -> CheckResult:
+    """Every Sponsio hook a host runs, and whether it can actually run.
+
+    A Claude Code ``PreToolUse`` hook carries ``onFailure: "block"`` and
+    the shim denies when it cannot reach a daemon, so a hook pointing at
+    something that no longer works (an interpreter removed with its
+    venv, a socket in a deleted directory) does not fail open: it denies
+    every tool call, including the ones the agent would use to fix it.
+    This check names the cause and the fix, to run from a terminal.
+    """
+    fails: list[str] = []
+    warns: list[str] = []
+    oks: list[str] = []
+    for host in ("claude-code", "cursor"):
+        commands = _sponsio_hook_commands(host)
+        if not commands:
+            continue
+        host_fails: list[str] = []
+        host_warns: list[str] = []
+        daemon_up = False
+        for _path, cmd in commands:
+            from sponsio.integrations.hosts import is_shim_command
+
+            if is_shim_command(cmd):
+                f, w, up = _check_shim_command(cmd)
+                host_fails += f
+                host_warns += w
+                daemon_up = daemon_up or up
+            else:
+                host_warns.append(
+                    "a hook runs the legacy entry point; "
+                    f"`sponsio host install {host}` moves it onto the shim"
+                )
+        host_fails = list(dict.fromkeys(host_fails))
+        host_warns = list(dict.fromkeys(host_warns))
+        if host_fails:
+            fails.append(
+                f"{host}: " + "; ".join(host_fails) + ". Every tool call is "
+                f"denied until fixed. From your terminal: "
+                f"`sponsio host install {host}` to rewrite the hook, or "
+                f"`sponsio host uninstall {host}` to remove it"
+            )
+        elif host_warns:
+            warns.append(f"{host}: " + "; ".join(host_warns))
+        else:
+            oks.append(
+                f"{host}: {len(commands)} hook(s)"
+                + (", daemon answering" if daemon_up else "")
+            )
+
+    conf = _openclaw_plugin_config()
+    if conf is not None:
+        path, data = conf
+        starter = data.get("sponsio") if isinstance(data, dict) else None
+        if (
+            isinstance(starter, list)
+            and starter
+            and not _command_resolves(str(starter[0]))
+        ):
+            warns.append(
+                f"openclaw: {path} starts the daemon with {starter[0]}, which "
+                "no longer exists; re-run `sponsio host install openclaw`"
+            )
+        else:
+            oks.append("openclaw: plugin config present")
+
+    if fails:
+        return CheckResult("Hook wiring", "fail", " | ".join(fails + warns))
+    if warns:
+        return CheckResult("Hook wiring", "warn", " | ".join(warns + oks))
+    if oks:
+        return CheckResult("Hook wiring", "ok", "; ".join(oks))
+    return CheckResult("Hook wiring", "skip", "no Sponsio host hooks installed")
+
+
+def _hooks_through_daemon() -> bool:
+    from sponsio.integrations.hosts import is_shim_command
+
+    for host in ("claude-code", "cursor"):
+        if any(is_shim_command(cmd) for _p, cmd in _sponsio_hook_commands(host)):
+            return True
+    return _openclaw_plugin_config() is not None
+
+
+TIER_NAMES = {
+    0: "below Tier 1",
+    1: "Tier 1 (dev)",
+    2: "Tier 2 (team)",
+    3: "Tier 3 (enterprise)",
+}
+
+
+def check_tier() -> CheckResult:
+    """The enforcement tier, and what the next one needs (sponsio.tier)."""
+    from sponsio.tier import assess_this_machine
+
+    report = assess_this_machine(_hooks_through_daemon())
+    name = TIER_NAMES[report.tier]
+    nxt = report.tier + 1
+    missing = report.missing(nxt) if nxt <= 3 else []
+    detail = name
+    if missing:
+        detail += f"; Tier {nxt} needs: " + "; ".join(m.name.lower() for m in missing)
+    detail += " (`sponsio doctor --tier` for each guarantee)"
+    return CheckResult("Enforcement tier", "ok" if report.tier >= 1 else "warn", detail)
+
+
+def print_tier_report() -> int:
+    """Each guarantee, pass or fail, with the fix. Returns the tier."""
+    from sponsio.tier import assess_this_machine
+
+    report = assess_this_machine(_hooks_through_daemon())
+    click.echo()
+    click.echo(click.style(f"Enforcement: {TIER_NAMES[report.tier]}", bold=True))
+    for t in (1, 2, 3):
+        click.echo()
+        click.echo(click.style(f"  Tier {t}", bold=True))
+        for g in (x for x in report.guarantees if x.tier == t):
+            icon = click.style("✓" if g.ok else "✗", fg="green" if g.ok else "red")
+            click.echo(f"    {icon} {g.name}: {g.detail}")
+            if not g.ok and g.fix:
+                click.echo(f"        fix: {g.fix}")
+    click.echo()
+    return report.tier
+
+
+def _openclaw_plugin_config() -> tuple[Path, Any] | None:
+    try:
+        from sponsio.integrations.openclaw_install import (
+            PLUGIN_CONFIG,
+            _extension_target,
+        )
+
+        path = _extension_target() / PLUGIN_CONFIG
+        return path, json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, ImportError):
+        return None
+
+
+def check_claude_code_version() -> CheckResult:
+    """Whether Claude Code honours the ``onFailure: "block"`` the hook
+    entries carry. Older releases ignore it: a hook that cannot start
+    then lets the tool run, and the shim's own deadline (deny with exit
+    2) is the only remaining layer."""
+    version = _claude_code_version()
+    if version is None:
+        return CheckResult("Claude Code", "skip", "claude not found on PATH")
+    shown = ".".join(map(str, version))
+    need = ".".join(map(str, CLAUDE_CODE_ON_FAILURE_MIN))
+    if version >= CLAUDE_CODE_ON_FAILURE_MIN:
+        return CheckResult("Claude Code", "ok", f"{shown} (honours onFailure)")
+    if not _sponsio_hook_commands("claude-code"):
+        return CheckResult("Claude Code", "ok", f"{shown} (no Sponsio hook installed)")
+    return CheckResult(
+        "Claude Code",
+        "warn",
+        f"{shown} predates {need}: the hooks' onFailure: block is ignored, so a "
+        f"hook that cannot start lets the tool run; only the shim's own deadline "
+        f"(deny, exit 2) applies. Upgrade Claude Code to {need} or later",
+    )
+
+
 def _next_step(results: list[CheckResult]) -> str:
     """Pick the single most useful next command for the user.
 
@@ -838,6 +1126,9 @@ def run_doctor(path: Path, *, with_llm: bool = False) -> tuple[list[CheckResult]
         lambda: check_sponsio_yaml(path),
         lambda: check_project_scan(path),
         check_guard_smoke,
+        check_hook_wiring,
+        check_claude_code_version,
+        check_tier,
         check_cloud,
         # Skill check last: it's informational ("the Agent Skill
         # feature is optional"), so it should never distract from

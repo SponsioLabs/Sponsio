@@ -947,8 +947,9 @@ def test_gist_lethal_trifecta_full_trajectory(bundle_with_allowlists, capsys):
     payload = _denied(out)
     reason = payload["hookSpecificOutput"]["permissionDecisionReason"]
     # Privacy rule and at least one §3b body-shape rule should fire.
-    # The order varies; just check at least 2 distinct rule violations.
-    assert reason.count("constraint violated") >= 2, (
+    # The order varies; just check at least 2 distinct rule violations
+    # (the reason joins one entry per violated rule with "; ").
+    assert len(reason.split("; ")) >= 2, (
         f"expected multiple rules to fire on the lethal-trifecta payload; got: {reason}"
     )
 

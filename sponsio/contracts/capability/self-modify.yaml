@@ -40,8 +40,8 @@
 #     ``sponsio/contracts/**/*.yaml`` and the evaluation-engine
 #     Python files (``guard_stdin``, ``config``, ``core``, plus
 #     anything under ``runtime/``, ``patterns/``, ``formulas/``,
-#     ``tracer/``, ``integrations/``).  Without this, an agent can
-#     simply ``import sponsio; print(sponsio.__file__)`` to locate
+#     ``tracer/``, ``integrations/``, ``daemon/``, ``shim/``).  Without
+#     this, an agent can ``import sponsio; print(sponsio.__file__)`` to locate
 #     the package, then edit a capability bundle (or monkey-patch
 #     the loader) to delete the rule about to fire — bypassing the
 #     per-bucket protection above.
@@ -155,7 +155,7 @@ agents:
               # site-packages, --user installs, conda/venv all the same.
               - "(^|/)sponsio/contracts/[^/]+/[^/]+\\.yaml$"
               - "(^|/)sponsio/(guard_stdin|config|core)\\.py$"
-              - "(^|/)sponsio/(runtime|patterns|formulas|tracer|integrations)/[^/]+\\.py$"
+              - "(^|/)sponsio/(runtime|patterns|formulas|tracer|integrations|daemon|shim)/[^/]+\\.py$"
           source: "library:tier1.self-modify"
 
       # =================================================================
@@ -177,7 +177,7 @@ agents:
               - "(^|/)\\.sponsio/plugins/[^_/][^/]*/sponsio\\.yaml$"
               - "(^|/)sponsio/contracts/[^/]+/[^/]+\\.yaml$"
               - "(^|/)sponsio/(guard_stdin|config|core)\\.py$"
-              - "(^|/)sponsio/(runtime|patterns|formulas|tracer|integrations)/[^/]+\\.py$"
+              - "(^|/)sponsio/(runtime|patterns|formulas|tracer|integrations|daemon|shim)/[^/]+\\.py$"
           source: "library:tier1.self-modify"
 
       # =================================================================
@@ -194,7 +194,7 @@ agents:
               - "(^|/)\\.sponsio/plugins/[^_/][^/]*/sponsio\\.yaml$"
               - "(^|/)sponsio/contracts/[^/]+/[^/]+\\.yaml$"
               - "(^|/)sponsio/(guard_stdin|config|core)\\.py$"
-              - "(^|/)sponsio/(runtime|patterns|formulas|tracer|integrations)/[^/]+\\.py$"
+              - "(^|/)sponsio/(runtime|patterns|formulas|tracer|integrations|daemon|shim)/[^/]+\\.py$"
           source: "library:tier1.self-modify"
 
       # =================================================================
@@ -235,7 +235,7 @@ agents:
           args:
             - Write
             - content
-            - - "(?s)(?=.*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations)/[^/]+\\.py)).*(\\.write_text\\s*\\(|\\.write_bytes\\s*\\(|\\bf\\.write\\s*\\(|\\bopen\\s*\\([^)]*['\\\"][aw][\\+bxt]*['\\\"]\\s*\\)|\\bfs\\.(writeFileSync|appendFileSync|createWriteStream|writeFile)\\s*\\(|\\bFile\\.(open|write)\\s*\\(|\\b(IO|File)\\.write\\b)"
+            - - "(?s)(?=.*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations|daemon|shim)/[^/]+\\.py)).*(\\.write_text\\s*\\(|\\.write_bytes\\s*\\(|\\bf\\.write\\s*\\(|\\bopen\\s*\\([^)]*['\\\"][aw][\\+bxt]*['\\\"]\\s*\\)|\\bfs\\.(writeFileSync|appendFileSync|createWriteStream|writeFile)\\s*\\(|\\bFile\\.(open|write)\\s*\\(|\\b(IO|File)\\.write\\b)"
           source: "library:tier1.self-modify"
 
       - desc: "Host agent must not edit a script that mutates a sponsio guard config or engine file — use `sponsio plugin append`/`install`"
@@ -244,7 +244,7 @@ agents:
           args:
             - Edit
             - new_string
-            - - "(?s)(?=.*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations)/[^/]+\\.py)).*(\\.write_text\\s*\\(|\\.write_bytes\\s*\\(|\\bf\\.write\\s*\\(|\\bopen\\s*\\([^)]*['\\\"][aw][\\+bxt]*['\\\"]\\s*\\)|\\bfs\\.(writeFileSync|appendFileSync|createWriteStream|writeFile)\\s*\\(|\\bFile\\.(open|write)\\s*\\(|\\b(IO|File)\\.write\\b)"
+            - - "(?s)(?=.*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations|daemon|shim)/[^/]+\\.py)).*(\\.write_text\\s*\\(|\\.write_bytes\\s*\\(|\\bf\\.write\\s*\\(|\\bopen\\s*\\([^)]*['\\\"][aw][\\+bxt]*['\\\"]\\s*\\)|\\bfs\\.(writeFileSync|appendFileSync|createWriteStream|writeFile)\\s*\\(|\\bFile\\.(open|write)\\s*\\(|\\b(IO|File)\\.write\\b)"
           source: "library:tier1.self-modify"
 
       # =================================================================
@@ -280,7 +280,7 @@ agents:
             # across pipelines, but keeps ``;`` permitted because
             # Python's ``-c "..."`` payloads commonly use it as a
             # statement separator (``python -c "import x; x.do()"``).
-            - - "\\b(python|python2|python3|node|deno|bun|ruby|perl|php|lua|tclsh|R|Rscript)\\b[^|\\n]*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations)/[^/]+\\.py)"
+            - - "\\b(python|python2|python3|node|deno|bun|ruby|perl|php|lua|tclsh|R|Rscript)\\b[^|\\n]*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations|daemon|shim)/[^/]+\\.py)"
           source: "library:tier1.self-modify"
 
       # =================================================================
@@ -306,7 +306,7 @@ agents:
           args:
             - Bash
             - command
-            - - ">{1,2}\\|?\\s*[^|&;<>\\n]*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations)/[^/]+\\.py)"
+            - - ">{1,2}\\|?\\s*[^|&;<>\\n]*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations|daemon|shim)/[^/]+\\.py)"
           source: "library:tier1.self-modify"
 
       - desc: "Host agent must not `tee` into a sponsio guard config or engine file"
@@ -315,7 +315,7 @@ agents:
           args:
             - Bash
             - command
-            - - "\\btee\\b\\s+[^|&;]*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations)/[^/]+\\.py)"
+            - - "\\btee\\b\\s+[^|&;]*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations|daemon|shim)/[^/]+\\.py)"
           source: "library:tier1.self-modify"
 
       - desc: "Host agent must not `sed -i` a sponsio guard config or engine file"
@@ -324,7 +324,7 @@ agents:
           args:
             - Bash
             - command
-            - - "\\bsed\\b\\s+-i\\b[^|&;]*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations)/[^/]+\\.py)"
+            - - "\\bsed\\b\\s+-i\\b[^|&;]*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations|daemon|shim)/[^/]+\\.py)"
           source: "library:tier1.self-modify"
 
       - desc: "Host agent must not `cp` / `mv` / `rm` / `dd` against a sponsio guard config or engine file"
@@ -333,7 +333,7 @@ agents:
           args:
             - Bash
             - command
-            - - "\\b(cp|mv|rm|dd)\\b\\s+[^|&;]*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations)/[^/]+\\.py)"
+            - - "\\b(cp|mv|rm|dd)\\b\\s+[^|&;]*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations|daemon|shim)/[^/]+\\.py)"
           source: "library:tier1.self-modify"
 
       # A file can be emptied, replaced, or made unreadable without a
@@ -349,7 +349,7 @@ agents:
           args:
             - Bash
             - command
-            - - "\\b(truncate|ln|chmod|chown|chattr|shred|unlink|install|rsync|sponge|patch|ed|ex|vi|vim|nvim)\\b\\s+[^|&;]*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations)/[^/]+\\.py)"
+            - - "\\b(truncate|ln|chmod|chown|chattr|shred|unlink|install|rsync|sponge|patch|ed|ex|vi|vim|nvim)\\b\\s+[^|&;]*(\\.sponsio/plugins/(_host[^/]*|[^_/][^/]*)/sponsio\\.yaml|sponsio/contracts/[^/]+/[^/]+\\.yaml|sponsio/(guard_stdin|config|core)\\.py|sponsio/(runtime|patterns|formulas|tracer|integrations|daemon|shim)/[^/]+\\.py)"
           source: "library:tier1.self-modify"
 
       # The rules above name the rule FILE. Removing or moving a directory
@@ -365,6 +365,21 @@ agents:
             - Bash
             - command
             - - "\\b(rm|mv|rmdir|chmod|chown|chattr|ln)\\b[^|&;\\n]*\\.sponsio(/plugins(/[\\w-]+)?)?/?(?![\\w./-])"
+          source: "library:tier1.self-modify"
+
+      # The daemon holds a rule change that removes a contract until
+      # someone runs `sponsio rules reload`. At Tier 1 that someone could
+      # be the agent, approving its own weakening; the same goes for
+      # starting a daemon that applies every change (`--watch`), switching
+      # a host to observe, or removing the hooks. These belong to the
+      # person at their own terminal.
+      - desc: "Host agent must not approve its own rule changes, or switch Sponsio to observe or off"
+        G:
+          pattern: arg_blacklist
+          args:
+            - Bash
+            - command
+            - - "\\bsponsio\\b[^|&;\\n]*\\b(rules\\s+reload|admin\\b|daemon\\s+run\\b[^|&;\\n]*--watch|host\\s+uninstall|host\\s+install\\b[^|&;\\n]*--mode[\\s=]+observe)"
           source: "library:tier1.self-modify"
 
 # -----------------------------------------------------------------------------

@@ -54,6 +54,13 @@ jobs:
       - name: Run tests
         run: pytest --cov=sponsio --cov-report=term-missing -v
 
+      - name: Test OpenClaw plugin against the daemon
+        # The end-to-end cases fail rather than skip when CI is set and
+        # SPONSIO_TEST_PYTHON is missing or cannot import sponsio.
+        if: matrix.python-version == '3.12'
+        working-directory: plugins/sponsio-openclaw
+        run: SPONSIO_TEST_PYTHON="$(command -v python)" npm test
+
   build-smoke-test:
     name: Build wheel + install smoke test
     runs-on: ubuntu-latest

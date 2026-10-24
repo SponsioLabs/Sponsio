@@ -239,3 +239,43 @@ Available via: OTEL only (post-hoc, cannot block). Not enforceable in real-time.
 ### Recommendation
 
 Keep the pattern library focused on Category A. These are universal, enforceable, and cover the dominant use case. Categories B and C are documented but not prioritized for pattern library expansion. Category C patterns belong in the OTEL consumer module's analysis layer.
+
+---
+
+## 6. Host enforcement path
+
+How a hook call from Claude Code, Cursor or OpenClaw is decided. The in-process SDK (`BaseGuard.guard_before()`) skips all of this and decides in the agent's own process. For what each part protects against, see the [threat model](threat-model.md).
+
+```mermaid
+flowchart LR
+  H[Host hook] --> S[sponsio_shim.py]
+  P[OpenClaw plugin] --> A
+  S -->|guard.check / guard.observe| A[agent.sock]
+  A --> D[sponsio daemon]
+  O[Operator CLI] -->|rules.reload, mode.set, ...| M[admin.sock]
+  M --> D
+  D --- R[(rule snapshots)]
+  D --- T[(session traces + WAL)]
+  D --- C[daemon.yaml]
+  D --> L[(audit.jsonl)]
+```
+
+| Part | Where | What it does |
+|---|---|---|
+| Shim | `sponsio/shim/sponsio_shim.py` | Standard library only, run as `python -I -S`. Forwards the hook's stdin to the daemon and writes back its reply. Starts a daemon when none answers. Denies with exit 2 when none can be reached or anything fails. Reads no environment variable. |
+| Daemon | `sponsio/daemon/` | One per state dir. Holds the compiled rules, each session's trace (memory plus a write-ahead log) and its config. Every hook decision is made here. |
+| Agent socket | `<socket>` | `ping`, `guard.check`, `guard.observe`, `proposal.submit`. |
+| Admin socket | `<socket stem>.admin<suffix>`, mode 0600 | Everything that changes state: `mode.set`, `rules.reload`, `plugin.append`, proposal review. The caller's uid, gid and pid come from the kernel and every call is audited. |
+| `daemon.yaml` | `<state-dir>/daemon.yaml` | Mode per host, on-error policy, unconfigured-tool policy, plugin root, trace TTL, cloud link. The only source of these knobs on the hook path. |
+| Rule policy | `sponsio/daemon/integrity.py` | Gives each compiled contract a stable id. A library change that keeps every id applies; one that removes or changes an id is held until `sponsio rules reload`. |
+| Integrity watcher | same | Hashes rule files, their packs and the engine modules every 2 s and records each change. |
+| Audit log | `<state-dir>/audit.jsonl` | Append only. Starts, admin calls, drift, reloads, tamper attempts, fail-open calls. |
+
+Three properties hold on this path:
+
+- **The decision depends only on the daemon's state.** Nothing in the hook's environment or request changes the mode or the policy. A `mode` the request carries is ignored.
+- **Every failure denies.** The shim, the daemon and the legacy `sponsio host guard` entry all deny on an unknown host, unreadable input, an error reply or no daemon.
+- **History is in admission order.** The daemon numbers each session's events as it admits them (`seq`) and rebuilds traces by that number, so ordering contracts see calls in the order they happened.
+
+The full schema of `daemon.yaml`, the RPC tables and the audit event catalog are in the [daemon reference](../reference/daemon.md).
+

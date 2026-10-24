@@ -9,7 +9,9 @@ covered by the success path (it's expected to pass in CI).
 
 from __future__ import annotations
 
+import json
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -755,3 +757,137 @@ class TestOptionalSdksOnAMinimalInstall:
         # contents depend on what else the test machine happens to have.
         present_part = r.detail.split("(not installed:")[0]
         assert "google" not in present_part
+
+
+# ---------------------------------------------------------------------------
+# Host hook wiring and the Claude Code version
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def hook_home(tmp_path, monkeypatch):
+    home = tmp_path / "h"
+    (home / ".claude").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.chdir(tmp_path)
+    return home
+
+
+def _write_claude_hook(home: Path, command: str) -> None:
+    (home / ".claude" / "settings.json").write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "PreToolUse": [
+                        {
+                            "matcher": "*",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": command,
+                                    "onFailure": "block",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+        )
+    )
+
+
+@pytest.fixture
+def short_sock():
+    """A socket path short enough to bind (pytest's tmp_path is not)."""
+    import shutil
+    import tempfile
+
+    d = tempfile.mkdtemp(prefix="spd-", dir="/tmp")
+    yield str(Path(d) / "s")
+    shutil.rmtree(d, ignore_errors=True)
+
+
+def _shim_cmd(interp: str, socket: str, starter: str | None = None) -> str:
+    from sponsio.shim import shim_path
+
+    cmd = f"{interp} -I -S {shim_path()} claude-code --socket {socket} --deadline 2"
+    return cmd + (f" --sponsio {starter}" if starter else "")
+
+
+class TestCheckHookWiring:
+    def test_no_hooks_is_skip(self, hook_home):
+        from sponsio.doctor import check_hook_wiring
+
+        assert check_hook_wiring().status == "skip"
+
+    def test_a_socket_path_too_long_to_bind_fails_with_the_fix(self, hook_home):
+        """The shape of the 2026-10-21 incident: a hook pinned to a socket
+        under a deleted pytest directory, too long to bind."""
+        from sponsio.doctor import check_hook_wiring
+
+        long_sock = "/private/var/folders/xw/" + "x" * 120 + "/.sponsio/sponsio.sock"
+        _write_claude_hook(
+            hook_home, _shim_cmd(sys.executable, long_sock, "/x/sponsio")
+        )
+        r = check_hook_wiring()
+        assert r.status == "fail"
+        assert "longer than this platform can bind" in r.detail
+        assert "sponsio host uninstall claude-code" in r.detail
+        assert "Every tool call is denied" in r.detail
+
+    def test_a_missing_interpreter_fails(self, hook_home, tmp_path):
+        from sponsio.doctor import check_hook_wiring
+
+        _write_claude_hook(
+            hook_home, _shim_cmd(str(tmp_path / "gone" / "python"), str(tmp_path / "s"))
+        )
+        r = check_hook_wiring()
+        assert r.status == "fail" and "no longer exists" in r.detail
+
+    def test_no_daemon_but_a_working_starter_warns(self, hook_home, short_sock):
+        from sponsio.doctor import check_hook_wiring
+
+        _write_claude_hook(hook_home, _shim_cmd(sys.executable, short_sock))
+        r = check_hook_wiring()
+        assert r.status == "warn" and "the next hook will start one" in r.detail
+
+    def test_no_daemon_and_no_starter_fails(self, hook_home, short_sock):
+        from sponsio.doctor import check_hook_wiring
+
+        _write_claude_hook(
+            hook_home, _shim_cmd(sys.executable, short_sock, "/nonexistent/sponsio")
+        )
+        r = check_hook_wiring()
+        assert r.status == "fail" and "cannot start one" in r.detail
+        assert "longer than this platform" not in r.detail
+
+    def test_a_legacy_hook_warns(self, hook_home):
+        from sponsio.doctor import check_hook_wiring
+
+        _write_claude_hook(hook_home, "/x/sponsio host guard claude-code --stdin")
+        r = check_hook_wiring()
+        assert r.status == "warn" and "legacy entry point" in r.detail
+
+
+class TestCheckClaudeCodeVersion:
+    def test_old_release_with_a_hook_warns(self, hook_home, monkeypatch, tmp_path):
+        from sponsio import doctor
+
+        _write_claude_hook(hook_home, _shim_cmd(sys.executable, str(tmp_path / "s")))
+        monkeypatch.setattr(doctor, "_claude_code_version", lambda: (2, 1, 252))
+        r = doctor.check_claude_code_version()
+        assert r.status == "warn"
+        assert "onFailure" in r.detail and "2.1.295" in r.detail
+
+    def test_new_release_is_ok(self, hook_home, monkeypatch):
+        from sponsio import doctor
+
+        monkeypatch.setattr(doctor, "_claude_code_version", lambda: (2, 1, 295))
+        assert doctor.check_claude_code_version().status == "ok"
+
+    def test_missing_claude_is_skip(self, hook_home, monkeypatch):
+        from sponsio import doctor
+
+        monkeypatch.setattr(doctor, "_claude_code_version", lambda: None)
+        assert doctor.check_claude_code_version().status == "skip"

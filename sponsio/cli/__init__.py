@@ -48,6 +48,7 @@ from sponsio.cli.groups.cursor import cursor
 from sponsio.cli.groups.daemon import daemon
 from sponsio.cli.groups.host import _refresh_per_host_bundles, host
 from sponsio.cli.groups.plugin import _stamp_bundled_source, plugin
+from sponsio.cli.groups.rules import rules
 from sponsio.cli.groups.skill import (
     _SKILL_TOOL_DIRS,
     _packaged_skill_source,
@@ -91,6 +92,7 @@ __all__ = [
     "plugin",
     "host",
     "daemon",
+    "rules",
     "cursor",
     # helpers imported elsewhere
     "_resolve_entry",

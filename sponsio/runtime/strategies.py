@@ -130,6 +130,9 @@ class EnforcementResult:
     # ``EnforcementResult(action=..., message=...)`` keep working;
     # ``OutcomeBuilder`` populates them for new code paths.
     rule_id: str = ""
+    contract_desc: str = ""
+    """The violated contract's own ``desc``, when it has one (filled by
+    the monitor). ``message`` names the formula; this names the rule."""
     agent_msg: str = ""
     retry_hint: str | None = None
     alternatives: list[str] = field(default_factory=list)

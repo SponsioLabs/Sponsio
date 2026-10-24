@@ -94,6 +94,17 @@ End-to-end `guard_before` wall-clock, taken on the actual benchmark traces again
 
 **Key takeaway:** Per-call cost scales linearly with contract count. p99 stays under 1.04 ms across every workload measured. The heaviest scenario (RedCode python whole-script regex over a 9-contract layered set) is still 50× faster than the cheapest LLM-as-judge call.
 
+### Host hook path
+
+The numbers above are in-process checks. A host hook (Claude Code, Cursor) runs a short-lived shim process for every tool call, which forwards the event to the Sponsio daemon and writes back its reply. Process start dominates the cost.
+
+| Session length | p50 | Measured on |
+|---|---:|---|
+| ~10 events | 32.6 ms | macOS, shipped `_host_claude_code` library, shim to a running daemon |
+| ~500 events | 37.9 ms | same |
+
+Measured end to end: the wall-clock time of `python -I -S sponsio_shim.py claude-code` with a benign Bash event on stdin, through to its exit. Not yet measured: Linux. Tier 2 and Tier 3 deployments are not in this release.
+
 ---
 
 ## Comparison context

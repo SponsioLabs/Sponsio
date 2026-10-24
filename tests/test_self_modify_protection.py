@@ -188,6 +188,31 @@ class TestSelfModifyDenies:
         )
         _assert_denied(out)
 
+    @pytest.mark.parametrize(
+        "engine_file",
+        ["daemon/server.py", "daemon/guard_service.py", "shim/sponsio_shim.py"],
+    )
+    def test_edit_daemon_or_shim_module_denied(self, host_home, engine_file, capsys):
+        """The decision path moved into ``daemon/`` and ``shim/``; an
+        Edit there used to pass because the engine alternation only
+        listed the in-process modules."""
+        out, _ = _run(
+            _hook_event(
+                "Edit", f"/opt/venv/lib/python3.12/site-packages/sponsio/{engine_file}"
+            ),
+            capsys,
+        )
+        _assert_denied(out)
+
+    def test_bash_sed_on_daemon_module_denied(self, host_home, capsys):
+        out, _ = _run(
+            _hook_event_bash(
+                "sed -i 's/deny/allow/' /opt/venv/lib/python3.12/site-packages/sponsio/daemon/server.py"
+            ),
+            capsys,
+        )
+        _assert_denied(out)
+
 
 class TestSelfModifyAllows:
     """False-positive guard: the host SHOULD be able to manage

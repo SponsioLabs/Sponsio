@@ -6,7 +6,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sponsio plugin guard --stdin"
+            "command": "sponsio plugin guard --stdin",
+            "timeout": 10,
+            "onFailure": "block"
           }
         ]
       }

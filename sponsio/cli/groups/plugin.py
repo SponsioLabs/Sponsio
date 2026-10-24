@@ -390,6 +390,10 @@ def _stamp_bundled_source(bundled_text: str, name: str) -> str:
     return yaml.safe_dump(doc, sort_keys=False)
 
 
+def _without_source(contract: dict) -> dict:
+    return {k: v for k, v in contract.items() if k != "source"}
+
+
 def _install_one(name: str, target: Path) -> dict | None:
     """Install or upgrade a single bundled library at ``target``.
 
@@ -444,10 +448,22 @@ def _install_one(name: str, target: Path) -> dict | None:
         # optional ``A:``); tweaks live in their own ``customized:``
         # block, handled below.
         existing_contracts = existing_agent.get("contracts") or []
+        # A contract identical to a shipped default but for the bundle
+        # marker is that default, not the user's: an installer once wrote
+        # the starter unstamped, and every later upgrade kept the whole
+        # starter as "user-authored" beside the new defaults, so each
+        # default was enforced twice.
+        defaults = [
+            _without_source(c)
+            for c in new_agent.get("contracts") or []
+            if isinstance(c, dict)
+        ]
         kept = [
             c
             for c in existing_contracts
-            if isinstance(c, dict) and c.get("source") != marker
+            if isinstance(c, dict)
+            and c.get("source") != marker
+            and _without_source(c) not in defaults
         ]
         if kept:
             new_agent.setdefault("contracts", []).extend(kept)
@@ -726,7 +742,12 @@ def plugin_append(
         sponsio plugin append --from .sponsio.staging.yaml --target _host_cursor
         sponsio plugin append --from /tmp/policy-rules.yaml --target github --dry-run
     """
-    from sponsio.daemon.client import DaemonClient, DaemonError, daemon_is_running
+    from sponsio.daemon.client import (
+        DaemonClient,
+        DaemonError,
+        daemon_is_running,
+        default_admin_socket_path,
+    )
     from sponsio.plugin.append_ops import (
         AppendError,
         AppendResult,
@@ -740,21 +761,42 @@ def plugin_append(
     staging_text = from_path.read_text(encoding="utf-8")
 
     # Daemon route: when a daemon is reachable AND --no-daemon is not
-    # set, send the merge over IPC.  This is the only write path that
-    # works in a system install (where the host bucket is owned by a
-    # privileged UID and direct in-process file I/O would EACCES).
+    # set, the change goes through the daemon. This is the only write
+    # path that works in a system install (where the host bucket is
+    # owned by a privileged UID and direct in-process file I/O would
+    # EACCES). The agent socket only takes proposals: the change is
+    # validated and stored, then applied by ``proposal.approve`` on the
+    # admin socket. At Tier 1 this user can reach that socket, so the
+    # proposal is approved at once (both calls are audited); where it
+    # cannot, the proposal waits for an operator.
     if not no_daemon and daemon_is_running():
-        client = DaemonClient()
+        params = {
+            "target": target_name,
+            "staging_yaml": staging_text,
+            "dry_run": dry_run,
+            "root": str(root),
+        }
         try:
-            result_dict = client.call(
-                "plugin.append",
-                {
-                    "target": target_name,
-                    "staging_yaml": staging_text,
-                    "dry_run": dry_run,
-                    "root": str(root),
-                },
+            submitted = DaemonClient().call(
+                "proposal.submit",
+                {"kind": "plugin.append", "params": params, "dry_run": dry_run},
             )
+            if dry_run:
+                result_dict = submitted["preview"]
+            else:
+                admin = DaemonClient(socket_path=default_admin_socket_path())
+                try:
+                    decided = admin.call("proposal.approve", {"id": submitted["id"]})
+                except DaemonError as e:
+                    if e.code not in ("permission", "no_daemon", "transport"):
+                        raise
+                    click.secho(
+                        f"proposal {submitted['id']} submitted; it applies once an "
+                        f"operator approves it ({e})",
+                        fg="yellow",
+                    )
+                    return
+                result_dict = decided["result"]
         except DaemonError as e:
             # Surface the daemon's structured error code as a normal
             # CLI failure; the user shouldn't have to know about IPC.
@@ -1133,7 +1175,15 @@ def plugin_prompt(target_host: str):
         "PreToolUse / PostToolUse protocol)."
     ),
 )
-def plugin_guard(use_stdin: bool):
+@click.option(
+    "--direct",
+    is_flag=True,
+    help=(
+        "Evaluate in this process from the files on disk instead of "
+        "through the daemon. For debugging."
+    ),
+)
+def plugin_guard(use_stdin: bool, direct: bool):
     """Plugin-system hook entry point. evaluates one tool call.
 
     Wired into a Claude Code plugin via ``hooks/hooks.json``::
@@ -1143,22 +1193,24 @@ def plugin_guard(use_stdin: bool):
             "PreToolUse": [
               {"matcher": "*",
                "hooks": [{"type": "command",
-                          "command": "sponsio plugin guard --stdin"}]}
+                          "command": "sponsio plugin guard --stdin",
+                          "timeout": 10, "onFailure": "block"}]}
             ]
           }
         }
 
-    Reads the event JSON from stdin, derives the plugin id from the
-    tool name (``Bash`` → ``_host``; ``acme:fetch`` → ``acme``;
-    ``mcp__acme__fetch`` → ``acme``), loads the matching library at
-    ``~/.sponsio/plugins/<plugin>/sponsio.yaml`` (override with
-    ``$SPONSIO_PLUGIN_ROOT``), and writes the deny / allow reply that
-    Claude Code expects.
-
-    Exits 0 in every code path: a Sponsio bug must never wedge an
-    agent's tool call. Diagnostics go to stderr; deny verdicts go to
-    stdout in the documented hook reply schema.
+    Reads the event JSON from stdin and forwards it to the daemon, which
+    derives the plugin id from the tool name (``Bash`` → the host
+    bucket; ``acme:fetch`` → ``acme``; ``mcp__acme__fetch`` → ``acme``),
+    evaluates the matching library under ``~/.sponsio/plugins/``, and
+    renders the deny / allow reply Claude Code expects. Starts a daemon
+    when none answers; denies with exit 2 when none can be reached.
     """
-    from sponsio.guard_stdin import run_stdin
+    if direct:
+        from sponsio.guard_stdin import run_stdin
 
-    sys.exit(run_stdin())
+        sys.exit(run_stdin())
+
+    from sponsio.hook_client import run_hook
+
+    sys.exit(run_hook("claude-code", None))

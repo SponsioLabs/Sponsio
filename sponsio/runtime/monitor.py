@@ -775,6 +775,8 @@ class RuntimeMonitor:
         enf_result = self._maybe_downgrade(
             strategy.enforce(violation, context), e_verdict.lookup_key
         )
+        if e_verdict.contract_desc:
+            enf_result.contract_desc = e_verdict.contract_desc
 
         collector.add_violation(
             kind="guarantee",

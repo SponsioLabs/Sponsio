@@ -16,7 +16,13 @@ import { join } from "node:path";
 import { readFileSync } from "node:fs";
 
 const DEFAULT_BASE_URL = "https://app.sponsio.dev";
-const CREDENTIALS_PATH = join(homedir(), ".sponsio", "credentials");
+/**
+ * Resolved per call: a path fixed at import ignores a later change of
+ * ``HOME``, which is how a test that moved HOME still read the real key.
+ */
+function credentialsPath(): string {
+  return join(homedir(), ".sponsio", "credentials");
+}
 
 export class CloudError extends Error {
   readonly status?: number;
@@ -36,7 +42,7 @@ export function readApiKey(): string | null {
   const env = (process.env.SPONSIO_API_KEY ?? "").trim();
   if (env) return env;
   try {
-    for (const line of readFileSync(CREDENTIALS_PATH, "utf8").split("\n")) {
+    for (const line of readFileSync(credentialsPath(), "utf8").split("\n")) {
       const t = line.trim();
       if (!t || t.startsWith("#")) continue;
       const eq = t.indexOf("=");

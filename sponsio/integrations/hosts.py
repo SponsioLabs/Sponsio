@@ -36,17 +36,20 @@ class HookHost:
     description: str
     """One-line summary surfaced by ``sponsio host list``."""
 
-    config_path_user: Path
-    """Path to the host's user-scope hook config file."""
+    user_config_fn: Callable[[], Path]
+    """Returns the host's user-scope hook config file. Resolved on every
+    access (see :attr:`config_path_user`), never at import: the path
+    depends on ``HOME``, and a value fixed when this module loaded kept
+    pointing at the real ``~/.claude/settings.json`` after a caller
+    (a test, a sandboxed run) had moved ``HOME`` somewhere else."""
 
     config_path_project: Path | None
     """Path to the host's project-scope hook config (relative to cwd),
     or ``None`` if the host has no project-scope concept."""
 
-    detect_paths: tuple[Path, ...]
-    """Paths whose existence implies the host is installed on this
-    machine.  ``sponsio host install auto`` iterates the registry and
-    installs any host where at least one of these exists."""
+    detect_fn: Callable[[], tuple[Path, ...]]
+    """Returns the paths whose existence implies the host is installed
+    on this machine (see :attr:`detect_paths`)."""
 
     install_fn: Callable[..., "HostInstallResult"]
     """``install(host: HookHost, scope: str, fail_closed: bool, force: bool,
@@ -78,6 +81,13 @@ class HookHost:
     ``{"ok": bool, "detail": str}``; one reserved key ``libraries``
     holds a list of contract-library summaries when applicable."""
 
+    host_config_fn: Callable[[str], Path] | None = None
+    """``host_config(scope) -> Path``: the host-owned file the installer
+    edits for ``scope`` (``settings.json``, ``hooks.json``,
+    ``openclaw.json``). Every change to it is backed up first (see
+    :mod:`sponsio.integrations.config_backup`); ``sponsio host
+    uninstall`` uses this to offer the most recent backup back."""
+
     trace_fn: Callable[..., object] | None = None
     """Optional ``trace(host, *, follow: bool, container: str | None)
     -> Iterator[tuple[level, line]]`` — yields a human-readable
@@ -92,6 +102,19 @@ class HookHost:
     per-host configuration (e.g. Claude Code's ``settings.json`` key
     naming)."""
 
+    @property
+    def config_path_user(self) -> Path:
+        """The host's user-scope hook config file, under the current
+        ``HOME``."""
+        return self.user_config_fn()
+
+    @property
+    def detect_paths(self) -> tuple[Path, ...]:
+        """Paths whose existence implies the host is installed on this
+        machine.  ``sponsio host install auto`` iterates the registry and
+        installs any host where at least one of these exists."""
+        return self.detect_fn()
+
 
 @dataclass
 class HostInstallResult:
@@ -101,6 +124,8 @@ class HostInstallResult:
     config_path: Path
     written: bool
     note: str = ""
+    backup: Path | None = None
+    """Copy of the host config as it was before this install changed it."""
 
 
 @dataclass
@@ -111,6 +136,8 @@ class HostUninstallResult:
     config_path: Path
     removed_entries: int
     note: str = ""
+    backup: Path | None = None
+    """Copy of the host config as it was before this uninstall changed it."""
 
 
 # ---------------------------------------------------------------------------
@@ -196,16 +223,176 @@ def resolve_binary(override: str | None = None) -> str:
     return shutil.which("sponsio") or "sponsio"
 
 
+DEFAULT_SHIM_DEADLINE_S = 2.0
+"""The shim's wall-clock budget, written into the hook command."""
+
+CLAUDE_CODE_HOOK_TIMEOUT_S = 10
+"""``timeout`` on the Claude Code hook entries: well above the shim's
+own deadline (2 s, plus 1.5 s to start a daemon and one retry), so the
+shim always answers before the host gives up on it."""
+
+
+def shim_command(
+    host: str,
+    *,
+    event: str | None = None,
+    socket_path: Path | None = None,
+    plugin_root: Path | None = None,
+    state_dir: Path | None = None,
+    python: str | None = None,
+    sponsio: str | None = None,
+    deadline_s: float = DEFAULT_SHIM_DEADLINE_S,
+) -> str:
+    """The hook command: the shim under this interpreter, fully pinned.
+
+    ``<python> -I -S <shim> <host> [--event E] --socket S --plugin-root R
+    --state-dir D --deadline N [--sponsio CMD]``.
+
+    Every value is absolute and fixed at install time. The shim reads
+    no environment variable, so an ``env`` block in the host's settings
+    (which the agent under guard can edit) changes nothing about where
+    the hook connects or which libraries a daemon it starts serves. The
+    mode is not on the command: it is in the daemon's config
+    (:func:`set_daemon_mode`). ``python`` defaults to the installing interpreter: ``-I -S``
+    skips site and user-site, which is most of interpreter start-up,
+    and the daemon the shim may start runs the same interpreter without
+    those flags, so it imports ``sponsio`` from this install.
+
+    ``sponsio`` overrides how the shim starts a daemon (``--binary`` on
+    ``host install``); by default it is ``<python> -m sponsio.cli``.
+    """
+    import shlex
+    import sys
+
+    from sponsio.shim import shim_path
+
+    interpreter = python or sys.executable
+    parts = [shlex.quote(interpreter), "-I", "-S", shlex.quote(str(shim_path())), host]
+    if event:
+        parts += ["--event", event]
+    sock = socket_path if socket_path is not None else _default_socket_path()
+    parts += ["--socket", shlex.quote(str(sock))]
+    root = plugin_root if plugin_root is not None else _default_plugin_root()
+    parts += ["--plugin-root", shlex.quote(str(root))]
+    state = state_dir if state_dir is not None else _default_state_dir()
+    parts += ["--state-dir", shlex.quote(str(state))]
+    parts += ["--deadline", f"{deadline_s:g}"]
+    if sponsio:
+        parts += ["--sponsio", shlex.quote(sponsio)]
+    return " ".join(parts)
+
+
+def set_daemon_mode(
+    host: str,
+    mode: str,
+    *,
+    state_dir: Path | None = None,
+    socket_path: Path | None = None,
+) -> str:
+    """Put ``host``'s mode in the daemon's config. Returns how.
+
+    Through the admin socket when a daemon answers there (``mode.set``,
+    audited). With none running, the config file is written directly,
+    which only the state dir's owner can do: at Tier 1 that is this
+    user; at Tier 2 it is the daemon's own.
+    """
+    from sponsio.daemon import config as daemon_config
+    from sponsio.daemon.client import DaemonClient, DaemonError
+    from sponsio.daemon.server import admin_socket_for
+
+    sock = socket_path if socket_path is not None else _default_socket_path()
+    admin = DaemonClient(socket_path=admin_socket_for(sock), timeout_s=2.0)
+    try:
+        admin.call("mode.set", {"host": host, "mode": mode})
+        return f"set through the daemon at {admin.socket_path}"
+    except DaemonError as e:
+        if e.code not in ("no_daemon", "transport"):
+            raise
+    state = state_dir if state_dir is not None else _default_state_dir()
+    daemon_config.set_host_mode(state, host, mode)
+    return f"written to {daemon_config.config_path(state)}"
+
+
+def socket_path_limit() -> int:
+    """Longest AF_UNIX path this platform binds, in bytes, without the NUL."""
+    import sys
+
+    return 103 if sys.platform == "darwin" else 107
+
+
+def socket_path_problem(path: Path | str) -> str | None:
+    """Why a hook pinned to ``path`` could never reach a daemon, or ``None``.
+
+    A shim hook denies every call it cannot forward, so writing one whose
+    socket can never be bound turns the host's tools off. The installers
+    refuse instead, and ``sponsio doctor`` reports existing ones. The
+    daemon binds the admin socket beside it too (``<stem>.admin<suffix>``,
+    six bytes longer) and does not start if either cannot be bound.
+    """
+    import os
+
+    from sponsio.daemon.server import admin_socket_for
+
+    for candidate in (Path(path), admin_socket_for(path)):
+        size = len(os.fsencode(str(candidate)))
+        if size > socket_path_limit():
+            return (
+                f"socket path is {size} bytes, longer than this platform can bind "
+                f"({socket_path_limit()}): {candidate}"
+            )
+    return None
+
+
+def is_shim_command(command: str) -> bool:
+    """Does this hook command run the Sponsio shim?"""
+    return "sponsio_shim.py" in command
+
+
+def is_sponsio_hook_command(command: str, host: str) -> bool:
+    """Any generation of Sponsio hook command for ``host``: the shim, the
+    ``host guard`` entry, or the legacy ``plugin guard`` / ``cursor
+    guard`` entries. The installers replace these on reinstall."""
+    if is_shim_command(command):
+        return True
+    if f"host guard {host}" in command:
+        return True
+    if host == "claude-code" and "plugin guard" in command:
+        return True
+    if host == "cursor" and "cursor guard --event" in command:
+        return True
+    return False
+
+
+def _default_socket_path() -> Path:
+    from sponsio.daemon.client import default_socket_path
+
+    return default_socket_path().expanduser().resolve()
+
+
+def _default_plugin_root() -> Path:
+    from sponsio.guard_stdin import library_root
+
+    return library_root().expanduser().resolve()
+
+
+def _default_state_dir() -> Path:
+    from sponsio.daemon.guard_service import default_state_dir
+
+    return default_state_dir().expanduser().resolve()
+
+
 def hook_command(binary: str, *args: str, mode: str = "enforce") -> str:
     """``<binary> host guard <host> ...``, in the mode the operator chose.
 
-    The hook decides enforce / observe from ``SPONSIO_GUARD_MODE`` (then
-    ``SPONSIO_MODE``, then ``enforce``), never from the host library's
-    ``defaults.mode``: a hook that read the library could be switched
-    off by editing a file the agent can reach. So ``--mode observe`` is
-    carried on the command line itself, through ``env``, which works
-    whether the host runs the command through a shell or exec()s it
-    directly. ``enforce`` is the hook's own default and adds nothing.
+    The legacy hook command (the installers now write
+    :func:`shim_command`). The entry point decides enforce / observe
+    from ``SPONSIO_GUARD_MODE`` (then ``SPONSIO_MODE``, then
+    ``enforce``), never from the host library's ``defaults.mode``: a
+    hook that read the library could be switched off by editing a file
+    the agent can reach. So ``--mode observe`` is carried on the command
+    line itself, through ``env``, which works whether the host runs the
+    command through a shell or exec()s it directly. ``enforce`` is the
+    hook's own default and adds nothing.
     """
     cmd = " ".join((binary, *args))
     if mode == "observe":
@@ -291,6 +478,12 @@ def _openclaw_runtime(host, hook_event, stdin_text):
     return run_stdin(stdin_text, default_host=getattr(host, "name", None) or "openclaw")
 
 
+def _openclaw_json() -> Path:
+    from sponsio.integrations.openclaw_install import _openclaw_json_path
+
+    return _openclaw_json_path()
+
+
 def _openclaw_status(host):
     from sponsio.integrations.openclaw_install import status as _impl
 
@@ -308,9 +501,14 @@ register(
     HookHost(
         name="cursor",
         description="Cursor IDE 1.7+ — deny-capable preToolUse / before* hooks.",
-        config_path_user=Path.home() / ".cursor" / "hooks.json",
+        user_config_fn=lambda: Path.home() / ".cursor" / "hooks.json",
         config_path_project=Path(".cursor") / "hooks.json",
-        detect_paths=(Path.home() / ".cursor",),
+        host_config_fn=lambda scope: (
+            (Path.cwd() if scope == "project" else Path.home())
+            / ".cursor"
+            / "hooks.json"
+        ),
+        detect_fn=lambda: (Path.home() / ".cursor",),
         install_fn=_cursor_install,
         uninstall_fn=_cursor_uninstall,
         runtime_fn=_cursor_runtime,
@@ -336,9 +534,14 @@ register(
     HookHost(
         name="claude-code",
         description="Claude Code CLI — user-level PreToolUse / PostToolUse hooks via settings.json.",
-        config_path_user=Path.home() / ".claude" / "settings.json",
+        user_config_fn=lambda: Path.home() / ".claude" / "settings.json",
         config_path_project=Path(".claude") / "settings.json",
-        detect_paths=(
+        host_config_fn=lambda scope: (
+            (Path.cwd() if scope == "project" else Path.home())
+            / ".claude"
+            / "settings.json"
+        ),
+        detect_fn=lambda: (
             Path.home() / ".claude",
             Path.home() / ".claude" / "settings.json",
         ),
@@ -355,13 +558,12 @@ register(
     HookHost(
         name="openclaw",
         description="OpenClaw — agent runtime that loads ``openclaw.plugin.json`` plugins.",
-        config_path_user=Path.home()
-        / ".sponsio"
-        / "plugins"
-        / "_host_openclaw"
-        / "sponsio.yaml",
+        user_config_fn=lambda: (
+            Path.home() / ".sponsio" / "plugins" / "_host_openclaw" / "sponsio.yaml"
+        ),
         config_path_project=None,
-        detect_paths=(Path.home() / ".openclaw",),
+        host_config_fn=lambda scope: _openclaw_json(),
+        detect_fn=lambda: (Path.home() / ".openclaw",),
         install_fn=_openclaw_install,
         uninstall_fn=_openclaw_uninstall,
         runtime_fn=_openclaw_runtime,

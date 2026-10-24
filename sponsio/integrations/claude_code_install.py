@@ -9,9 +9,21 @@ Hook payload schema (Claude Code):
     {
       "PreToolUse": [
         { "matcher": "*",
-          "hooks": [{ "type": "command", "command": "<binary> host guard claude-code --stdin" }] }
+          "hooks": [{ "type": "command",
+                      "command": "<python> -I -S <shim> claude-code --socket ...",
+                      "timeout": 10, "onFailure": "block" }] }
       ]
     }
+
+The command is the shim (:func:`sponsio.integrations.hosts.shim_command`),
+which forwards the event to the daemon and denies when it cannot. Two
+host-side settings back it up on ``PreToolUse``: ``timeout`` is well
+above the shim's own deadline, and ``onFailure: "block"`` makes a hook
+that could not run (a missing interpreter, a timeout) block the call
+instead of letting it through. Claude Code honours ``onFailure`` from
+v2.1.295; older releases ignore it, and the shim's exit 2 with a deny
+body is then the only signal. ``PostToolUse`` cannot block, so it
+carries the timeout alone.
 
 Reference: https://code.claude.com/docs/en/hooks
 """
@@ -21,19 +33,42 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from sponsio.integrations import config_backup
 from sponsio.integrations.hosts import (
+    CLAUDE_CODE_HOOK_TIMEOUT_S,
     HookHost,
     HostInstallResult,
     HostUninstallResult,
-    hook_command,
-    resolve_binary,
+    _default_socket_path,
+    is_sponsio_hook_command,
+    set_daemon_mode,
+    shim_command,
+    socket_path_problem,
 )
 
 _INSTALLED_EVENTS = ("PreToolUse", "PostToolUse")
 
 
-def _resolve_binary(override: str | None) -> str:
-    return resolve_binary(override)
+def _hook_entry(event: str, command: str) -> dict:
+    """One ``hooks[]`` element for ``event``."""
+    hook: dict = {
+        "type": "command",
+        "command": command,
+        "timeout": CLAUDE_CODE_HOOK_TIMEOUT_S,
+    }
+    if event == "PreToolUse":
+        hook["onFailure"] = "block"
+    return {"matcher": "*", "hooks": [hook]}
+
+
+def _is_sponsio_entry(prior: dict) -> bool:
+    inner = prior.get("hooks") if isinstance(prior.get("hooks"), list) else []
+    return any(
+        isinstance(h, dict)
+        and isinstance(h.get("command"), str)
+        and is_sponsio_hook_command(h["command"], "claude-code")
+        for h in inner
+    )
 
 
 def _ensure_bundled_library(bucket: str) -> None:
@@ -60,8 +95,12 @@ def _ensure_bundled_library(bucket: str) -> None:
         text = read_bundled(bucket)
     except (FileNotFoundError, ModuleNotFoundError):
         return
+    # Stamped like ``sponsio host install``'s own refresh writes it, so a
+    # later upgrade tells the shipped contracts from the user's.
+    from sponsio.cli.groups.plugin import _stamp_bundled_source
+
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(text, encoding="utf-8")
+    target.write_text(_stamp_bundled_source(text, bucket), encoding="utf-8")
 
 
 def _ensure_subagent_library() -> None:
@@ -86,14 +125,16 @@ def install(
 ) -> HostInstallResult:
     """Write or merge Sponsio entries into Claude Code's settings.json.
 
-    ``mode`` is carried on the hook command (see
-    :func:`sponsio.integrations.hosts.hook_command`); ``observe`` makes
-    the hook log without blocking.
+    The command is the shim (see
+    :func:`sponsio.integrations.hosts.shim_command`). ``mode`` goes into
+    the daemon's config for this host (:func:`set_daemon_mode`), not on
+    the command; ``observe`` makes the daemon log without blocking. ``binary``
+    is what the shim starts a daemon with when none answers (default:
+    this interpreter and ``-m sponsio.cli``).
 
-    ``fail_closed`` is currently advisory — Claude Code's hook protocol
-    treats any non-zero exit as a non-blocking error (deny is signalled
-    via JSON, not exit code).  Sponsio's stdin handler always emits the
-    correct deny shape on a violation regardless of this flag.
+    ``fail_closed`` is advisory: the entries always carry ``onFailure:
+    "block"`` on ``PreToolUse``, and the shim always exits 2 with the
+    deny body when it cannot reach the daemon.
 
     Side effect: bootstraps ``_host_subagent`` library if absent, so
     Task-spawned subagent calls have a stricter library to route to.
@@ -104,8 +145,20 @@ def install(
     else:
         target = host.config_path_user
 
-    bin_cmd = _resolve_binary(binary)
-    cmd = hook_command(bin_cmd, "host", "guard", "claude-code", "--stdin", mode=mode)
+    cmd = shim_command("claude-code", sponsio=binary)
+
+    problem = socket_path_problem(_default_socket_path())
+    if problem:
+        return HostInstallResult(
+            host=host.name,
+            config_path=target,
+            written=False,
+            note=(
+                f"refusing to install: {problem}. A hook that cannot reach "
+                "the daemon denies every tool call. Set SPONSIO_DAEMON_SOCKET "
+                "to a shorter path and re-run"
+            ),
+        )
 
     target.parent.mkdir(parents=True, exist_ok=True)
 
@@ -137,54 +190,29 @@ def install(
                 if not isinstance(prior, dict):
                     keep.append(prior)
                     continue
-                # Match Sponsio's own entries by sniffing the embedded
-                # command — ``sponsio host guard`` (new) or
-                # ``sponsio plugin guard`` (legacy).
-                inner = (
-                    prior.get("hooks") if isinstance(prior.get("hooks"), list) else []
-                )
-                is_sponsio = any(
-                    isinstance(h, dict)
-                    and isinstance(h.get("command"), str)
-                    and (
-                        "host guard claude-code" in h["command"]
-                        or "plugin guard" in h["command"]
-                    )
-                    for h in inner
-                )
-                if is_sponsio:
+                # Replace Sponsio's own entries, of any generation.
+                if _is_sponsio_entry(prior):
                     continue
                 keep.append(prior)
-            keep.append(
-                {
-                    "matcher": "*",
-                    "hooks": [{"type": "command", "command": cmd}],
-                }
-            )
+            keep.append(_hook_entry(event, cmd))
             hooks_root[event] = keep
         merged["hooks"] = hooks_root
         out = merged
         note = "merged into existing settings.json"
     else:
         out = {
-            "hooks": {
-                event: [
-                    {
-                        "matcher": "*",
-                        "hooks": [{"type": "command", "command": cmd}],
-                    }
-                ]
-                for event in _INSTALLED_EVENTS
-            }
+            "hooks": {event: [_hook_entry(event, cmd)] for event in _INSTALLED_EVENTS}
         }
         note = "wrote fresh settings.json"
 
-    target.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    saved = config_backup.write(target, json.dumps(out, indent=2) + "\n")
+    note = f"{note}; mode {mode} {set_daemon_mode('claude-code', mode)}"
     return HostInstallResult(
         host=host.name,
         config_path=target,
         written=True,
         note=note,
+        backup=saved,
     )
 
 
@@ -214,6 +242,46 @@ def uninstall(host: HookHost, *, scope: str = "user") -> HostUninstallResult:
             note="settings.json is malformed — refusing to edit",
         )
 
+    removed = _strip_sponsio_entries(data)
+
+    if not removed:
+        saved = None
+        note = "no sponsio entries in settings.json"
+    elif data:
+        saved = config_backup.write(target, json.dumps(data, indent=2) + "\n")
+        note = f"removed {removed} sponsio entries from settings.json"
+    else:
+        # Nothing but Sponsio's entries: nothing of the user's to keep, so
+        # no backup, and the copies taken on reinstall go too.
+        target.unlink()
+        config_backup.prune(target, _only_sponsio)
+        saved = None
+        note = f"removed {removed} sponsio entries; deleted now-empty settings.json"
+
+    return HostUninstallResult(
+        host=host.name,
+        config_path=target,
+        removed_entries=removed,
+        note=note,
+        backup=saved,
+    )
+
+
+def _only_sponsio(raw: bytes) -> bool:
+    """Is this settings.json Sponsio's entries and nothing else?"""
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return False
+    if not isinstance(data, dict):
+        return False
+    _strip_sponsio_entries(data)
+    return not data
+
+
+def _strip_sponsio_entries(data: dict) -> int:
+    """Remove Sponsio's hook entries from a parsed settings.json, in
+    place. Returns how many were removed."""
     hooks_root = data.get("hooks") if isinstance(data.get("hooks"), dict) else {}
     removed = 0
     for event in _INSTALLED_EVENTS:
@@ -225,17 +293,7 @@ def uninstall(host: HookHost, *, scope: str = "user") -> HostUninstallResult:
             if not isinstance(prior, dict):
                 kept.append(prior)
                 continue
-            inner = prior.get("hooks") if isinstance(prior.get("hooks"), list) else []
-            is_sponsio = any(
-                isinstance(h, dict)
-                and isinstance(h.get("command"), str)
-                and (
-                    "host guard claude-code" in h["command"]
-                    or "plugin guard" in h["command"]
-                )
-                for h in inner
-            )
-            if is_sponsio:
+            if _is_sponsio_entry(prior):
                 removed += 1
                 continue
             kept.append(prior)
@@ -248,17 +306,4 @@ def uninstall(host: HookHost, *, scope: str = "user") -> HostUninstallResult:
         data["hooks"] = hooks_root
     else:
         data.pop("hooks", None)
-
-    if data:
-        target.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-        note = f"removed {removed} sponsio entries from settings.json"
-    else:
-        target.unlink()
-        note = f"removed {removed} sponsio entries; deleted now-empty settings.json"
-
-    return HostUninstallResult(
-        host=host.name,
-        config_path=target,
-        removed_entries=removed,
-        note=note,
-    )
+    return removed

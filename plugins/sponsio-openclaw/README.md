@@ -8,10 +8,8 @@ which targets Claude Code. Same architecture, different transport.
 > ([manifest.md](https://docs.openclaw.ai/plugins/manifest.md),
 > [hooks.md](https://docs.openclaw.ai/plugins/hooks.md),
 > [sdk-entrypoints.md](https://docs.openclaw.ai/plugins/sdk-entrypoints.md))
-> verbatim as of 2026-04-26. Verified end-to-end against the same
-> `sponsio plugin guard --stdin` backend used by the
-> sponsio-claude-code plugin (10 Node integration tests under
-> [`test/`](test/)).
+> verbatim as of 2026-04-26. Verified end-to-end against a real
+> Sponsio daemon (Node integration tests under [`test/`](test/)).
 
 ## Architecture
 
@@ -24,29 +22,28 @@ OpenClaw runtime fires `before_tool_call` hook
   ▼
 @sponsio/openclaw (this plugin):
   - read tool name + args from event
-  - spawn `sponsio plugin guard --stdin`
-  - pipe a Claude-Code-style PreToolUse JSON over stdin
-  - read deny JSON / silence over stdout
-  - return {block: true, reason} or undefined
+  - send a Claude-Code-style PreToolUse event to the Sponsio daemon
+    (guard.check over its Unix socket)
+  - start the daemon if none answers; block if it still cannot be reached
+  - return {block: true, blockReason} or undefined
   │
   ▼
 OpenClaw runtime: terminate this tool call (block) or proceed
 ```
 
-The plugin does **not** evaluate contracts in TypeScript — it
-delegates to the same Python `sponsio plugin guard` CLI that the
-Claude Code plugin uses. Both plugins read the same per-plugin
-library files under `~/.sponsio/plugins/<id>/sponsio.yaml`, so a
-library written for one runtime works for the other unchanged.
+The plugin does **not** evaluate contracts in TypeScript. The Sponsio
+daemon (Python) decides, the same daemon the Claude Code and Cursor
+hooks talk to, so all of them read the same per-plugin library files
+under `~/.sponsio/plugins/<id>/sponsio.yaml` and a library written for
+one runtime works for the others unchanged. The daemon keeps each
+session's history in memory, and a tool call costs one socket round
+trip.
 
-Why subprocess instead of pure-TS evaluation: the Sponsio config
-loader, contract-pack `include:` resolution, `tool_rename:` /
-`workspace:` substitution, and `customized:` merging are all in
-Python today. Spawning the existing CLI gives 100% logic reuse at
-the cost of ~80ms per tool call. The
-[`ts/packages/sdk/`](../../ts/packages/sdk/) has the deterministic engine; a
-pure-TS path is feasible later but requires porting the YAML
-config loader.
+`sponsio host install openclaw` writes `sponsio-config.json` next to the
+deployed plugin: the daemon socket, the plugin root and state dir a
+daemon started by the plugin uses, the command that starts it, and the
+mode. A daemon that cannot be reached within the deadline (2 s) is a
+block, with a recovery hint in the reason.
 
 ## Install — end users
 
@@ -87,21 +84,24 @@ After a local rebuild, copy `dist/` over the bundled artifact at `sponsio/plugin
 ## Verify it works without OpenClaw
 
 The plugin's hook is a plain function. Tests under [`test/`](test/)
-exercise it end-to-end against the real `sponsio plugin guard
---stdin` backend, with a mock OpenClaw API:
+drive it with a mock OpenClaw API against a real daemon, which the
+plugin starts on a socket under a temp dir (HOME is pointed there too,
+so the tests never touch your real `~/.sponsio`):
 
 ```bash
-npm test
-# ✔ register: hook is installed for before_tool_call
-# ✔ before_tool_call returns undefined when no library exists
-# ✔ before_tool_call returns {block: true} when guard denies
-# ✔ before_tool_call allows benign commands
-# ✔ before_tool_call routes mcp__server__tool to the right library
+SPONSIO_TEST_PYTHON=/path/to/python npm test
 ```
 
-These tests skip automatically if `sponsio` isn't on PATH (so they
-don't false-positive in TS-only environments). Requires Node 22+
-for `--experimental-strip-types`.
+Requirements:
+
+- **Node 22.6 or later**, for `--experimental-strip-types`. Older Node
+  stops with `bad option: --experimental-strip-types`.
+- **`SPONSIO_TEST_PYTHON`** pointing at a Python that imports the sponsio
+  you are testing, usually the repo's venv
+  (`SPONSIO_TEST_PYTHON=$PWD/../../.venv/bin/python` from this directory).
+  There is no default, so the tests never pick up some other installed
+  sponsio. Without it the end-to-end cases skip locally with a banner
+  saying so, and fail in CI (`CI` set).
 
 ## Layout
 
@@ -112,25 +112,32 @@ sponsio-openclaw/
 ├── package.json              # @sponsio/openclaw npm package
 ├── tsconfig.json
 ├── src/
-│   └── index.ts              # `register(api)` entry + subprocess transport
+│   └── index.ts              # `register(api)` entry + daemon socket client
 ├── test/
-│   └── integration.test.ts   # Node-native tests against real sponsio plugin guard
+│   └── integration.test.ts   # Node-native tests against a real daemon
 ├── README.md                 # this file
 └── QUICKSTART.md             # user-facing install + usage
 ```
 
 ## Configuration knobs
 
-| Env var | Purpose |
+`sponsio-config.json` beside the deployed plugin, written by
+`sponsio host install openclaw`. The plugin reads no environment
+variable; edit the file (or reinstall) and restart OpenClaw.
+
+| Key | Purpose |
 |---|---|
-| `SPONSIO_GUARD_BIN` | Path to the `sponsio` binary (default: looked up on `$PATH`). Set if your install keeps it in a venv-local location. |
-| `SPONSIO_PLUGIN_ROOT` | Override the per-plugin library root (default: `~/.sponsio/plugins`). Same env var the sponsio-claude-code plugin reads — set once, both plugins agree. |
-| `SPONSIO_GUARD_MODE` | `enforce` (default) or `observe`. Same dial as the sponsio-claude-code plugin. |
+| `socketPath` | The daemon socket (default `~/.sponsio/sponsio.sock`). |
+| `pluginRoot` | Library root a daemon started by the plugin serves. |
+| `stateDir` | State dir a daemon started by the plugin uses. |
+| `sponsio` | Command that runs the Sponsio CLI, as a list (default `["sponsio"]`). |
+| `mode` | Ignored. The mode is the daemon's: `sponsio host install openclaw --mode observe` sets it in the daemon's `daemon.yaml`. |
+| `deadlineMs` | Budget for one decision (default 2000). |
+| `failOpen` | `false` (default): a call the plugin gets no verdict for (the daemon answered with an error, or the plugin failed) is blocked. `true` lets it through and logs a warning each time. An unreachable daemon blocks either way. |
 
 ## Known gaps
 
 | Gap | Status |
 |---|---|
 | No reason text in OpenClaw's `{block: true}` reply | The OpenClaw SDK example shows `{block: true}` only — no documented `reason` field. We include it anyway in case OpenClaw adds support; if the runtime ignores it the user just sees a generic block. |
-| 80ms per-call subprocess startup | Same daemon-mode mitigation applies as for the sponsio-claude-code plugin (Stage 3). |
 | `tool_rename:` for OpenClaw-flavoured tool names | OpenClaw tool names appear flat (`firecrawl_search`) rather than `mcp__<server>__<tool>`. Current routing fallback puts them in `_host` — operators can either author per-plugin libraries explicitly or wait for a future runtime-aware routing mode. |

@@ -40,7 +40,7 @@ Sponsio checks an agent's tool calls before they run. A rule can look at what al
 
 On [ODCV-Bench](https://github.com/McGill-DMaS/ODCV-Bench) (12 frontier LLMs × 80 trajectories), unguarded models cheat in 11.5%–66.7% of runs. **With Sponsio, 95.6% of misalignment is avoided on average; 24/36 high-risk scenarios at 100%.** On the `Financial-Audit-Fraud-Finding` scenario, frontier models commit fraud in 16/24 trials; **Sponsio blocks 18/19**. On RedCode-Exec (1,410 cases), Sponsio reaches **98.9% combined** (bash 98.3% · python 99.4%, lifted from 92.4% by a 4-iteration self-improvement loop), with 0 false positives on a 60-file clean-code audit. These are the open-core numbers; with the Cloud version's self-evolving loop, which mines new contracts from execution traces, ODCV-Bench reaches **~99%** and RedCode-Exec **99.4%**. Enforcement stays deterministic. [Book a demo](https://calendar.app.google/ZZmthdxsDXCsHbJk9) for the Cloud and Enterprise versions.
 
-One contract takes p50 **0.0052 ms** to check. The heaviest ODCV workload, 19 contracts on every call, takes **0.139 ms**. An LLM-as-judge guardrail takes 50 to 800 ms, so this is **5,000× to 60,000× faster**, and it calls no model. p99 stays near 1 ms on every workload measured.
+One contract takes p50 **0.0052 ms** to check. The heaviest ODCV workload, 19 contracts on every call, takes **0.139 ms**. An LLM-as-judge guardrail takes 50 to 800 ms, so this is **5,000× to 60,000× faster**, and it calls no model. p99 stays near 1 ms on every workload measured. These are in-process checks; a host hook (Claude Code, Cursor) also starts a short-lived process per tool call, about 33 to 38 ms p50 ([host hook path](docs/reference/benchmarks.md#host-hook-path)).
 
 See the [full benchmark methodology and per-model breakdown](docs/reference/benchmarks.md), [how Sponsio compares against prompt filters, output validators, LLM-as-judge, and sandboxing](docs/why.md), or dive into the [architecture](docs/concepts/architecture.md) and [formal methods primer](docs/concepts/formal-methods.md).
 
@@ -80,6 +80,20 @@ run = sponsio.bridge.attach(guard)
 `sponsio push sponsio.yaml` uploads a rulebook as a draft. It does not arm. A person publishes it in the console, and `sponsio pull` or `config="sponsio://default"` brings the reviewed version back. Sending is best effort, so a console that is down never blocks the agent. See [the hosted console](docs/getting-started/hosted-console.md).
 
 **Drafting contracts from natural language.** `sponsio validate "<rule in plain English>"` turns a plain-English rule into a contract you can read back. Treat the output as a starting draft to review and adjust before you enforce. The determinism is in how contracts are *enforced* at runtime, not in how they're drafted.
+
+---
+
+## Can the agent switch Sponsio off?
+
+It depends on how Sponsio is deployed. Each deployment tier states what it guarantees, and `sponsio doctor` tells you which tier a machine is in.
+
+| Tier | Deployment | Guarantee |
+|---|---|---|
+| 1. Dev (default) | Daemon runs as the agent's user | Every hook path fails closed; changes to rules, mode, wiring and engine are detected and recorded, and weakening changes wait for your review |
+| 2. Team | Daemon runs as its own system user, root-owned engine, managed host settings | The agent's user cannot change rules, mode, history, wiring or logs |
+| 3. Enterprise | Agent sandboxed; Sponsio owns the tool gateway, credentials and egress | Every tool call and network connection goes through Sponsio |
+
+This release provides Tier 1. See the [threat model](docs/concepts/threat-model.md) for the assumptions behind each tier and what each does not cover.
 
 ---
 

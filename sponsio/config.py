@@ -348,6 +348,11 @@ class SponsoConfig:
     docs/reference/config-yaml.md as the global default, so a file written
     exactly as documented has to work; it is the lowest-precedence yaml
     source, after ``runtime.mode`` and ``defaults.mode``."""
+    source_files: tuple[str, ...] = ()
+    """Every file this config was built from: the yaml itself and the
+    transitive closure of its ``include:`` packs, as absolute paths. A
+    cache keyed on the content of these files invalidates when a pack
+    changes, not only when the including file does."""
 
 
 class ConfigError(Exception):
@@ -864,7 +869,11 @@ def _resolve_include_spec(spec: str, base_dir: Path) -> Path:
 
 
 def _load_pack_contracts(
-    spec: str, base_dir: Path, agent_id: str, _seen: set[str]
+    spec: str,
+    base_dir: Path,
+    agent_id: str,
+    _seen: set[str],
+    _files: list[Path] | None = None,
 ) -> list[ContractEntry]:
     """Resolve one ``include:`` entry to a list of ``ContractEntry``.
 
@@ -901,6 +910,8 @@ def _load_pack_contracts(
         raise ConfigError(f"include: cycle detected: {chain}")
 
     pack_path = _resolve_include_spec(spec, base_dir)
+    if _files is not None:
+        _files.append(pack_path)
 
     try:
         with open(pack_path) as f:
@@ -952,7 +963,9 @@ def _load_pack_contracts(
         try:
             for nested in nested_includes:
                 pulled.extend(
-                    _load_pack_contracts(nested, pack_path.parent, agent_id, _seen)
+                    _load_pack_contracts(
+                        nested, pack_path.parent, agent_id, _seen, _files
+                    )
                 )
         finally:
             _seen.discard(spec)
@@ -1453,6 +1466,7 @@ def load_config(path: str | Path) -> SponsoConfig:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
+    source_files: list[Path] = [path.resolve()]
 
     try:
         text = path.read_text()
@@ -1550,7 +1564,9 @@ def load_config(path: str | Path) -> SponsoConfig:
                     )
                 for spec in includes:
                     ac.contracts.extend(
-                        _load_pack_contracts(spec, base_dir, agent_id, set())
+                        _load_pack_contracts(
+                            spec, base_dir, agent_id, set(), source_files
+                        )
                     )
 
             contracts_raw = agent_data.get("contracts", [])
@@ -1599,6 +1615,7 @@ def load_config(path: str | Path) -> SponsoConfig:
         else:
             raise ConfigError(f"Agent '{agent_id}': value must be a mapping or list")
 
+    config.source_files = tuple(str(p) for p in source_files)
     return config
 
 

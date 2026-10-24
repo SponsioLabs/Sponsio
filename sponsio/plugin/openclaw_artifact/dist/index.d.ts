@@ -5,20 +5,24 @@
  * The OpenClaw counterpart to plugins/sponsio-claude-code (the Claude
  * Code plugin). Same architecture, different transport:
  *
- *   sponsio-claude-code (Mode A)           sponsio-openclaw (this file)
+ *   Claude Code / Cursor hook              sponsio-openclaw (this file)
  *   ──────────────────────────────         ─────────────────────────────
- *   PreToolUse hook fires        →         api.registerHook("before_tool_call", h, …)
- *   shell command sponsio guard  →         child_process spawn() of same
- *   stdin: PreToolUse JSON       →         same payload, manually built
- *   stdout: deny JSON / silent   →         parsed → BeforeToolCallResult
+ *   PreToolUse hook fires        →         api.on("before_tool_call", h, …)
+ *   shim → daemon guard.check    →         Unix socket → daemon guard.check
+ *   deny JSON / silent           →         {allowed, reason} → BeforeToolCallResult
  *
- * Why subprocess instead of pure-TS evaluation: the Sponsio config
- * loader, contract-pack include resolution, tool_rename / workspace
- * substitution, override merging, and the runtime monitor are all
- * Python today. Spawning the existing CLI gets us 100% logic reuse
- * with ~80ms per-call cost — same as the Claude Code plugin. A pure-
- * TS evaluation path is possible (the ts-sdk has the det engine) but
- * requires porting the YAML config loader; that's a separate effort.
+ * The decision is made by the Sponsio daemon (Python): the config
+ * loader, contract-pack includes, and the runtime monitor all live
+ * there, and the daemon keeps each session's history in memory. This
+ * plugin speaks the daemon's wire protocol directly (a 4-byte
+ * big-endian length, then a JSON body) over its Unix socket, so a tool
+ * call costs one round trip instead of a Python process start.
+ *
+ * Where the socket is, which libraries a daemon it starts serves, and
+ * the mode come from ``sponsio-config.json`` next to this file, which
+ * ``sponsio host install openclaw`` writes. When no daemon answers the
+ * plugin starts one, waits briefly, retries once, and otherwise blocks
+ * the call: a guard that cannot be reached is not a pass.
  *
  * Routing: this plugin doesn't override sponsio's per-plugin
  * routing. Every tool call goes through the same
@@ -149,7 +153,38 @@ export interface SponsioOpenClawPlugin {
     description: string;
     register(api: OpenClawPluginApi): void;
 }
-/** The plugin object the OpenClaw runtime expects.
+/** How the plugin reaches the daemon. ``sponsio host install openclaw``
+ * writes these into ``sponsio-config.json`` beside the plugin; every
+ * field has a default for a plugin deployed by hand. */
+export interface SponsioOpenClawOptions {
+    /** The daemon's agent socket. Default ``~/.sponsio/sponsio.sock``. */
+    socketPath?: string;
+    /** Plugin root a daemon started by this plugin serves. */
+    pluginRoot?: string;
+    /** State dir a daemon started by this plugin uses. */
+    stateDir?: string;
+    /** Command prefix that runs the Sponsio CLI, used to start the daemon
+     * (``[python, "-m", "sponsio.cli"]`` from the installer). Default
+     * ``["sponsio"]``. */
+    sponsio?: string[];
+    /** Ignored. The mode is the daemon's (``daemon.yaml``, set by
+     * ``sponsio host install openclaw --mode``); kept so an older
+     * ``sponsio-config.json`` still loads. */
+    mode?: "enforce" | "observe";
+    /** Budget for one decision, start to answer. Default 2000 ms. */
+    deadlineMs?: number;
+    /** Let a call through when the plugin cannot get a verdict (the
+     * daemon answered with an error, or the plugin itself failed).
+     * Default false: such a call is blocked. Every call let through this
+     * way logs a warning. An unreachable daemon blocks either way. */
+    failOpen?: boolean;
+}
+/** Read ``sponsio-config.json`` next to this module, if present. */
+export declare function loadInstalledOptions(): SponsioOpenClawOptions;
+/** Build the plugin object for a given daemon configuration. */
+export declare function createSponsioOpenClawPlugin(options?: SponsioOpenClawOptions): SponsioOpenClawPlugin;
+/** The plugin object the OpenClaw runtime expects, configured from the
+ * installed ``sponsio-config.json``.
  *
  * Wrap with ``definePluginEntry(...)`` from
  * ``openclaw/plugin-sdk/plugin-entry`` if you want the official
@@ -158,23 +193,25 @@ export interface SponsioOpenClawPlugin {
  */
 export declare const sponsioOpenClawPlugin: SponsioOpenClawPlugin;
 export default sponsioOpenClawPlugin;
-interface GuardReply {
-    permissionDecision?: "allow" | "deny";
-    permissionDecisionReason?: string;
+interface ResolvedOptions {
+    socketPath: string;
+    pluginRoot?: string;
+    stateDir?: string;
+    sponsio: string[];
+    deadlineMs: number;
+    failOpen: boolean;
 }
-/**
- * Spawn ``sponsio plugin guard --stdin``, pipe ``payload`` as JSON,
- * parse the reply.
- *
- * Returns the decoded ``hookSpecificOutput`` block (or null if the
- * guard emitted nothing — meaning ``allow``). Errors propagate so
- * the caller can decide whether to fail-open or fail-closed; the
- * default ``register`` above fails open.
- *
- * Override the binary with ``$SPONSIO_GUARD_BIN`` if your install
- * keeps it elsewhere (eg. a venv-local path inside an IDE).
- */
-declare function callGuard(payload: object): Promise<GuardReply | null>;
+interface Verdict {
+    allowed: boolean;
+    reason: string;
+}
+declare function resolveOptions(o: SponsioOpenClawOptions): ResolvedOptions;
+/** One RPC over the daemon socket. Rejects with ``Unreachable`` when no
+ * daemon answers, with a plain ``Error`` when one answers with an error. */
+export declare function callDaemon(socketPath: string, method: string, params: object, timeoutMs: number): Promise<Record<string, unknown>>;
+/** Ask the daemon for a verdict, starting it once if needed. An
+ * unreachable daemon is a block. */
+declare function decide(o: ResolvedOptions, payload: object): Promise<Verdict>;
 /**
  * @deprecated Pass ``sponsioOpenClawPlugin`` (or the default export)
  * to ``definePluginEntry`` instead. Kept for early consumers who
@@ -183,5 +220,7 @@ declare function callGuard(payload: object): Promise<GuardReply | null>;
 export declare function register(api: OpenClawPluginApi): void;
 /** Internal — exported for tests + advanced wrappers only. */
 export declare const __internal: {
-    callGuard: typeof callGuard;
+    callDaemon: typeof callDaemon;
+    decide: typeof decide;
+    resolveOptions: typeof resolveOptions;
 };

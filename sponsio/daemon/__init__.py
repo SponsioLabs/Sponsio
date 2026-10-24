@@ -27,9 +27,10 @@ extra deps, easy to debug, and a clean error model (every reply has
 
 from sponsio.daemon.client import DaemonClient, DaemonError, default_socket_path
 from sponsio.daemon.protocol import Request, Response
-from sponsio.daemon.server import DaemonServer, RpcHandler
+from sponsio.daemon.server import DaemonAlreadyRunning, DaemonServer, RpcHandler
 
 __all__ = [
+    "DaemonAlreadyRunning",
     "DaemonClient",
     "DaemonError",
     "DaemonServer",

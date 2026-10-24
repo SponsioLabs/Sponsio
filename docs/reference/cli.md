@@ -189,15 +189,55 @@ shipped examples) runs with a one-time `running UNCHECKED` warning by
 default. `--strict` writes `defaults.unconfigured: deny` into the host
 library so those calls are refused instead; the setting survives
 reinstalls, and the host library is covered by `capability/self-modify`
-so the agent cannot change it. `SPONSIO_UNCONFIGURED=deny|allow` overrides
-it for one shell.
+so the agent cannot change it. `unconfigured: deny|allow` in the daemon's
+`daemon.yaml` overrides it for every library.
 
-The hook enforces by default. `--mode observe` is carried on the hook
-command itself (`env SPONSIO_GUARD_MODE=observe sponsio host guard ...`),
-not in the host library, so the agent under guard cannot change it; re-run
-`host install` to switch. The hook command names the absolute path of the
-`sponsio` that ran the install, so a second install elsewhere on `PATH` is
-not picked up.
+The installed hook runs a small shim, `sponsio_shim.py`, under the
+interpreter that ran the install (`python -I -S`). The shim forwards each
+event to the daemon (see `sponsio daemon` below), starts one when none
+answers, and denies the call, with exit code 2 and the host's deny body,
+when no daemon can be reached within its deadline (2 s). Every value the
+shim needs (socket, plugin root, state dir, deadline) is written on the
+hook command, and the shim reads no environment variable, so an `env`
+block in the host's settings cannot change it. On Claude Code the
+`PreToolUse` entry also carries `"onFailure": "block"` and a 10 s
+`timeout`, so a hook that cannot start blocks the call (Claude Code
+v2.1.295 or later).
+
+The hook enforces by default. `--mode observe` sets the host's mode in
+the daemon's config (`daemon.yaml`, see `sponsio daemon` below). The mode
+is not written on the hook command, and the daemon ignores a mode sent
+with a call, so editing the hook or the host's `env` does not switch the
+guard to observe. Re-run `host install` to switch modes, or to move hooks
+installed by an earlier release onto the shim.
+
+While the daemon cannot be reached, every tool call is denied, including
+the ones the agent would use to fix it. The deny reason names the
+recovery, to run from your own terminal: `sponsio daemon run --detach`,
+or `sponsio host uninstall <host>` to remove the hook.
+
+Before `host install` or `host uninstall` changes a host's config file
+(Claude Code `settings.json`, Cursor `hooks.json`, OpenClaw
+`openclaw.json`), it copies the file to
+`<file>.sponsio-backup-YYYYmmddHHMMSS` beside it, then writes the new
+version atomically. A config file that is a symlink is written through
+to its target. `host uninstall` removes only Sponsio's entries and then
+offers to restore the most recent backup, which is the file as it was
+before Sponsio last changed it; it asks on a terminal and does nothing
+otherwise. A file that holds nothing but Sponsio's entries (one that did
+not exist before Sponsio wrote it) is removed outright, with its backups,
+since they hold nothing of yours; and a skills directory left empty by
+removing the Sponsio skill is removed too.
+
+```bash
+sponsio host uninstall <host> --restore-backup     # remove the entries, then put the latest backup back
+sponsio host uninstall <host> --no-restore-backup  # remove the entries, don't ask
+```
+
+```bash
+sponsio host guard <host> [--event E]   # legacy hook entry: same as the shim, through the daemon
+sponsio host guard <host> --direct      # debugging: evaluate in-process from the files on disk
+```
 
 See [plugins.md](../plugins.md) for the host-plugin walkthrough.
 
@@ -219,6 +259,23 @@ Health checks: install integrity, config syntax, framework wiring.
 ```bash
 sponsio doctor
 ```
+
+Two checks cover the host hooks. **Hook wiring** reads every Sponsio
+hook in the Claude Code and Cursor settings (user and project) and the
+OpenClaw plugin config, and checks that each can run: the interpreter
+and shim it names still exist, its daemon socket path is short enough to
+bind, and a daemon answers or can be started. A hook that cannot run
+denies every tool call, so a failure names the fix to run from your
+terminal (`sponsio host install <host>` or `sponsio host uninstall
+<host>`). **Claude Code** reports the installed version: before v2.1.295
+Claude Code ignores the hooks' `onFailure: "block"`, so a hook that
+cannot start lets the tool run and only the shim's own deadline applies.
+
+**Enforcement tier** reports which tier the machine is in (see [the threat model](../concepts/threat-model.md)) and what the next tier needs. `sponsio doctor --tier` lists every guarantee of Tier 1, 2 and 3 with pass or fail and the fix (`--json` for a machine-readable form). The checks read the filesystem and the daemon's socket. Tier 1: host hooks go through the daemon. Tier 2 adds: the daemon runs as its own user, this user cannot reach the admin socket, the shim and engine are root-owned and read-only, the rule store belongs to the daemon's user, Claude Code's hooks come from managed settings only, and the host sandbox is on. Tier 3 adds Sponsio's tool gateway and egress proxy, which this release does not include. A default install is Tier 1.
+
+`sponsio host install` refuses to write a hook whose daemon socket path
+is too long to bind (more than 103 bytes on macOS, 107 on Linux); set
+`SPONSIO_DAEMON_SOCKET` to a shorter path.
 
 ## sponsio packs
 
@@ -330,15 +387,45 @@ For local observability use `sponsio host trace --follow` (live stream), `sponsi
 
 ## sponsio daemon
 
-Privileged-process side of the IPC split. The daemon owns the host bucket / per-plugin yaml files and is the only entity the host agent can reach to write them, so self-modify protection becomes an OS-level guarantee (ideally a separate UID under launchd/systemd) rather than a regex-on-tool-args one.
+The process that decides host hook calls (Claude Code, Cursor, OpenClaw). It holds the compiled rules, each session's history (in memory, with a write-ahead log, so a restart keeps every live session and deleting trace files does not reset a running one) and its own config. A hook that finds no daemon starts one.
 
 ```bash
-sponsio daemon run [--socket PATH] [--mode 0600]   # foreground; used by launchd/systemd
+sponsio daemon run [--socket PATH] [--mode 0600] [--state-dir DIR] [--plugin-root DIR] [--detach] [--watch]
+                                                   # foreground; used by launchd/systemd
 sponsio daemon ping [--echo VALUE]                 # round-trip health check
 sponsio daemon status                              # resolved socket path + reachability
 ```
 
-Socket path resolves to `$SPONSIO_DAEMON_SOCKET`, then `/var/run/sponsio.sock` if writable, else `~/.sponsio/sponsio.sock`.
+Socket path resolves to `$SPONSIO_DAEMON_SOCKET`, then `/var/run/sponsio.sock` if writable, else `~/.sponsio/sponsio.sock`. The state dir defaults to `~/.sponsio/state`. The plugin root is `--plugin-root`, else `~/.sponsio/plugins`; the daemon does not read `$SPONSIO_PLUGIN_ROOT`.
+
+- **Config.** Every setting a hook decision depends on is in `<state-dir>/daemon.yaml`. No environment variable affects a hook decision.
+- **Two sockets.** The agent socket above, and an admin socket beside it (`sponsio.sock` becomes `sponsio.admin.sock`, mode 0600) for everything that changes state. The caller's uid, gid and pid come from the kernel, and every admin call is audited.
+- **One daemon per state dir.** A second `daemon run` finds the lock taken and exits 0. `--detach` starts it in the background and logs to `<state-dir>/daemon.log`.
+- **`--watch`** applies every rule change at once instead of holding weakening ones, for working on Sponsio's own rules. Each change is still recorded.
+
+The `daemon.yaml` schema, both sockets' methods, proposals and every audit event are in the [daemon reference](daemon.md).
+
+## sponsio rules
+
+What the daemon enforces, and rule changes waiting for review. These commands talk to the admin socket, so run them from your own terminal. The agent's hooks deny `sponsio rules reload`.
+
+```bash
+sponsio rules status [--json]          # loaded libraries; HELD marks a change waiting for review
+sponsio rules diff                     # what a reload would apply: - removed or changed, + added
+sponsio rules reload [--bucket B] [--yes]
+sponsio rules verify                   # compare with the book the cloud publishes, now
+```
+
+The daemon gives every compiled contract a stable id. The id is a hash of the contract's agent, the pack it came from, its formula, strategy and parameters, but not its description. Settings that change decisions (`defaults`, `tools`, `tool_policy`, `runtime`) get ids too. When a library or one of its packs changes on disk:
+
+- If every loaded id is still present, the new rules apply at once, and `ruleset_strengthened` is recorded with what was added.
+- If any id was removed or changed, the daemon keeps enforcing the rules it has loaded. It records `config_drift` with the removed and changed contracts and adds a one-line warning to the next hook reply (stderr, and the reason of a deny). The new rules apply only after `sponsio rules reload`, which records `ruleset_reloaded` with the caller's uid and pid. A changed parameter counts as one removal plus one addition. A library that no longer loads counts as removing everything.
+
+Each applied ruleset is kept in `<state-dir>/rules/`. A daemon that starts onto a library weaker than the last applied ruleset, with nothing older in memory, denies that bucket's calls until a reload. `sponsio daemon run --watch` applies every change at once, for working on Sponsio's own rules, and still records each one.
+
+The daemon also polls the library files, their packs and the engine modules on the hook path every 2 s, and records `config_drift` with the old and new SHA-256 of each file that changed. A deleted or truncated trace log is restored from memory and recorded as `trace_deleted`. A call denied by `capability/self-modify` or `capability/host-config-integrity` is recorded as `tamper_attempt`. At Tier 1 these records make tampering visible. They do not prevent it.
+
+With a `cloud:` section in `daemon.yaml`, the daemon also checks every `verify_interval_s` (and on `sponsio rules verify`) that each linked bucket enforces the book the project publishes for its agent. It sends the bucket's contract ids to `POST /v1/rulebook/verify`, and the service computes the published book's ids with the same algorithm. The ids ignore descriptions and whether a contract came from a pack, and keep its mode. The answer is `match`, `stronger` (local additions), `weaker` (published contracts missing locally, recorded as `cloud_drift` and announced on the next hook reply), `incomparable` (different SDK versions disagree) or `unsupported`. This check never runs on the decision path. A failed check is reported as a status and never causes a deny.
 
 ## sponsio cursor
 
