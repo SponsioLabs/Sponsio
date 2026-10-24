@@ -387,12 +387,10 @@ For local observability use `sponsio host trace --follow` (live stream), `sponsi
 
 ## sponsio daemon
 
-Privileged-process side of the IPC split. The daemon owns the host bucket / per-plugin yaml files and is the only entity the host agent can reach to write them, so self-modify protection becomes an OS-level guarantee (ideally a separate UID under launchd/systemd) rather than a regex-on-tool-args one.
-
-It also evaluates host hook events. Each library is compiled once per content change (the yaml and every pack it includes), and session traces live in the daemon's memory with a write-ahead log under the state dir, so a restart keeps every live conversation and deleting trace files on disk does not reset a running session's counters. A live guard is kept per session, so a check grounds only the new event instead of replaying the session; its cost does not grow with the session's length the way rebuilding did.
+The process that decides host hook calls (Claude Code, Cursor, OpenClaw). It holds the compiled rules, each session's history (in memory, with a write-ahead log, so a restart keeps every live session and deleting trace files does not reset a running one) and its own config. A hook that finds no daemon starts one.
 
 ```bash
-sponsio daemon run [--socket PATH] [--mode 0600] [--state-dir DIR] [--plugin-root DIR] [--detach]
+sponsio daemon run [--socket PATH] [--mode 0600] [--state-dir DIR] [--plugin-root DIR] [--detach] [--watch]
                                                    # foreground; used by launchd/systemd
 sponsio daemon ping [--echo VALUE]                 # round-trip health check
 sponsio daemon status                              # resolved socket path + reachability
@@ -400,36 +398,12 @@ sponsio daemon status                              # resolved socket path + reac
 
 Socket path resolves to `$SPONSIO_DAEMON_SOCKET`, then `/var/run/sponsio.sock` if writable, else `~/.sponsio/sponsio.sock`. The state dir defaults to `~/.sponsio/state`. The plugin root is `--plugin-root`, else `~/.sponsio/plugins`; the daemon does not read `$SPONSIO_PLUGIN_ROOT`.
 
-Every setting a hook decision depends on is in `<state-dir>/daemon.yaml`, and the daemon reads no environment variable for a decision, not even its own:
+- **Config.** Every setting a hook decision depends on is in `<state-dir>/daemon.yaml`. No environment variable affects a hook decision.
+- **Two sockets.** The agent socket above, and an admin socket beside it (`sponsio.sock` becomes `sponsio.admin.sock`, mode 0600) for everything that changes state. The caller's uid, gid and pid come from the kernel, and every admin call is audited.
+- **One daemon per state dir.** A second `daemon run` finds the lock taken and exits 0. `--detach` starts it in the background and logs to `<state-dir>/daemon.log`.
+- **`--watch`** applies every rule change at once instead of holding weakening ones, for working on Sponsio's own rules. Each change is still recorded.
 
-```yaml
-mode: enforce            # hosts not listed below
-hosts:
-  claude-code: {mode: observe}
-on_error: deny           # deny | allow: what an evaluation error becomes
-unconfigured: null       # deny | allow | null (the host library decides)
-plugin_root: null        # overrides --plugin-root when set
-trace_ttl_hours: 24
-cloud:                   # optional: compare loaded rules with the published book
-  project: my-project
-  buckets: {_host_claude_code: my-agent}
-  verify_interval_s: 300
-```
-
-`sponsio host install <host> --mode` sets the host's mode through the admin socket (`mode.set`). If no daemon is running, it writes the file directly. The daemon re-reads the file when it changes. A missing file, or a key that is missing or not valid, takes the strict default (`enforce`, `deny`). `SPONSIO_GUARD_MODE`, `SPONSIO_MODE`, `SPONSIO_HOOK_ON_ERROR`, `SPONSIO_UNCONFIGURED` and `SPONSIO_SHIELD_TRACE_TTL_HOURS` no longer affect hooks. They still apply to the in-process SDK and to `host guard --direct`. Every call allowed only because `on_error: allow` is audited as `fail_open`.
-
-One daemon per state dir. The daemon holds `<state-dir>/daemon.lock` (an exclusive `flock`, holding its pid) while it runs; a second `daemon run` finds the lock taken, or a daemon answering on the socket, and exits 0 without touching anything. A socket file nobody answers on (left by a daemon that was killed) is replaced. `--detach` starts the daemon in the background, writes its output to `<state-dir>/daemon.log`, and returns once a daemon answers. Starts and restarts are recorded in `<state-dir>/audit.jsonl` (`daemon_start`, or `daemon_restart` with the previous pid when the prior instance did not stop cleanly).
-
-The daemon listens on two sockets. The agent socket is the one above. The admin socket sits beside it (`sponsio.sock` → `sponsio.admin.sock`) and is always mode 0600. Each serves its own methods, and a method called on the other socket is `not_found`:
-
-| Socket | Methods |
-|---|---|
-| agent | `ping`, `guard.check` (pre-event: decide and render the host's reply), `guard.observe` (post-event: record the tool output), `proposal.submit` |
-| admin | `ping`, `plugin.append`, `mode.set`, `proposal.list`, `proposal.show`, `proposal.approve`, `proposal.reject` |
-
-The daemon reads every caller's uid, gid and pid from the kernel (`SO_PEERCRED` on Linux, `LOCAL_PEERCRED` and `LOCAL_PEERPID` on macOS), not from the request. An admin call runs only for the daemon's own uid or root, and every admin call, allowed or refused, is written to `audit.jsonl` as `admin_call` with the method, the peer and a SHA-256 of the parameters.
-
-The agent side cannot change rules directly. `proposal.submit` validates the change as a dry run and stores it under `<state-dir>/proposals/`. Nothing applies until `proposal.approve` arrives on the admin socket. `sponsio plugin append` submits and then approves. That works when the caller can reach the admin socket, which is the case when the daemon runs as the same user. Otherwise the proposal waits for an operator.
+The `daemon.yaml` schema, both sockets' methods, proposals and every audit event are in the [daemon reference](daemon.md).
 
 ## sponsio rules
 
