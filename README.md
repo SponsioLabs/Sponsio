@@ -28,7 +28,7 @@ Sponsio checks an agent's tool calls before they run. A rule can look at what al
 
 > An **agent contract** is a runtime rule that is checked at every agent action, [backed by formal methods](docs/concepts/formal-methods.md).
 
-> **v0.2.0a20 alpha is out.** `pip install --pre sponsio`. Host hooks for Claude Code, Cursor and OpenClaw are now decided by the Sponsio daemon and fail closed on every path; the mode and policy come from the daemon's own config, not the hook's environment; and a rule change that would weaken enforcement is held until you review it with `sponsio rules reload`. `sponsio doctor --tier` tells you what the agent can and cannot do to Sponsio on your machine ([threat model](docs/concepts/threat-model.md)). Reinstall your hooks to move to it, and see the [release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a20) for the behaviour changes. TypeScript `@sponsio/sdk@0.2.0-alpha.10` ships alongside.
+> **v0.2.0a19 alpha is out.** `pip install --pre sponsio`. Follow-ups to the kta1kri rounds: a rule written as LTL in YAML (`called(Issue_Refund)`) and the `ArgValue` term now bind every spelling of their tool, including the `mcp__server__` form; `sponsio host install` writes the absolute path of the install that ran it, and `--mode observe` is now a real shadow run carried on the hook command. TypeScript `@sponsio/sdk@0.2.0-alpha.9` carries the same fixes. See the [release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a19).
 
 ---
 
