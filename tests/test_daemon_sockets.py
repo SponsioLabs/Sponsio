@@ -122,7 +122,16 @@ def test_the_admin_socket_is_owner_only(daemon):
 # Method tables
 # ---------------------------------------------------------------------------
 
-AGENT_ONLY = ["guard.check", "guard.observe", "proposal.submit"]
+AGENT_ONLY = [
+    "guard.check",
+    "guard.observe",
+    "gateway.list_tools",
+    "gateway.call_tool",
+    "sdk.check",
+    "sdk.observe",
+    "sdk.filter_tools",
+    "proposal.submit",
+]
 ADMIN_ONLY = [
     "plugin.append",
     "mode.set",
@@ -130,6 +139,9 @@ ADMIN_ONLY = [
     "proposal.show",
     "proposal.approve",
     "proposal.reject",
+    "audit.verify",
+    "cloud.set_key",
+    "cloud.key_status",
 ]
 
 

@@ -67,7 +67,7 @@ One JSON object per line. The ones to look for:
 | `admin_call` | Someone changed the daemon's state: the method and their uid. |
 | `daemon_restart` | The daemon came back after being stopped without a clean shutdown. |
 
-The full list is in the [daemon reference](../reference/daemon.md#audit-events).
+The full list is in the [daemon reference](../reference/daemon.md#audit-events). Each record is chained to the one before it; `sponsio admin audit verify` tells you whether any was edited or removed.
 
 ## When every call is denied
 

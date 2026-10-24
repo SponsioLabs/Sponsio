@@ -427,6 +427,22 @@ The daemon also polls the library files, their packs and the engine modules on t
 
 With a `cloud:` section in `daemon.yaml`, the daemon also checks every `verify_interval_s` (and on `sponsio rules verify`) that each linked bucket enforces the book the project publishes for its agent. It sends the bucket's contract ids to `POST /v1/rulebook/verify`, and the service computes the published book's ids with the same algorithm. The ids ignore descriptions and whether a contract came from a pack, and keep its mode. The answer is `match`, `stronger` (local additions), `weaker` (published contracts missing locally, recorded as `cloud_drift` and announced on the next hook reply), `incomparable` (different SDK versions disagree) or `unsupported`. This check never runs on the decision path. A failed check is reported as a status and never causes a deny.
 
+## sponsio admin
+
+Operator commands. They talk to the daemon's admin socket: at Tier 1 that is your own daemon, at Tier 2 run them with `sudo`. The agent's hooks deny them.
+
+```bash
+sponsio admin proposals list [--status pending|approved|rejected] [--json]
+sponsio admin proposals show ID
+sponsio admin proposals approve ID [--yes]     # applies it; recorded with your uid and the change
+sponsio admin proposals reject ID [--yes]
+sponsio admin audit verify [--state-dir DIR]   # exit 1 when the chain is broken
+sponsio admin cloud-key set [--from-file F]    # the daemon's own cloud key; only a fingerprint is recorded
+sponsio admin cloud-key status
+```
+
+`audit verify` asks the running daemon, which also checks that the last record it wrote is still in the log. With `--state-dir`, or with no daemon, it checks the file's chain alone. The [daemon reference](daemon.md#audit-events) describes the chain.
+
 ## sponsio gateway
 
 The MCP gateway. The daemon runs the agent's MCP servers with the credentials in `<state-dir>/gateway.yaml`, and the host is given one MCP server that lists only the tools the session's state allows.

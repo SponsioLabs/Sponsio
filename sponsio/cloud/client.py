@@ -102,8 +102,13 @@ def read_api_key() -> str | None:
     key = os.environ.get("SPONSIO_API_KEY", "").strip()
     if key:
         return key
+    return read_api_key_file(credentials_path())
+
+
+def read_api_key_file(path: Path) -> str | None:
+    """The ``api_key = ...`` line of a credentials file, or None."""
     try:
-        raw = credentials_path().read_text()
+        raw = Path(path).read_text()
     except OSError:
         return None
     for line in raw.splitlines():

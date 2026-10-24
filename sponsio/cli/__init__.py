@@ -44,6 +44,7 @@ from sponsio.cli.commands.serve import serve
 from sponsio.cli.commands.validate import validate
 
 # Command groups.
+from sponsio.cli.groups.admin import admin
 from sponsio.cli.groups.cursor import cursor
 from sponsio.cli.groups.daemon import daemon
 from sponsio.cli.groups.gateway import gateway
@@ -89,6 +90,7 @@ __all__ = [
     "cmd_mode",
     "cmd_prompt",
     # groups
+    "admin",
     "skill",
     "plugin",
     "host",

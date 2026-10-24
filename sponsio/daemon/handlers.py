@@ -22,7 +22,8 @@ Which socket serves a method is part of its contract:
   ``sdk.observe``, ``sdk.filter_tools``, ``proposal.submit``
 * admin socket: ``ping``, ``plugin.append``, ``mode.set``,
   ``rules.status``, ``rules.reload``, ``rules.verify``, ``proposal.list``,
-  ``proposal.show``, ``proposal.approve``, ``proposal.reject``
+  ``proposal.show``, ``proposal.approve``, ``proposal.reject``,
+  ``audit.verify``, ``cloud.set_key``, ``cloud.key_status``
 """
 
 from __future__ import annotations
@@ -64,6 +65,29 @@ def register_default_handlers(
         register_proposal_handlers(
             server, ProposalStore(Path(state_dir), {"plugin.append": _apply_append})
         )
+        register_audit_handlers(server, Path(state_dir))
+
+
+def register_audit_handlers(server: DaemonServer, state_dir: Path) -> None:
+    """``audit.verify`` on the admin socket: the chain check, with the
+    last record this daemon wrote as the expected head."""
+    from sponsio.daemon import audit
+
+    def verify(_params: dict[str, Any]) -> dict[str, Any]:
+        expected = audit.head(state_dir)
+        report = audit.verify(state_dir, expected_head=expected)
+        return {
+            "ok": report.ok,
+            "records": report.records,
+            "chained": report.chained,
+            "unchained": report.unchained,
+            "head": list(report.head) if report.head else None,
+            "daemon_head": list(expected) if expected else None,
+            "problems": report.problems,
+            "path": str(audit.audit_path(state_dir)),
+        }
+
+    server.register("audit.verify", verify, admin=True)
 
 
 def register_proposal_handlers(server: DaemonServer, store: ProposalStore) -> None:
@@ -181,6 +205,30 @@ def register_guard_handlers(server: DaemonServer, service: "GuardService") -> No
         peer = current_peer()
         return service.rules_reload(bucket, peer.as_dict() if peer else None)
 
+    def cloud_set_key(params: dict[str, Any]) -> dict[str, Any]:
+        key = params.get("key")
+        if (
+            not isinstance(key, str)
+            or not key.strip()
+            or any(c.isspace() for c in key.strip())
+        ):
+            raise RpcError("`key` must be a non-empty API key", code="validation")
+        peer = current_peer()
+        return service.set_cloud_key(key.strip(), peer.as_dict() if peer else None)
+
+    def cloud_key_status(_params: dict[str, Any]) -> dict[str, Any]:
+        import hashlib
+
+        key, source = service.cloud_api_key()
+        return {
+            "source": source,
+            "fingerprint": hashlib.sha256(key.encode()).hexdigest()[:12]
+            if key
+            else None,
+        }
+
+    server.register("cloud.set_key", cloud_set_key, admin=True)
+    server.register("cloud.key_status", cloud_key_status, admin=True)
     server.register("rules.status", lambda _p: service.rules_status(), admin=True)
     server.register("rules.verify", lambda _p: service.verify_cloud(), admin=True)
     server.register("rules.reload", rules_reload, admin=True)

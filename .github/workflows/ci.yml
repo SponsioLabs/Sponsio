@@ -32,7 +32,7 @@ jobs:
 
       - name: Install test + integration dependencies
         run: |
-          pip install pytest pytest-cov langgraph langchain-core fastapi pydantic uvicorn python-multipart httpx opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http
+          pip install pytest pytest-cov langgraph langchain-core fastapi pydantic uvicorn python-multipart httpx opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http cryptography
           pip install claude-agent-sdk vercel-ai-sdk || echo "Optional SDK install failed (platform-specific), tests will skip"
 
       # Build the canonical OpenClaw plugin TS so the

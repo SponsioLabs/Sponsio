@@ -21,6 +21,12 @@ The file::
       project: my-project
       buckets: {_host_claude_code: my-agent}
       verify_interval_s: 300
+    audit:                   # also send every audit record to an OTLP/HTTP endpoint
+      otlp_endpoint: https://otlp.example.com/v1/traces
+      otlp_headers: {x-api-key: "..."}
+    signing:                 # rules must carry a signature by this key
+      public_key: "<base64 Ed25519 public key>"
+      buckets: ["*"]         # or a list of buckets
 
 It is changed through the admin socket (``mode.set``; ``sponsio host
 install --mode``); with no daemon running, ``sponsio host install``
@@ -68,6 +74,16 @@ class DaemonConfig:
     cloud_buckets: dict[str, str] = field(default_factory=dict)
     """Host bucket -> the cloud agent whose published book it should match."""
     cloud_verify_interval_s: float = 300.0
+    audit_otlp_endpoint: str | None = None
+    audit_otlp_headers: dict[str, str] = field(default_factory=dict)
+    signing_public_key: str | None = None
+    signing_buckets: tuple[str, ...] = ()
+    """Buckets whose rule files must be signed; ``("*",)`` for all."""
+
+    def requires_signature(self, bucket: str) -> bool:
+        if not self.signing_public_key:
+            return False
+        return "*" in self.signing_buckets or bucket in self.signing_buckets
 
     def mode_for(self, host: str | None) -> str:
         return self.hosts.get(host or "", self.mode)
@@ -118,6 +134,24 @@ class DaemonConfig:
             iv = cloud.get("verify_interval_s")
             if isinstance(iv, (int, float)) and not isinstance(iv, bool) and iv >= 30:
                 kw["cloud_verify_interval_s"] = float(iv)
+        aud = raw.get("audit")
+        if isinstance(aud, dict):
+            ep = aud.get("otlp_endpoint")
+            if isinstance(ep, str) and ep.startswith(("http://", "https://")):
+                kw["audit_otlp_endpoint"] = ep
+            headers = aud.get("otlp_headers")
+            if isinstance(headers, dict):
+                kw["audit_otlp_headers"] = {str(k): str(v) for k, v in headers.items()}
+        signing = raw.get("signing")
+        if isinstance(signing, dict):
+            key = signing.get("public_key")
+            if isinstance(key, str) and key.strip():
+                kw["signing_public_key"] = key.strip()
+                buckets = signing.get("buckets", ["*"])
+                if isinstance(buckets, str):
+                    buckets = [buckets]
+                if isinstance(buckets, list):
+                    kw["signing_buckets"] = tuple(str(b) for b in buckets) or ("*",)
         return cls(**kw)
 
     def to_dict(self) -> dict[str, Any]:
@@ -134,6 +168,18 @@ class DaemonConfig:
                 "verify_interval_s": self.cloud_verify_interval_s,
             }
             if self.cloud_buckets
+            else None,
+            "audit": {
+                "otlp_endpoint": self.audit_otlp_endpoint,
+                "otlp_headers": dict(self.audit_otlp_headers),
+            }
+            if self.audit_otlp_endpoint
+            else None,
+            "signing": {
+                "public_key": self.signing_public_key,
+                "buckets": list(self.signing_buckets),
+            }
+            if self.signing_public_key
             else None,
         }
 

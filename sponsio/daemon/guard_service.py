@@ -106,6 +106,10 @@ class _CacheEntry:
     stats: tuple
     loaded: LibrarySnapshot
     served: LibrarySnapshot
+    unsigned: bool = False
+    """The loaded content failed its signature check."""
+    placeholder: bool = False
+    """``served`` is a signature hold, not rules that passed."""
 
 
 class SnapshotStore:
@@ -122,9 +126,17 @@ class SnapshotStore:
         root: Path | Callable[[], Path] | None = None,
         *,
         on_change: OnChange | None = None,
+        signature: Callable[[str, tuple[str, ...]], str | None] | None = None,
+        on_unsigned: Callable[[str, str, bool], None] | None = None,
     ) -> None:
         self._root = root if root is not None else library_root
         self._on_change: OnChange = on_change or (lambda _old, new: new)
+        self._signature = signature
+        """``(plugin_id, files) -> reason`` when the files must be signed
+        and are not; ``None`` when they pass or need no signature."""
+        self._on_unsigned = on_unsigned
+        """Told ``(plugin_id, reason, kept_previous)`` when a load fails
+        its signature check."""
         self._lock = threading.Lock()
         self._cache: dict[str, _CacheEntry] = {}
 
@@ -153,16 +165,54 @@ class SnapshotStore:
                 if snap.config is not None and snap.config.source_files
                 else (str(lib_path),)
             )
+            unsigned = self._signature(plugin_id, files) if self._signature else None
+            if self._signature is not None:
+                # A signature added or replaced must be seen as a change.
+                from sponsio.daemon.signing import SIG_SUFFIX
+
+                files = files + tuple(f + SIG_SUFFIX for f in files)
             stats = _stat_signature(files)
+            if unsigned is not None:
+                # Keep serving the last rules that passed; with none, the
+                # bucket is held.
+                keep = entry is not None and not entry.placeholder
+                served = (
+                    entry.served
+                    if keep
+                    else replace(
+                        snap,
+                        held_reason=(
+                            f"Sponsio: the rules for {plugin_id} are not signed "
+                            f"by the configured key ({unsigned}), so this call "
+                            f"is denied. Signed rules apply on the next call."
+                        ),
+                    )
+                )
+                self._cache[plugin_id] = _CacheEntry(
+                    path=str(lib_path),
+                    files=files,
+                    stats=stats,
+                    loaded=snap,
+                    served=served,
+                    unsigned=True,
+                    placeholder=not keep,
+                )
+                if self._on_unsigned is not None:
+                    self._on_unsigned(plugin_id, unsigned, keep)
+                return served
             if (
                 entry is not None
                 and entry.path == str(lib_path)
                 and entry.loaded.content_hash == snap.content_hash
+                and not entry.unsigned
             ):
                 # Touched but not changed (a save with identical bytes).
                 entry.stats = stats
                 return entry.served
-            served = self._on_change(entry.served if entry else None, snap)
+            # A signature hold is not a ruleset to compare with; the
+            # policy compares with the last approved one instead.
+            old = entry.served if entry is not None and not entry.placeholder else None
+            served = self._on_change(old, snap)
             self._cache[plugin_id] = _CacheEntry(
                 path=str(lib_path),
                 files=files,
@@ -788,7 +838,12 @@ class GuardService:
                 return library_root()
             return base() if callable(base) else base
 
-        self.store = SnapshotStore(_root, on_change=on_change or self.rules)
+        self.store = SnapshotStore(
+            _root,
+            on_change=on_change or self.rules,
+            signature=self._unsigned,
+            on_unsigned=self._audit_unsigned,
+        )
         self.traces = MemoryTraceStore(
             self.state_dir / "wal",
             ttl_seconds=lambda: self.policy().trace_ttl_hours * 3600,
@@ -818,6 +873,69 @@ class GuardService:
                 f"`sponsio rules diff`, then `sponsio rules reload` to accept them."
             ),
         )
+
+    def _unsigned(self, plugin_id: str, files: tuple[str, ...]) -> str | None:
+        cfg = self.config.current()
+        if not cfg.requires_signature(plugin_id):
+            return None
+        from sponsio.daemon.signing import unsigned_reason
+
+        return unsigned_reason(files, cfg.signing_public_key or "")
+
+    def _audit_unsigned(self, plugin_id: str, reason: str, kept: bool) -> None:
+        from sponsio.daemon.signing import RULES_UNSIGNED
+
+        audit.append(
+            self.state_dir,
+            RULES_UNSIGNED,
+            bucket=plugin_id,
+            reason=reason,
+            kept_previous=kept,
+        )
+        if kept:
+            self.rules.warn(
+                f"Sponsio: the rules for {plugin_id} on disk are not signed by the "
+                f"configured key ({reason}); the last signed rules keep enforcing."
+            )
+
+    # ---- the daemon's own cloud key (P1.5) ----
+
+    def cloud_key_path(self) -> Path:
+        return self.state_dir / "cloud.key"
+
+    def cloud_api_key(self) -> tuple[str | None, str | None]:
+        """``(key, source)``: the daemon's own key in its state dir, else
+        (Tier 1, where the daemon is the user) the user's ``sponsio
+        login`` credentials. Never an environment variable."""
+        from sponsio.cloud.client import credentials_path, read_api_key_file
+
+        key = read_api_key_file(self.cloud_key_path())
+        if key:
+            return key, "daemon"
+        key = read_api_key_file(credentials_path())
+        return (key, "user") if key else (None, None)
+
+    def set_cloud_key(self, key: str, peer: dict | None) -> dict[str, Any]:
+        import hashlib
+        import tempfile
+
+        path = self.cloud_key_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".cloud.key.", dir=path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(f"api_key = {key}\n")
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
+        fingerprint = hashlib.sha256(key.encode()).hexdigest()[:12]
+        audit.append(
+            self.state_dir, "cloud_key_set", fingerprint=fingerprint, peer=peer
+        )
+        return {"fingerprint": fingerprint, "path": str(path)}
 
     def _trace_tampered(self, conversation: str, problem: str) -> None:
         audit.append(
@@ -894,7 +1012,8 @@ class GuardService:
         if not cfg.cloud_buckets:
             return {}
         if client is None:
-            client = CloudClient(timeout=10.0, retries=0)
+            key, _source = self.cloud_api_key()
+            client = CloudClient(api_key=key or "", timeout=10.0, retries=0)
         results: dict[str, dict[str, Any]] = {}
         for bucket, agent in sorted(cfg.cloud_buckets.items()):
             if not client.configured:

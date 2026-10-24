@@ -1,6 +1,6 @@
 ---
 title: Daemon reference
-description: daemon.yaml, the agent and admin sockets, proposals, held rule changes, the MCP gateway, and every audit event the daemon writes.
+description: daemon.yaml, the agent and admin sockets, proposals, held rule changes, signed rules, the MCP gateway, and the hash-chained audit log.
 ---
 
 # Daemon reference
@@ -22,7 +22,8 @@ Everything lives under the state dir, `~/.sponsio/state` by default (`sponsio da
 | `wal/<session>.jsonl` | Each live session's history, one admitted event per line, numbered by `seq`. Replayed on start. |
 | `rules/<bucket>.json` | The last ruleset applied to each bucket: contract ids, content hash, when and how. |
 | `proposals/<id>.json` | Rule changes submitted from the agent side, pending or decided. |
-| `audit.jsonl` | Append-only record of what the daemon did and saw. |
+| `cloud.key` | The daemon's own cloud API key (`sponsio admin cloud-key set`). |
+| `audit.jsonl` | Append-only, hash-chained record of what the daemon did and saw. |
 
 All of these are created owner-only (0600 files, 0700 directories).
 
@@ -42,6 +43,12 @@ cloud:                   # optional: compare loaded rules with the published boo
   project: my-project
   buckets: {_host_claude_code: my-agent}
   verify_interval_s: 300
+audit:                   # optional: also send every audit record over OTLP/HTTP
+  otlp_endpoint: https://otlp.example.com/v1/traces
+  otlp_headers: {x-api-key: "..."}
+signing:                 # optional: rule files must be signed by this key
+  public_key: "<base64 Ed25519 public key>"
+  buckets: ["*"]
 ```
 
 | Key | Default | Meaning |
@@ -55,6 +62,10 @@ cloud:                   # optional: compare loaded rules with the published boo
 | `cloud.project` | | Cloud project the buckets are linked to. |
 | `cloud.buckets` | | Host bucket to cloud agent, for `sponsio rules verify`. |
 | `cloud.verify_interval_s` | `300` | How often the daemon compares on its own. At least 30. |
+| `audit.otlp_endpoint` | | Every audit record is also sent here as an OTLP span, with its chain fields. |
+| `audit.otlp_headers` | | Headers for that endpoint, such as an API key. |
+| `signing.public_key` | | Base64 Ed25519 public key that signs rule files. See [Signed rules](#signed-rules). |
+| `signing.buckets` | `["*"]` | Which buckets must be signed. |
 
 The daemon re-reads the file when it changes. A missing file, a file that does not parse, and any key that is missing or not valid all take the strict default. The daemon reads no environment variable for a decision, its own included: `SPONSIO_GUARD_MODE`, `SPONSIO_MODE`, `SPONSIO_HOOK_ON_ERROR`, `SPONSIO_UNCONFIGURED`, `SPONSIO_SHIELD_TRACE_TTL_HOURS` and `SPONSIO_PLUGIN_ROOT` do not affect hooks. They still apply to the in-process SDK and to `sponsio host guard --direct`.
 
@@ -85,6 +96,8 @@ The daemon listens on two Unix sockets. The agent socket is the one hooks use (`
 | admin | `plugin.append` | Merge contracts into a host bucket. |
 | admin | `proposal.list`, `proposal.show` | Read proposals. |
 | admin | `proposal.approve`, `proposal.reject` | Decide a proposal. Approve applies it. |
+| admin | `audit.verify` | Check the audit chain, including that the last record this daemon wrote is still there. |
+| admin | `cloud.set_key`, `cloud.key_status` | Store the daemon's own cloud key; show which key it uses, by fingerprint. |
 
 The protocol is a 4-byte big-endian length followed by a JSON body, one request per connection.
 
@@ -98,7 +111,7 @@ At Tier 1 the daemon runs as the agent's user, so the agent can reach the admin 
 
 ## Proposals
 
-The agent side cannot change rules. `sponsio plugin append` sends `proposal.submit` on the agent socket; the daemon validates the change as a dry run and stores it under `proposals/`. It applies only when `proposal.approve` arrives on the admin socket, which records who approved it. When the caller can reach the admin socket (Tier 1), `plugin append` approves its own proposal in the same command, and both steps are audited. When it cannot, the proposal waits.
+The agent side cannot change rules. `sponsio plugin append` sends `proposal.submit` on the agent socket; the daemon validates the change as a dry run and stores it under `proposals/`. It applies only when `proposal.approve` arrives on the admin socket, which records who approved it and what changed. When the caller can reach the admin socket (Tier 1), `plugin append` approves its own proposal in the same command, and both steps are audited. When it cannot, the proposal waits for `sponsio admin proposals approve <id>`.
 
 ---
 
@@ -111,6 +124,17 @@ Every compiled contract gets a stable id: a hash of its agent, the pack it came 
 - **The daemon restarts onto a library weaker than `rules/<bucket>.json`.** With nothing older in memory to serve, it denies that bucket's calls until a reload, and says so in the deny reason.
 
 `sponsio daemon run --watch` applies every change at once and still records each one. It is for working on Sponsio's own rules.
+
+---
+
+## Signed rules
+
+With `signing:` in `daemon.yaml`, every rule file of a covered bucket needs a detached signature beside it: `sponsio.yaml.sig`, the base64 Ed25519 signature of the file's exact bytes. A file the library includes needs its own. Packs shipped inside Sponsio (`sponsio:...`) need none.
+
+- **A file that is not signed, or signed by another key.** The last rules that passed keep enforcing, and `rules_unsigned` is recorded. With nothing signed loaded, as after a restart, the bucket's calls are denied, whatever `on_error` says.
+- **A signed change.** It is handled like any other change: additions apply, removals are held until `sponsio rules reload`.
+
+Verifying needs `cryptography` (`pip install --pre 'sponsio[signing]'`). Without it, covered buckets are denied, not served unchecked. Signing itself happens where the rules are published; the daemon only verifies.
 
 ---
 
@@ -151,7 +175,7 @@ The gateway alone does not make Tier 3: an agent that can still run commands can
 
 ## Audit events
 
-Every line of `audit.jsonl` is a JSON object with `ts` (UTC, ISO 8601), `event` and `pid`, plus the fields below.
+Every line of `audit.jsonl` is a JSON object with `ts` (UTC, ISO 8601), `event` and `pid`, plus the fields below. It also has `seq` (1, 2, ...), `prev_hash` (the previous record's `hash`) and `hash` (the SHA-256 of the record's canonical JSON without `hash`). Editing or removing a record breaks the chain at that point; `sponsio admin audit verify` finds it, and asks the running daemon for the last record it wrote, so records cut from the end are found too. Records from before the chain existed are counted as unchained, not as a break.
 
 | Event | Written when | Fields |
 |---|---|---|
@@ -167,7 +191,9 @@ Every line of `audit.jsonl` is a JSON object with `ts` (UTC, ISO 8601), `event` 
 | `trace_deleted` | A session's log was found deleted or truncated and rewritten from memory. | `conversation`, `problem` |
 | `tamper_attempt` | A call was denied by `capability/self-modify` or `capability/host-config-integrity`. | `host`, `tool`, `bucket`, `packs`, `reason` |
 | `proposal_submitted` | A rule change was proposed. | `id`, `kind`, `peer` |
-| `proposal_approved`, `proposal_rejected` | A proposal was decided. | `id`, `kind`, `peer` |
+| `proposal_approved`, `proposal_rejected` | A proposal was decided. | `id`, `kind`, `peer`, `change` |
+| `rules_unsigned` | A covered bucket's rule files failed the signature check. | `bucket`, `reason`, `kept_previous` |
+| `cloud_key_set` | The daemon was given a cloud key. | `fingerprint`, `peer` |
 | `cloud_drift` | A linked bucket lacks contracts the cloud publishes for its agent. | `bucket`, `agent`, `project`, `status`, `published_version`, `missing` |
 | `cloud_verified` | A cloud comparison's outcome changed and is not weaker. | same as `cloud_drift` |
 
