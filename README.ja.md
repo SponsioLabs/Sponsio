@@ -29,7 +29,7 @@ Sponsio はエージェントがツールを呼ぶ前に、その呼び出しを
 
 > **エージェント契約** とは、エージェントのすべてのアクションでチェックされるランタイムルールであり、[形式手法に裏打ちされています](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a19 alpha リリース。** `pip install --pre sponsio`。kta1kri レポートのフォローアップです。YAML 内で LTL として書かれたルール（`called(Issue_Refund)`）と `ArgValue` 項が、`mcp__server__` 形式を含むツール名のあらゆる表記に一致するようになりました。`sponsio host install` は実行したインストールの絶対パスを書き込み、`--mode observe` はフックコマンドに載る本物のシャドウモードになりました。TypeScript `@sponsio/sdk@0.2.0-alpha.9` にも同じ修正が入っています。[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a19)。
+> **v0.2.0a20 alpha リリース。** `pip install --pre sponsio`。Claude Code、Cursor、OpenClaw のホストフックは Sponsio デーモンが判定するようになり、すべての経路でフェイルクローズします。モードとポリシーはフックの環境変数ではなくデーモン自身の設定から読まれ、執行を弱めるルール変更は `sponsio rules reload` でレビューするまで保留されます。`sponsio doctor --tier` で、そのマシン上でエージェントが Sponsio に何をできて何をできないかを確認できます（[脅威モデル](docs/concepts/threat-model.md)）。フックを再インストールすると切り替わります。挙動の変更は[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a20)を参照してください。TypeScript `@sponsio/sdk@0.2.0-alpha.10` も同時にリリースします。
 
 ---
 
