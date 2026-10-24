@@ -13,6 +13,9 @@
 - [docs/reference/cli.md](docs/reference/cli.md): CLI reference — scan, validate, check, report, demo, onboard, serve.
 - [docs/integrations/index.md](docs/integrations/index.md): Per-framework integration guides.
 - [docs/concepts/architecture.md](docs/concepts/architecture.md): Design — LTL evaluator, det/sto pipelines, grounding.
+- [docs/concepts/threat-model.md](docs/concepts/threat-model.md): Threat model: what each deployment tier guarantees against an agent that tries to switch Sponsio off.
+- [docs/reference/daemon.md](docs/reference/daemon.md): Daemon reference: daemon.yaml, agent and admin sockets, held rule changes, audit events.
+- [docs/guides/host-operations.md](docs/guides/host-operations.md): Running Sponsio on a host: install, check the tier, review rule changes, recover.
 - [docs/concepts/owasp-coverage.md](docs/concepts/owasp-coverage.md): OWASP Agentic Top 10 (2026) → Sponsio control mapping.
 
 ## Governance

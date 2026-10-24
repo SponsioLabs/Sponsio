@@ -19,10 +19,10 @@ Then go to the [Write your first contract](getting-started/first-contract.md).
 ## Sections
 
 - **[Getting started](getting-started/install.md)**: install, run your first guarded agent, write your first contract, and [connect to the hosted console](getting-started/hosted-console.md). Includes paste-ready [IDE-agent prompts](getting-started/onboard-prompt.md) for Claude Code / Cursor / Codex driven setup.
-- **[Concepts](concepts/overview.md)**: what contracts are, how the runtime evaluates them, the LTL (linear temporal logic) backbone, OWASP coverage.
+- **[Concepts](concepts/overview.md)**: what contracts are, how the runtime evaluates them, the LTL (linear temporal logic) backbone, OWASP coverage, and the [threat model](concepts/threat-model.md): what each deployment tier guarantees against an agent that tries to switch Sponsio off.
 - **[Integrations](integrations/index.md)**: drop-in adapters for LangGraph, Claude Agent, OpenAI Agents, CrewAI, Vercel AI, MCP, and others.
-- **[Guides](guides/onboarding.md)**: task-oriented walkthroughs. Tuning, observe-vs-enforce, contract sources, reporting, FAQ.
+- **[Guides](guides/onboarding.md)**: task-oriented walkthroughs. Tuning, observe-vs-enforce, contract sources, reporting, [running Sponsio on a host](guides/host-operations.md), FAQ.
 - **[Plugins](plugins.md)**: gate an entire Claude Code or OpenClaw session without code changes.
-- **[Reference](reference/cli.md)**: CLI, `sponsio.yaml` schema, pattern catalog, observability schema, benchmarks, OSS / Cloud boundary.
+- **[Reference](reference/cli.md)**: CLI, `sponsio.yaml` schema, [daemon](reference/daemon.md), pattern catalog, observability schema, benchmarks, OSS / Cloud boundary.
 
 For LLM assistants, a flat link map is at [`llms.txt`](../llms.txt).
