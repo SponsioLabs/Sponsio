@@ -127,7 +127,14 @@ class Atom(FormulaMixin):
         Returns:
             A string of the form ``"predicate(arg1, arg2)"``.
         """
-        return pred_key(self.predicate, *self.args)
+        # Built once per atom: every check looks it up at every step, and
+        # the fields it is built from are frozen.
+        try:
+            return self.__dict__["_key"]
+        except KeyError:
+            key = pred_key(self.predicate, *self.args)
+            object.__setattr__(self, "_key", key)
+            return key
 
 
 @dataclass(frozen=True)
@@ -331,9 +338,14 @@ class Var(FormulaMixin, Term):
         Returns:
             ``"name"`` or ``"name(arg1, arg2)"`` if parameterized.
         """
-        if self.args:
-            return pred_key(self.name, *self.args)
-        return self.name
+        if not self.args:
+            return self.name
+        try:
+            return self.__dict__["_key"]
+        except KeyError:
+            key = pred_key(self.name, *self.args)
+            object.__setattr__(self, "_key", key)
+            return key
 
     def evaluate(self, state: dict) -> object:
         """Term protocol — counter-style lookup with 0 default.

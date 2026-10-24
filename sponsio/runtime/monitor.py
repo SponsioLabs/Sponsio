@@ -317,8 +317,9 @@ class RuntimeMonitor:
         Clears three things together (this is the load-bearing part):
 
         * ``trace.events.pop()``. undo the append.
-        * ``verifier.reset()``. drop grounded valuations + per-formula
-          DFA progress + G-cache; next ``sync`` re-grounds from scratch.
+        * ``verifier.rollback_last()``. restore the grounding and every
+          formula's progress from before the event (the incremental
+          backend), or drop them so the next ``sync`` re-grounds.
         * ``_atom_caches.clear()``. sto atom scores are keyed by
           ``(id(atom), position)``; the popped position is about to be
           reused by the next event, so a stale cache at that position
@@ -331,7 +332,7 @@ class RuntimeMonitor:
             if not self._trace.events:
                 return False
             self._trace.events.pop()
-            self._verifier.reset()
+            self._verifier.rollback_last()
             self._atom_caches.clear()
             return True
 

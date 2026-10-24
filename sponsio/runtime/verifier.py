@@ -36,6 +36,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
+from sponsio.formulas import dfa_evaluator as progression
 from sponsio.formulas.evaluator import evaluate as eval_formula
 from sponsio.tracer.grounding import (
     GroundingState,
@@ -311,6 +312,25 @@ def _is_temporally_flat(node: Any) -> bool:
 # ---------------------------------------------------------------------------
 
 
+class _Progression:
+    """One formula, checked from one position, one event at a time.
+
+    ``residual`` is what the formula still requires of the events after
+    ``upto``; ``before_last`` is the residual one event earlier, which is
+    both the freshness check's "held on the prefix" and what a rollback
+    of the last event restores.
+    """
+
+    __slots__ = ("formula", "start", "residual", "before_last", "upto")
+
+    def __init__(self, formula: Any, start: int) -> None:
+        self.formula = formula
+        self.start = start
+        self.residual = progression.initial(formula)
+        self.before_last: Any = None
+        self.upto = start
+
+
 class TraceVerifier:
     """Stateful LTL verifier over a :class:`Trace`.
 
@@ -324,9 +344,19 @@ class TraceVerifier:
             used by grounding for permission predicates.
         backend: Evaluation strategy. One of:
 
-            - ``"recursive"`` (default) — stateless recursive LTL
-              evaluator from :mod:`sponsio.formulas.evaluator` with a
-              G-node cache. Battle-tested; used by all existing tests.
+            - ``"incremental"`` (default) — every formula is kept as a
+              progression residual (:mod:`sponsio.formulas.dfa_evaluator`)
+              advanced one transition per event, and each check collapses
+              it under the recursive evaluator's end-of-trace rules. The
+              answer equals the recursive backend's (a differential test
+              holds them to it over every shipped pack); a check costs
+              the same at 500 events as at 5,000, and rolling back the
+              last event restores the previous residuals instead of
+              grounding the trace again.
+            - ``"recursive"`` — stateless recursive LTL evaluator from
+              :mod:`sponsio.formulas.evaluator` with a G-node cache,
+              rescanning the trace per check. The reference the
+              incremental backend is tested against.
             - ``"dfa"`` — formula-progression LTL monitor from
               :mod:`sponsio.formulas.dfa_evaluator`. Handles nested
               temporal operators (``no_reversal``, ``mutual_exclusion``)
@@ -352,7 +382,7 @@ class TraceVerifier:
     def __init__(
         self,
         agents: dict[str, Any] | None = None,
-        backend: Literal["recursive", "dfa"] = "recursive",
+        backend: Literal["incremental", "recursive", "dfa"] = "incremental",
     ) -> None:
         self._agents: dict[str, Any] = agents or {}
         self._valuations: list[dict] = []
@@ -369,8 +399,18 @@ class TraceVerifier:
         # an id after the original formula is collected, leading to
         # a stale cache hit on a structurally different formula.
         self._g_cache: dict[Any, tuple[int, bool]] = {}
+        # --- Incremental backend state ---
+        # ``(id(formula), start) -> _Progression``; the entry holds the
+        # formula, so its id is not reused while the entry lives.
+        self._progs: dict[tuple[int, int], _Progression] = {}
+        # ``id(trigger) -> [trigger, scanned_upto, first position | None]``
+        # for reactive contracts' activation points.
+        self._activations: dict[int, list] = {}
+        # Grounding accumulators as they were before the last event was
+        # grounded, so rolling that event back does not re-ground.
+        self._ground_ckpt: GroundingState | None = None
         # --- DFA backend state ---
-        self._backend: Literal["recursive", "dfa"] = backend
+        self._backend: Literal["incremental", "recursive", "dfa"] = backend
         # Per-formula DFAEvaluator instances, lazily constructed the
         # first time a formula is checked. Keyed by the formula object
         # itself (hashable frozen dataclass) — structurally equal
@@ -411,6 +451,39 @@ class TraceVerifier:
         for dfa in self._dfas.values():
             dfa.reset()
         self._dfa_consumed.clear()
+        self._progs.clear()
+        self._activations.clear()
+        self._ground_ckpt = None
+
+    def rollback_last(self) -> None:
+        """The trace's last event was removed: forget it.
+
+        The incremental backend restores the grounding accumulators and
+        every formula's residual from before that event, so the next
+        check costs what any check costs. Anything it cannot restore (a
+        formula advanced past the event twice, other backends) falls
+        back to :meth:`reset` and a full re-ground on the next sync.
+        """
+        n = self._grounded_upto
+        if self._backend != "incremental" or n == 0 or self._ground_ckpt is None:
+            self.reset()
+            return
+        self._valuations.pop()
+        self._grounded_upto = n - 1
+        self._state = self._ground_ckpt
+        self._ground_ckpt = None
+        self._g_cache.clear()
+        for key, p in list(self._progs.items()):
+            if p.upto < n:
+                continue
+            if p.before_last is None:
+                del self._progs[key]
+                continue
+            p.residual, p.before_last, p.upto = p.before_last, None, n - 1
+        for entry in self._activations.values():
+            if entry[2] == n - 1:
+                entry[2] = None
+            entry[1] = min(entry[1], n - 1)
 
     def sync(
         self,
@@ -446,6 +519,9 @@ class TraceVerifier:
         self._last_content_atoms = content_atoms
 
         for i in range(self._grounded_upto, n):
+            if self._backend == "incremental" and i == n - 1:
+                # The event a blocked check or a probe will roll back.
+                self._ground_ckpt = self._state.copy()
             v = ground_event(
                 trace.events[i],
                 i,
@@ -563,10 +639,14 @@ class TraceVerifier:
         The recursive backend ignores this flag since it uses weak
         finite-trace semantics uniformly.
         """
+        if self._backend == "incremental":
+            # Weak finite-trace semantics, as the recursive backend:
+            # ``finalize`` changes nothing there either.
+            return self._holds_from(node, 0)
         if self._backend == "dfa":
             return self._dfa_eval(node, finalize=finalize)
 
-        # --- Recursive backend (default) ---
+        # --- Recursive backend ---
         from sponsio.formulas.formula import And, G, Implies, Not, Or
 
         if isinstance(node, G):
@@ -589,6 +669,62 @@ class TraceVerifier:
         # Everything else (U, F, X, Atom, Le/Lt/Ge/Gt/Eq, Subset) —
         # use the stateless evaluator, which scans from pos=0.
         return eval_formula(node, self._valuations)
+
+    # ---- incremental backend ----
+
+    def _progression(self, formula: Any, start: int) -> _Progression:
+        key = (id(formula), start)
+        p = self._progs.get(key)
+        if p is None or p.formula is not formula:
+            p = self._progs[key] = _Progression(formula, start)
+        vals = self._valuations
+        for i in range(p.upto, len(vals)):
+            p.before_last = p.residual
+            p.residual = progression.advance(p.residual, vals[i])
+        if len(vals) > p.upto:
+            p.upto = len(vals)
+        return p
+
+    def _holds_from(self, formula: Any, start: int) -> bool:
+        """``eval_formula(formula, valuations, start)``, incrementally."""
+        if start >= len(self._valuations):
+            return eval_formula(formula, self._valuations, start)
+        return progression.holds_at_end(self._progression(formula, start).residual)
+
+    def _held_before_last(self, formula: Any, start: int) -> bool:
+        """``eval_formula(formula, valuations[:-1], start)``, incrementally."""
+        n = len(self._valuations)
+        if start >= n - 1:
+            return eval_formula(formula, [], 0)
+        p = self._progression(formula, start)
+        if p.before_last is None:
+            return eval_formula(formula, self._valuations[:-1], start)
+        return progression.holds_at_end(p.before_last)
+
+    def _activation(self, trigger: Any) -> int | None:
+        """First position where ``trigger`` holds, scanning only new events.
+
+        A temporally flat trigger's value at a position never changes as
+        the trace grows, so the scan resumes where it stopped. Any other
+        trigger is scanned in full, as the recursive backend does.
+        """
+        vals = self._valuations
+        n = len(vals)
+        if self._backend != "incremental" or not _is_temporally_flat(trigger):
+            for pos in range(n):
+                if eval_formula(trigger, vals, pos):
+                    return pos
+            return None
+        entry = self._activations.get(id(trigger))
+        if entry is None or entry[0] is not trigger:
+            entry = self._activations[id(trigger)] = [trigger, 0, None]
+        if entry[2] is None:
+            for pos in range(entry[1], n):
+                if eval_formula(trigger, vals, pos):
+                    entry[2] = pos
+                    break
+            entry[1] = n
+        return entry[2]
 
     def _dfa_eval(self, node: Any, finalize: bool = False) -> bool:
         """DFA backend: lazy per-formula :class:`DFAEvaluator`.
@@ -725,17 +861,22 @@ class TraceVerifier:
         if n == 1:
             return True  # only one event — it is by definition the cause
 
-        prefix = self._valuations[:-1]
+        incremental = self._backend == "incremental"
+        prefix = None if incremental else self._valuations[:-1]
 
         if isinstance(raw_formula, G):
             # Signal (1): formula held on the prefix and was just flipped.
-            if eval_formula(raw_formula, prefix):
+            if (
+                self._held_before_last(raw_formula, 0)
+                if incremental
+                else eval_formula(raw_formula, prefix)
+            ):
                 return True
 
             # Already failed on prefix. Two disjoint sub-cases.
             agg_keys = _collect_cumulative_var_keys(raw_formula.child)
             last_val = self._valuations[-1]
-            prior_val = prefix[-1]
+            prior_val = self._valuations[-2]
 
             if agg_keys:
                 # Signal (2): cumulative-aware. Only fresh if some
@@ -754,9 +895,11 @@ class TraceVerifier:
         # Non-G: use the prefix-vs-now signal at the contract's eval
         # position. If the formula already failed on the prefix at the
         # same position, the current event is not the cause.
-        if eval_pos >= len(prefix):
+        if eval_pos >= n - 1:
             # The current event IS the activation point; treat as fresh.
             return True
+        if incremental:
+            return self._held_before_last(raw_formula, eval_pos)
         return eval_formula(raw_formula, prefix, eval_pos)
 
     def check_assumption(self, contract: Contract) -> Verdict:
@@ -933,7 +1076,6 @@ class TraceVerifier:
         # them at construction time — but we double-check defensively.
         a_results: list[Verdict] = []
         activation_positions: list[int] = []
-        n = len(self._valuations)
 
         for a in contract.assumptions:
             if not _is_det(a):
@@ -955,12 +1097,8 @@ class TraceVerifier:
                 )
                 break
 
-            # Linear scan for the first position where the trigger holds.
-            k = None
-            for pos in range(n):
-                if eval_formula(trigger, self._valuations, pos):
-                    k = pos
-                    break
+            # First position where the trigger holds.
+            k = self._activation(trigger)
 
             if k is None:
                 # Assumption never activated → contract vacuous.
@@ -1003,12 +1141,13 @@ class TraceVerifier:
             if not include_liveness and is_liveness:
                 continue
             raw = _raw_formula(e)
-            # Bypass the G-cache (it assumes pos=0).  Call the
-            # stateless evaluator directly with our activation
-            # position.  Cost: O(suffix_length) per enforcement, which
-            # is the right complexity — we explicitly want the suffix
-            # semantic.
-            holds = eval_formula(raw, self._valuations, k_star)
+            # Evaluated from the activation position, not 0. The
+            # incremental backend keeps a progression from ``k_star``;
+            # the others rescan the suffix (the G-cache assumes pos=0).
+            if self._backend == "incremental":
+                holds = self._holds_from(raw, k_star)
+            else:
+                holds = eval_formula(raw, self._valuations, k_star)
             fresh = True if holds else self._enforcement_is_fresh(raw, eval_pos=k_star)
             e_results.append(
                 Verdict(

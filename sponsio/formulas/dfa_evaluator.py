@@ -49,6 +49,7 @@ Typical use::
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Literal, Union
 
 from sponsio.formulas._compare import coerce_ordered
@@ -84,6 +85,20 @@ Verdict3 = Literal["⊤", "⊥", "?"]
 # a Python ``True`` / ``False`` sentinel once simplification has fully
 # decided that subterm. ``_simplify`` returns one of these.
 Residual = Union[Formula, bool]
+
+
+@dataclass(frozen=True)
+class _Pending:
+    """An obligation ``X(child)`` left for the next position.
+
+    Progressing ``X(φ)`` used to expose ``φ`` bare, and once the trace
+    ended a bare atom collapsed to ``False``, where the recursive
+    evaluator says weak next is ``True``. Kept wrapped, the obligation
+    collapses by the evaluator's rule for a position past the end:
+    ``False`` for ``F`` and ``U``, ``True`` for anything else.
+    """
+
+    child: Formula
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +223,7 @@ def _eval_pointwise(node: Any, state: dict[str, object]) -> Residual:
 
 def _is_temporal(node: Any) -> bool:
     """True if ``node`` or any descendant contains G/F/U/X."""
-    if isinstance(node, (G, F, U, X)):
+    if isinstance(node, (G, F, U, X, _Pending)):
         return True
     for attr in ("child", "left", "right"):
         child = getattr(node, attr, None)
@@ -248,34 +263,10 @@ def _simplify(node: Residual) -> Residual:
         return Not(inner)
 
     if isinstance(node, And):
-        left = _simplify(node.left)
-        if left is False:
-            return False
-        right = _simplify(node.right)
-        if right is False:
-            return False
-        if left is True:
-            return right
-        if right is True:
-            return left
-        if left is node.left and right is node.right:
-            return node
-        return And(left, right)
+        return _simplify_assoc(node, And, absorbing=False)
 
     if isinstance(node, Or):
-        left = _simplify(node.left)
-        if left is True:
-            return True
-        right = _simplify(node.right)
-        if right is True:
-            return True
-        if left is False:
-            return right
-        if right is False:
-            return left
-        if left is node.left and right is node.right:
-            return node
-        return Or(left, right)
+        return _simplify_assoc(node, Or, absorbing=True)
 
     if isinstance(node, Implies):
         left = _simplify(node.left)
@@ -295,6 +286,50 @@ def _simplify(node: Residual) -> Residual:
     # Temporal operators: keep as-is (progression handles them).
     # Atoms / arithmetic leaves: keep as-is.
     return node
+
+
+def _flatten(node: Any, cls: type, out: list) -> None:
+    if isinstance(node, cls):
+        _flatten(node.left, cls, out)
+        _flatten(node.right, cls, out)
+    else:
+        out.append(node)
+
+
+def _simplify_assoc(node: Any, cls: type, *, absorbing: bool) -> Residual:
+    """Fold an ``And`` / ``Or`` chain: drop the identity element, stop at
+    the absorbing one, and keep one copy of an operand that occurs twice.
+
+    Progression re-inserts the same subformula object every time its
+    trigger fires (``G(a -> G !b)`` adds ``G !b`` per ``a``), so without
+    the de-duplication a residual grew with the trace. Operands are
+    compared by identity: ``==`` on nodes that hold a ``Var`` builds a
+    comparison node instead of comparing.
+    """
+    parts: list = []
+    _flatten(node, cls, parts)
+    kept: list = []
+    seen: set[int] = set()
+    for part in parts:
+        q = _simplify(part)
+        if q is absorbing:
+            return absorbing
+        if q is (not absorbing):
+            continue
+        sub: list = []
+        _flatten(q, cls, sub)
+        for r in sub:
+            if id(r) not in seen:
+                seen.add(id(r))
+                kept.append(r)
+    if not kept:
+        return not absorbing
+    if len(kept) == len(parts) and all(a is b for a, b in zip(kept, parts)):
+        return node
+    out = kept[0]
+    for r in kept[1:]:
+        out = cls(out, r)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +353,7 @@ def _progress(node: Residual, state: dict[str, object]) -> Residual:
     * Implies(φ, ψ)            → Implies(progress(φ), progress(ψ))
     * G(φ)                     → And(progress(φ), G(φ))
     * F(φ)                     → Or(progress(φ), F(φ))
-    * X(φ)                     → φ          (peel off next-operator)
+    * X(φ)                     → pending φ  (checked at the next step)
     * φ U ψ                    → Or(progress(ψ), And(progress(φ), φ U ψ))
 
     After rewriting, the caller should simplify (via :func:`_simplify`).
@@ -328,6 +363,10 @@ def _progress(node: Residual, state: dict[str, object]) -> Residual:
 
     if isinstance(node, Atom):
         return bool(state.get(node.key(), False))
+
+    if isinstance(node, _Pending):
+        # This step is the position the obligation was left for.
+        return _progress(node.child, state)
 
     if isinstance(node, (Le, Lt, Ge, Gt, Eq, Subset)):
         return _eval_pointwise(node, state)
@@ -356,9 +395,8 @@ def _progress(node: Residual, state: dict[str, object]) -> Residual:
         return Or(_progress(node.child, state), node)
 
     if isinstance(node, X):
-        # One event consumed: next-operator peels off, exposing its child
-        # as the obligation for remaining suffix.
-        return node.child
+        # One event consumed: the child is owed at the next position.
+        return _Pending(node.child)
 
     if isinstance(node, U):
         return Or(
@@ -399,6 +437,10 @@ def _finalize(node: Residual) -> Residual:
         return True
     if isinstance(node, U):
         return False
+    if isinstance(node, _Pending):
+        # Owed at a position past the end: the recursive evaluator's
+        # rule there is ``False`` for F and U, ``True`` for the rest.
+        return not isinstance(node.child, (F, U))
 
     if isinstance(node, Not):
         inner = _finalize(node.child)
@@ -420,6 +462,28 @@ def _finalize(node: Residual) -> Residual:
     # somehow, we can't evaluate them without a valuation, so treat
     # them conservatively: collapse to False (weak semantics).
     return False
+
+
+def initial(formula: Formula) -> Residual:
+    """The residual before any event."""
+    return _simplify(formula)
+
+
+def advance(residual: Residual, valuation: dict[str, object]) -> Residual:
+    """The residual after one more event."""
+    if residual is True or residual is False:
+        return residual
+    return _simplify(_progress(residual, valuation))
+
+
+def holds_at_end(residual: Residual) -> bool:
+    """Whether the formula holds if the trace ends here.
+
+    Equal to the recursive evaluator on the events consumed so far
+    (``evaluate(formula, trace, start)`` with ``start`` before the end),
+    in O(size of the residual) instead of a scan of the trace.
+    """
+    return _simplify(_finalize(residual)) is True
 
 
 def _to_verdict(residual: Residual) -> Verdict3:

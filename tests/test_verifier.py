@@ -211,7 +211,7 @@ class TestIncrementalGrounding:
 class TestIncrementalEval:
     def test_g_cache_hits_on_stable_true(self):
         """Re-evaluating the same G-rooted formula should use the cache."""
-        v = TraceVerifier()
+        v = TraceVerifier(backend="recursive")
         f = rate_limit("X", 1_000_000)
         v.sync(_trace("X"))
         assert v.check(f).holds is True
@@ -500,7 +500,7 @@ class TestArgBlacklistCacheable:
     """arg_blacklist = G(Not(arg_field_has(...))) — flat G, should cache."""
 
     def test_arg_blacklist_benefits_from_cache(self):
-        v = TraceVerifier()
+        v = TraceVerifier(backend="recursive")
         f = arg_blacklist("bash", "cmd", ["rm -rf"])
 
         trace = Trace(
