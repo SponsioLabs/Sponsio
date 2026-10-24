@@ -104,6 +104,17 @@ def sponsio_paths(home: Path) -> list[Path]:
     return paths
 
 
+def host_config_files(home: Path, workspace: Path) -> list[Path]:
+    """Hook settings the agent must not edit even under a writable
+    directory: removing Sponsio's hook there switches off Tier 1."""
+    names = [
+        Path(".claude") / "settings.json",
+        Path(".claude") / "settings.local.json",
+        Path(".cursor") / "hooks.json",
+    ]
+    return [base / n for base in (home, workspace) for n in names]
+
+
 def _proxy_env(env: dict[str, str], url: str) -> None:
     for name in (
         "HTTP_PROXY",
@@ -127,6 +138,7 @@ def linux_argv(
     agent_socket: Path,
     egress_unix: str,
     hide_home: Path | None,
+    protected: list[Path] = (),
 ) -> list[str]:
     bwrap = shutil.which("bwrap")
     if bwrap is None:
@@ -156,13 +168,19 @@ def linux_argv(
     ]
     if hide_home is not None:
         argv += ["--tmpfs", str(hide_home)]
+    for p in [workspace, *writable]:
+        argv += ["--bind", str(p), str(p)]
+    # bubblewrap applies mounts in order: everything that protects comes
+    # after the writable binds, so a workspace or --writable path that
+    # contains Sponsio's state or a hook config cannot uncover it.
+    for p in protected:
+        if p.exists():
+            argv += ["--ro-bind", str(p), str(p)]
     for p in masked:
         if p.is_dir():
             argv += ["--tmpfs", str(p)]
         elif p.exists():
             argv += ["--ro-bind", "/dev/null", str(p)]
-    for p in [workspace, *writable]:
-        argv += ["--bind", str(p), str(p)]
     if agent_socket.exists():
         argv += ["--ro-bind", str(agent_socket), str(agent_socket)]
     inner = "/run/sponsio-egress.sock"
@@ -187,6 +205,28 @@ def _sbpl_quote(path: Path) -> str:
     return '"' + str(path).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+_MACH_SERVICES = (
+    "com.apple.system.logger",
+    "com.apple.system.notification_center",
+    "com.apple.system.opendirectoryd.libinfo",
+    "com.apple.system.opendirectoryd.membership",
+    "com.apple.system.DirectoryService.libinfo_v1",
+    "com.apple.bsd.dirhelper",
+    "com.apple.cfprefsd.daemon",
+    "com.apple.cfprefsd.agent",
+    "com.apple.logd",
+    "com.apple.diagnosticd",
+    "com.apple.trustd",
+    "com.apple.trustd.agent",
+    "com.apple.SecurityServer",
+    "com.apple.securityd.xpc",
+    "com.apple.FSEvents",
+)
+"""System services an agent process needs: logging, user lookup, temp
+dirs, preferences, certificate checks for HTTPS, file watching. Not
+LaunchServices, AppleEvents or anything that starts a process."""
+
+
 def macos_profile(
     *,
     workspace: Path,
@@ -195,6 +235,7 @@ def macos_profile(
     agent_socket: Path,
     proxy_port: int,
     hide_home: Path | None,
+    protected: list[Path] = (),
 ) -> str:
     """A Seatbelt profile. Later rules win over earlier ones."""
     temp = [
@@ -203,15 +244,27 @@ def macos_profile(
         Path(tempfile.gettempdir()).resolve(),
     ]
     write_ok = [workspace, *writable, *temp]
+    services = " ".join(f'"{name}"' for name in _MACH_SERVICES)
     lines = [
         "(version 1)",
-        "(allow default)",
-        "(deny network*)",
+        # Nothing that is not listed. Under (allow default) the agent could
+        # ask LaunchServices, AppleEvents or launchd to start a process
+        # for it, and that process would run outside the sandbox.
+        "(deny default)",
+        "(allow process-exec process-fork)",
+        "(allow signal (target same-sandbox))",
+        "(allow process-info* (target same-sandbox))",
+        "(allow sysctl-read)",
+        "(allow user-preference-read)",
+        "(allow file-read*)",
+        "(allow file-ioctl)",
+        "(allow pseudo-tty)",
+        "(allow ipc-posix-shm* ipc-posix-sem)",
+        f"(allow mach-lookup (global-name {services}))",
         f'(allow network-outbound (remote ip "localhost:{proxy_port}"))',
         f"(allow network-outbound (remote unix-socket (path-literal {_sbpl_quote(agent_socket)})))",
         '(allow network-bind (local ip "localhost:*"))',
         '(allow network-inbound (local ip "localhost:*"))',
-        '(deny file-write* (subpath "/"))',
         "(allow file-write* "
         + " ".join(f"(subpath {_sbpl_quote(p.resolve())})" for p in write_ok)
         + ' (literal "/dev/null") (literal "/dev/tty") (regex #"^/dev/ttys[0-9]+$"))',
@@ -225,6 +278,8 @@ def macos_profile(
             )
             + ")"
         )
+    for p in protected:
+        lines.append(f"(deny file-write* (literal {_sbpl_quote(p)}))")
     for p in masked:
         lines.append(
             f"(deny file-read* file-write* (subpath {_sbpl_quote(p.resolve())}))"
@@ -284,6 +339,7 @@ def plan(
             agent_socket=socket_path,
             egress_unix=egress["unix"],
             hide_home=home if hide_home else None,
+            protected=host_config_files(home, workspace),
         )
     elif platform == "darwin":
         _proxy_env(env, f"http://127.0.0.1:{egress['port']}")
@@ -294,6 +350,7 @@ def plan(
             agent_socket=socket_path,
             proxy_port=int(egress["port"]),
             hide_home=home if hide_home else None,
+            protected=host_config_files(home.resolve(), workspace),
         )
         fd, path = tempfile.mkstemp(prefix="sponsio-sandbox-", suffix=".sb")
         with os.fdopen(fd, "w") as fh:

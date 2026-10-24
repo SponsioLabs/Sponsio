@@ -99,10 +99,21 @@ def test_hosts_are_normalised_or_refused():
     assert normalize_host("user@evil.com") is None
     assert normalize_host("300.1.1.1") is None
     assert normalize_host("[::1]") is None
-    assert host_allowed("api.github.com", ("*.github.com",))
-    assert not host_allowed("github.com", ("*.github.com",))
-    assert host_allowed("github.com", ("github.com",))
-    assert not host_allowed("github.com.evil.io", ("github.com",))
+    for disguised in (
+        "2130706433",
+        "0x7f000001",
+        "127.1",
+        "169.254.43518",
+        "010.0.0.1",
+    ):
+        assert normalize_host(disguised) is None, disguised
+    assert host_allowed("api.github.com", 443, ("*.github.com",))
+    assert not host_allowed("github.com", 443, ("*.github.com",))
+    assert host_allowed("github.com", 80, ("github.com",))
+    assert not host_allowed("github.com", 22, ("github.com",))
+    assert host_allowed("github.com", 22, ("github.com:22",))
+    assert host_allowed("github.com", 8443, ("github.com:*",))
+    assert not host_allowed("github.com.evil.io", 443, ("github.com",))
 
 
 def test_no_policy_refuses_every_connection(short_tmp, upstreams):
@@ -116,7 +127,7 @@ def test_no_policy_refuses_every_connection(short_tmp, upstreams):
 
 def test_an_allowed_host_is_reached_and_another_is_not(short_tmp, upstreams):
     web, _echo = upstreams
-    svc = _service(short_tmp, allow=["127.0.0.1"])
+    svc = _service(short_tmp, allow=["127.0.0.1:*"])
     proxy = svc.egress.open("run1")
     out = _get(proxy["port"], f"http://127.0.0.1:{web}/ok?q=1")
     assert out.startswith(b"HTTP/1.0 200") or out.startswith(b"HTTP/1.1 200")
@@ -128,7 +139,7 @@ def test_an_allowed_host_is_reached_and_another_is_not(short_tmp, upstreams):
 
 def test_connect_tunnels_through_the_unix_socket(short_tmp, upstreams):
     _web, echo = upstreams
-    svc = _service(short_tmp, allow=["127.0.0.1"])
+    svc = _service(short_tmp, allow=["127.0.0.1:*"])
     proxy = svc.egress.open("run1")
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
         s.settimeout(10)
@@ -154,7 +165,7 @@ agents:
 
 def test_egress_contracts_decide_in_the_runs_session(short_tmp, upstreams):
     web, _echo = upstreams
-    svc = _service(short_tmp, allow=["127.0.0.1"], library=EGRESS_LIBRARY)
+    svc = _service(short_tmp, allow=["127.0.0.1:*"], library=EGRESS_LIBRARY)
     proxy = svc.egress.open("run1")
     url = f"http://127.0.0.1:{web}"
     assert b"no admin paths" in _get(proxy["port"], f"{url}/admin")
@@ -170,11 +181,84 @@ def test_egress_contracts_decide_in_the_runs_session(short_tmp, upstreams):
     svc.close_gateway()
 
 
-def test_the_library_alone_is_a_policy(short_tmp, upstreams):
+def test_a_library_alone_cannot_reach_local_addresses(short_tmp, upstreams):
+    """The proxy runs on the daemon's machine: loopback (the daemon's own
+    ports, other runs' proxies) and link-local (cloud metadata) need
+    egress.allow to name the address."""
     web, _echo = upstreams
     svc = _service(short_tmp, library=EGRESS_LIBRARY)
     proxy = svc.egress.open("run1")
-    assert b"hello /a" in _get(proxy["port"], f"http://127.0.0.1:{web}/a")
+    out = _get(proxy["port"], f"http://127.0.0.1:{web}/a")
+    assert out.startswith(b"HTTP/1.1 403") and b"local address" in out
+    svc.close_gateway()
+
+
+class _Echoes(http.server.BaseHTTPRequestHandler):
+    """Answers with the path, Host header and body it saw."""
+
+    def _answer(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        body = json.dumps(
+            {
+                "path": self.path,
+                "host": self.headers.get("Host"),
+                "body": self.rfile.read(n).decode(),
+            }
+        ).encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    do_GET = do_POST = _answer
+
+    def log_message(self, *_a):
+        pass
+
+
+def test_plain_http_is_one_decided_request(short_tmp):
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Echoes)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    port = srv.server_address[1]
+    svc = _service(short_tmp, allow=["127.0.0.1:*"])
+    proxy = svc.egress.open("run1")
+    try:
+        # The Host header is the decided host, whatever the client sent;
+        # a request pipelined behind the first never reaches the server.
+        out = _via_tcp(
+            proxy["port"],
+            (
+                f"POST http://127.0.0.1:{port}/ok HTTP/1.1\r\nHost: other.example\r\n"
+                f"Content-Length: 3\r\n\r\nabc"
+                f"GET http://127.0.0.1:{port}/second HTTP/1.1\r\nHost: x\r\n\r\n"
+            ).encode(),
+        )
+        seen = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        assert seen == {"path": "/ok", "host": f"127.0.0.1:{port}", "body": "abc"}
+        assert b"/second" not in out
+        chunked = _via_tcp(
+            proxy["port"],
+            (
+                f"POST http://127.0.0.1:{port}/x HTTP/1.1\r\n"
+                "Transfer-Encoding: chunked\r\n\r\n"
+            ).encode(),
+        )
+        assert chunked.startswith(b"HTTP/1.1 411")
+    finally:
+        srv.shutdown()
+        svc.close_gateway()
+
+
+def test_connect_to_port_80_and_unlisted_ports_are_refused(short_tmp, upstreams):
+    _web, echo = upstreams
+    svc = _service(short_tmp, allow=["127.0.0.1"])
+    proxy = svc.egress.open("run1")
+    tunnel80 = _via_tcp(proxy["port"], b"CONNECT example.com:80 HTTP/1.1\r\n\r\n")
+    assert tunnel80.startswith(b"HTTP/1.1 403") and b"port 80" in tunnel80
+    other = _via_tcp(
+        proxy["port"], f"CONNECT 127.0.0.1:{echo} HTTP/1.1\r\n\r\n".encode()
+    )
+    assert other.startswith(b"HTTP/1.1 403") and b"not in egress.allow" in other
     svc.close_gateway()
 
 
@@ -189,7 +273,7 @@ def test_malformed_and_odd_requests_are_refused(short_tmp, upstreams):
 
 
 def test_closing_removes_the_socket(short_tmp):
-    svc = _service(short_tmp, allow=["127.0.0.1"])
+    svc = _service(short_tmp, allow=["127.0.0.1:*"])
     proxy = svc.egress.open("run1")
     assert Path(proxy["unix"]).exists()
     assert svc.egress.close("run1") == {"closed": True}
@@ -197,7 +281,7 @@ def test_closing_removes_the_socket(short_tmp):
 
 
 def test_the_rpc_is_on_the_agent_socket(short_tmp):
-    svc = _service(short_tmp, allow=["127.0.0.1"])
+    svc = _service(short_tmp, allow=["127.0.0.1:*"])
     server = DaemonServer(short_tmp / "sock", accept_timeout_s=0.05)
     register_default_handlers(server, guard_service=svc)
     server.start()

@@ -93,9 +93,9 @@ class _Pending:
 
     Progressing ``X(φ)`` used to expose ``φ`` bare, and once the trace
     ended a bare atom collapsed to ``False``, where the recursive
-    evaluator says weak next is ``True``. Kept wrapped, the obligation
-    collapses by the evaluator's rule for a position past the end:
-    ``False`` for ``F`` and ``U``, ``True`` for anything else.
+    evaluator says weak next is ``True``: ``X`` at the last position is
+    true whatever ``φ`` is. Kept wrapped, the obligation collapses to
+    ``True`` at the end of the trace.
     """
 
     child: Formula
@@ -438,9 +438,9 @@ def _finalize(node: Residual) -> Residual:
     if isinstance(node, U):
         return False
     if isinstance(node, _Pending):
-        # Owed at a position past the end: the recursive evaluator's
-        # rule there is ``False`` for F and U, ``True`` for the rest.
-        return not isinstance(node.child, (F, U))
+        # Owed at a position past the end: an X at the last position is
+        # true (weak next), whatever it wraps, F and U included.
+        return True
 
     if isinstance(node, Not):
         inner = _finalize(node.child)

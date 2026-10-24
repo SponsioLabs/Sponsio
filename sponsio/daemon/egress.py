@@ -60,18 +60,86 @@ _logger = logging.getLogger("sponsio.daemon.egress")
 
 def normalize_host(raw: str) -> str | None:
     """The host a connection names, lower-case, or ``None`` when it is not
-    a plain hostname or IPv4 address (userinfo, IPv6 and odd spellings
-    are refused rather than guessed at)."""
+    a plain hostname or a canonical dotted-quad IPv4 address.
+
+    Userinfo, IPv6 and other spellings of an address are refused rather
+    than guessed at: ``2130706433``, ``0x7f000001`` and ``127.1`` all
+    resolve to 127.0.0.1, and would slip past a contract naming it.
+    """
     host = raw.strip().lower().rstrip(".")
     if _IPV4.match(host):
-        return host if all(0 <= int(p) <= 255 for p in host.split(".")) else None
-    return host if _HOSTNAME.match(host) else None
+        parts = host.split(".")
+        canonical = all(p == str(int(p)) and int(p) <= 255 for p in parts)
+        return host if canonical else None
+    if not _HOSTNAME.match(host):
+        return None
+    labels = host.split(".")
+    # A numeric or hex last label is an address in disguise; no TLD is.
+    if labels[-1].isdigit() or any(lab.startswith("0x") for lab in labels):
+        return None
+    return host
 
 
-def host_allowed(host: str, patterns: tuple[str, ...]) -> bool:
-    """``github.com`` matches itself; ``*.github.com`` matches its
-    subdomains, not itself."""
-    return any(fnmatch.fnmatchcase(host, p.lower()) for p in patterns)
+DEFAULT_PORTS = (80, 443)
+
+
+def host_allowed(host: str, port: int, patterns: tuple[str, ...]) -> bool:
+    """``github.com`` matches itself on ports 80 and 443; ``*.github.com``
+    its subdomains; ``github.com:22`` that host on port 22;
+    ``github.com:*`` any port."""
+    for raw in patterns:
+        pat, sep, port_s = raw.lower().rpartition(":")
+        if sep and port_s == "*":
+            if fnmatch.fnmatchcase(host, pat):
+                return True
+            continue
+        if not sep or not port_s.isdigit():
+            pat, ports = raw.lower(), DEFAULT_PORTS
+        else:
+            ports = (int(port_s),)
+        if port in ports and fnmatch.fnmatchcase(host, pat):
+            return True
+    return False
+
+
+def _is_local(ip: str) -> bool:
+    import ipaddress
+
+    addr = ipaddress.ip_address(ip)
+    return (
+        addr.is_loopback
+        or addr.is_link_local
+        or addr.is_unspecified
+        or addr.is_multicast
+        or addr.is_reserved
+    )
+
+
+def resolve(host: str, port: int, allow: tuple[str, ...]) -> tuple[str | None, str]:
+    """``(address, reason)``: the address to connect to, decided once so a
+    DNS answer cannot change between the check and the connection.
+
+    Loopback, link-local (cloud metadata), unspecified, multicast and
+    reserved addresses are refused unless ``egress.allow`` names that
+    exact address: through the proxy they would reach the daemon's own
+    machine.
+    """
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError as e:
+        return None, f"Sponsio egress: cannot resolve {host}: {e}"
+    for family, _t, _p, _c, sockaddr in infos:
+        if family not in (socket.AF_INET, socket.AF_INET6):
+            continue
+        ip = sockaddr[0]
+        permits = (ip, f"{ip}:{port}", f"{ip}:*")
+        if _is_local(ip) and not any(a.lower() in permits for a in allow):
+            return None, (
+                f"Sponsio egress: {host} resolves to a local address ({ip}); "
+                f"name it in egress.allow to permit it"
+            )
+        return ip, ""
+    return None, f"Sponsio egress: no address for {host}"
 
 
 def _send_error(conn: socket.socket, code: int, reason: str) -> None:
@@ -106,6 +174,25 @@ def _pipe(a: socket.socket, b: socket.socket) -> None:
         return
     finally:
         for s in socks:
+            try:
+                s.close()
+            except OSError:
+                pass
+
+
+def _relay(src: socket.socket, dst: socket.socket) -> None:
+    """Copy ``src`` to ``dst`` until ``src`` closes, then close both."""
+    try:
+        src.settimeout(IDLE_TIMEOUT_S)
+        while True:
+            data = src.recv(65536)
+            if not data:
+                return
+            dst.sendall(data)
+    except OSError:
+        return
+    finally:
+        for s in (src, dst):
             try:
                 s.close()
             except OSError:
@@ -210,6 +297,31 @@ class SessionProxy:
             )
             conn.close()
             return
+        if req.method == "CONNECT" and port == 80:
+            # A tunnel to port 80 would carry plain HTTP past the method
+            # and URL contracts; send it as a proxy request instead.
+            _send_error(
+                conn, 403, "Sponsio egress: use plain proxying for port 80, not CONNECT"
+            )
+            conn.close()
+            return
+        length = 0
+        if req.method != "CONNECT":
+            headers = {n.lower(): v for n, v in req.headers}
+            if "transfer-encoding" in headers:
+                _send_error(
+                    conn, 411, "Sponsio egress: send a Content-Length, not chunked"
+                )
+                conn.close()
+                return
+            try:
+                length = int(headers.get("content-length", "0"))
+            except ValueError:
+                length = -1
+            if length < 0:
+                _send_error(conn, 400, "Sponsio egress: bad Content-Length")
+                conn.close()
+                return
         allowed, reason = self.egress.decide(
             self.session, host=norm, port=port, method=req.method, url=url
         )
@@ -217,8 +329,17 @@ class SessionProxy:
             _send_error(conn, 403, reason)
             conn.close()
             return
+        address, reason = resolve(
+            norm, port, self.egress.service.config.current().egress_allow
+        )
+        if address is None:
+            _send_error(conn, 403, reason)
+            conn.close()
+            return
         try:
-            upstream = socket.create_connection((norm, port), timeout=CONNECT_TIMEOUT_S)
+            upstream = socket.create_connection(
+                (address, port), timeout=CONNECT_TIMEOUT_S
+            )
         except OSError as e:
             _send_error(conn, 502, f"Sponsio egress: cannot reach {norm}:{port}: {e}")
             conn.close()
@@ -235,19 +356,33 @@ class SessionProxy:
                     path += "?" + parts.query
                 lines = [f"{req.method} {path} {req.version}"]
                 for name, value in req.headers:
-                    if (
-                        name.lower().startswith("proxy-")
-                        or name.lower() == "connection"
+                    if name.lower().startswith("proxy-") or name.lower() in (
+                        "connection",
+                        "host",
+                        "keep-alive",
                     ):
                         continue
                     lines.append(f"{name}: {value}")
-                # One request per connection: a second one on the same
-                # connection could name another host.
+                # The host decided on, not one the client chose: a shared
+                # server would otherwise serve any of its virtual hosts.
+                lines.append(f"Host: {norm}" + ("" if port == 80 else f":{port}"))
                 lines.append("Connection: close")
-                upstream.sendall(
-                    ("\r\n".join(lines) + "\r\n\r\n").encode("latin-1") + req.rest
-                )
-            if req.method == "CONNECT" and req.rest:
+                upstream.sendall(("\r\n".join(lines) + "\r\n\r\n").encode("latin-1"))
+                # Exactly the declared body, and then nothing more from the
+                # client: a request pipelined behind it was never decided.
+                body = req.rest[:length]
+                remaining = length - len(body)
+                if body:
+                    upstream.sendall(body)
+                while remaining > 0:
+                    chunk = conn.recv(min(65536, remaining))
+                    if not chunk:
+                        break
+                    upstream.sendall(chunk)
+                    remaining -= len(chunk)
+                _relay(upstream, conn)
+                return
+            if req.rest:
                 upstream.sendall(req.rest)
         except OSError:
             conn.close()
@@ -320,8 +455,8 @@ class Egress:
                 "Add hosts to `egress.allow` in daemon.yaml, or contracts on "
                 "`egress` in the _egress library."
             )
-        if allow and not host_allowed(host, allow):
-            return False, f"Sponsio egress: {host} is not in egress.allow"
+        if allow and not host_allowed(host, port, allow):
+            return False, f"Sponsio egress: {host}:{port} is not in egress.allow"
         args: dict[str, Any] = {"host": host, "port": port, "method": method}
         if url is not None:
             args["url"] = url

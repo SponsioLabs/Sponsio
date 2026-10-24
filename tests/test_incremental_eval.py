@@ -169,6 +169,36 @@ def test_pattern_factories_agree_with_the_recursive_evaluator():
         _check_formula(d.formula, TRACES or 60)
 
 
+def _random_formula(rng: random.Random, depth: int):
+    from sponsio.formulas.formula import And, Atom, F, G, Implies, Not, Or, U, X
+
+    atoms = [Atom("called", n) for n in "abc"]
+    if depth == 0 or rng.random() < 0.25:
+        return rng.choice(atoms)
+    kind = rng.choice(["not", "and", "or", "implies", "g", "f", "x", "u"])
+    sub = lambda: _random_formula(rng, depth - 1)  # noqa: E731
+    if kind == "not":
+        return Not(sub())
+    if kind in ("and", "or", "implies", "u"):
+        cls = {"and": And, "or": Or, "implies": Implies, "u": U}[kind]
+        return cls(sub(), sub())
+    return {"g": G, "f": F, "x": X}[kind](sub())
+
+
+def test_random_formulas_agree_with_the_recursive_evaluator():
+    """Nestings no shipped pack uses, such as X over F or U under a
+    negation: the progression must still agree at every prefix."""
+    rng = random.Random(7)
+    keys = ["called(a)", "called(b)", "called(c)"]
+    for _ in range(TRACES or 3000):
+        f = _random_formula(rng, 4)
+        vals = [{k: rng.random() < 0.4 for k in keys} for _ in range(rng.randint(1, 6))]
+        r = progression.initial(f)
+        for i, v in enumerate(vals):
+            r = progression.advance(r, v)
+            assert progression.holds_at_end(r) == evaluate(f, vals[: i + 1]), (f, i)
+
+
 def test_a_repeated_trigger_does_not_grow_the_residual():
     f = P.no_reversal("a", "b").formula
     r = progression.initial(f)

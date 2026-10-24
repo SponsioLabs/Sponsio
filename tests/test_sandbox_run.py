@@ -153,7 +153,7 @@ def test_inside_the_sandbox(tmp_path_factory):
         closed.listen(1)
 
         state = base / "state"
-        config.save(state, config.DaemonConfig(egress_allow=("127.0.0.1",)))
+        config.save(state, config.DaemonConfig(egress_allow=("127.0.0.1:*",)))
         svc = GuardService(
             root=sponsio_dir / "plugins",
             state_dir=state,
@@ -236,3 +236,127 @@ def test_container_mode_only_routes_the_network(tmp_path):
     assert "/run/sponsio/egress-x.sock" in p.argv and "bwrap" not in p.argv[0]
     assert p.env["HTTPS_PROXY"] == "http://127.0.0.1:3128"
     assert "GITHUB_TOKEN" not in p.env
+
+
+def test_linux_masks_come_after_every_writable_bind(tmp_path, monkeypatch):
+    """bubblewrap mounts in order: a workspace that contains ~/.sponsio,
+    or a writable ~/.claude, must not uncover what is masked."""
+    from sponsio import sandbox
+
+    monkeypatch.setattr(sandbox.shutil, "which", lambda _n: "/usr/bin/bwrap")
+    home = tmp_path / "home"
+    (home / ".sponsio").mkdir(parents=True)
+    (home / ".claude").mkdir()
+    settings = home / ".claude" / "settings.json"
+    settings.write_text("{}")
+    argv = sandbox.linux_argv(
+        ["agent"],
+        workspace=home,
+        writable=[home / ".claude"],
+        masked=[home / ".sponsio"],
+        agent_socket=home / ".sponsio" / "s.sock",
+        egress_unix="/x.sock",
+        hide_home=None,
+        protected=sandbox.host_config_files(home, home),
+    )
+    pairs = list(zip(argv, argv[1:]))
+    last_bind = max(
+        i for i, (a, b) in enumerate(pairs) if a == "--bind" and b != "/x.sock"
+    )
+    mask = pairs.index(("--tmpfs", str(home / ".sponsio")))
+    keep = pairs.index(("--ro-bind", str(settings)))
+    assert mask > last_bind and keep > last_bind
+
+
+@needs_sandbox
+@pytest.mark.skipif(sys.platform != "darwin", reason="Seatbelt")
+def test_the_sandbox_cannot_ask_launchd_to_start_a_job(tmp_path):
+    from sponsio.sandbox import macos_profile
+
+    ws = Path(tempfile.mkdtemp(dir="/var/tmp")).resolve()
+    label = "dev.sponsio.sandbox-test"
+    try:
+        profile = ws / "p.sb"
+        profile.write_text(
+            macos_profile(
+                workspace=ws,
+                writable=[],
+                masked=[],
+                agent_socket=ws / "none.sock",
+                proxy_port=1,
+                hide_home=None,
+            )
+        )
+        done = subprocess.run(
+            [
+                "/usr/bin/sandbox-exec",
+                "-f",
+                str(profile),
+                "/bin/launchctl",
+                "submit",
+                "-l",
+                label,
+                "--",
+                "/usr/bin/true",
+            ],
+            capture_output=True,
+        )
+        exists = subprocess.run(["/bin/launchctl", "list", label], capture_output=True)
+        assert done.returncode != 0 and exists.returncode != 0
+    finally:
+        subprocess.run(["/bin/launchctl", "remove", label], capture_output=True)
+        shutil.rmtree(ws, ignore_errors=True)
+
+
+@needs_sandbox
+@pytest.mark.skipif(sys.platform != "darwin", reason="Seatbelt")
+def test_a_workspace_at_home_still_hides_sponsio_and_hook_settings():
+    from sponsio.sandbox import host_config_files, macos_profile
+
+    home = Path(tempfile.mkdtemp(dir="/var/tmp")).resolve()
+    try:
+        (home / ".sponsio").mkdir()
+        (home / ".sponsio" / "rules.yaml").write_text("x")
+        (home / ".claude").mkdir()
+        settings = home / ".claude" / "settings.json"
+        settings.write_text("{}")
+        profile = home / "p.sb"
+        profile.write_text(
+            macos_profile(
+                workspace=home,
+                writable=[home / ".claude"],
+                masked=[home / ".sponsio"],
+                agent_socket=home / "none.sock",
+                proxy_port=1,
+                hide_home=None,
+                protected=host_config_files(home, home),
+            )
+        )
+        code = (
+            "import sys\n"
+            "try: open(sys.argv[1]).read(); print('read')\n"
+            "except OSError: print('no-read')\n"
+            "try: open(sys.argv[2], 'a').write('x'); print('wrote')\n"
+            "except OSError: print('no-write')\n"
+            "open(sys.argv[3], 'w').write('ok'); print('workspace')\n"
+        )
+        out = subprocess.run(
+            [
+                "/usr/bin/sandbox-exec",
+                "-f",
+                str(profile),
+                sys.executable,
+                "-I",
+                "-c",
+                code,
+                str(home / ".sponsio" / "rules.yaml"),
+                str(settings),
+                str(home / "f.txt"),
+            ],
+            capture_output=True,
+            text=True,
+        ).stdout.split()
+        assert out == ["no-read", "no-write", "workspace"]
+        assert settings.read_text() == "{}"
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
