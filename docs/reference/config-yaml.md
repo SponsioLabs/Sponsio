@@ -193,7 +193,7 @@ tool_policy:
 |---|---|---|
 | `default` | `allow` | `deny` synthesizes a `tool_allowlist` contract that blocks every tool not in `approved`. `allow` is a no-op (backwards-compat). |
 | `approved` | `[]` | Explicit allowlist. Empty plus deny blocks every tool (useful for a complete lockdown). Accepts a flat list or `{tools: [...]}` for future per-host scoping. |
-| `enforcement` | `reactive` | `reactive`: the agent still sees the full tool menu; denied calls get blocked at call time via `guard_before`. `proactive`: wrap-time adapters (LangGraph, CrewAI, OpenAI Agents SDK, Google ADK) strip denied tools from the bound toolset before the model ever sees them. |
+| `enforcement` | `reactive` | `reactive`: the agent still sees the full tool menu; denied calls get blocked at call time via `guard_before`. `proactive`: wrap-time adapters (LangGraph, CrewAI, OpenAI Agents SDK, Google ADK) strip denied tools from the bound toolset before the model ever sees them, and adapters with a per-turn hook offer only the tools the session's state allows on each turn ([per adapter](../integrations/index.md#what-proactive-does-per-adapter)). |
 
 Inline equivalent on `Sponsio(tool_policy={...})`. The two paths produce the same synthesized contract.
 

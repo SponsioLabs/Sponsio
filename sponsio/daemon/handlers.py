@@ -18,7 +18,8 @@ unknown-method handling stays in :mod:`sponsio.daemon.server`.
 Which socket serves a method is part of its contract:
 
 * agent socket: ``ping``, ``guard.check``, ``guard.observe``,
-  ``gateway.list_tools``, ``gateway.call_tool``, ``proposal.submit``
+  ``gateway.list_tools``, ``gateway.call_tool``, ``sdk.check``,
+  ``sdk.observe``, ``sdk.filter_tools``, ``proposal.submit``
 * admin socket: ``ping``, ``plugin.append``, ``mode.set``,
   ``rules.status``, ``rules.reload``, ``rules.verify``, ``proposal.list``,
   ``proposal.show``, ``proposal.approve``, ``proposal.reject``
@@ -27,6 +28,7 @@ Which socket serves a method is part of its contract:
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -54,6 +56,7 @@ def register_default_handlers(
     if guard_service is not None:
         register_guard_handlers(server, guard_service)
         register_gateway_handlers(server, guard_service)
+        register_sdk_handlers(server, guard_service)
         state_dir = guard_service.state_dir
     if state_dir is not None:
         if server.audit_dir is None:
@@ -161,7 +164,7 @@ def register_guard_handlers(server: DaemonServer, service: "GuardService") -> No
         from sponsio.daemon.guard_service import KNOWN_HOSTS
 
         host, mode = params.get("host"), params.get("mode")
-        hosts = sorted(KNOWN_HOSTS | {GATEWAY})
+        hosts = sorted(KNOWN_HOSTS | {GATEWAY, SDK_HOST})
         if host not in hosts:
             raise RpcError(f"`host` must be one of {hosts}", code="validation")
         if mode not in ("enforce", "observe"):
@@ -215,6 +218,98 @@ def register_gateway_handlers(server: DaemonServer, service: "GuardService") -> 
             )
         ),
     )
+
+
+SDK_HOST = "sdk"
+"""The host name of ``Sponsio(..., backend="daemon")`` calls: the session
+key prefix and the ``hosts:`` entry in ``daemon.yaml`` for their mode."""
+_LIBRARY = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
+_SESSION = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+
+
+def register_sdk_handlers(server: DaemonServer, service: "GuardService") -> None:
+    """``sdk.check``, ``sdk.observe`` and ``sdk.filter_tools`` on the agent
+    socket: the in-process SDK with ``backend="daemon"``.
+
+    Params: ``library`` (a library under the daemon's plugin root, named
+    after the SDK's ``agent_id``), ``session`` (the SDK's session id),
+    and ``tool`` with ``args`` (and optional ``context``) for a check,
+    ``output`` for an observation, ``names`` for a filter. The rules and
+    the session's history are the daemon's; the SDK sends events.
+
+    A library the daemon does not have denies every call: the SDK asked
+    for the daemon's rules, and finding none is not "no rules".
+    """
+    from sponsio.guard_stdin import conversation_key
+
+    def _target(p: dict[str, Any]) -> tuple[str, str]:
+        library, session = p.get("library"), p.get("session")
+        if not isinstance(library, str) or not _LIBRARY.match(library):
+            raise RpcError("`library` must be a library name", code="validation")
+        if not isinstance(session, str) or not _SESSION.match(session):
+            raise RpcError(
+                "`session` must be 1-128 of [A-Za-z0-9._:-]", code="validation"
+            )
+        return library, session
+
+    def _missing(library: str) -> str | None:
+        if service.store.resolve(library) is not None:
+            return None
+        return (
+            f"Sponsio: the daemon has no library `{library}` "
+            f"({service.store.root / library / 'sponsio.yaml'}), so this call is "
+            f"denied."
+        )
+
+    def _event(session: str, tool: Any, hook_event: str) -> dict[str, Any]:
+        if not isinstance(tool, str) or not tool:
+            raise RpcError("`tool` is required", code="validation")
+        return {
+            "host": SDK_HOST,
+            "session_id": session,
+            "hook_event_name": hook_event,
+            "tool_name": tool,
+        }
+
+    def check(p: dict[str, Any]) -> dict[str, Any]:
+        library, session = _target(p)
+        event = _event(session, p.get("tool"), "PreToolUse")
+        args, context = p.get("args") or {}, p.get("context")
+        if not isinstance(args, dict):
+            raise RpcError("`args` must be an object", code="validation")
+        if context is not None and not isinstance(context, dict):
+            raise RpcError("`context` must be an object", code="validation")
+        event["tool_input"] = args
+        if context:
+            event["context"] = context
+        missing = _missing(library)
+        if missing:
+            return {"allowed": False, "reason": missing}
+        outcome = service.decide(event, library=library)
+        return {"allowed": outcome.allowed, "reason": outcome.reason}
+
+    def observe(p: dict[str, Any]) -> dict[str, Any]:
+        library, session = _target(p)
+        event = _event(session, p.get("tool"), "PostToolUse")
+        event["tool_response"] = p.get("output")
+        if _missing(library) is None:
+            service.decide(event, library=library)
+        return {"recorded": True}
+
+    def filter_tools(p: dict[str, Any]) -> dict[str, Any]:
+        library, session = _target(p)
+        names = p.get("names")
+        if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+            raise RpcError("`names` must be a list of strings", code="validation")
+        if _missing(library):
+            return {"allowed": []}
+        conv = conversation_key({"host": SDK_HOST, "session_id": session})
+        assert conv is not None
+        return {"allowed": service.allowed_tools(SDK_HOST, conv, names, library)}
+
+    server.register("sdk.check", check)
+    server.register("sdk.observe", observe)
+    server.register("sdk.filter_tools", filter_tools)
 
 
 def _resolve_plugin_root(params: dict[str, Any]) -> Path:

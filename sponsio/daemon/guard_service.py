@@ -1178,7 +1178,12 @@ class GuardService:
         return outcome, warning
 
     def _evaluate(
-        self, event: dict, mode: str | None = None, *, offered_only: bool = False
+        self,
+        event: dict,
+        mode: str | None = None,
+        *,
+        offered_only: bool = False,
+        library: str | None = None,
     ) -> GuardOutcome:
         # ``mode`` is what an older hook command or plugin still sends;
         # the daemon config decides, so it is ignored.
@@ -1192,7 +1197,7 @@ class GuardService:
                 with redirect_stderr(err):
                     tool = event.get("tool_name") or ""
                     if offered_only and not self._offered(
-                        tool, host, conversation_id, policy
+                        tool, host, conversation_id, policy, library
                     ):
                         # The gateway lists only these tools; a call by
                         # name to one it did not list is refused even
@@ -1203,7 +1208,7 @@ class GuardService:
                                 f"Sponsio: `{tool}` is not available in this "
                                 f"session's current state."
                             ),
-                            plugin_id=derive_plugin_id(tool, host=host),
+                            plugin_id=library or derive_plugin_id(tool, host=host),
                         )
                     else:
                         outcome = evaluate(
@@ -1212,6 +1217,7 @@ class GuardService:
                             traces=self.traces,
                             policy=policy,
                             guards=self.guards,
+                            library=library,
                         )
             except Exception as e:  # noqa: BLE001 - every failure is a decision
                 outcome = _error_outcome(e, "", None, policy.on_error)
@@ -1231,7 +1237,12 @@ class GuardService:
         return outcome
 
     def _offered(
-        self, tool: str, host: Any, conversation_id: str | None, policy: GuardPolicy
+        self,
+        tool: str,
+        host: Any,
+        conversation_id: str | None,
+        policy: GuardPolicy,
+        library: str | None = None,
     ) -> bool:
         return bool(
             allowed_tools(
@@ -1242,11 +1253,16 @@ class GuardService:
                 traces=self.traces,
                 policy=policy,
                 guards=self.guards,
+                library=library,
             )
         )
 
     def allowed_tools(
-        self, host: str, conversation_id: str, names: list[str]
+        self,
+        host: str,
+        conversation_id: str,
+        names: list[str],
+        library: str | None = None,
     ) -> list[str]:
         """The tools in ``names`` a call to which the conversation's current
         state admits (:func:`sponsio.guard_stdin.allowed_tools`)."""
@@ -1260,14 +1276,18 @@ class GuardService:
                     traces=self.traces,
                     policy=self.policy(host),
                     guards=self.guards,
+                    library=library,
                 )
 
-    def decide(self, event: dict, *, offered_only: bool = False) -> GuardOutcome:
+    def decide(
+        self, event: dict, *, offered_only: bool = False, library: str | None = None
+    ) -> GuardOutcome:
         """Decide a Sponsio-shaped event (``tool_name``, ``tool_input``,
         ``hook_event_name``, ``host``, ``session_id``) for a caller that is
         not a host hook. ``offered_only`` also refuses a tool that
-        :meth:`allowed_tools` would not list."""
-        return self._evaluate(event, offered_only=offered_only)
+        :meth:`allowed_tools` would not list; ``library`` names the
+        library instead of deriving it from the tool name."""
+        return self._evaluate(event, offered_only=offered_only, library=library)
 
     @property
     def gateway(self) -> Any:

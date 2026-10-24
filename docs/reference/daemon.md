@@ -47,7 +47,7 @@ cloud:                   # optional: compare loaded rules with the published boo
 | Key | Default | Meaning |
 |---|---|---|
 | `mode` | `enforce` | Mode for hosts not listed under `hosts`. |
-| `hosts.<host>.mode` | | `enforce` or `observe` for one host. Set with `sponsio host install <host> --mode`. `gateway` is the MCP gateway's entry. |
+| `hosts.<host>.mode` | | `enforce` or `observe` for one host. Set with `sponsio host install <host> --mode`. `gateway` is the MCP gateway's entry, `sdk` the SDK's `backend="daemon"`. |
 | `on_error` | `deny` | `allow` lets a call through when its library cannot be evaluated. Every such call is audited as `fail_open`. |
 | `unconfigured` | `null` | `deny` or `allow` for a tool with no library. `null` lets the host library's `defaults.unconfigured` decide. |
 | `plugin_root` | `null` | Library root. When unset, the `--plugin-root` the daemon started with, else `~/.sponsio/plugins`. |
@@ -73,9 +73,12 @@ The daemon listens on two Unix sockets. The agent socket is the one hooks use (`
 | agent | `guard.observe` | Record a post-event (the tool's output). Never gates. |
 | agent | `gateway.list_tools` | The MCP tools a session may call now. See [MCP gateway](#mcp-gateway). |
 | agent | `gateway.call_tool` | Decide an MCP tool call, run it upstream when allowed, and record it. |
+| agent | `sdk.check` | Decide a call from `Sponsio(..., backend="daemon")` against the library it names. |
+| agent | `sdk.observe` | Record that call's output. Never gates. |
+| agent | `sdk.filter_tools` | The tools that SDK session may call now. |
 | agent | `proposal.submit` | Validate a rule change as a dry run and store it. Nothing applies. |
 | admin | `ping` | As above. |
-| admin | `mode.set` | Persist a host's mode in `daemon.yaml` (`claude-code`, `cursor`, `openclaw` or `gateway`). |
+| admin | `mode.set` | Persist a host's mode in `daemon.yaml` (`claude-code`, `cursor`, `openclaw`, `gateway` or `sdk`). |
 | admin | `rules.status` | Loaded libraries, held changes, the last cloud comparison. |
 | admin | `rules.reload` | Apply held changes, for one bucket or all. |
 | admin | `rules.verify` | Compare linked buckets with the cloud's published books now. |

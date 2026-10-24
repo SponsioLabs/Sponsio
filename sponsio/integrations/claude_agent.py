@@ -270,6 +270,28 @@ class ClaudeAgentGuard(BaseGuard):
 
         return _gen()
 
+    def query_options(self, tool_names: list[str]) -> dict[str, list[str]]:
+        """``allowed_tools`` / ``disallowed_tools`` for the next query.
+
+        The Claude Agent SDK fixes an agent's tools for the length of a
+        query, so the list follows the session's state per query, not per
+        model turn: build each query's options from this, and the
+        PreToolUse hook (:meth:`hooks`) decides every call inside it::
+
+            options = ClaudeAgentOptions(
+                hooks=guard.wrap(), **guard.query_options(["Read", "Bash"])
+            )
+
+        ``allowed_tools`` is what :meth:`tools_for_turn` returns;
+        ``disallowed_tools`` the rest of ``tool_names``.
+        """
+        offered = self.tools_for_turn(list(tool_names))
+        keep = set(offered)
+        return {
+            "allowed_tools": offered,
+            "disallowed_tools": [n for n in tool_names if n not in keep],
+        }
+
     def wrap(self, tools: Any = None) -> dict:
         """Return hooks dict (alias for :meth:`hooks`).
 

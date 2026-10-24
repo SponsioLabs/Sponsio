@@ -138,15 +138,19 @@ guard = sponsio.Sponsio(
 
 ### What `proactive` does per adapter
 
-The adapter matrix below reflects the real listing surface each framework exposes. Where an adapter can drop tools before the agent sees them, it does. Where it cannot, the rule still fires reactively via `guard_before`.
+Under `enforcement: proactive`, `guard.wrap(tools)` drops tools outside `approved` once, at wrap time. Where the framework lets Sponsio change the tool list before each model call, the adapter also offers only the tools the session's state allows on that turn (`guard.tools_for_turn`), so `must_precede(A, B)` puts B on the menu only after A has run, and `no_reversal(A, B)` takes it off again. Observe mode filters nothing. Every call is still decided by `guard_before`.
 
-| Adapter | `proactive` behavior |
+| Adapter | Per-turn tool list |
 |---|---|
-| LangGraph, CrewAI, OpenAI Agents SDK, Google ADK | One-shot static filter in `guard.wrap(tools)`. Denied tools never get bound to the agent. Temporal rules (`must_precede`, `count_at_most`) still apply reactively at call time. |
-| Claude Agent SDK | Hooks-based: the SDK owns the tool list. `enforcement: proactive` is a no-op here; reactive blocking via `guard.hooks()` is the supported path. |
-| OpenAI SDK, Vercel AI SDK | Per-call by user: filter the `tools=[...]` array before each request with `guard.filter_tools([t.name for t in ALL_TOOLS])` (see custom-loop snippet below). |
-| Custom loop (no framework) | Per-turn filter using `guard.filter_tools(...)` (see snippet below). Catches everything including temporal rules. |
-| MCP | `MCPContractProxy` already reactive-blocks at `call_tool`. Per-turn filtering of `list_tools` is on the roadmap. |
+| OpenAI SDK (chat, responses) | `guard.wrap(client)` narrows `tools=` on every `create` / `parse`. |
+| OpenAI Agents SDK | Each tool from `guard.wrap(tools)` gets an `is_enabled` check, which the SDK runs every turn. |
+| LangGraph | `create_react_agent(guard.dynamic_model(model, tools), guard.wrap(tools))` binds the allowed tools on every model call. |
+| Google ADK | `Agent(before_model_callback=guard.before_model_callback, tools=guard.wrap(tools))` removes the others from each model request. |
+| Claude Agent SDK | The SDK fixes tools for a whole query. Build each query's options with `guard.query_options(names)`; the hooks decide every call inside it. |
+| CrewAI | Tools are fixed for a task. Pass `guard.tools_for_turn(...)` when building each task; calls are still checked. |
+| Vercel AI SDK | Filter `tools` before each request with `guard.tools_for_turn(...)`. |
+| Custom loop (no framework) | `guard.tools_for_turn(...)` (or `guard.filter_tools(...)`) before each turn (see below). |
+| MCP | The [MCP gateway](../reference/daemon.md#mcp-gateway) lists per session state and refuses unlisted tools. |
 
 ### Custom loop with per-turn proactive filtering
 
@@ -178,6 +182,22 @@ while not done:
 ```
 
 The difference from `wrap()`-time filtering: `filter_tools` is called each turn and consults the live trace, so `must_precede(A, B)` opens B in the menu only *after* A fires. This is the most thorough proactive option Sponsio offers; it requires you to own the agent loop.
+
+## Rules in the daemon (`backend="daemon"`)
+
+By default the guard decides in your process, from contracts your process holds. With `backend="daemon"`, the Sponsio daemon decides: the rules are its library named after `agent_id` (`<plugin-root>/<agent_id>/sponsio.yaml`), the session's history is kept in the daemon, and the mode is the daemon's (`hosts: {sdk: {mode: observe}}` in [`daemon.yaml`](../reference/daemon.md#daemonyaml)). Code running in the agent's process can send events, but cannot change the rules, the mode or the history.
+
+```python
+from sponsio.langgraph import Sponsio
+
+guard = Sponsio(agent_id="support-bot", backend="daemon")
+agent = create_react_agent(guard.dynamic_model(model, tools), guard.wrap(tools))
+```
+
+- No contracts, config or `tool_policy` are passed; the library is the daemon's.
+- Per-turn tool lists (above) are on, whatever `tool_policy` says.
+- A call the daemon does not answer is blocked, and `tools_for_turn` offers nothing. The SDK does not start a daemon; run `sponsio daemon run --detach` as part of the service.
+- `rotate_session()` starts a new, empty history in the daemon.
 
 ## Redirect to safe (v0.2)
 

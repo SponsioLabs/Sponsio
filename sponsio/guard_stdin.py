@@ -1061,6 +1061,7 @@ def evaluate(
     traces: TraceStore,
     policy: GuardPolicy,
     guards: GuardCache | None = None,
+    library: str | None = None,
 ) -> GuardOutcome:
     """Decide one hook event. Pure in its inputs: no file, no environment.
 
@@ -1071,6 +1072,10 @@ def evaluate(
     ``guards`` (the daemon's) reuses a live guard per (bucket, library
     content, conversation, mode) instead of building one and replaying
     the history on every call; the decision is the same either way.
+
+    ``library`` names the library to decide against, for a caller that
+    has one (the SDK's ``backend="daemon"``); otherwise it is derived
+    from the tool name and host (:func:`derive_plugin_id`).
     """
     tool_name = event.get("tool_name") or ""
     tool_input = event.get("tool_input") or {}
@@ -1101,7 +1106,9 @@ def evaluate(
     raw_agent_id = event.get("agent_id")
     is_subagent = isinstance(raw_agent_id, str) and bool(raw_agent_id.strip())
     tool_name = gateway_inner_name(tool_name)
-    plugin_id = derive_plugin_id(tool_name, host=host, is_subagent=is_subagent)
+    plugin_id = library or derive_plugin_id(
+        tool_name, host=host, is_subagent=is_subagent
+    )
     hook_event = event.get("hook_event_name") or "PreToolUse"
     if hook_event != "PreToolUse":
         # The tool has already run. There is nothing to gate, and running
@@ -1309,6 +1316,7 @@ def allowed_tools(
     traces: TraceStore,
     policy: GuardPolicy,
     guards: GuardCache | None = None,
+    library: str | None = None,
 ) -> list[str]:
     """The subset of ``tool_names`` a call to which would be admitted now.
 
@@ -1327,7 +1335,8 @@ def allowed_tools(
         return list(tool_names)
     groups: dict[str, list[str]] = {}
     for name in tool_names:
-        groups.setdefault(derive_plugin_id(name, host=host), []).append(name)
+        plugin_id = library or derive_plugin_id(name, host=host)
+        groups.setdefault(plugin_id, []).append(name)
     allowed: set[str] = set()
     for plugin_id, names in groups.items():
         snap = store.resolve(plugin_id)

@@ -270,7 +270,39 @@ class AgentsSDKGuard(BaseGuard):
             list(tools),
             name_fn=lambda t: getattr(t, "name", None) or getattr(t, "__name__", ""),
         )
-        return [self.wrap_tool(t) for t in tools]
+        return [self._enabled_per_turn(self.wrap_tool(t)) for t in tools]
+
+    def _enabled_per_turn(self, tool: Any) -> Any:
+        """Gate the tool's ``is_enabled``, which the SDK evaluates every
+        turn, on :meth:`tools_for_turn`, so the model is offered only what
+        the session's state allows. Installed only where that filters
+        (``backend="daemon"``, or ``enforcement: proactive``); the tool's
+        own ``is_enabled`` still has to agree."""
+        policy = getattr(self, "_tool_policy", None)
+        proactive = policy is not None and policy.enforcement == "proactive"
+        if not hasattr(tool, "is_enabled") or (self._remote is None and not proactive):
+            return tool
+        guard = self
+        name = getattr(tool, "name", "")
+        original = tool.is_enabled
+
+        async def is_enabled(ctx: Any, agent: Any) -> bool:
+            if callable(original):
+                ok = original(ctx, agent)
+                if inspect.isawaitable(ok):
+                    ok = await ok
+            else:
+                ok = original
+            return bool(ok) and name in guard.tools_for_turn([name])
+
+        if dataclasses.is_dataclass(tool):
+            try:
+                return dataclasses.replace(tool, is_enabled=is_enabled)
+            except (TypeError, ValueError):
+                pass
+        clone = copy.copy(tool)
+        clone.is_enabled = is_enabled
+        return clone
 
     def wrap_tools(self, *args, **kwargs):
         """Deprecated: use ``wrap()`` instead."""
