@@ -35,6 +35,7 @@ from sponsio.cli.commands.patterns import patterns
 from sponsio.cli.commands.prompt import cmd_prompt
 from sponsio.cli.commands.replay import replay
 from sponsio.cli.commands.report import report
+from sponsio.cli.commands.run import run_cmd
 from sponsio.cli.commands.scan import (
     _drop_contract_indices,
     _filter_invalid_contracts,
@@ -80,6 +81,7 @@ __all__ = [
     "explain",
     "replay",
     "report",
+    "run_cmd",
     "serve",
     "install_cmd",
     "uninstall_cmd",

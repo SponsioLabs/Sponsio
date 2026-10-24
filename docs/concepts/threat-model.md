@@ -15,7 +15,7 @@ How far those hold depends on how Sponsio is deployed. A deployment that comes w
 | **2. Team** | The daemon runs as a dedicated system user. The shim and engine are owned by root. The host's hooks come from managed settings. The host sandbox is on. | Tier 1, plus: the agent's OS user cannot change rules, mode, session history, hook wiring or logs. | Effects produced inside an allowed shell command or a script the agent wrote. Network exfiltration through allowed commands. |
 | **3. Enterprise** | The agent runs in a sandbox or container. Sponsio owns the tool gateway, the credentials and network egress. | Tier 2, plus: every tool call and every network connection goes through Sponsio. The tool list for the current state is enforced, because the agent holds no credentials and has no other route. | Escaping the sandbox or VM. Contracts over the contents of TLS traffic. Covert channels. |
 
-Tier 1 is the default install. Tier 2 is `sudo sponsio install --system` (see [Running Sponsio on a host](../guides/host-operations.md#tier-2-the-system-install)), for Claude Code on macOS and Linux. Cursor stays at Tier 1 with a system install, and OpenClaw reaches Tier 2 only when OpenClaw itself is installed system-wide. Tier 3 is not complete: the MCP gateway ships, the sandbox runner and the egress proxy do not yet. `sponsio doctor --tier` shows what each tier is missing on your machine.
+Tier 1 is the default install. Tier 2 is `sudo sponsio install --system` (see [Running Sponsio on a host](../guides/host-operations.md#tier-2-the-system-install)), for Claude Code on macOS and Linux. Cursor stays at Tier 1 with a system install, and OpenClaw reaches Tier 2 only when OpenClaw itself is installed system-wide. Tier 3 is `sponsio run --sandbox` with the MCP gateway and the egress proxy, or the container recipe in `deploy/tier3/` on a server (see [Running Sponsio on a host](../guides/host-operations.md#tier-3-sandbox-gateway-and-egress-proxy)). `sponsio doctor --tier` shows what each tier is missing on your machine.
 
 ### Which tier fits
 
@@ -23,7 +23,7 @@ Tier 1 is the default install. Tier 2 is `sudo sponsio install --system` (see [R
 |---|---|---|
 | **1. Dev** | A developer running Claude Code, Cursor or OpenClaw on their own machine. A trial, or a first run in observe mode. | This release |
 | **2. Team** | Machines a company manages for its staff. Teams that need an audit trail the agent cannot edit. Rules owned by a security team rather than the developer. | This release, for Claude Code on macOS and Linux |
-| **3. Enterprise** | Unattended agents in production that touch money, customer data or production systems. | In part: the MCP gateway |
+| **3. Enterprise** | Unattended agents in production that touch money, customer data or production systems. | This release: `sponsio run --sandbox`, or the container recipe |
 
 The tiers differ in two things: who can change Sponsio, and whether every action the agent takes has to go through Sponsio. At Tier 1 the agent's OS user can still change Sponsio's files, and Sponsio records it. At Tier 2 file ownership stops it. At Tier 3 the agent has no route to a tool or the network that skips Sponsio.
 

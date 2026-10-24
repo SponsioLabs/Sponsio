@@ -1,0 +1,12 @@
+# An agent for the Tier 3 container recipe. Replace the last line with your
+# agent. Its container has no route out: `sponsio run --container` opens an
+# egress proxy for the run and passes 127.0.0.1:3128 to it.
+FROM python:3.12-slim
+ARG SPONSIO_SPEC="--pre sponsio"
+COPY . /src
+RUN pip install --no-cache-dir ${SPONSIO_SPEC} \
+ && useradd --create-home --uid 10002 agent
+USER agent
+WORKDIR /workspace
+ENTRYPOINT ["sponsio", "run", "--container", "--socket", "/run/sponsio/agent.sock", "--"]
+CMD ["python", "-c", "print('replace this with your agent')"]

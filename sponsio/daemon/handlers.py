@@ -18,7 +18,8 @@ unknown-method handling stays in :mod:`sponsio.daemon.server`.
 Which socket serves a method is part of its contract:
 
 * agent socket: ``ping``, ``guard.check``, ``guard.observe``,
-  ``gateway.list_tools``, ``gateway.call_tool``, ``sdk.check``,
+  ``gateway.list_tools``, ``gateway.call_tool``, ``egress.open``,
+  ``egress.close``, ``sdk.check``,
   ``sdk.observe``, ``sdk.filter_tools``, ``proposal.submit``
 * admin socket: ``ping``, ``plugin.append``, ``mode.set``,
   ``rules.status``, ``rules.reload``, ``rules.verify``, ``proposal.list``,
@@ -268,6 +269,12 @@ def register_gateway_handlers(server: DaemonServer, service: "GuardService") -> 
     server.register(
         "gateway.list_tools",
         _wrap(lambda p: service.gateway.list_tools(p.get("session"))),
+    )
+    server.register(
+        "egress.open", _wrap(lambda p: service.egress.open(p.get("session")))
+    )
+    server.register(
+        "egress.close", _wrap(lambda p: service.egress.close(p.get("session")))
     )
     server.register(
         "gateway.call_tool",

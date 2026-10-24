@@ -94,7 +94,7 @@ run = sponsio.bridge.attach(guard)
 | 2. Team | デーモンが専用のシステムユーザーで動き、エンジンは root 所有、ホスト設定は管理者が配布 | エージェントの OS ユーザーはルール、モード、履歴、配線、ログを変更できない |
 | 3. Enterprise | エージェントはサンドボックス内で動き、Sponsio がツールゲートウェイ、認証情報、外向き通信を管理 | すべてのツール呼び出しとネットワーク接続が Sponsio を通る |
 
-デフォルトのインストールは Tier 1 です。Tier 2 は `sudo sponsio install --system` で、macOS と Linux の Claude Code が対象です。Cursor はこの場合も Tier 1 のままです。Tier 3 はまだ揃っていません。MCP ゲートウェイは提供済みですが、サンドボックス ランナーと送信プロキシはまだです。各ティアの前提と対象外の範囲は[脅威モデル](docs/concepts/threat-model.md)を参照してください。
+デフォルトのインストールは Tier 1 です。Tier 2 は `sudo sponsio install --system` で、macOS と Linux の Claude Code が対象です。Cursor はこの場合も Tier 1 のままです。Tier 3 は `sponsio run --sandbox` と MCP ゲートウェイ、送信プロキシの組み合わせで、サーバーではコンテナ レシピを使います。各ティアの前提と対象外の範囲は[脅威モデル](docs/concepts/threat-model.md)を参照してください。
 
 ---
 

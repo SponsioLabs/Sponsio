@@ -164,6 +164,7 @@ def assess(
     uid: int | None = None,
     mdm_settings: Path | None = None,
     cursor_hooks: Path | None = None,
+    sandboxed: bool | None = None,
 ) -> TierReport:
     uid = os.getuid() if uid is None else uid
     g: list[Guarantee] = []
@@ -326,23 +327,33 @@ def assess(
             "settings."
         )
 
+    sandboxed = inside_sandbox() if sandboxed is None else sandboxed
+    how = (
+        "this process runs in Sponsio's sandbox"
+        if sandboxed
+        else "doctor cannot see how an agent is started"
+    )
     g.append(
         Guarantee(
             3,
-            "Tool calls go through Sponsio's gateway",
-            False,
-            "the MCP gateway is available (`sponsio gateway`), but nothing yet "
-            "keeps the agent off other routes",
-            "run the agent inside `sponsio run --sandbox` (P3.3)",
+            "The agent's only network route is Sponsio's egress proxy",
+            sandboxed,
+            how,
+            ""
+            if sandboxed
+            else "start the agent with `sponsio run --sandbox -- <agent>`",
         )
     )
     g.append(
         Guarantee(
             3,
-            "Network egress goes through Sponsio's proxy",
-            False,
-            "not available in this release",
-            "P3.4",
+            "The agent's tools go through Sponsio's gateway",
+            sandboxed,
+            how,
+            ""
+            if sandboxed
+            else "give the agent `sponsio gateway command` as its only MCP server, "
+            "and the tool credentials to gateway.yaml",
         )
     )
 
@@ -353,6 +364,27 @@ def assess(
         else:
             break
     return TierReport(tier, g, notes)
+
+
+def inside_sandbox() -> bool:
+    """Is this process inside ``sponsio run --sandbox``?
+
+    Checked by behaviour, not by trusting the environment: the run sets
+    ``SPONSIO_SANDBOX``, and a direct connection out must then fail at
+    once, as the sandbox refuses it (TEST-NET-1, never routed anywhere).
+    """
+    if os.environ.get("SPONSIO_SANDBOX") != "1":
+        return False
+    import errno
+    import socket
+
+    try:
+        with socket.create_connection(("192.0.2.1", 443), timeout=1.0):
+            return False
+    except PermissionError:
+        return True
+    except OSError as e:
+        return e.errno in (errno.ENETUNREACH, errno.EACCES, errno.EPERM)
 
 
 def cursor_hooks_path() -> Path | None:

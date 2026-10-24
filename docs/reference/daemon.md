@@ -49,6 +49,8 @@ audit:                   # optional: also send every audit record over OTLP/HTTP
 signing:                 # optional: rule files must be signed by this key
   public_key: "<base64 Ed25519 public key>"
   buckets: ["*"]
+egress:                  # optional: hosts the egress proxy may reach
+  allow: [api.anthropic.com, "*.github.com"]
 ```
 
 | Key | Default | Meaning |
@@ -66,6 +68,7 @@ signing:                 # optional: rule files must be signed by this key
 | `audit.otlp_headers` | | Headers for that endpoint, such as an API key. |
 | `signing.public_key` | | Base64 Ed25519 public key that signs rule files. See [Signed rules](#signed-rules). |
 | `signing.buckets` | `["*"]` | Which buckets must be signed. |
+| `egress.allow` | | Host patterns the egress proxy may connect to. `github.com` matches itself, `*.github.com` its subdomains. See [Egress proxy](#egress-proxy). |
 
 The daemon re-reads the file when it changes. A missing file, a file that does not parse, and any key that is missing or not valid all take the strict default. The daemon reads no environment variable for a decision, its own included: `SPONSIO_GUARD_MODE`, `SPONSIO_MODE`, `SPONSIO_HOOK_ON_ERROR`, `SPONSIO_UNCONFIGURED`, `SPONSIO_SHIELD_TRACE_TTL_HOURS` and `SPONSIO_PLUGIN_ROOT` do not affect hooks. They still apply to the in-process SDK and to `sponsio host guard --direct`.
 
@@ -84,6 +87,7 @@ The daemon listens on two Unix sockets. The agent socket is the one hooks use (`
 | agent | `guard.observe` | Record a post-event (the tool's output). Never gates. |
 | agent | `gateway.list_tools` | The MCP tools a session may call now. See [MCP gateway](#mcp-gateway). |
 | agent | `gateway.call_tool` | Decide an MCP tool call, run it upstream when allowed, and record it. |
+| agent | `egress.open`, `egress.close` | Open or close the egress proxy for a `sponsio run` session. See [Egress proxy](#egress-proxy). |
 | agent | `sdk.check` | Decide a call from `Sponsio(..., backend="daemon")` against the library it names. |
 | agent | `sdk.observe` | Record that call's output. Never gates. |
 | agent | `sdk.filter_tools` | The tools that SDK session may call now. |
@@ -169,7 +173,22 @@ A server starts on first use and again after it exits. A change to the file appl
 
 **Coexisting with hooks.** When Claude Code's hooks are also installed, the hook decides `mcp__sponsio__<server>__<tool>` as `mcp__<server>__<tool>`, against the same library.
 
-The gateway alone does not make Tier 3: an agent that can still run commands can reach the network another way. That needs the sandbox runner.
+The gateway alone does not make Tier 3: an agent that can still run commands can reach the network another way. That needs the sandbox runner (`sponsio run --sandbox`) and the egress proxy.
+
+---
+
+## Egress proxy
+
+`sponsio run --sandbox` asks the daemon for a proxy for its session (`egress.open`) and starts the agent where nothing else on the network is reachable. Every connection is one decision before any byte leaves:
+
+- `CONNECT host:port` (HTTPS, and anything else tunnelled) is decided on the destination;
+- a plain-HTTP request is decided on the destination, the method and the URL.
+
+The decision is a call to the tool `egress`, with arguments `host`, `port`, `method` and `url`, in the run's own session (history under `egress:<session>`). It passes when the host matches `egress.allow` and the `_egress` library, if there is one, admits it: contracts such as `arg_blacklist(egress, host, [...])`, `arg_blacklist(egress, url, [...])` or `rate_limit(egress, 100)`. With neither configured, every connection is refused. A refused connection gets `403` with the reason in the body and an `X-Sponsio-Reason` header.
+
+TLS is not intercepted. Contracts see where a connection goes, never what it carries; a contract on the contents of HTTPS traffic is out of scope. Hosts are compared as written by the agent, lower-cased; an IPv6 literal or a name with userinfo is refused rather than guessed at.
+
+Each session gets a Unix socket in the agent socket's directory (mode 0666) and a port on `127.0.0.1`. The Linux sandbox reaches the socket through a forwarder on `127.0.0.1:3128` inside its own network namespace; the macOS sandbox may open only that port.
 
 ---
 

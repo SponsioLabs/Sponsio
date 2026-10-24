@@ -119,6 +119,57 @@ jobs:
           done
           if id _sponsio 2>/dev/null; then echo "user _sponsio left behind"; exit 1; fi
 
+  tier3:
+    name: Tier 3 (sandbox, egress proxy, container recipe)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # Ubuntu restricts unprivileged user namespaces through AppArmor;
+      # bubblewrap needs them.
+      - name: bubblewrap with user namespaces
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Install
+        run: pip install -e . pytest
+
+      - name: Sandbox, egress proxy and gateway, for real
+        run: pytest -v tests/test_sandbox_run.py tests/test_egress.py tests/test_gateway.py
+
+      - name: Container recipe
+        working-directory: deploy/tier3
+        env:
+          SPONSIO_SPEC: "/src[signing]"
+          SPONSIO_AGENT_SPEC: "/src"
+        run: |
+          docker compose up -d --build sponsiod
+          for i in $(seq 1 30); do
+            docker compose exec -T sponsiod test -S /run/sponsio/agent.sock && break
+            sleep 1
+          done
+          out=$(docker compose run --rm -v "$PWD/probe.py:/probe.py:ro" agent python /probe.py)
+          echo "$out"
+          python3 - "$out" <<'PY'
+          import json, sys
+          r = json.loads(sys.argv[1].strip().splitlines()[-1])
+          assert r["direct"].startswith("fail"), r
+          assert r["allowed"] == 200, r
+          assert r["refused"].startswith("refused") and "403" in r["refused"], r
+          PY
+
+      - name: Daemon log
+        if: failure()
+        working-directory: deploy/tier3
+        run: docker compose logs sponsiod || true
+
   build-smoke-test:
     name: Build wheel + install smoke test
     runs-on: ubuntu-latest

@@ -133,6 +133,7 @@ def daemon_run(
         root=(plugin_root or Path.home() / ".sponsio" / "plugins").expanduser(),
         state_dir=resolved_state,
         watch=watch,
+        run_dir=path.parent,
     )
 
     exporter = None

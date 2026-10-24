@@ -814,6 +814,7 @@ class GuardService:
         on_change: OnChange | None = None,
         reuse_guards: bool = True,
         watch: bool = False,
+        run_dir: Path | None = None,
     ) -> None:
         self.state_dir = (
             Path(state_dir) if state_dir is not None else default_state_dir()
@@ -861,6 +862,10 @@ class GuardService:
         self._cloud_stop: threading.Event | None = None
         self._gateway: Any = None
         self._gateway_lock = threading.Lock()
+        self.run_dir = Path(run_dir) if run_dir is not None else self.state_dir
+        """Where sockets every user may reach go (the agent socket's
+        directory); the egress proxy's sockets live here."""
+        self._egress: Any = None
 
     @staticmethod
     def _held_snapshot(new: LibrarySnapshot, diff: RulesetDiff) -> LibrarySnapshot:
@@ -1422,8 +1427,21 @@ class GuardService:
     def close_gateway(self) -> None:
         with self._gateway_lock:
             gateway, self._gateway = self._gateway, None
+            egress, self._egress = self._egress, None
         if gateway is not None:
             gateway.close()
+        if egress is not None:
+            egress.close_all()
+
+    @property
+    def egress(self) -> Any:
+        """The egress proxy (:mod:`sponsio.daemon.egress`), on first use."""
+        with self._gateway_lock:
+            if self._egress is None:
+                from sponsio.daemon.egress import Egress
+
+                self._egress = Egress(self, self.run_dir)
+            return self._egress
 
     def _handle_stdin_protocol(
         self,

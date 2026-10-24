@@ -93,7 +93,7 @@ It depends on how Sponsio is deployed. Each deployment tier states what it guara
 | 2. Team | Daemon runs as its own system user, root-owned engine, managed host settings | The agent's user cannot change rules, mode, history, wiring or logs |
 | 3. Enterprise | Agent sandboxed; Sponsio owns the tool gateway, credentials and egress | Every tool call and network connection goes through Sponsio |
 
-Tier 1 is the default install. Tier 2 is `sudo sponsio install --system`, for Claude Code on macOS and Linux; Cursor stays at Tier 1 even then. Tier 3 is not complete: the MCP gateway ships, the sandbox runner and egress proxy do not yet. See the [threat model](docs/concepts/threat-model.md) for the assumptions behind each tier and what each does not cover.
+Tier 1 is the default install. Tier 2 is `sudo sponsio install --system`, for Claude Code on macOS and Linux; Cursor stays at Tier 1 even then. Tier 3 is `sponsio run --sandbox` with the MCP gateway and the egress proxy, or a container recipe for servers. See the [threat model](docs/concepts/threat-model.md) for the assumptions behind each tier and what each does not cover.
 
 ---
 

@@ -103,6 +103,23 @@ Afterwards, commands that change Sponsio need root: `sudo sponsio rules reload`,
 
 To remove it: `sudo sponsio uninstall --system` (add `--keep-state` to keep the rules and the audit log).
 
+## Tier 3: sandbox, gateway and egress proxy
+
+Tier 3 adds that every tool call and every connection goes through Sponsio, because the agent has no other route and no credentials of its own:
+
+```bash
+sponsio gateway command                        # the MCP server entry for the host
+sponsio run --sandbox --writable ~/.claude -- claude
+```
+
+1. **Tools.** Move the agent's MCP servers and their credentials into the daemon's `gateway.yaml`, and give the host only the gateway (`sponsio gateway command` prints its entry). The agent then sees, each turn, only the tools its state allows ([MCP gateway](../reference/daemon.md#mcp-gateway)).
+2. **Network.** List the hosts the agent may reach under `egress.allow` in `daemon.yaml`, and start the agent with `sponsio run --sandbox`. Every connection is then decided by the daemon ([Egress proxy](../reference/daemon.md#egress-proxy)).
+3. **Files.** Inside the sandbox only the workspace and the paths you name with `--writable` can be written, and Sponsio's state cannot be read.
+
+On Linux the sandbox needs `bubblewrap` and unprivileged user namespaces (on Ubuntu, `kernel.apparmor_restrict_unprivileged_userns=0`). On macOS it uses `sandbox-exec`. On a server, use the container recipe in `deploy/tier3/`: the agent's container sits on a network with no route out and reaches the daemon only through a shared socket volume.
+
+What Tier 3 still does not cover: escaping the sandbox or the container, contracts on the contents of TLS traffic, and covert channels. `sponsio doctor --tier` run inside the sandbox reports the Tier 3 guarantees; run outside, it cannot see how an agent was started.
+
 ## Uninstall
 
 ```bash

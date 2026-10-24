@@ -40,6 +40,7 @@ def _assess(tmp: Path, **kw):
         managed_settings=(tmp / "managed.json",),
         mdm_settings=tmp / "no-mdm.plist",
         cursor_hooks=tmp / "no-cursor.json",
+        sandboxed=False,
     )
     args.update(kw)
     return assess(**args)
@@ -165,3 +166,17 @@ def test_doctor_says_tier_1_after_a_default_install(monkeypatch):
         assert "the daemon runs as its own user" in r.detail
     finally:
         shutil.rmtree(home, ignore_errors=True)
+
+
+def test_tier_3_is_claimed_only_from_inside_the_sandbox(tmp):
+    g = _g(tmp, sandboxed=True)
+    assert g["The agent's only network route is Sponsio's egress proxy"].ok
+    g = _g(tmp)
+    assert not g["The agent's tools go through Sponsio's gateway"].ok
+
+
+def test_the_sandbox_variable_alone_proves_nothing(monkeypatch):
+    from sponsio.tier import inside_sandbox
+
+    monkeypatch.delenv("SPONSIO_SANDBOX", raising=False)
+    assert inside_sandbox() is False

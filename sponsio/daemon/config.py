@@ -27,6 +27,8 @@ The file::
     signing:                 # rules must carry a signature by this key
       public_key: "<base64 Ed25519 public key>"
       buckets: ["*"]         # or a list of buckets
+    egress:                  # hosts the egress proxy may reach (Tier 3)
+      allow: [api.anthropic.com, "*.github.com"]
 
 It is changed through the admin socket (``mode.set``; ``sponsio host
 install --mode``); with no daemon running, ``sponsio host install``
@@ -79,6 +81,8 @@ class DaemonConfig:
     signing_public_key: str | None = None
     signing_buckets: tuple[str, ...] = ()
     """Buckets whose rule files must be signed; ``("*",)`` for all."""
+    egress_allow: tuple[str, ...] = ()
+    """Host patterns the egress proxy may connect to (``*.pypi.org``)."""
 
     def requires_signature(self, bucket: str) -> bool:
         if not self.signing_public_key:
@@ -142,6 +146,11 @@ class DaemonConfig:
             headers = aud.get("otlp_headers")
             if isinstance(headers, dict):
                 kw["audit_otlp_headers"] = {str(k): str(v) for k, v in headers.items()}
+        egress = raw.get("egress")
+        if isinstance(egress, dict) and isinstance(egress.get("allow"), list):
+            kw["egress_allow"] = tuple(
+                str(h).strip().lower() for h in egress["allow"] if str(h).strip()
+            )
         signing = raw.get("signing")
         if isinstance(signing, dict):
             key = signing.get("public_key")
@@ -181,6 +190,7 @@ class DaemonConfig:
             }
             if self.signing_public_key
             else None,
+            "egress": {"allow": list(self.egress_allow)} if self.egress_allow else None,
         }
 
 

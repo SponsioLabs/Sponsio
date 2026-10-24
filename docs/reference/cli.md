@@ -440,6 +440,18 @@ sudo sponsio uninstall --system [--keep-state] [--dry-run]
 
 `install --system` creates the `_sponsio` user, a root-owned engine in `/opt/sponsio` on a root-owned Python 3.10+ (`--python`), root-owned hook shims, the daemon's private state and its launchd or systemd service. It imports `~/.sponsio/plugins` (unless `--no-migrate`) and writes the host's managed settings. `--package` is what pip installs into the engine: a version spec, a wheel or a source directory. `--dry-run` prints every step and changes nothing. What it sets up and what to know about it: [Running Sponsio on a host](../guides/host-operations.md#tier-2-the-system-install).
 
+## sponsio run --sandbox
+
+Tier 3: start an agent whose only way out is Sponsio.
+
+```bash
+sponsio run --sandbox [--workspace DIR] [--writable PATH]... [--keep-env NAME]...
+                      [--hide-home] [--socket PATH] -- <agent command>
+sponsio run --container -- <agent command>    # inside deploy/tier3's agent container
+```
+
+The daemon opens an egress proxy for the run; the agent is not started without one. Inside the sandbox the network is that proxy and nothing else, files are read-only outside the workspace and the `--writable` paths, Sponsio's own state cannot be read, and credentials are removed from the environment (names ending in `_TOKEN`, `_SECRET`, `_PASSWORD`, `_API_KEY`, `_KEY`, and known cloud credentials; the agent's own model key and `--keep-env` names stay). Linux uses bubblewrap, macOS `sandbox-exec`. `--container` is for a container that is already the sandbox: it only routes the network through the proxy. Exits with the agent's status.
+
 ## sponsio admin
 
 Operator commands. They talk to the daemon's admin socket: at Tier 1 that is your own daemon, at Tier 2 run them with `sudo`. The agent's hooks deny them.
