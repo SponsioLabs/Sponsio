@@ -224,7 +224,10 @@ version atomically. A config file that is a symlink is written through
 to its target. `host uninstall` removes only Sponsio's entries and then
 offers to restore the most recent backup, which is the file as it was
 before Sponsio last changed it; it asks on a terminal and does nothing
-otherwise.
+otherwise. A file that holds nothing but Sponsio's entries (one that did
+not exist before Sponsio wrote it) is removed outright, with its backups,
+since they hold nothing of yours; and a skills directory left empty by
+removing the Sponsio skill is removed too.
 
 ```bash
 sponsio host uninstall <host> --restore-backup     # remove the entries, then put the latest backup back

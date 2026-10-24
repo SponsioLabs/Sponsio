@@ -556,7 +556,12 @@ def _uninstall_skill_for_host(host_name: str, *, scope: str) -> tuple[bool, str]
             shutil.rmtree(target)
     except OSError as e:
         return False, f"could not remove {target}: {e}"
-    return True, f"removed skill from {target}"
+    # The skills directory install made for it, if nothing else is in it.
+    try:
+        parent.rmdir()
+    except OSError:
+        return True, f"removed skill from {target}"
+    return True, f"removed skill from {target} and the now-empty {parent}"
 
 
 @host.command(name="install")
@@ -1054,8 +1059,13 @@ def host_uninstall(
         click.echo(f"     {result.config_path}")
         if result.backup is not None:
             click.echo(f"     previous version kept at {result.backup}")
-        if cfg is not None and offered is not None:
+        if cfg is not None and offered is not None and offered.exists():
             _offer_restore(cfg, offered, restore_backup)
+        elif cfg is not None and restore_backup:
+            click.echo(
+                f"     nothing to restore: {cfg.name} held only Sponsio's "
+                "entries (it did not exist before Sponsio), so it was removed"
+            )
 
         if with_skill:
             removed, note = _uninstall_skill_for_host(name, scope=scope)

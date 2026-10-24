@@ -242,6 +242,46 @@ def uninstall(host: HookHost, *, scope: str = "user") -> HostUninstallResult:
             note="settings.json is malformed — refusing to edit",
         )
 
+    removed = _strip_sponsio_entries(data)
+
+    if not removed:
+        saved = None
+        note = "no sponsio entries in settings.json"
+    elif data:
+        saved = config_backup.write(target, json.dumps(data, indent=2) + "\n")
+        note = f"removed {removed} sponsio entries from settings.json"
+    else:
+        # Nothing but Sponsio's entries: nothing of the user's to keep, so
+        # no backup, and the copies taken on reinstall go too.
+        target.unlink()
+        config_backup.prune(target, _only_sponsio)
+        saved = None
+        note = f"removed {removed} sponsio entries; deleted now-empty settings.json"
+
+    return HostUninstallResult(
+        host=host.name,
+        config_path=target,
+        removed_entries=removed,
+        note=note,
+        backup=saved,
+    )
+
+
+def _only_sponsio(raw: bytes) -> bool:
+    """Is this settings.json Sponsio's entries and nothing else?"""
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return False
+    if not isinstance(data, dict):
+        return False
+    _strip_sponsio_entries(data)
+    return not data
+
+
+def _strip_sponsio_entries(data: dict) -> int:
+    """Remove Sponsio's hook entries from a parsed settings.json, in
+    place. Returns how many were removed."""
     hooks_root = data.get("hooks") if isinstance(data.get("hooks"), dict) else {}
     removed = 0
     for event in _INSTALLED_EVENTS:
@@ -266,21 +306,4 @@ def uninstall(host: HookHost, *, scope: str = "user") -> HostUninstallResult:
         data["hooks"] = hooks_root
     else:
         data.pop("hooks", None)
-
-    if not removed:
-        saved = None
-        note = "no sponsio entries in settings.json"
-    elif data:
-        saved = config_backup.write(target, json.dumps(data, indent=2) + "\n")
-        note = f"removed {removed} sponsio entries from settings.json"
-    else:
-        saved = config_backup.remove(target)
-        note = f"removed {removed} sponsio entries; deleted now-empty settings.json"
-
-    return HostUninstallResult(
-        host=host.name,
-        config_path=target,
-        removed_entries=removed,
-        note=note,
-        backup=saved,
-    )
+    return removed

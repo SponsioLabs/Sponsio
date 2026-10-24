@@ -23,6 +23,7 @@ import shutil
 import tempfile
 import time
 from pathlib import Path
+from typing import Callable
 
 BACKUP_INFIX = ".sponsio-backup-"
 
@@ -117,6 +118,24 @@ def remove(path: Path) -> Path | None:
     saved = backup(path)
     Path(path).unlink(missing_ok=True)
     return saved
+
+
+def prune(path: Path, ours: "Callable[[bytes], bool]") -> list[Path]:
+    """Delete the backups of ``path`` whose content ``ours`` says holds
+    nothing but Sponsio's own entries. Returns what was deleted.
+
+    For an uninstall that removes a file Sponsio created: copies of it
+    taken on reinstall hold only Sponsio's hooks, so they keep nothing a
+    user could want back, and offering one would put the hooks back."""
+    gone = []
+    for saved in backups(path):
+        try:
+            if ours(saved.read_bytes()):
+                saved.unlink()
+                gone.append(saved)
+        except OSError:
+            continue
+    return gone
 
 
 def restore(path: Path, saved: Path) -> Path | None:

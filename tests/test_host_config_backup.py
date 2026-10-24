@@ -107,14 +107,30 @@ def test_a_forced_install_over_a_file_keeps_a_copy(home, name):
 
 
 @pytest.mark.parametrize("name", ["claude-code", "cursor"])
-def test_deleting_a_now_empty_file_keeps_a_copy(home, name):
+def test_a_file_sponsio_created_leaves_nothing_behind(home, name):
+    # Installed into a file that did not exist, reinstalled (which backs
+    # up Sponsio's own file), uninstalled: no file and no backups, since
+    # every copy holds only Sponsio's entries.
     spec = hosts.get(name)
     cfg = spec.host_config_fn("user")
     spec.install_fn(spec)
-    written = cfg.read_bytes()
+    spec.install_fn(spec)
+    assert config_backup.backups(cfg)
     result = spec.uninstall_fn(spec)
     assert not cfg.exists()
-    assert result.backup is not None and result.backup.read_bytes() == written
+    assert result.backup is None
+    assert config_backup.backups(cfg) == []
+
+
+@pytest.mark.parametrize(("name", "user_data"), HOSTS[:2])
+def test_a_backup_with_the_users_content_is_kept(home, name, user_data):
+    spec = hosts.get(name)
+    cfg = spec.host_config_fn("user")
+    original = _seed(cfg, user_data)
+    spec.install_fn(spec)
+    spec.uninstall_fn(spec)
+    assert cfg.exists()
+    assert any(b.read_bytes() == original for b in config_backup.backups(cfg))
 
 
 @pytest.mark.parametrize(("name", "user_data"), HOSTS[:2])
@@ -210,3 +226,37 @@ def test_uninstall_without_a_terminal_only_points_at_the_backup(home):
         for e in data["hooks"]["PreToolUse"]
         for h in e["hooks"]
     )
+
+
+def test_cursor_keeps_a_file_with_the_users_other_keys(home):
+    spec = hosts.get("cursor")
+    cfg = spec.host_config_fn("user")
+    _seed(cfg, {"version": 1, "notes": "mine"})
+    spec.install_fn(spec)
+    spec.uninstall_fn(spec)
+    assert json.loads(cfg.read_text()) == {"version": 1, "notes": "mine"}
+
+
+def test_uninstall_removes_the_skills_dir_it_emptied(home):
+    r = _cli("host", "install", "claude-code", "--scope", "project")
+    assert r.exit_code == 0, r.output
+    skills = home / ".claude" / "skills"
+    assert (skills / "sponsio").exists()
+    r = _cli(
+        "host", "uninstall", "claude-code", "--scope", "project", "--restore-backup"
+    )
+    assert r.exit_code == 0, r.output
+    assert not skills.exists()
+    assert "nothing to restore" in r.output
+    assert not (home / ".claude" / "settings.json").exists()
+    assert config_backup.backups(home / ".claude" / "settings.json") == []
+
+
+def test_uninstall_keeps_a_skills_dir_with_other_skills(home):
+    other = home / ".claude" / "skills" / "mine"
+    other.mkdir(parents=True)
+    _cli("host", "install", "claude-code", "--scope", "project")
+    _cli(
+        "host", "uninstall", "claude-code", "--scope", "project", "--no-restore-backup"
+    )
+    assert other.exists() and not (other.parent / "sponsio").exists()

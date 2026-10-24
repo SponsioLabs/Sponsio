@@ -216,6 +216,36 @@ def uninstall(host: HookHost, *, scope: str = "user") -> HostUninstallResult:
             note="hooks.json is malformed — refusing to edit",
         )
 
+    removed = _strip_sponsio_entries(data)
+    hooks = data.get("hooks") or {}
+
+    if not removed:
+        saved = None
+        note = "no sponsio entries in hooks.json"
+    elif not _is_empty(data):
+        saved = config_backup.write(target, json.dumps(data, indent=2) + "\n")
+        note = f"removed {removed} sponsio entries; kept {len(hooks)} other event(s)"
+    else:
+        # Nothing but Sponsio's entries (and the version line): nothing of
+        # the user's to keep, so no backup, and the copies taken on
+        # reinstall go too.
+        target.unlink()
+        config_backup.prune(target, _only_sponsio)
+        saved = None
+        note = f"removed {removed} sponsio entries; deleted now-empty hooks.json"
+
+    return HostUninstallResult(
+        host=host.name,
+        config_path=target,
+        removed_entries=removed,
+        note=note,
+        backup=saved,
+    )
+
+
+def _strip_sponsio_entries(data: dict) -> int:
+    """Remove Sponsio's hook entries from a parsed hooks.json, in place;
+    events left with no hooks are dropped. Returns how many were removed."""
     hooks = data.get("hooks") if isinstance(data.get("hooks"), dict) else {}
     removed = 0
     for event_name, entries in list(hooks.items()):
@@ -232,23 +262,25 @@ def uninstall(host: HookHost, *, scope: str = "user") -> HostUninstallResult:
             hooks[event_name] = kept
         else:
             del hooks[event_name]
-
-    if not removed:
-        saved = None
-        note = "no sponsio entries in hooks.json"
-    elif hooks:
+    if hooks:
         data["hooks"] = hooks
-        saved = config_backup.write(target, json.dumps(data, indent=2) + "\n")
-        note = f"removed {removed} sponsio entries; kept {len(hooks)} other event(s)"
     else:
-        # Whole file was sponsio-only — remove it for cleanliness.
-        saved = config_backup.remove(target)
-        note = f"removed {removed} sponsio entries; deleted now-empty hooks.json"
+        data.pop("hooks", None)
+    return removed
 
-    return HostUninstallResult(
-        host=host.name,
-        config_path=target,
-        removed_entries=removed,
-        note=note,
-        backup=saved,
-    )
+
+def _is_empty(data: dict) -> bool:
+    """No hooks and nothing else of the user's (the version line aside)."""
+    return not (set(data) - {"version"})
+
+
+def _only_sponsio(raw: bytes) -> bool:
+    """Is this hooks.json Sponsio's entries and nothing else?"""
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return False
+    if not isinstance(data, dict):
+        return False
+    _strip_sponsio_entries(data)
+    return _is_empty(data)
