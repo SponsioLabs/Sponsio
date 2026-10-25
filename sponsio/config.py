@@ -57,11 +57,12 @@ Usage::
 
 from __future__ import annotations
 
+import contextvars
 import os
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 @dataclass
@@ -917,8 +918,7 @@ def _load_pack_contracts(
         _files.append(pack_path)
 
     try:
-        with open(pack_path) as f:
-            raw = yaml.safe_load(f)
+        raw = yaml.safe_load(_read_text(pack_path))
     except yaml.YAMLError as e:
         raise ConfigError(f"include {spec!r}: invalid YAML in {pack_path}: {e}")
 
@@ -1436,6 +1436,20 @@ def _parse_tool_rename(raw: Any, agent_id: str) -> dict[str, str]:
     return out
 
 
+_FILE_READER: contextvars.ContextVar[Callable[[Path], str] | None] = (
+    contextvars.ContextVar("sponsio_config_file_reader", default=None)
+)
+"""Reads every file :func:`load_config` parses, when set: the daemon sets
+it to keep the exact bytes it parsed, so a signature is checked against
+those bytes and not against a second read (see
+:mod:`sponsio.daemon.signing`)."""
+
+
+def _read_text(path: str | Path) -> str:
+    reader = _FILE_READER.get()
+    return reader(Path(path)) if reader is not None else Path(path).read_text()
+
+
 def load_config(path: str | Path) -> SponsoConfig:
     """Load and validate a sponsio.yaml config file.
 
@@ -1471,7 +1485,7 @@ def load_config(path: str | Path) -> SponsoConfig:
         raise FileNotFoundError(f"Config file not found: {path}")
 
     try:
-        text = path.read_text()
+        text = _read_text(path)
         raw = yaml.safe_load(text)
     except yaml.YAMLError as e:
         raise ConfigError(f"Invalid YAML: {e}")

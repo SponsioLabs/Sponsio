@@ -112,6 +112,38 @@ class _CacheEntry:
     """The loaded content failed its signature check."""
     placeholder: bool = False
     """``served`` is a signature hold, not rules that passed."""
+    signing: Any = None
+    """The signing requirement the entry was checked under (the key, or
+    ``None``); an entry checked under another one is not reused."""
+    missing: bool = False
+    """The rule file is gone and ``served`` is the last signed rules."""
+
+
+def _load_recorded(
+    plugin_id: str, lib_path: Path, agent_id: str
+) -> tuple[LibrarySnapshot, dict[str, bytes], dict[str, tuple]]:
+    """:func:`load_snapshot`, keeping the bytes of every file it parsed and
+    each file's ``(mtime_ns, size)`` when it was read, by real path."""
+    from sponsio.config import _FILE_READER
+
+    contents: dict[str, bytes] = {}
+    stats: dict[str, tuple] = {}
+
+    def reader(path: Path) -> str:
+        with open(path, "rb") as fh:
+            st = os.fstat(fh.fileno())
+            data = fh.read()
+        real = os.path.realpath(path)
+        contents[real] = data
+        stats[real] = (st.st_mtime_ns, st.st_size)
+        return data.decode("utf-8")
+
+    token = _FILE_READER.set(reader)
+    try:
+        snap = load_snapshot(plugin_id, lib_path, agent_id)
+    finally:
+        _FILE_READER.reset(token)
+    return snap, contents, stats
 
 
 class SnapshotStore:
@@ -128,19 +160,30 @@ class SnapshotStore:
         root: Path | Callable[[], Path] | None = None,
         *,
         on_change: OnChange | None = None,
-        signature: Callable[[str, tuple[str, ...]], str | None] | None = None,
+        signature: Callable[[str, tuple[str, ...], dict[str, bytes]], str | None]
+        | None = None,
         on_unsigned: Callable[[str, str, bool], None] | None = None,
+        signing_state: Callable[[str], Any] | None = None,
+        known: Callable[[str], bool] | None = None,
     ) -> None:
         self._root = root if root is not None else library_root
         self._on_change: OnChange = on_change or (lambda _old, new: new)
         self._signature = signature
-        """``(plugin_id, files) -> reason`` when the files must be signed
-        and are not; ``None`` when they pass or need no signature."""
+        """``(plugin_id, files, contents) -> reason`` when the files must be
+        signed and the bytes parsed (``contents``, by real path) are not;
+        ``None`` when they pass or need no signature."""
         self._on_unsigned = on_unsigned
         """Told ``(plugin_id, reason, kept_previous)`` when a load fails
         its signature check."""
+        self._signing_state = signing_state
+        """``plugin_id -> state``: ``None`` when the bucket needs no
+        signature, otherwise what it is checked against (the key)."""
+        self._known = known
+        """Whether rules for a bucket were applied before (an approved
+        ruleset is on record), so a missing file is a removal."""
         self._lock = threading.Lock()
         self._cache: dict[str, _CacheEntry] = {}
+        self._held_missing: set[str] = set()
 
     @property
     def root(self) -> Path:
@@ -149,44 +192,80 @@ class SnapshotStore:
     def resolve(self, plugin_id: str) -> LibrarySnapshot | None:
         root = self.root
         lib_path, agent_id = _resolve_library(plugin_id, root)
-        if not lib_path.exists():
-            with self._lock:
-                self._cache.pop(plugin_id, None)
-            return None
+        signing = (
+            self._signing_state(plugin_id)
+            if self._signing_state is not None and self._signature is not None
+            else None
+        )
         with self._lock:
             entry = self._cache.get(plugin_id)
+            if entry is not None and entry.signing != signing:
+                # Signing turned on, or the key changed: nothing checked
+                # under the old requirement is kept.
+                self._cache.pop(plugin_id, None)
+                entry = None
+            if not lib_path.exists():
+                if signing is not None:
+                    return self._missing_signed(plugin_id, lib_path, agent_id, entry)
+                self._cache.pop(plugin_id, None)
+                return None
+            self._held_missing.discard(plugin_id)
             if (
                 entry is not None
                 and entry.path == str(lib_path)
                 and entry.stats == _stat_signature(entry.files)
             ):
                 return entry.served
-            snap = load_snapshot(plugin_id, lib_path, agent_id)
+            if signing is None:
+                snap = load_snapshot(plugin_id, lib_path, agent_id)
+                contents: dict[str, bytes] = {}
+                read_stats: dict[str, tuple] = {}
+            else:
+                snap, contents, read_stats = _load_recorded(
+                    plugin_id, lib_path, agent_id
+                )
             files = (
                 tuple(snap.config.source_files)
                 if snap.config is not None and snap.config.source_files
                 else (str(lib_path),)
             )
-            unsigned = self._signature(plugin_id, files) if self._signature else None
-            if self._signature is not None:
-                # A signature added or replaced must be seen as a change.
+            unsigned = None
+            if signing is not None:
                 from sponsio.daemon.signing import SIG_SUFFIX
 
+                # Every file parsed is checked, including the ones read
+                # before a parse failure, and against the bytes parsed. The
+                # bucket's own file is named as it sits in the plugin root,
+                # so a link from there into the engine is not taken for a
+                # pack that ships with it.
+                files = tuple(dict.fromkeys((str(lib_path), *files, *contents)))
+                unsigned = self._signature(plugin_id, files, contents)
+                if unsigned is None and snap.error is not None:
+                    # A file that failed to resolve or parse was never read,
+                    # so nothing proves the failure is in signed content.
+                    unsigned = f"they do not load: {snap.error}"
+                # A signature added or replaced must be seen as a change.
                 files = files + tuple(f + SIG_SUFFIX for f in files)
-            stats = _stat_signature(files)
+            stats = tuple(
+                read_stats.get(os.path.realpath(f), now)
+                for f, now in zip(files, _stat_signature(files))
+            )
             if unsigned is not None:
                 # Keep serving the last rules that passed; with none, the
-                # bucket is held.
+                # bucket is held, and nothing of the unsigned file decides.
                 keep = entry is not None and not entry.placeholder
                 served = (
                     entry.served
                     if keep
                     else replace(
                         snap,
+                        config=None,
+                        error=None,
                         held_reason=(
-                            f"Sponsio: the rules for {plugin_id} are not signed "
-                            f"by the configured key ({unsigned}), so this call "
-                            f"is denied. Signed rules apply on the next call."
+                            f"Sponsio: the rules for {plugin_id} cannot be "
+                            f"verified against the configured key ({unsigned}), "
+                            f"so this call is denied. Signed rules apply on the "
+                            f"next call."
                         ),
                     )
                 )
@@ -198,6 +277,7 @@ class SnapshotStore:
                     served=served,
                     unsigned=True,
                     placeholder=not keep,
+                    signing=signing,
                 )
                 if self._on_unsigned is not None:
                     self._on_unsigned(plugin_id, unsigned, keep)
@@ -207,6 +287,7 @@ class SnapshotStore:
                 and entry.path == str(lib_path)
                 and entry.loaded.content_hash == snap.content_hash
                 and not entry.unsigned
+                and not entry.missing
             ):
                 # Touched but not changed (a save with identical bytes).
                 entry.stats = stats
@@ -221,8 +302,46 @@ class SnapshotStore:
                 stats=stats,
                 loaded=snap,
                 served=served,
+                signing=signing,
             )
             return served
+
+    def _missing_signed(
+        self,
+        plugin_id: str,
+        lib_path: Path,
+        agent_id: str,
+        entry: _CacheEntry | None,
+    ) -> LibrarySnapshot | None:
+        """A covered bucket whose rule file is gone. Removing the file is an
+        unsigned change like any other: the last signed rules keep
+        enforcing; with none loaded but rules applied before, the bucket
+        is held. Called with the lock held."""
+        reason = f"{lib_path.name} was removed"
+        if entry is not None and not entry.placeholder:
+            if not entry.missing:
+                entry.missing = True
+                if self._on_unsigned is not None:
+                    self._on_unsigned(plugin_id, reason, True)
+            return entry.served
+        self._cache.pop(plugin_id, None)
+        if self._known is None or not self._known(plugin_id):
+            return None
+        if plugin_id not in self._held_missing:
+            self._held_missing.add(plugin_id)
+            if self._on_unsigned is not None:
+                self._on_unsigned(plugin_id, reason, False)
+        return LibrarySnapshot(
+            plugin_id=plugin_id,
+            agent_id=agent_id,
+            path=str(lib_path),
+            content_hash="",
+            held_reason=(
+                f"Sponsio: the rules for {plugin_id} were removed and must be "
+                f"signed by the configured key, so this call is denied. Signed "
+                f"rules apply on the next call."
+            ),
+        )
 
     def snapshots(self) -> list[LibrarySnapshot]:
         """What each cached bucket serves."""
@@ -846,6 +965,8 @@ class GuardService:
             on_change=on_change or self.rules,
             signature=self._unsigned,
             on_unsigned=self._audit_unsigned,
+            signing_state=self._signing_state,
+            known=lambda bucket: self.rules.approved.get(bucket) is not None,
         )
         self.traces = MemoryTraceStore(
             self.state_dir / "wal",
@@ -882,13 +1003,21 @@ class GuardService:
             ),
         )
 
-    def _unsigned(self, plugin_id: str, files: tuple[str, ...]) -> str | None:
+    def _signing_state(self, plugin_id: str) -> str | None:
         cfg = self.config.current()
         if not cfg.requires_signature(plugin_id):
             return None
+        return cfg.signing_public_key
+
+    def _unsigned(
+        self, plugin_id: str, files: tuple[str, ...], contents: dict[str, bytes]
+    ) -> str | None:
+        key = self._signing_state(plugin_id)
+        if key is None:
+            return None
         from sponsio.daemon.signing import unsigned_reason
 
-        return unsigned_reason(files, cfg.signing_public_key or "")
+        return unsigned_reason(files, key, contents)
 
     def _audit_unsigned(self, plugin_id: str, reason: str, kept: bool) -> None:
         from sponsio.daemon.signing import RULES_UNSIGNED

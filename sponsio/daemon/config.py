@@ -156,11 +156,17 @@ class DaemonConfig:
             key = signing.get("public_key")
             if isinstance(key, str) and key.strip():
                 kw["signing_public_key"] = key.strip()
-                buckets = signing.get("buckets", ["*"])
-                if isinstance(buckets, str):
+                # Anything but a list of names (or one name) covers every
+                # bucket: a key with nothing to check would turn signing off.
+                buckets = signing.get("buckets")
+                if isinstance(buckets, str) and buckets.strip():
                     buckets = [buckets]
-                if isinstance(buckets, list):
-                    kw["signing_buckets"] = tuple(str(b) for b in buckets) or ("*",)
+                names = (
+                    tuple(str(b).strip() for b in buckets if str(b).strip())
+                    if isinstance(buckets, list)
+                    else ()
+                )
+                kw["signing_buckets"] = names or ("*",)
         return cls(**kw)
 
     def to_dict(self) -> dict[str, Any]:

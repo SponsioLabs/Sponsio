@@ -346,7 +346,10 @@ def test_unsigned_rules_are_held(tmp):
     _require_signatures(tmp, public)
     svc = _service(tmp)
     out = svc.check(host="claude-code", payload=_bash("ls"))
-    assert not out["allowed"] and "not signed by the configured key" in out["reason"]
+    assert (
+        not out["allowed"]
+        and "cannot be verified against the configured key" in out["reason"]
+    )
 
 
 def test_signed_rules_apply_and_an_unsigned_edit_keeps_them(tmp):
@@ -385,7 +388,10 @@ def test_a_signature_by_another_key_is_refused(tmp):
     _require_signatures(tmp, public)
     sign_file(tmp / "plugins" / BUCKET / "sponsio.yaml", other)
     out = _service(tmp).check(host="claude-code", payload=_bash("ls"))
-    assert not out["allowed"] and "not signed by the configured key" in out["reason"]
+    assert (
+        not out["allowed"]
+        and "cannot be verified against the configured key" in out["reason"]
+    )
 
 
 def test_packs_inside_the_engine_need_no_signature(tmp):

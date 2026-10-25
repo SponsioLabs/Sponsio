@@ -1024,6 +1024,10 @@ def _unconfigured_denies(
     snap = store.resolve(host_bucket)
     if snap is None:
         return False
+    if snap.held_reason is not None:
+        # The host library is not being served (unsigned, or weaker than
+        # what was approved): nothing in it decides, so the strict posture.
+        return True
     return str(snap.defaults.get("unconfigured", "")).strip().lower() in _DENY_WORDS
 
 

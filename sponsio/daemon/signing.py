@@ -20,6 +20,7 @@ Without it a covered bucket is held too, never served unchecked.
 from __future__ import annotations
 
 import base64
+import os
 from pathlib import Path
 
 SIG_SUFFIX = ".sig"
@@ -44,9 +45,12 @@ def _public_key(public_key_b64: str):
     return Ed25519PublicKey.from_public_bytes(raw)
 
 
-def verify_file(path: Path, public_key_b64: str) -> str | None:
+def verify_file(
+    path: Path, public_key_b64: str, content: bytes | None = None
+) -> str | None:
     """``None`` when ``path`` carries a valid signature by the key, else
-    why not."""
+    why not. ``content`` is the bytes to check, when the caller has them
+    (the bytes it parsed); otherwise the file is read."""
     sig_path = Path(str(path) + SIG_SUFFIX)
     try:
         signature = base64.b64decode(
@@ -65,7 +69,7 @@ def verify_file(path: Path, public_key_b64: str) -> str | None:
     from cryptography.exceptions import InvalidSignature
 
     try:
-        key.verify(signature, Path(path).read_bytes())
+        key.verify(signature, content if content is not None else path.read_bytes())
     except InvalidSignature:
         return f"{path.name} is not signed by the configured key"
     except OSError as e:
@@ -73,23 +77,45 @@ def verify_file(path: Path, public_key_b64: str) -> str | None:
     return None
 
 
-def engine_dir() -> Path:
+def engine_dirs() -> tuple[Path, ...]:
+    """The engine's package directory, as imported and as resolved."""
     import sponsio
 
-    return Path(sponsio.__file__).resolve().parent
+    here = Path(os.path.abspath(sponsio.__file__)).parent
+    return tuple(dict.fromkeys((here, here.resolve())))
+
+
+def engine_dir() -> Path:
+    return engine_dirs()[-1]
+
+
+def _in_engine(name: str) -> bool:
+    """A pack that ships in the engine: its path is in the engine both as
+    named and once links are followed. A rule file that only links into
+    the engine is not one."""
+    dirs = engine_dirs()
+    named = Path(os.path.abspath(name))
+    real = Path(os.path.realpath(name))
+    return any(d in named.parents for d in dirs) and any(
+        d in real.parents for d in dirs
+    )
 
 
 def unsigned_reason(
-    files: list[str] | tuple[str, ...], public_key_b64: str
+    files: list[str] | tuple[str, ...],
+    public_key_b64: str,
+    contents: dict[str, bytes] | None = None,
 ) -> str | None:
     """Why a library made of ``files`` fails the signature check, or
-    ``None``. Files inside the engine are skipped."""
-    engine = engine_dir()
+    ``None``. Packs inside the engine are skipped. ``contents`` maps a
+    file's real path to the bytes that were parsed; those bytes are the
+    ones checked."""
+    contents = contents or {}
     for name in files:
-        path = Path(name).resolve()
-        if engine in path.parents:
+        if _in_engine(name):
             continue
-        problem = verify_file(path, public_key_b64)
+        real = os.path.realpath(name)
+        problem = verify_file(Path(name), public_key_b64, contents.get(real))
         if problem is not None:
             return problem
     return None
