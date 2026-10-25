@@ -417,3 +417,20 @@ def test_buckets_outside_the_list_need_no_signature(tmp):
         config.DaemonConfig(signing_public_key=public, signing_buckets=("other",)),
     )
     assert _service(tmp).check(host="claude-code", payload=_bash("ls"))["allowed"]
+
+
+def test_an_exported_record_says_which_daemon_wrote_it(tmp_path):
+    """Two daemons on one host write two chains; a receiver that keyed
+    them by host alone would read one as rewriting the other."""
+    from sponsio.daemon.audit_export import record_to_otlp, stream_id
+
+    a = stream_id("box", tmp_path / "user" / "state")
+    assert a == stream_id("box", tmp_path / "user" / "state")
+    assert a != stream_id("box", tmp_path / "system" / "state")
+    assert a != stream_id("other-box", tmp_path / "user" / "state")
+
+    env = record_to_otlp(
+        {"seq": 1, "hash": "a" * 64, "event": "x"}, host="box", stream=a
+    )
+    resource = env["resourceSpans"][0]["resource"]["attributes"]
+    assert {"key": "sponsio.audit.stream", "value": {"stringValue": a}} in resource

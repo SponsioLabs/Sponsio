@@ -141,12 +141,14 @@ def daemon_run(
     if cfg.audit_otlp_endpoint:
         import socket as _socket
 
-        from sponsio.daemon.audit_export import AuditOtlpExporter
+        from sponsio.daemon.audit_export import AuditOtlpExporter, stream_id
 
+        host = _socket.gethostname()
         exporter = AuditOtlpExporter(
             cfg.audit_otlp_endpoint,
             headers=cfg.audit_otlp_headers,
-            host=_socket.gethostname(),
+            host=host,
+            stream=stream_id(host, service.state_dir),
         )
         audit.set_exporter(service.state_dir, exporter.export)
 

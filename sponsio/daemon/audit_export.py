@@ -4,6 +4,8 @@
 record becomes one span named ``sponsio.audit.<event>``; its attributes
 carry every field of the record, including ``seq``, ``prev_hash`` and
 ``hash``, so the receiver can check the chain and notice a gap. The
+resource carries ``sponsio.audit.stream``, a hash of the host and the
+state dir, so a receiver keeps two daemons on one host apart. The
 transport is :class:`~sponsio.tracer.exporters.OtlpHttpExporter`'s:
 batched, retried, never blocking the daemon.
 """
@@ -17,6 +19,16 @@ from typing import Any
 from sponsio.tracer.exporters import OtlpHttpExporter
 
 SERVICE_NAME = "sponsio-daemon"
+
+
+def stream_id(host: str, state_dir: Any) -> str:
+    """Which daemon's chain this is: the same for every record a state
+    dir's log holds, different for another daemon on the same host."""
+    import hashlib
+    import os
+
+    key = f"{host}\0{os.path.realpath(str(state_dir))}"
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
 def _value(v: Any) -> dict[str, Any]:
@@ -39,13 +51,19 @@ def _nanos(ts: Any) -> str:
     return str(int(when.timestamp() * 1_000_000_000))
 
 
-def record_to_otlp(record: dict[str, Any], host: str | None = None) -> dict:
+def record_to_otlp(
+    record: dict[str, Any], host: str | None = None, stream: str | None = None
+) -> dict:
     """One audit record as an OTLP/HTTP JSON envelope with one span."""
     digest = str(record.get("hash") or "").ljust(64, "0")
     start = _nanos(record.get("ts"))
     resource = [{"key": "service.name", "value": {"stringValue": SERVICE_NAME}}]
     if host:
         resource.append({"key": "host.name", "value": {"stringValue": host}})
+    if stream:
+        resource.append(
+            {"key": "sponsio.audit.stream", "value": {"stringValue": stream}}
+        )
     return {
         "resourceSpans": [
             {
@@ -77,9 +95,17 @@ def record_to_otlp(record: dict[str, Any], host: str | None = None) -> dict:
 class AuditOtlpExporter(OtlpHttpExporter):
     """:class:`OtlpHttpExporter` for audit records instead of span trees."""
 
-    def __init__(self, endpoint: str, *, host: str | None = None, **kwargs: Any):
+    def __init__(
+        self,
+        endpoint: str,
+        *,
+        host: str | None = None,
+        stream: str | None = None,
+        **kwargs: Any,
+    ):
         super().__init__(endpoint, **kwargs)
         self._audit_host = host
+        self._audit_stream = stream
 
     def _to_otlp(self, record: Any) -> dict:  # type: ignore[override]
-        return record_to_otlp(record, host=self._audit_host)
+        return record_to_otlp(record, host=self._audit_host, stream=self._audit_stream)
