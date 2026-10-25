@@ -97,7 +97,7 @@ The daemon listens on two Unix sockets. The agent socket is the one hooks use (`
 | agent | `proposal.submit` | Validate a rule change as a dry run and store it. Nothing applies. |
 | admin | `ping` | As above. |
 | admin | `mode.set` | Persist a host's mode in `daemon.yaml` (`claude-code`, `cursor`, `openclaw`, `gateway` or `sdk`). |
-| admin | `rules.status` | Loaded libraries, held changes, the last cloud comparison. |
+| admin | `rules.status` | Loaded libraries as they are on disk now, held changes, the last cloud comparison. |
 | admin | `rules.reload` | Apply held changes, for one bucket or all. |
 | admin | `rules.verify` | Compare linked buckets with the cloud's published books now. |
 | admin | `plugin.append` | Merge contracts into a host bucket. |

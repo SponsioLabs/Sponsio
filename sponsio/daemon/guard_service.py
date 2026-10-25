@@ -352,6 +352,10 @@ class SnapshotStore:
             ),
         )
 
+    def bucket_ids(self) -> list[str]:
+        with self._lock:
+            return list(self._cache)
+
     def unsigned(self) -> dict[str, str]:
         """Buckets whose rule file on disk is not what is served, because
         it failed its signature check or is gone, with why. Each serves
@@ -1288,6 +1292,15 @@ class GuardService:
             self._cloud_stop = None
 
     def rules_status(self) -> dict[str, Any]:
+        # What is on disk now, not as of the last call that happened to
+        # load each bucket: an operator checking a machine has usually
+        # just changed something, and a reload empties the cache.
+        held = self.rules.status()
+        for bucket in {*self.store.bucket_ids(), *self.rules.approved.buckets(), *held}:
+            try:
+                self.store.resolve(bucket)
+            except Exception:  # noqa: BLE001 - a bucket that will not load still reports
+                pass
         loaded = {}
         unsigned = self.store.unsigned()
         for snap in self.store.snapshots():

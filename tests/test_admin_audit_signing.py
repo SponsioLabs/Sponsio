@@ -562,3 +562,20 @@ def test_a_bucket_on_disk_that_is_not_what_runs_shows_in_status(daemon, tmp):
     assert svc.rules_status()["loaded"][BUCKET]["unsigned"] is None
     shown = CliRunner().invoke(cli, ["rules", "status", *sock])
     assert "not signed on disk" not in shown.output
+
+
+def test_status_reads_the_disk_now_not_as_of_the_last_call(daemon, tmp):
+    """An operator checking a machine has usually just changed something.
+    Status used to show each bucket as of the last hook call that loaded
+    it, and nothing at all for a bucket a reload had just emptied."""
+    server, svc = daemon
+    _signed_daemon(tmp)
+    lib = tmp / "plugins" / BUCKET / "sponsio.yaml"
+    assert svc.check(host="claude-code", payload=_bash("ls"))["allowed"]
+
+    lib.write_text(LIBRARY + "# edited by hand\n")
+    st = svc.rules_status()  # no call in between
+    assert st["loaded"][BUCKET]["unsigned"]
+
+    svc.rules_reload(None, None)
+    assert BUCKET in svc.rules_status()["loaded"]
