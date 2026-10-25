@@ -14,6 +14,14 @@ running daemon last wrote (``audit.head`` on the admin socket), and by
 whatever receives the exported records. Records written before the
 chain existed are reported as unchained, not as broken.
 
+A process that has written to the log keeps the last record it wrote.
+If the file no longer holds that record when it next appends (the log
+was deleted, cut, or rewritten), it does not start a new chain from
+what is left: it records ``audit_log_cut`` chained to the record it
+remembers, so the break stays in the log for :func:`verify` to report
+however many records follow. A daemon that restarts remembers nothing,
+so a cut made while it was down is caught only by the exported copy.
+
 Appends take an exclusive lock on the file and read its last record, so
 the daemon and a CLI process writing at the same moment still produce
 one chain. Writing is best effort: a full disk must not stop the daemon
@@ -43,6 +51,8 @@ DAEMON_RESTART = "daemon_restart"
 """A daemon came up after a prior instance went away without stopping
 cleanly (its pid was still in the lock file and is not alive)."""
 DAEMON_STOP = "daemon_stop"
+AUDIT_LOG_CUT = "audit_log_cut"
+"""The log no longer held the last record this process wrote."""
 
 _lock = threading.Lock()
 _exporters: dict[str, Callable[[dict[str, Any]], None]] = {}
@@ -54,10 +64,21 @@ def audit_path(state_dir: Path) -> Path:
 
 
 def record_hash(record: dict[str, Any]) -> str:
-    """SHA-256 of ``record``'s canonical JSON, ``hash`` itself left out."""
+    """SHA-256 of ``record``'s canonical JSON, ``hash`` itself left out.
+
+    ``record`` is what a JSON round trip gives (:func:`_as_json`): string
+    keys only, so the order ``sort_keys`` puts them in is the order they
+    will have when the line is read back.
+    """
     body = {k: v for k, v in record.items() if k != "hash"}
     canonical = json.dumps(body, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _as_json(record: dict[str, Any]) -> dict[str, Any]:
+    """``record`` as it reads back from its line: keys turned into
+    strings, values JSON can not hold turned into their ``str``."""
+    return json.loads(json.dumps(record, separators=(",", ":"), default=str))
 
 
 def set_exporter(
@@ -79,22 +100,19 @@ def head(state_dir: Path) -> tuple[int, str] | None:
         return _heads.get(str(Path(state_dir)))
 
 
-def _last_chained(fd: int) -> tuple[int, str]:
-    """``(seq, hash)`` of the file's last chained record, read from its
-    tail; ``(0, GENESIS)`` when there is none."""
-    size = os.lseek(fd, 0, os.SEEK_END)
-    chunk = 8192
-    pos = size
-    tail = b""
+def _chained_tail(fd: int):
+    """``(seq, hash)`` of the file's chained records, last first, read
+    backwards from the end so a long log costs only its tail."""
+    pos = os.lseek(fd, 0, os.SEEK_END)
+    rest = b""
     while pos > 0:
-        step = min(chunk, pos)
+        step = min(65536, pos)
         pos -= step
         os.lseek(fd, pos, os.SEEK_SET)
-        tail = os.read(fd, step) + tail
-        lines = tail.split(b"\n")
+        lines = (os.read(fd, step) + rest).split(b"\n")
         # The first piece may be a partial line unless we reached the start.
-        candidates = lines if pos == 0 else lines[1:]
-        for raw in reversed(candidates):
+        rest = lines[0] if pos > 0 else b""
+        for raw in reversed(lines[1:] if pos > 0 else lines):
             raw = raw.strip()
             if not raw:
                 continue
@@ -104,9 +122,50 @@ def _last_chained(fd: int) -> tuple[int, str]:
                 continue
             if isinstance(rec, dict) and isinstance(rec.get("hash"), str):
                 seq = rec.get("seq")
-                return (seq if isinstance(seq, int) else 0), rec["hash"]
-        chunk *= 2
-    return 0, GENESIS
+                yield (seq if isinstance(seq, int) else 0), rec["hash"]
+
+
+def _last_chained(fd: int) -> tuple[int, str]:
+    """``(seq, hash)`` of the file's last chained record, read from its
+    tail; ``(0, GENESIS)`` when there is none."""
+    return next(_chained_tail(fd), (0, GENESIS))
+
+
+def _holds(fd: int, seq: int, hash_: str) -> bool:
+    """Does the file still hold the chained record ``(seq, hash_)``?"""
+    for s, h in _chained_tail(fd):
+        if s == seq:
+            return h == hash_
+        if s < seq:
+            return False
+    return False
+
+
+def _ends_mid_line(fd: int) -> bool:
+    size = os.lseek(fd, 0, os.SEEK_END)
+    if size == 0:
+        return False
+    os.lseek(fd, size - 1, os.SEEK_SET)
+    return os.read(fd, 1) != b"\n"
+
+
+def _write_all(fd: int, data: bytes) -> None:
+    view = memoryview(data)
+    while view:
+        n = os.write(fd, view)
+        if n <= 0:  # pragma: no cover - os.write raises instead
+            raise OSError("short write")
+        view = view[n:]
+
+
+def _chain_and_write(fd: int, key: str, record: dict[str, Any]) -> None:
+    """Give ``record`` its place in the chain and write it, with the
+    file locked."""
+    record["seq"], record["prev_hash"] = _last_chained(fd)
+    record["seq"] += 1
+    record["hash"] = record_hash(record)
+    _write_all(fd, (json.dumps(record, separators=(",", ":")) + "\n").encode("utf-8"))
+    _heads[key] = (record["seq"], record["hash"])
 
 
 def append(state_dir: Path, event: str, **fields: Any) -> dict[str, Any] | None:
@@ -121,33 +180,55 @@ def append(state_dir: Path, event: str, **fields: Any) -> dict[str, Any] | None:
     path = audit_path(state_dir)
     key = str(Path(state_dir))
     exporter = None
+    written: list[dict[str, Any]] = []
     try:
+        record = _as_json(record)
         path.parent.mkdir(parents=True, exist_ok=True)
         fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o600)
         try:
             with _lock:
                 _flock(fd)
                 try:
-                    seq, prev = _last_chained(fd)
-                    record["seq"] = seq + 1
-                    record["prev_hash"] = prev
-                    record["hash"] = record_hash(record)
-                    line = json.dumps(record, separators=(",", ":"), default=str)
-                    os.write(fd, (line + "\n").encode("utf-8"))
-                    _heads[key] = (record["seq"], record["hash"])
+                    if _ends_mid_line(fd):
+                        # A torn last line (a crash or a full disk mid-write):
+                        # end it, so this record is a line of its own.
+                        _write_all(fd, b"\n")
+                    remembered = _heads.get(key)
+                    if remembered is not None and not _holds(fd, *remembered):
+                        cut = _as_json(
+                            {
+                                "ts": record["ts"],
+                                "event": AUDIT_LOG_CUT,
+                                "pid": os.getpid(),
+                                "expected_seq": remembered[0],
+                                "file_seq": _last_chained(fd)[0],
+                            }
+                        )
+                        cut["seq"] = remembered[0] + 1
+                        cut["prev_hash"] = remembered[1]
+                        cut["hash"] = record_hash(cut)
+                        _write_all(
+                            fd,
+                            (json.dumps(cut, separators=(",", ":")) + "\n").encode(),
+                        )
+                        _heads[key] = (cut["seq"], cut["hash"])
+                        written.append(cut)
+                    _chain_and_write(fd, key, record)
+                    written.append(record)
                 finally:
                     _funlock(fd)
                 exporter = _exporters.get(key)
         finally:
             os.close(fd)
-    except OSError as e:
+    except Exception as e:  # noqa: BLE001 - the log never stops a decision
         _logger.warning("could not write audit record %s: %s", event, e)
         return None
     if exporter is not None:
-        try:
-            exporter(record)
-        except Exception as e:  # noqa: BLE001 - export never blocks the log
-            _logger.warning("could not export audit record %s: %s", event, e)
+        for rec in written:
+            try:
+                exporter(rec)
+            except Exception as e:  # noqa: BLE001 - export never blocks the log
+                _logger.warning("could not export audit record %s: %s", event, e)
     return record
 
 
