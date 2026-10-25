@@ -59,8 +59,15 @@ def main(argv: list[str]) -> int:
     opts, command = argv[:split], argv[split + 1 :]
     unix_path = opts[opts.index("--unix") + 1]
     port = int(opts[opts.index("--port") + 1])
-    # The namespace starts with loopback down.
-    subprocess.run(["ip", "link", "set", "lo", "up"], capture_output=True, check=False)
+    # A fresh network namespace can start with loopback down (bubblewrap
+    # brings it up itself; a container already has it). Without `ip`, the
+    # bind below says so if it is still down.
+    try:
+        subprocess.run(
+            ["ip", "link", "set", "lo", "up"], capture_output=True, check=False
+        )
+    except OSError:
+        pass
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(("127.0.0.1", port))

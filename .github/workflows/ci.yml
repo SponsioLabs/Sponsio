@@ -94,7 +94,10 @@ jobs:
         run: |
           sudo useradd --create-home agentuser
           sudo -u agentuser /usr/bin/python3 -m venv /home/agentuser/venv
-          sudo -u agentuser /home/agentuser/venv/bin/pip install --quiet /tmp/src pytest
+          # Built here: the agent user cannot write into /tmp/src.
+          /tmp/operator/bin/pip wheel --quiet --no-deps -w /tmp/wheels /tmp/src
+          chmod -R a+rX /tmp/wheels
+          sudo -u agentuser /home/agentuser/venv/bin/pip install --quiet /tmp/wheels/*.whl pytest
 
       - name: Tier 2 from the agent's side
         working-directory: /tmp/src
