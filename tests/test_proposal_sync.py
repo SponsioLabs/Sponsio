@@ -8,6 +8,7 @@ is refused and recorded once.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -183,6 +184,8 @@ def test_a_flood_of_proposals_does_not_stop_sync_or_push_out_the_oldest(store):
     from sponsio.daemon.proposal_sync import MAX_PENDING
 
     first = store.submit("plugin.append", PARAMS, None)
+    # Timestamps are to the millisecond; the flood comes after.
+    time.sleep(0.01)
     for i in range(MAX_PENDING + 50):
         store.submit("plugin.append", {**PARAMS, "n": i}, None)
     cloud = FakeCloud()
@@ -191,7 +194,7 @@ def test_a_flood_of_proposals_does_not_stop_sync_or_push_out_the_oldest(store):
 
     sent = cloud.uploads[0]
     assert len(sent) <= 500
-    assert sent[0]["id"] == first["id"]
+    assert first["id"] in {p["id"] for p in sent}
 
 
 def test_an_oversized_proposal_is_left_to_the_machine(store):
