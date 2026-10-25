@@ -434,3 +434,21 @@ def test_an_exported_record_says_which_daemon_wrote_it(tmp_path):
     )
     resource = env["resourceSpans"][0]["resource"]["attributes"]
     assert {"key": "sponsio.audit.stream", "value": {"stringValue": a}} in resource
+
+
+def test_the_stream_id_outlives_a_hostname_change(tmp_path):
+    from sponsio.daemon.audit_export import STREAM_FILE, persistent_stream_id
+
+    state = tmp_path / "state"
+    state.mkdir()
+    first = persistent_stream_id(state, "laptop.local")
+    assert persistent_stream_id(state, "laptop-2.local") == first
+    assert (state / STREAM_FILE).stat().st_mode & 0o777 == 0o600
+    assert persistent_stream_id(tmp_path, "laptop.local") != first
+
+
+def test_a_stream_file_holding_something_else_does_not_loop(tmp_path):
+    from sponsio.daemon.audit_export import STREAM_FILE, persistent_stream_id, stream_id
+
+    (tmp_path / STREAM_FILE).write_text("not an id\n")
+    assert persistent_stream_id(tmp_path, "h") == stream_id("h", tmp_path)

@@ -130,21 +130,40 @@ def pull(
     if public_key:
         _require_signed(pulled, body, public_key)
     if output:
-        # The bytes as served: a signature covers exactly these.
-        Path(output).write_bytes(body)
         sig_path = Path(output + ".sig")
-        if pulled.signature:
-            sig_path.write_text(pulled.signature + "\n", encoding="ascii")
-            signed = f" · signed ({pulled.signing_key or '?'}), wrote {sig_path.name}"
-        else:
-            if sig_path.exists():
-                sig_path.unlink()
-            signed = " · not signed"
+        try:
+            # The bytes as served: a signature covers exactly these. Each
+            # file is replaced whole, so a reader never sees half of one.
+            _replace(Path(output), body)
+            if pulled.signature:
+                _replace(sig_path, (pulled.signature + "\n").encode("ascii"))
+                signed = (
+                    f" · signed ({pulled.signing_key or '?'}), wrote {sig_path.name}"
+                )
+            else:
+                sig_path.unlink(missing_ok=True)
+                signed = " · not signed"
+        except OSError as exc:
+            raise click.ClickException(f"could not write {output}: {exc}") from exc
         click.echo(f"wrote {output} · {pulled.versions or '?'}{head}{signed}")
     else:
         if head:
             click.echo(f"# {pulled.versions or '?'}{head}", err=True)
         click.echo(pulled.yaml_text, nl=False)
+
+
+def _replace(path: Path, data: bytes) -> None:
+    import os
+    import tempfile
+
+    fd, tmp = tempfile.mkstemp(dir=path.parent or ".", prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def _require_signed(pulled, body: bytes, public_key: str) -> None:

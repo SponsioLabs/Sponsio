@@ -175,3 +175,31 @@ def test_daemon_yaml_turns_sync_on_and_keeps_it():
     assert (
         DaemonConfig.from_dict({"cloud": {"proposals": "yes"}}).cloud_proposals is False
     )
+
+
+def test_a_flood_of_proposals_does_not_stop_sync_or_push_out_the_oldest(store):
+    """The cloud takes 500 per sync; an agent filing a thousand must not
+    turn every sync into a refusal, nor push the first one out."""
+    from sponsio.daemon.proposal_sync import MAX_PENDING
+
+    first = store.submit("plugin.append", PARAMS, None)
+    for i in range(MAX_PENDING + 50):
+        store.submit("plugin.append", {**PARAMS, "n": i}, None)
+    cloud = FakeCloud()
+
+    sync_once(store, cloud, project="p", machine="m1")
+
+    sent = cloud.uploads[0]
+    assert len(sent) <= 500
+    assert sent[0]["id"] == first["id"]
+
+
+def test_an_oversized_proposal_is_left_to_the_machine(store):
+    from sponsio.daemon.proposal_sync import MAX_PARAMS_BYTES
+
+    big = store.submit(
+        "plugin.append", {**PARAMS, "staging_yaml": "x" * (MAX_PARAMS_BYTES + 1)}, None
+    )
+    cloud = FakeCloud()
+    sync_once(store, cloud, project="p", machine="m1")
+    assert big["id"] not in {p["id"] for p in cloud.uploads[0]}

@@ -367,3 +367,24 @@ def test_signing_key_prints_what_daemon_yaml_takes(runner, patched):
     assert result.exit_code == 0, result.output
     assert 'public_key: "AAAA"' in result.output
     assert "version 2" in result.output
+
+
+def test_a_failed_signature_write_is_an_error_not_a_traceback(
+    runner, patched, tmp_path, monkeypatch
+):
+    pulled, _ = _signed(SIGNED_BODY)
+    patched["install"](pulled=pulled)
+    out = tmp_path / "sponsio.yaml"
+    import sponsio.cli.commands.cloud as cloud_cmd
+
+    real = cloud_cmd._replace
+
+    def flaky(path, data):
+        if str(path).endswith(".sig"):
+            raise OSError("disk full")
+        return real(path, data)
+
+    monkeypatch.setattr(cloud_cmd, "_replace", flaky)
+    result = runner.invoke(cli, ["pull", "alpha", "-o", str(out)])
+    assert result.exit_code != 0
+    assert "could not write" in result.output

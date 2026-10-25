@@ -20,6 +20,8 @@ agent can read cannot approve what that agent proposed.
 
 from __future__ import annotations
 
+import datetime as _dt
+import json
 import socket
 from typing import Any
 
@@ -47,8 +49,29 @@ _UPLOADED = (
 )
 
 
+# The cloud takes at most 500 per sync. Pending ones go oldest first, so
+# an agent filing proposals by the hundred delays its own newest, not the
+# one already waiting; decided ones only while the console may still be
+# showing them as waiting.
+MAX_PENDING = 400
+MAX_DECIDED = 90
+DECIDED_FOR = _dt.timedelta(days=7)
+MAX_PARAMS_BYTES = 256 * 1024
+
+
 def _upload(store: ProposalStore) -> list[dict[str, Any]]:
-    return [{k: p.get(k) for k in _UPLOADED} for p in store.list()]
+    since = (_dt.datetime.now(_dt.timezone.utc) - DECIDED_FOR).isoformat()
+    pending: list[dict[str, Any]] = []
+    decided: list[dict[str, Any]] = []
+    for p in store.list():  # oldest first
+        if len(json.dumps(p.get("params"), default=str)) > MAX_PARAMS_BYTES:
+            continue  # decided on the machine, not sent
+        if p.get("status") == PENDING:
+            pending.append(p)
+        elif str(p.get("decided_at") or "") >= since:
+            decided.append(p)
+    chosen = pending[:MAX_PENDING] + decided[-MAX_DECIDED:]
+    return [{k: p.get(k) for k in _UPLOADED} for p in chosen]
 
 
 def sync_once(
@@ -111,7 +134,7 @@ def sync_once(
         # Say what happened now rather than one interval later.
         client.sync_proposals(project, machine=machine, proposals=_upload(store))
     return {
-        "uploaded": len(store.list()),
+        "uploaded": len(_upload(store)),
         "applied": applied,
         "rejected": rejected,
         "refused": refusals,

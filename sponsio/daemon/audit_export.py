@@ -21,6 +21,46 @@ from sponsio.tracer.exporters import OtlpHttpExporter
 SERVICE_NAME = "sponsio-daemon"
 
 
+STREAM_FILE = "audit.stream"
+
+
+def persistent_stream_id(state_dir: Any, host: str) -> str:
+    """The id kept in ``<state_dir>/audit.stream``, made once at random.
+
+    A hash of host and path alone changed with the hostname (laptops
+    rename themselves), so a receiver saw a chain stop and another begin.
+    When the file cannot be kept, :func:`stream_id` stands in.
+    """
+    import os
+    import secrets
+    from pathlib import Path
+
+    path = Path(state_dir) / STREAM_FILE
+
+    def read() -> str | None:
+        try:
+            value = path.read_text(encoding="ascii").strip()
+        except (OSError, UnicodeDecodeError):
+            return None
+        ok = len(value) == 16 and all(c in "0123456789abcdef" for c in value)
+        return value if ok else None
+
+    found = read()
+    if found:
+        return found
+    value = secrets.token_hex(8)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="ascii") as fh:
+            fh.write(value + "\n")
+        return value
+    except FileExistsError:
+        # Another process made it first, or it holds something else.
+        return read() or stream_id(host, state_dir)
+    except OSError:
+        return stream_id(host, state_dir)
+
+
 def stream_id(host: str, state_dir: Any) -> str:
     """Which daemon's chain this is: the same for every record a state
     dir's log holds, different for another daemon on the same host."""
