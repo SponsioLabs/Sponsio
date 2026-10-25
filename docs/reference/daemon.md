@@ -124,6 +124,8 @@ For a host hook call, the daemon adds the contracts in the project's `.sponsio/h
 
 The agent side cannot change rules. `sponsio plugin append` sends `proposal.submit` on the agent socket; the daemon validates the change as a dry run and stores it under `proposals/`. It applies only when `proposal.approve` arrives on the admin socket, which records who approved it and what changed. When the caller can reach the admin socket (Tier 1), `plugin append` approves its own proposal in the same command, and both steps are audited. When it cannot, the proposal waits for `sponsio admin proposals approve <id>`.
 
+A bucket whose rules must be signed (see [Signed rules](#signed-rules)) takes no change made on the machine. An appended file is no longer signed, so the daemon would keep the last signed rules and the change would never be enforced. `plugin.append` and `proposal.submit` for such a bucket are refused with `signed`, and so is approving a proposal submitted before signing was turned on: the change goes into the book where it is published, and the machine pulls it.
+
 **Deciding in the cloud console.** With `cloud: {project: ..., proposals: true}`, the daemon uploads its proposals with their status every `verify_interval_s`, using its own cloud key (`sponsio admin cloud-key set`; the key needs write access, a `publish` key). A person signed in to the console decides under Settings → Machines; no API key can, so a key the agent can read cannot approve what that agent proposed. On its next sync the daemon applies the decision through the same path as `proposal.approve`, and the audit record names the person (`peer: {via: sponsio-cloud, email, user_id}`). A decision applies only when the daemon's own copy of the proposal hashes to the `params_sha256` the person saw; otherwise it is refused and recorded as `proposal_cloud_refused`. The cloud keeps the params from the first upload and refuses different ones under the same id. Each sync carries at most 400 pending proposals, oldest first, and those decided in the last 7 days; a proposal whose params exceed 256 KiB is not sent and is decided on the machine.
 
 ---
@@ -144,7 +146,7 @@ Every compiled contract gets a stable id: a hash of its agent, the pack it came 
 
 With `signing:` in `daemon.yaml`, every rule file of a covered bucket needs a detached signature beside it: `sponsio.yaml.sig`, the base64 Ed25519 signature of the file's exact bytes. A file the library includes needs its own. Packs shipped inside Sponsio (`sponsio:...`) need none.
 
-- **A file that is not signed, or signed by another key.** The last rules that passed keep enforcing, and `rules_unsigned` is recorded. With nothing signed loaded, as after a restart, the bucket's calls are denied, whatever `on_error` says.
+- **A file that is not signed, or signed by another key.** The last rules that passed keep enforcing, and `rules_unsigned` is recorded. `sponsio rules status` shows the bucket as not signed on disk, with why. With nothing signed loaded, as after a restart, the bucket's calls are denied, whatever `on_error` says.
 - **A signed change.** It is handled like any other change: additions apply, removals are held until `sponsio rules reload`.
 - **A covered bucket with no rule file.** Nothing signed says the bucket has no rules, and a removal looks the same as a bucket that never had a file. A running daemon keeps enforcing the last signed rules; with none loaded the bucket is held, whatever `unconfigured` says. With `buckets: ["*"]` this means every bucket a call reaches needs signed rules; list buckets by name to cover only those.
 - **A file that does not load** (it does not parse, or an include cannot be read) is held the same way, whatever `on_error` says: nothing proves the failure is in signed content.
@@ -156,7 +158,7 @@ With `signing:` in `daemon.yaml`, every rule file of a covered bucket needs a de
 
 Verifying needs `cryptography` (`pip install --pre 'sponsio[signing]'`). Without it, covered buckets are denied, not served unchecked. Signing itself happens where the rules are published; the daemon only verifies.
 
-**Signed by Sponsio Cloud.** The cloud signs every published book it serves with the account's fleet key; drafts are never signed. `sponsio signing-key` prints the `signing:` block to put in `daemon.yaml`. `sponsio pull <project> --agent <bucket> -o <file>` writes the file and `<file>.sig` from the exact bytes served; add `--public-key <key>` to refuse anything not signed by that key. When an admin rotates the account's key, a daemon pinned to the old one holds its rules until the new key is pinned.
+**Signed by Sponsio Cloud.** The cloud signs every published book it serves with the account's fleet key; drafts are never signed. `sponsio signing-key` prints the `signing:` block to put in `daemon.yaml`. `sponsio pull <project> --agent <bucket> -o <file>` writes the file and `<file>.sig` from the exact bytes served, creating the bucket's directory if needed; add `--public-key <key>` to refuse anything not signed by that key. When an admin rotates the account's key, a daemon pinned to the old one holds its rules until the new key is pinned.
 
 ---
 

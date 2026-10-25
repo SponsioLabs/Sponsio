@@ -134,6 +134,8 @@ def pull(
         try:
             # The bytes as served: a signature covers exactly these. Each
             # file is replaced whole, so a reader never sees half of one.
+            # A bucket pulled for the first time has no directory yet.
+            Path(output).parent.mkdir(parents=True, exist_ok=True)
             _replace(Path(output), body)
             if pulled.signature:
                 _replace(sig_path, (pulled.signature + "\n").encode("ascii"))

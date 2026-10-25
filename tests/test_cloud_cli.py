@@ -133,6 +133,14 @@ def test_pull_writes_to_a_file(runner, patched, tmp_path):
     assert "quant@v3" in result.output
 
 
+def test_pull_into_a_bucket_that_does_not_exist_yet(runner, patched, tmp_path):
+    patched["install"]()
+    out = tmp_path / "plugins" / "_host_claude_code" / "sponsio.yaml"
+    result = runner.invoke(cli, ["pull", "alpha", "-o", str(out)])
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+
+
 def test_pull_without_a_key_says_which_key(runner, patched):
     patched["install"](configured=False)
     result = runner.invoke(cli, ["pull", "alpha"])

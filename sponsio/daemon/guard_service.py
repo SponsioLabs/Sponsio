@@ -117,6 +117,9 @@ class _CacheEntry:
     ``None``); an entry checked under another one is not reused."""
     missing: bool = False
     """The rule file is gone and ``served`` is the last signed rules."""
+    unsigned_reason: str | None = None
+    """Why what is on disk is not what is served: its signature check
+    failed, or the file is gone."""
 
 
 def _load_recorded(
@@ -278,6 +281,7 @@ class SnapshotStore:
                     unsigned=True,
                     placeholder=not keep,
                     signing=signing,
+                    unsigned_reason=unsigned,
                 )
                 if self._on_unsigned is not None:
                     self._on_unsigned(plugin_id, unsigned, keep)
@@ -321,6 +325,7 @@ class SnapshotStore:
         if entry is not None and not entry.placeholder:
             if not entry.missing:
                 entry.missing = True
+                entry.unsigned_reason = f"{lib_path.name} was removed"
                 if self._on_unsigned is not None:
                     self._on_unsigned(plugin_id, f"{lib_path.name} was removed", True)
             return entry.served
@@ -346,6 +351,17 @@ class SnapshotStore:
                 f"rules apply on the next call."
             ),
         )
+
+    def unsigned(self) -> dict[str, str]:
+        """Buckets whose rule file on disk is not what is served, because
+        it failed its signature check or is gone, with why. Each serves
+        the last signed rules, or is held when there are none."""
+        with self._lock:
+            return {
+                pid: e.unsigned_reason
+                for pid, e in self._cache.items()
+                if e.unsigned_reason
+            }
 
     def snapshots(self) -> list[LibrarySnapshot]:
         """What each cached bucket serves."""
@@ -1273,11 +1289,15 @@ class GuardService:
 
     def rules_status(self) -> dict[str, Any]:
         loaded = {}
+        unsigned = self.store.unsigned()
         for snap in self.store.snapshots():
             loaded[snap.plugin_id] = {
                 "path": snap.path,
                 "content_hash": snap.content_hash,
                 "held": snap.held_reason is not None,
+                # The file on disk is not what is enforced: an edit made on
+                # the machine to a signed bucket lands here, not in `held`.
+                "unsigned": unsigned.get(snap.plugin_id),
             }
         return {
             "loaded": loaded,
