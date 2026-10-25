@@ -260,3 +260,45 @@ def test_rotating_the_key_drops_rules_signed_by_the_old_one(signed):
     _, new_public = _keypair()
     config.save(state, config.DaemonConfig(signing_public_key=new_public))
     assert not _allowed(svc, command="ls"), "rules signed by the retired key served"
+
+
+# ---- a covered bucket that never had a file ----
+
+
+@pytest.mark.parametrize("unconfigured", [None, "allow", "deny"])
+@pytest.mark.parametrize(
+    "tool", ["Bash", "mcp__acme__send"], ids=["host bucket", "mcp bucket"]
+)
+def test_a_covered_bucket_with_no_file_on_a_fresh_daemon_is_held(
+    tmp_path, unconfigured, tool
+):
+    """Nothing on record says the bucket existed, and nothing signed says it
+    has no rules: held, whatever ``unconfigured`` says."""
+    _, public = _keypair()
+    state = tmp_path / "state"
+    kw = {"signing_public_key": public}
+    if unconfigured:
+        kw["unconfigured"] = unconfigured
+    config.save(state, config.DaemonConfig(**kw))
+    (tmp_path / "plugins").mkdir()
+    svc = GuardService(root=tmp_path / "plugins", state_dir=state)
+    out = svc.check(host="claude-code", payload=_call(tool=tool, command="ls"))
+    assert not out["allowed"] and "signed" in out["reason"]
+    assert audit.read(state, "rules_unsigned")
+
+
+def test_a_bucket_signing_does_not_cover_follows_unconfigured(tmp_path):
+    _, public = _keypair()
+    state = tmp_path / "state"
+    config.save(
+        state,
+        config.DaemonConfig(signing_public_key=public, signing_buckets=("github",)),
+    )
+    (tmp_path / "plugins").mkdir()
+    svc = GuardService(root=tmp_path / "plugins", state_dir=state)
+    assert svc.check(host="claude-code", payload=_call(tool="mcp__acme__send"))[
+        "allowed"
+    ]
+    assert not svc.check(host="claude-code", payload=_call(tool="mcp__github__x"))[
+        "allowed"
+    ]

@@ -313,20 +313,24 @@ class SnapshotStore:
         agent_id: str,
         entry: _CacheEntry | None,
     ) -> LibrarySnapshot | None:
-        """A covered bucket whose rule file is gone. Removing the file is an
-        unsigned change like any other: the last signed rules keep
-        enforcing; with none loaded but rules applied before, the bucket
-        is held. Called with the lock held."""
-        reason = f"{lib_path.name} was removed"
+        """A covered bucket with no rule file. Nothing signed says the bucket
+        has no rules, and a removal looks the same as a bucket that never
+        had a file: the last signed rules keep enforcing, and with none
+        loaded the bucket is held, whatever ``unconfigured`` says. Called
+        with the lock held."""
         if entry is not None and not entry.placeholder:
             if not entry.missing:
                 entry.missing = True
                 if self._on_unsigned is not None:
-                    self._on_unsigned(plugin_id, reason, True)
+                    self._on_unsigned(plugin_id, f"{lib_path.name} was removed", True)
             return entry.served
         self._cache.pop(plugin_id, None)
-        if self._known is None or not self._known(plugin_id):
-            return None
+        removed = self._known is not None and self._known(plugin_id)
+        reason = (
+            f"{lib_path.name} was removed"
+            if removed
+            else f"there is no signed {lib_path.name}"
+        )
         if plugin_id not in self._held_missing:
             self._held_missing.add(plugin_id)
             if self._on_unsigned is not None:
@@ -337,8 +341,8 @@ class SnapshotStore:
             path=str(lib_path),
             content_hash="",
             held_reason=(
-                f"Sponsio: the rules for {plugin_id} were removed and must be "
-                f"signed by the configured key, so this call is denied. Signed "
+                f"Sponsio: the rules for {plugin_id} must be signed by the "
+                f"configured key and {reason}, so this call is denied. Signed "
                 f"rules apply on the next call."
             ),
         )

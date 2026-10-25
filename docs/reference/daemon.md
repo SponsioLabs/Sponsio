@@ -141,7 +141,7 @@ With `signing:` in `daemon.yaml`, every rule file of a covered bucket needs a de
 
 - **A file that is not signed, or signed by another key.** The last rules that passed keep enforcing, and `rules_unsigned` is recorded. With nothing signed loaded, as after a restart, the bucket's calls are denied, whatever `on_error` says.
 - **A signed change.** It is handled like any other change: additions apply, removals are held until `sponsio rules reload`.
-- **A removed rule file.** Also an unsigned change: the last signed rules keep enforcing. A daemon that starts after the removal denies the bucket's calls if rules for it were applied before.
+- **A covered bucket with no rule file.** Nothing signed says the bucket has no rules, and a removal looks the same as a bucket that never had a file. A running daemon keeps enforcing the last signed rules; with none loaded the bucket is held, whatever `unconfigured` says. With `buckets: ["*"]` this means every bucket a call reaches needs signed rules; list buckets by name to cover only those.
 - **A file that does not load** (it does not parse, or an include cannot be read) is held the same way, whatever `on_error` says: nothing proves the failure is in signed content.
 - **The bytes checked are the bytes parsed.** The daemon keeps what it read of each file while loading and verifies those bytes, not a second read. A bucket's own `sponsio.yaml` is always checked, also when it links into Sponsio's own files.
 - **Changing `signing:`.** Turning it on, or changing the key, applies to rules already loaded: they are checked again under the new key, not kept.

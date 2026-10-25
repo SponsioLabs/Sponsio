@@ -71,6 +71,7 @@ Tier 1 assumes less and promises less. The agent shares the daemon's OS user, so
 - An agent that edits Sponsio's files, stops the daemon or replaces its code can succeed. The attempt is recorded and the deny reasons tell you how to recover, but nothing at Tier 1 prevents it.
 - A command the rules allow can still do things the rules did not anticipate. Sponsio mediates tool calls. It does not mediate what a permitted shell command or script does after it starts.
 - Starting a second agent session gives it a fresh session history. Contracts that count per session do not carry over, unless you write them to.
+- The audit log's integrity while the daemon is stopped depends on a remote copy. The log is hash-chained, and a running daemon notices when it no longer holds the last record it wrote. A log cut or rewritten while no daemon runs is found only by comparing it with the records exported over OTLP (`audit.otlp_endpoint` in `daemon.yaml`). At Tier 2 the agent's user cannot write the log at all.
 
 ## Reporting
 
