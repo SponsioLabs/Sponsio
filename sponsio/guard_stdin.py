@@ -45,7 +45,7 @@ import json
 import os
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -83,6 +83,9 @@ class GuardOutcome:
     fail_open: bool = False
     """Allowed only because the call could not be evaluated and the
     on-error policy is ``allow``. The daemon audits every such call."""
+    project_dropped: tuple[str, ...] = ()
+    """What the project layer tried that would have weakened the
+    protected library, and was dropped. The daemon audits it."""
 
 
 def _bucket_for_host(host: str | None, is_subagent: bool) -> str:
@@ -736,6 +739,139 @@ class LibrarySnapshot:
         return raw if isinstance(raw, dict) else {}
 
 
+PROJECT_LAYER_FILE = Path(".sponsio") / "host.yaml"
+"""The project layer, relative to the project's root (D5, P1.3)."""
+
+_PROJECT_LAYER_MAX_BYTES = 1 << 20
+
+
+@dataclass(frozen=True)
+class ProjectLayer:
+    """A project's ``.sponsio/host.yaml``, as the daemon found it.
+
+    ``text`` is set when the file was accepted. ``refused`` says why it
+    was not read as a layer: a link, not a regular file, or owned by
+    someone other than the agent's user. A refused file is ignored and
+    is evidence of tampering. ``error`` is a file that was accepted but
+    cannot be a layer (too large, not UTF-8); it is decided like a
+    library that does not parse.
+    """
+
+    path: str
+    text: str | None = None
+    refused: str | None = None
+    error: str | None = None
+
+    @property
+    def digest(self) -> str:
+        return hashlib.sha256((self.text or "").encode("utf-8")).hexdigest()
+
+
+def find_project_layer(event: dict, owner_uid: int) -> ProjectLayer | None:
+    """The project layer for a hook event, or ``None`` when it has none.
+
+    The project is the one the event's ``cwd`` is in (Cursor sends
+    ``workspace_roots`` when it has no ``cwd``): its root is the nearest
+    directory up from ``cwd`` that holds ``.git``, or ``cwd`` itself.
+    The layer is ``<root>/.sponsio/host.yaml``.
+
+    The file is opened without following a link and must be a regular
+    file owned by ``owner_uid``, the agent's user as the daemon's peer
+    credentials give it. The daemon reads it with its own privileges,
+    so a file the agent does not own is never read as its layer.
+    """
+    cwd = event.get("cwd")
+    if not isinstance(cwd, str) or not cwd:
+        roots = event.get("workspace_roots")
+        cwd = roots[0] if isinstance(roots, list) and roots else None
+    if not isinstance(cwd, str) or not os.path.isabs(cwd):
+        return None
+    start = Path(os.path.normpath(cwd))
+    root = start
+    for d in (start, *start.parents):
+        try:
+            if (d / ".git").exists():
+                root = d
+                break
+        except OSError:
+            break
+    path = root / PROJECT_LAYER_FILE
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as e:
+        if os.path.islink(path):
+            return ProjectLayer(str(path), refused="it is a symbolic link")
+        _warn_once(
+            f"project:{path}",
+            f"sponsio: the project layer {path} cannot be read by the daemon "
+            f"({e.strerror}); its contracts do not apply.\n",
+        )
+        return None
+    with os.fdopen(fd, "rb") as fh:
+        import stat
+
+        st = os.fstat(fh.fileno())
+        if not stat.S_ISREG(st.st_mode):
+            return ProjectLayer(str(path), refused="it is not a regular file")
+        if st.st_uid != owner_uid:
+            return ProjectLayer(
+                str(path),
+                refused=f"it is owned by uid {st.st_uid}, not the agent's ({owner_uid})",
+            )
+        data = fh.read(_PROJECT_LAYER_MAX_BYTES + 1)
+    if len(data) > _PROJECT_LAYER_MAX_BYTES:
+        return ProjectLayer(str(path), error="it is larger than 1 MiB")
+    try:
+        return ProjectLayer(str(path), text=data.decode("utf-8"))
+    except UnicodeDecodeError:
+        return ProjectLayer(str(path), error="it is not UTF-8")
+
+
+_WARNED: set[str] = set()
+
+
+def _warn_once(key: str, message: str) -> None:
+    if key not in _WARNED:
+        _WARNED.add(key)
+        sys.stderr.write(message)
+
+
+_LAYERED: dict[tuple[str, str, str], tuple[LibrarySnapshot, tuple[str, ...]]] = {}
+_LAYERED_MAX = 64
+
+
+def _with_project_layer(
+    snap: LibrarySnapshot, project: ProjectLayer
+) -> tuple[LibrarySnapshot, tuple[str, ...]]:
+    """``snap`` with ``project`` on top (:func:`sponsio.config.apply_project_layer`),
+    and what the layer tried that was dropped. Raises on a layer that does
+    not parse."""
+    if project.error is not None:
+        from sponsio.config import ConfigError
+
+        raise ConfigError(f"{project.path}: {project.error}")
+    key = (snap.content_hash, project.path, project.digest)
+    hit = _LAYERED.get(key)
+    if hit is not None:
+        return hit
+    from sponsio.config import apply_project_layer
+
+    config, dropped = apply_project_layer(snap.config, project.path, project.text)
+    layered = replace(
+        snap,
+        config=config,
+        content_hash=hashlib.sha256(
+            f"{snap.content_hash}\0{project.path}\0{project.digest}".encode()
+        ).hexdigest(),
+    )
+    if len(_LAYERED) >= _LAYERED_MAX:
+        _LAYERED.pop(next(iter(_LAYERED)))
+    _LAYERED[key] = (layered, tuple(dropped))
+    return layered, tuple(dropped)
+
+
 class RuleStore(Protocol):
     """Where libraries come from."""
 
@@ -1062,6 +1198,7 @@ def evaluate(
     policy: GuardPolicy,
     guards: GuardCache | None = None,
     library: str | None = None,
+    project: ProjectLayer | None = None,
 ) -> GuardOutcome:
     """Decide one hook event. Pure in its inputs: no file, no environment.
 
@@ -1076,6 +1213,10 @@ def evaluate(
     ``library`` names the library to decide against, for a caller that
     has one (the SDK's ``backend="daemon"``); otherwise it is derived
     from the tool name and host (:func:`derive_plugin_id`).
+
+    ``project`` is the project layer the caller found for the event
+    (:func:`find_project_layer`). Its contracts are added to the
+    library's; nothing in it can weaken the library.
     """
     tool_name = event.get("tool_name") or ""
     tool_input = event.get("tool_input") or {}
@@ -1160,6 +1301,12 @@ def evaluate(
         )
     if snap.error is not None:
         return _error_outcome(snap.error, plugin_id, snap.path, policy.on_error)
+    dropped: tuple[str, ...] = ()
+    if project is not None and project.refused is None:
+        try:
+            snap, dropped = _with_project_layer(snap, project)
+        except Exception as e:  # noqa: BLE001 - a layer error is a decision input
+            return _error_outcome(e, plugin_id, project.path, policy.on_error)
 
     # BaseGuard prints a live reporter banner on each event regardless
     # of ``verbose``. Claude Code's hook protocol expects either nothing
@@ -1241,6 +1388,7 @@ def evaluate(
             allowed=True,
             plugin_id=plugin_id,
             library_path=snap.path,
+            project_dropped=dropped,
         )
     _return_guard(guards, cache_key, guard, conversation_id, used_context)
 
@@ -1263,6 +1411,7 @@ def evaluate(
         reason=reason,
         plugin_id=plugin_id,
         library_path=snap.path,
+        project_dropped=dropped,
     )
 
 

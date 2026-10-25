@@ -1476,7 +1476,7 @@ One JSON object per line. The ones to look for:
 | Event | Means |
 |---|---|
 | `config_drift` | A rule file, pack or engine file changed. With `"applied": false`, a rule change is waiting for review. |
-| `tamper_attempt` | The agent tried to change Sponsio and a self-protection rule denied it. |
+| `tamper_attempt` | The agent tried to change Sponsio and a self-protection rule denied it, or a project's `.sponsio/host.yaml` tried to weaken a protected rule. |
 | `trace_deleted` | A session's history log was deleted or cut; it was restored from memory. |
 | `fail_open` | A call was allowed because its rules could not be evaluated and `on_error: allow` is set. |
 | `admin_call` | Someone changed the daemon's state: the method and their uid. |
@@ -2688,6 +2688,10 @@ At Tier 1 the daemon runs as the agent's user, so the agent can reach the admin 
 
 ---
 
+## Project layer
+
+For a host hook call, the daemon adds the contracts in the project's `.sponsio/host.yaml` to the bucket's library. The project layer can only add: anything in it that would weaken a protected contract is dropped and recorded as a `tamper_attempt`. See [A protected library with a project layer](config-yaml.md#a-protected-library-with-a-project-layer).
+
 ## Proposals
 
 The agent side cannot change rules. `sponsio plugin append` sends `proposal.submit` on the agent socket; the daemon validates the change as a dry run and stores it under `proposals/`. It applies only when `proposal.approve` arrives on the admin socket, which records who approved it and what changed. When the caller can reach the admin socket (Tier 1), `plugin append` approves its own proposal in the same command, and both steps are audited. When it cannot, the proposal waits for `sponsio admin proposals approve <id>`.
@@ -2792,6 +2796,7 @@ Every line of `audit.jsonl` is a JSON object with `ts` (UTC, ISO 8601), `event` 
 | `ruleset_reloaded` | `sponsio rules reload` applied a held change. | `bucket`, `peer`, `removed`, `added`, `content_hash` |
 | `trace_deleted` | A session's log was found deleted or truncated and rewritten from memory. | `conversation`, `problem` |
 | `tamper_attempt` | A call was denied by `capability/self-modify` or `capability/host-config-integrity`. | `host`, `tool`, `bucket`, `packs`, `reason` |
+| `tamper_attempt` (`source: project_layer`) | A project layer tried to weaken a protected contract, or is not the agent's own regular file. Once per file content. | `host`, `source`, `path`, `dropped` |
 | `proposal_submitted` | A rule change was proposed. | `id`, `kind`, `peer` |
 | `proposal_approved`, `proposal_rejected` | A proposal was decided. | `id`, `kind`, `peer`, `change` |
 | `rules_unsigned` | A covered bucket's rule files failed the signature check. | `bucket`, `reason`, `kept_previous` |
@@ -3382,7 +3387,26 @@ Broader. Also checks framework detection, provider credentials, and session-log 
 - a `customized:` entry that matches a protected contract is dropped;
 - the project file's `defaults`, `runtime`, `tool_policy`, `mode`, `performance`, `extractor` and `judge` are ignored.
 
-The function returns the effective config, with every contract tagged `layer: protected` or `layer: project`, and one line for each thing it dropped. The daemon does not read a project layer for host hooks yet.
+The function returns the effective config, with every contract tagged `layer: protected` or `layer: project`, and one line for each thing it dropped.
+
+### The project layer for host hooks
+
+The daemon reads a project layer for every host hook call that names a working directory (Claude Code's `cwd`; Cursor's `cwd` or first workspace root; OpenClaw sends neither, so it gets none). The project is the nearest directory up from `cwd` that holds `.git`, or `cwd` itself, and the layer is `<project>/.sponsio/host.yaml`. It has the shape of a library, with one agent per bucket:
+
+```yaml
+version: "1"
+agents:
+  _host_claude_code:
+    contracts:
+      - desc: "no curl in this repo"
+        G: {pattern: arg_blacklist, args: [Bash, command, ["curl"]]}
+```
+
+- Its contracts are added to the bucket's library for calls made in that project. A bucket with no library is not created by a project layer.
+- An entry that would disable, customize or override a protected contract, and every top-level setting listed above, is dropped. The daemon writes the dropped lines to its log and records one `tamper_attempt` audit event (`source: project_layer`) per file content.
+- The file must be a regular file owned by the agent's user (the connecting process's uid). A link, or a file owned by anyone else, is ignored and recorded as a `tamper_attempt`.
+- A file that does not parse is decided like a library that does not parse: by `on_error`.
+- The agent can edit this file, so its contracts are the project's own conventions, not a boundary. At Tier 2 the daemon reads it as `_sponsio`; a project the daemon cannot read gets no layer, with a line in the daemon log.
 
 ## Loading from Python
 

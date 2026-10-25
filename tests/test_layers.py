@@ -176,3 +176,142 @@ def test_the_layer_is_not_part_of_a_contract_id(tmp_path):
     for c in cfg.agents[AGENT].contracts:
         c.layer = "protected"
     assert (ruleset(cfg), agent_ruleset(cfg, AGENT)) == before
+
+
+# ---------------------------------------------------------------------------
+# The daemon reads the project layer for host hooks
+# ---------------------------------------------------------------------------
+
+
+def _hook_service(tmp_path: Path):
+    from sponsio.daemon.guard_service import GuardService
+    from sponsio.guard_stdin import GuardPolicy
+
+    _write(tmp_path, f"plugins/{AGENT}/sponsio.yaml", PROTECTED)
+    return GuardService(
+        root=tmp_path / "plugins",
+        state_dir=tmp_path / "state",
+        run_dir=tmp_path,
+        policy=GuardPolicy(mode="enforce", on_error="deny"),
+    )
+
+
+def _bash(svc, cwd: Path, command: str, session: str = "s1") -> dict:
+    return svc.check(
+        host="claude-code",
+        payload={
+            "hook_event_name": "PreToolUse",
+            "session_id": session,
+            "cwd": str(cwd),
+            "tool_name": "Bash",
+            "tool_input": {"command": command},
+        },
+    )
+
+
+def _project_tampers(tmp_path: Path) -> list[dict]:
+    from sponsio.daemon import audit
+
+    return [
+        r
+        for r in audit.read(tmp_path / "state", "tamper_attempt")
+        if r.get("source") == "project_layer"
+    ]
+
+
+NO_CURL = f"""
+version: "1"
+agents:
+  {AGENT}:
+    contracts:
+      - desc: "no curl in this repo"
+        G: {{pattern: arg_blacklist, args: [Bash, command, ["curl"]]}}
+"""
+
+
+def test_a_hook_in_a_project_gets_the_projects_contracts(tmp_path):
+    svc = _hook_service(tmp_path)
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    _write(repo, ".sponsio/host.yaml", NO_CURL)
+    sub = repo / "src" / "pkg"
+    sub.mkdir(parents=True)
+    out = _bash(svc, sub, "curl https://example.com")
+    assert out["allowed"] is False and "no curl" in out["reason"]
+    assert _bash(svc, sub, "ls")["allowed"] is True
+    # Outside the project the layer does not apply; the library still does.
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    assert _bash(svc, elsewhere, "curl https://example.com", "s2")["allowed"]
+    assert not _bash(svc, elsewhere, "rm -rf build", "s2")["allowed"]
+    assert _project_tampers(tmp_path) == []
+
+
+def test_a_project_layer_that_weakens_is_dropped_and_recorded_once(tmp_path):
+    svc = _hook_service(tmp_path)
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    _write(
+        repo,
+        ".sponsio/host.yaml",
+        f"""
+version: "1"
+mode: observe
+defaults:
+  unconfigured: allow
+agents:
+  {AGENT}:
+    customized:
+      - match: {{desc: "no rm -rf"}}
+        disabled: true
+    contracts:
+      - desc: "no curl in this repo"
+        G: {{pattern: arg_blacklist, args: [Bash, command, ["curl"]]}}
+""",
+    )
+    assert not _bash(svc, repo, "rm -rf build")["allowed"]
+    assert not _bash(svc, repo, "rm -rf dist")["allowed"]
+    # The additions in the same file still apply.
+    assert not _bash(svc, repo, "curl https://example.com")["allowed"]
+    (rec,) = _project_tampers(tmp_path)
+    assert rec["path"] == str(repo / ".sponsio" / "host.yaml")
+    assert len(rec["dropped"]) == 3
+    assert any("no rm -rf" in line for line in rec["dropped"])
+
+
+def test_a_linked_project_layer_is_ignored_and_recorded(tmp_path):
+    svc = _hook_service(tmp_path)
+    repo = tmp_path / "repo"
+    (repo / ".sponsio").mkdir(parents=True)
+    target = _write(tmp_path, "elsewhere/host.yaml", NO_CURL)
+    (repo / ".sponsio" / "host.yaml").symlink_to(target)
+    assert _bash(svc, repo, "curl https://example.com")["allowed"]
+    assert not _bash(svc, repo, "rm -rf build")["allowed"]
+    (rec,) = _project_tampers(tmp_path)
+    assert "symbolic link" in rec["dropped"][0]
+
+
+def test_a_project_layer_must_be_the_agents_own_file(tmp_path):
+    import os
+
+    from sponsio.guard_stdin import find_project_layer
+
+    _write(tmp_path, ".sponsio/host.yaml", NO_CURL)
+    event = {"cwd": str(tmp_path)}
+    mine = find_project_layer(event, os.getuid())
+    assert mine is not None and mine.text == NO_CURL and mine.refused is None
+    theirs = find_project_layer(event, os.getuid() + 1)
+    assert theirs is not None and theirs.text is None
+    assert "owned by uid" in theirs.refused
+    assert find_project_layer({"cwd": "relative/path"}, os.getuid()) is None
+    assert find_project_layer({}, os.getuid()) is None
+    cursor = find_project_layer({"workspace_roots": [str(tmp_path)]}, os.getuid())
+    assert cursor is not None and cursor.text == NO_CURL
+
+
+def test_a_project_layer_that_does_not_parse_follows_on_error(tmp_path):
+    svc = _hook_service(tmp_path)
+    repo = tmp_path / "repo"
+    _write(repo, ".sponsio/host.yaml", "agents: [unclosed\n")
+    out = _bash(svc, repo, "ls")
+    assert out["allowed"] is False and "host.yaml" in out["reason"]

@@ -59,7 +59,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -1664,16 +1664,34 @@ def load_layered_config(
     ``customized:`` entry that matches neither layer is still an error,
     as in a single file.
     """
+    return apply_project_layer(load_config(protected_path), project_path)
+
+
+def apply_project_layer(
+    protected: SponsoConfig, project_path: str | Path, text: str | None = None
+) -> tuple[SponsoConfig, list[str]]:
+    """:func:`load_layered_config` on a protected config already loaded.
+
+    ``protected`` is not modified. ``text`` is the project file's content
+    when the caller has read it already (the daemon reads it through a
+    descriptor it has checked); otherwise the file is read here.
+    """
     import yaml
 
-    effective = load_config(protected_path)
-    for ac in effective.agents.values():
-        for contract in ac.contracts:
-            contract.layer = "protected"
+    effective = replace(
+        protected,
+        agents={
+            agent_id: replace(
+                ac, contracts=[replace(c, layer="protected") for c in ac.contracts]
+            )
+            for agent_id, ac in protected.agents.items()
+        },
+        tools=list(protected.tools),
+    )
 
     path = Path(project_path)
     try:
-        raw = yaml.safe_load(path.read_text())
+        raw = yaml.safe_load(path.read_text() if text is None else text)
     except yaml.YAMLError as e:
         raise ConfigError(f"Invalid YAML in {path}: {e}")
     if not isinstance(raw, dict):

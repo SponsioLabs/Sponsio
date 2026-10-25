@@ -317,7 +317,26 @@ Broader. Also checks framework detection, provider credentials, and session-log 
 - a `customized:` entry that matches a protected contract is dropped;
 - the project file's `defaults`, `runtime`, `tool_policy`, `mode`, `performance`, `extractor` and `judge` are ignored.
 
-The function returns the effective config, with every contract tagged `layer: protected` or `layer: project`, and one line for each thing it dropped. The daemon does not read a project layer for host hooks yet.
+The function returns the effective config, with every contract tagged `layer: protected` or `layer: project`, and one line for each thing it dropped.
+
+### The project layer for host hooks
+
+The daemon reads a project layer for every host hook call that names a working directory (Claude Code's `cwd`; Cursor's `cwd` or first workspace root; OpenClaw sends neither, so it gets none). The project is the nearest directory up from `cwd` that holds `.git`, or `cwd` itself, and the layer is `<project>/.sponsio/host.yaml`. It has the shape of a library, with one agent per bucket:
+
+```yaml
+version: "1"
+agents:
+  _host_claude_code:
+    contracts:
+      - desc: "no curl in this repo"
+        G: {pattern: arg_blacklist, args: [Bash, command, ["curl"]]}
+```
+
+- Its contracts are added to the bucket's library for calls made in that project. A bucket with no library is not created by a project layer.
+- An entry that would disable, customize or override a protected contract, and every top-level setting listed above, is dropped. The daemon writes the dropped lines to its log and records one `tamper_attempt` audit event (`source: project_layer`) per file content.
+- The file must be a regular file owned by the agent's user (the connecting process's uid). A link, or a file owned by anyone else, is ignored and recorded as a `tamper_attempt`.
+- A file that does not parse is decided like a library that does not parse: by `on_error`.
+- The agent can edit this file, so its contracts are the project's own conventions, not a boundary. At Tier 2 the daemon reads it as `_sponsio`; a project the daemon cannot read gets no layer, with a line in the daemon log.
 
 ## Loading from Python
 

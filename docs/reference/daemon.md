@@ -113,6 +113,10 @@ At Tier 1 the daemon runs as the agent's user, so the agent can reach the admin 
 
 ---
 
+## Project layer
+
+For a host hook call, the daemon adds the contracts in the project's `.sponsio/host.yaml` to the bucket's library. The project layer can only add: anything in it that would weaken a protected contract is dropped and recorded as a `tamper_attempt`. See [A protected library with a project layer](config-yaml.md#a-protected-library-with-a-project-layer).
+
 ## Proposals
 
 The agent side cannot change rules. `sponsio plugin append` sends `proposal.submit` on the agent socket; the daemon validates the change as a dry run and stores it under `proposals/`. It applies only when `proposal.approve` arrives on the admin socket, which records who approved it and what changed. When the caller can reach the admin socket (Tier 1), `plugin append` approves its own proposal in the same command, and both steps are audited. When it cannot, the proposal waits for `sponsio admin proposals approve <id>`.
@@ -217,6 +221,7 @@ Every line of `audit.jsonl` is a JSON object with `ts` (UTC, ISO 8601), `event` 
 | `ruleset_reloaded` | `sponsio rules reload` applied a held change. | `bucket`, `peer`, `removed`, `added`, `content_hash` |
 | `trace_deleted` | A session's log was found deleted or truncated and rewritten from memory. | `conversation`, `problem` |
 | `tamper_attempt` | A call was denied by `capability/self-modify` or `capability/host-config-integrity`. | `host`, `tool`, `bucket`, `packs`, `reason` |
+| `tamper_attempt` (`source: project_layer`) | A project layer tried to weaken a protected contract, or is not the agent's own regular file. Once per file content. | `host`, `source`, `path`, `dropped` |
 | `proposal_submitted` | A rule change was proposed. | `id`, `kind`, `peer` |
 | `proposal_approved`, `proposal_rejected` | A proposal was decided. | `id`, `kind`, `peer`, `change` |
 | `rules_unsigned` | A covered bucket's rule files failed the signature check. | `bucket`, `reason`, `kept_previous` |

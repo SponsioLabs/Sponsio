@@ -58,6 +58,7 @@ from sponsio.guard_stdin import (
     GuardOutcome,
     GuardPolicy,
     LibrarySnapshot,
+    ProjectLayer,
     _error_outcome,
     _resolve_library,
     _safe_conv_id,
@@ -65,6 +66,7 @@ from sponsio.guard_stdin import (
     conversation_key,
     derive_plugin_id,
     evaluate,
+    find_project_layer,
     library_root,
     load_snapshot,
     malformed_outcome,
@@ -858,6 +860,7 @@ class GuardService:
         self._conv_locks: dict[str, threading.Lock] = {}
         self._tamper_guards: dict[str, Any] = {}
         self._tamper_packs: dict[str, set[str]] = {}
+        self._project_reported: set[tuple[str, ...]] = set()
         self._cloud_status: dict[str, dict[str, Any]] = {}
         self._cloud_stop: threading.Event | None = None
         self._gateway: Any = None
@@ -1295,7 +1298,7 @@ class GuardService:
     ) -> tuple[GuardOutcome, str | None]:
         """The decision, plus the drift warning pending for the next reply
         (appended to a deny's reason, where every host shows it)."""
-        outcome = self._evaluate(event, mode)
+        outcome = self._evaluate(event, mode, project=self._project_layer(event))
         warning = self.rules.take_warning()
         if warning and not outcome.allowed:
             outcome = replace(outcome, reason=f"{outcome.reason} [{warning}]")
@@ -1308,6 +1311,7 @@ class GuardService:
         *,
         offered_only: bool = False,
         library: str | None = None,
+        project: ProjectLayer | None = None,
     ) -> GuardOutcome:
         # ``mode`` is what an older hook command or plugin still sends;
         # the daemon config decides, so it is ignored.
@@ -1342,6 +1346,7 @@ class GuardService:
                             policy=policy,
                             guards=self.guards,
                             library=library,
+                            project=project,
                         )
             except Exception as e:  # noqa: BLE001 - every failure is a decision
                 outcome = _error_outcome(e, "", None, policy.on_error)
@@ -1358,7 +1363,54 @@ class GuardService:
                 reason=outcome.reason,
             )
         self._audit_tamper(event, outcome)
+        self._audit_project(event, project, outcome)
         return outcome
+
+    def _project_layer(self, event: dict) -> ProjectLayer | None:
+        """The project layer of a host hook's event, read as the agent's
+        user would own it (the connection's peer; this process's user
+        outside a request)."""
+        from sponsio.daemon.server import current_peer
+
+        peer = current_peer()
+        uid = peer.uid if peer is not None else os.getuid()
+        try:
+            return find_project_layer(event, uid)
+        except Exception as e:  # noqa: BLE001 - a missing layer only adds nothing
+            sys.stderr.write(f"sponsio: project layer lookup failed: {e}\n")
+            return None
+
+    def _audit_project(
+        self, event: dict, project: ProjectLayer | None, outcome: GuardOutcome
+    ) -> None:
+        """A project layer that tried to weaken the protected library, or
+        that is not the agent's own file, is an attempted tamper (D5).
+        Recorded once per file content, not on every call."""
+        if project is None:
+            return
+        if project.refused is not None:
+            key: tuple[str, ...] = ("refused", project.path, project.refused)
+            what = [f"{project.path} is ignored: {project.refused}"]
+        elif outcome.project_dropped:
+            key = ("dropped", project.path, project.digest)
+            what = list(outcome.project_dropped)
+        else:
+            return
+        if key in self._project_reported:
+            return
+        if len(self._project_reported) > 4096:
+            self._project_reported.clear()
+        self._project_reported.add(key)
+        for line in what:
+            sys.stderr.write(f"sponsio: project layer: {line}\n")
+        audit.append(
+            self.state_dir,
+            TAMPER_ATTEMPT,
+            host=event.get("host"),
+            source="project_layer",
+            path=project.path,
+            dropped=what,
+        )
 
     def _offered(
         self,

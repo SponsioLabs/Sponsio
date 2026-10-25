@@ -241,6 +241,7 @@ def cursor_event_to_sponsio_event(
         "generation_id",
         "cursor_version",
         "cwd",
+        "workspace_roots",
     ):
         if key in cursor_payload:
             sponsio_event[key] = cursor_payload[key]

@@ -61,7 +61,7 @@ One JSON object per line. The ones to look for:
 | Event | Means |
 |---|---|
 | `config_drift` | A rule file, pack or engine file changed. With `"applied": false`, a rule change is waiting for review. |
-| `tamper_attempt` | The agent tried to change Sponsio and a self-protection rule denied it. |
+| `tamper_attempt` | The agent tried to change Sponsio and a self-protection rule denied it, or a project's `.sponsio/host.yaml` tried to weaken a protected rule. |
 | `trace_deleted` | A session's history log was deleted or cut; it was restored from memory. |
 | `fail_open` | A call was allowed because its rules could not be evaluated and `on_error: allow` is set. |
 | `admin_call` | Someone changed the daemon's state: the method and their uid. |
