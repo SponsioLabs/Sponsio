@@ -942,10 +942,21 @@ def check_hook_wiring() -> CheckResult:
 
 def _hooks_through_daemon() -> bool:
     from sponsio.integrations.hosts import is_shim_command
+    from sponsio.tier import _merged_managed, cursor_hooks_path, managed_settings_paths
 
     for host in ("claude-code", "cursor"):
         if any(is_shim_command(cmd) for _p, cmd in _sponsio_hook_commands(host)):
             return True
+    # A system install wires the hooks in the hosts' managed settings.
+    merged, _read = _merged_managed(managed_settings_paths())
+    if "sponsio_shim" in json.dumps(merged.get("hooks", {})):
+        return True
+    cursor = cursor_hooks_path()
+    try:
+        if cursor is not None and "sponsio_shim" in cursor.read_text():
+            return True
+    except OSError:
+        pass
     return _openclaw_plugin_config() is not None
 
 
@@ -963,6 +974,10 @@ def check_tier() -> CheckResult:
 
     report = assess_this_machine(_hooks_through_daemon())
     name = TIER_NAMES[report.tier]
+    if report.degraded:
+        name += (
+            " (degraded: " + "; ".join(g.name.lower() for g in report.degraded) + ")"
+        )
     nxt = report.tier + 1
     missing = report.missing(nxt) if nxt <= 3 else []
     detail = name
@@ -978,15 +993,24 @@ def print_tier_report() -> int:
 
     report = assess_this_machine(_hooks_through_daemon())
     click.echo()
-    click.echo(click.style(f"Enforcement: {TIER_NAMES[report.tier]}", bold=True))
+    label = TIER_NAMES[report.tier] + (" (degraded)" if report.degraded else "")
+    click.echo(click.style(f"Enforcement: {label}", bold=True))
     for t in (1, 2, 3):
         click.echo()
         click.echo(click.style(f"  Tier {t}", bold=True))
         for g in (x for x in report.guarantees if x.tier == t):
-            icon = click.style("✓" if g.ok else "✗", fg="green" if g.ok else "red")
+            if g.ok:
+                icon = click.style("✓", fg="green")
+            elif g.required:
+                icon = click.style("✗", fg="red")
+            else:
+                icon = click.style("!", fg="yellow")
             click.echo(f"    {icon} {g.name}: {g.detail}")
             if not g.ok and g.fix:
                 click.echo(f"        fix: {g.fix}")
+    for note in report.notes:
+        click.echo()
+        click.echo(f"  {note}")
     click.echo()
     return report.tier
 

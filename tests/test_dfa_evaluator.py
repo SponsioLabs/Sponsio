@@ -424,9 +424,12 @@ class TestDifferentialIncremental:
 
 
 class TestTraceVerifierBackendSwitch:
-    def test_default_backend_is_recursive(self):
+    def test_default_backend_is_incremental(self):
         v = TraceVerifier()
-        assert v._backend == "recursive"
+        assert v._backend == "incremental"
+
+    def test_recursive_backend_opt_in(self):
+        assert TraceVerifier(backend="recursive")._backend == "recursive"
 
     def test_dfa_backend_opt_in(self):
         v = TraceVerifier(backend="dfa")

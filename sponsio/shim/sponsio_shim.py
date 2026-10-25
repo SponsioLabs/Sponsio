@@ -8,6 +8,7 @@ Usage::
 
     sponsio_shim.py <host> [--event NAME] --socket PATH [--deadline SECONDS]
                     [--plugin-root DIR] [--state-dir DIR] [--sponsio CMD]
+                    [--no-start]
 
 ``host`` is ``claude-code``, ``cursor`` or ``openclaw``. The installer
 writes every option as an absolute value, so the shim reads nothing from
@@ -19,7 +20,8 @@ daemon's exit code.
 
 If no daemon answers, the shim starts one (``sponsio daemon run
 --detach``, with a scrubbed environment), waits for the socket, and
-retries once. If that fails too, or the deadline passes, it writes the
+retries once. With ``--no-start`` (a system install, where the service
+manager runs the daemon as its own user) it does not try. If that fails too, or the deadline passes, it writes the
 host's deny shape and exits 2, so a host that reads either signal
 blocks the call. The deny reason says how to recover; the agent cannot,
 since its own tools are denied too.
@@ -82,6 +84,7 @@ class Options:
         self.plugin_root: str | None = None
         self.state_dir: str | None = None
         self.sponsio: list[str] | None = None
+        self.no_start = False
 
 
 def parse_args(argv: list[str]) -> Options:
@@ -106,6 +109,8 @@ def parse_args(argv: list[str]) -> Options:
         elif arg == "--sponsio":
             raw = next(it, None)
             opts.sponsio = shlex.split(raw) if raw else None
+        elif arg == "--no-start":
+            opts.no_start = True
         elif arg.startswith("--"):
             next(it, None)
         elif not opts.host:
@@ -149,6 +154,20 @@ _HOST_CONFIG = {
 }
 
 
+def system_recovery_reason(cause: str) -> str:
+    """The deny reason when the system daemon (Tier 2) does not answer."""
+    if sys.platform == "darwin":
+        restart = "sudo launchctl kickstart -k system/dev.sponsio.daemon"
+    else:
+        restart = "sudo systemctl restart sponsio"
+    return (
+        f"Sponsio: the system enforcement daemon is not reachable ({cause}). "
+        f"This tool call is denied, and every tool call will be denied until "
+        f"it is back. From your own terminal: `{restart}`, then "
+        f"`sponsio doctor`."
+    )
+
+
 def recovery_reason(
     cause: str, socket_path: str, state_dir: str | None, host: str = ""
 ) -> str:
@@ -173,6 +192,14 @@ def recovery_reason(
         f"delete the entries naming sponsio_shim.py from {config}. "
         f"Log: {log}"
     )
+
+
+def _recovery(opts: "Options", cause: str) -> str:
+    """The deny reason for a call no daemon decided: the system install's
+    recovery (``--no-start``), or the per-user one."""
+    if opts.no_start:
+        return system_recovery_reason(cause)
+    return recovery_reason(cause, opts.socket, opts.state_dir, opts.host)
 
 
 def deny_reply(host: str, event_name: str, reason: str) -> tuple[str, int]:
@@ -211,6 +238,12 @@ class Unreachable(Exception):
     """No daemon answered (missing socket, refused, or timed out)."""
 
 
+class ReplyLost(Unreachable):
+    """The request was sent and no reply came back: the daemon may have
+    acted on it. Retrying is safe only for a request that has no effect
+    of its own."""
+
+
 def call(socket_path: str, method: str, params: dict, deadline: float) -> dict:
     """One RPC; raises :class:`Unreachable` when no daemon answers and
     ``RuntimeError`` when a daemon answers with an error."""
@@ -218,20 +251,22 @@ def call(socket_path: str, method: str, params: dict, deadline: float) -> dict:
     if remaining <= 0:
         raise Unreachable("deadline passed")
     body = json.dumps({"method": method, "params": params}).encode("utf-8")
+    sent = False
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
             s.settimeout(remaining)
             s.connect(socket_path)
             s.sendall(_LEN.pack(len(body)) + body)
+            sent = True
             header = _recv_exact(s, _LEN.size)
             (length,) = _LEN.unpack(header)
             if length > _MAX_FRAME:
                 raise RuntimeError("reply too large")
             reply = json.loads(_recv_exact(s, length).decode("utf-8"))
     except socket.timeout as e:
-        raise Unreachable("timed out") from e
+        raise (ReplyLost if sent else Unreachable)("timed out") from e
     except (OSError, ConnectionError) as e:
-        raise Unreachable(_describe(e, socket_path)) from e
+        raise (ReplyLost if sent else Unreachable)(_describe(e, socket_path)) from e
     if not isinstance(reply, dict) or not reply.get("ok"):
         err = reply.get("error") if isinstance(reply, dict) else reply
         raise RuntimeError(f"daemon error: {err}")
@@ -329,6 +364,10 @@ def run(argv: list[str], stdin_text: str) -> tuple[str, int, str]:
     try:
         result = call(opts.socket, method, params, deadline)
     except Unreachable as first:
+        if opts.no_start:
+            reason = system_recovery_reason(str(first))
+            out, code = deny_reply(opts.host, event_name, reason)
+            return out, code, reason + "\n"
         cause = str(first)
         failure = start_daemon(opts)
         if failure is not None:
@@ -353,7 +392,7 @@ def run(argv: list[str], stdin_text: str) -> tuple[str, int, str]:
         result = None
 
     if result is None:
-        reason = recovery_reason(cause, opts.socket, opts.state_dir, opts.host)
+        reason = _recovery(opts, cause)
         out, code = deny_reply(opts.host, event_name, reason)
         return out, code, reason + "\n"
     out = result.get("stdout")
@@ -377,12 +416,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as e:  # noqa: BLE001 - any failure in the shim is a deny
         opts = parse_args(argv)
         _method, event_name = classify(opts.host, opts.event, stdin_text)
-        reason = recovery_reason(
-            f"shim failure {e.__class__.__name__}: {e}",
-            opts.socket,
-            opts.state_dir,
-            opts.host,
-        )
+        reason = _recovery(opts, f"shim failure {e.__class__.__name__}: {e}")
         out, code = deny_reply(opts.host, event_name, reason)
         err = reason + "\n"
     try:

@@ -427,6 +427,59 @@ The daemon also polls the library files, their packs and the engine modules on t
 
 With a `cloud:` section in `daemon.yaml`, the daemon also checks every `verify_interval_s` (and on `sponsio rules verify`) that each linked bucket enforces the book the project publishes for its agent. It sends the bucket's contract ids to `POST /v1/rulebook/verify`, and the service computes the published book's ids with the same algorithm. The ids ignore descriptions and whether a contract came from a pack, and keep its mode. The answer is `match`, `stronger` (local additions), `weaker` (published contracts missing locally, recorded as `cloud_drift` and announced on the next hook reply), `incomparable` (different SDK versions disagree) or `unsupported`. This check never runs on the decision path. A failed check is reported as a status and never causes a deny.
 
+## sponsio install --system
+
+Tier 2: Sponsio for the whole machine, out of the agent's reach. Run with `sudo`.
+
+```bash
+sudo sponsio install --system [--host claude-code] [--host cursor]
+                              [--python PATH] [--package SPEC] [--allow-user-hooks]
+                              [--no-migrate] [--dry-run]
+sudo sponsio uninstall --system [--keep-state] [--dry-run]
+```
+
+`install --system` creates the `_sponsio` user, a root-owned engine in `/opt/sponsio` on a root-owned Python 3.10+ (`--python`), root-owned hook shims, the daemon's private state and its launchd or systemd service. It imports `~/.sponsio/plugins` (unless `--no-migrate`) and writes the host's managed settings. `--package` is what pip installs into the engine: a version spec, a wheel or a source directory. `--dry-run` prints every step and changes nothing. What it sets up and what to know about it: [Running Sponsio on a host](../guides/host-operations.md#tier-2-the-system-install).
+
+## sponsio run --sandbox
+
+Tier 3: start an agent whose only way out is Sponsio.
+
+```bash
+sponsio run --sandbox [--workspace DIR] [--writable PATH]... [--keep-env NAME]...
+                      [--hide-home] [--socket PATH] -- <agent command>
+sponsio run --container -- <agent command>    # inside deploy/tier3's agent container
+```
+
+The daemon opens an egress proxy for the run; the agent is not started without one. Inside the sandbox the network is that proxy and nothing else, files are read-only outside the workspace and the `--writable` paths, Sponsio's own state cannot be read, and credentials are removed from the environment (names ending in `_TOKEN`, `_SECRET`, `_PASSWORD`, `_API_KEY`, `_KEY`, and known cloud credentials; the agent's own model key and `--keep-env` names stay). Hook settings (`.claude/settings*.json`, `.cursor/hooks.json` in your home and the workspace) stay read-only even under a writable directory. Linux uses bubblewrap; macOS uses `sandbox-exec` with a profile that denies everything not listed, so the agent cannot ask LaunchServices, AppleEvents or launchd to start a process outside the sandbox. `--container` is for a container that is already the sandbox: it only routes the network through the proxy. Exits with the agent's status.
+
+## sponsio admin
+
+Operator commands. They talk to the daemon's admin socket: at Tier 1 that is your own daemon, at Tier 2 run them with `sudo`. The agent's hooks deny them.
+
+```bash
+sponsio admin proposals list [--status pending|approved|rejected] [--json]
+sponsio admin proposals show ID
+sponsio admin proposals approve ID [--yes]     # applies it; recorded with your uid and the change
+sponsio admin proposals reject ID [--yes]
+sponsio admin audit verify [--state-dir DIR]   # exit 1 when the chain is broken
+sponsio admin cloud-key set [--from-file F]    # the daemon's own cloud key; only a fingerprint is recorded
+sponsio admin cloud-key status
+```
+
+`audit verify` asks the running daemon, which also checks that the last record it wrote is still in the log. With `--state-dir`, or with no daemon, it checks the file's chain alone. The [daemon reference](daemon.md#audit-events) describes the chain.
+
+## sponsio gateway
+
+The MCP gateway. The daemon runs the agent's MCP servers with the credentials in `<state-dir>/gateway.yaml`, and the host is given one MCP server that lists only the tools the session's state allows.
+
+```bash
+sponsio gateway command [--socket PATH] [--state-dir DIR] [--plugin-root DIR]
+                                       # print the MCP server entry for the host's config
+sponsio gateway tools [--socket PATH]  # the tools a new session is offered, and servers that failed
+```
+
+Put the entry `gateway command` prints under `mcpServers` in `.mcp.json` (Claude Code) or `~/.cursor/mcp.json` (Cursor), and remove the servers it replaces: their credentials move to `gateway.yaml`. The file format and how listing and calls are decided are in the [daemon reference](daemon.md#mcp-gateway).
+
 ## sponsio cursor
 
 Cursor IDE integration. Cursor 1.7+ ships a deny-capable hook system (`hooks.json`); Sponsio plugs in as the command for the relevant pre-* events so every Shell/Read/Write/MCP call is evaluated against the contract library before Cursor executes it.

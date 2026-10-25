@@ -531,7 +531,22 @@ class BaseGuard:
             configured claims from structured assistant output, verifies
             them server-side, and folds blocking verdicts into the
             returned :class:`CheckResult`.
+        backend: ``"local"`` (default) decides in this process.
+            ``"daemon"`` sends every check to the Sponsio daemon, which
+            decides it against its own library named ``agent_id``
+            (``<plugin_root>/<agent_id>/sponsio.yaml``) with the
+            session's history and its own mode for the ``sdk`` host
+            (:mod:`sponsio.daemon.sdk_backend`). The process can then
+            change neither the rules nor the history. No contracts are
+            passed with it, and a check the daemon does not answer is
+            blocked.
+        daemon_socket: The daemon's agent socket, for ``backend="daemon"``
+            (default ``~/.sponsio/sponsio.sock``).
     """
+
+    _remote: Any = None
+    """The :class:`~sponsio.daemon.sdk_backend.DaemonBackend` when
+    ``backend="daemon"``."""
 
     def __init__(
         self,
@@ -557,7 +572,34 @@ class BaseGuard:
         evidence: Any | None = None,
         parsed_config: Any | None = None,
         env_mode: bool = True,
+        backend: str = "local",
+        daemon_socket: str | Path | None = None,
     ) -> None:
+        # --- Daemon backend: the rules are the daemon's ---
+        if backend not in ("local", "daemon"):
+            raise ValueError(f'backend must be "local" or "daemon", got {backend!r}')
+        self._remote = None
+        if backend == "daemon":
+            given = [
+                name
+                for name, value in (
+                    ("contracts", contracts),
+                    ("config", config),
+                    ("system", system),
+                    ("parsed_config", parsed_config),
+                    ("tool_policy", tool_policy),
+                )
+                if value is not None
+            ]
+            if given:
+                raise ValueError(
+                    f'backend="daemon" takes its rules from the daemon\'s '
+                    f"library `{agent_id}`; do not pass {', '.join(given)}."
+                )
+            from sponsio.daemon.sdk_backend import DaemonBackend
+
+            self._remote = DaemonBackend(agent_id, socket_path=daemon_socket)
+
         # --- Config file support ---
         #
         # ``parsed_config`` is an already-loaded ``SponsoConfig``. It takes
@@ -1568,6 +1610,8 @@ class BaseGuard:
         Returns:
             CheckResult with allowed=False if blocked.
         """
+        if self._remote is not None:
+            return self._remote_before(tool_name, args)
         with self._lock:
             drift = self._seal_drift()
             if drift is not None:
@@ -1734,7 +1778,9 @@ class BaseGuard:
         approved = set(policy.approved)
         return [t for t in tools if name_fn(t) in approved]
 
-    def filter_tools(self, candidates: list[str]) -> list[str]:
+    def filter_tools(
+        self, candidates: list[str], *, hide_redirected: bool = False
+    ) -> list[str]:
         """Return the subset of ``candidates`` legal to call right now.
 
         Probes each candidate against the current trace + det contracts
@@ -1771,11 +1817,18 @@ class BaseGuard:
         Args:
             candidates: Tool names the framework would normally expose
                 to the agent for the next turn.
+            hide_redirected: Also drop a tool whose call would be
+                redirected, for a caller that has no safe tool to
+                substitute and so refuses a redirected call.
 
         Returns:
             The subset of ``candidates`` (preserving order) for which
-            no det contract reports a ``blocked`` outcome.
+            no det contract reports a ``blocked`` outcome. With
+            ``backend="daemon"`` the daemon answers, from its library and
+            the session's history, and an unanswered call offers nothing.
         """
+        if self._remote is not None:
+            return self._remote.filter_tools(list(candidates))
         with self._lock:
             allowed: list[str] = []
             for tool_name in candidates:
@@ -1788,9 +1841,53 @@ class BaseGuard:
                 # see the candidate call; we always pop it on the way
                 # out so the trace is restored to its real state.
                 self._monitor.rollback_last_event()
-                if not any(r.action == "blocked" for r in results):
+                stops = is_stopping_action if hide_redirected else "blocked".__eq__
+                if not any(stops(r.action) for r in results):
                     allowed.append(tool_name)
             return allowed
+
+    def tools_for_turn(self, candidates: list[str]) -> list[str]:
+        """The tools to offer the model on its next turn.
+
+        Adapters call this before every model call, so the tool list
+        follows the session's state: a tool behind ``must_precede``
+        appears once its prerequisite has run, and one ``no_reversal``
+        forbids drops out. It filters (:meth:`filter_tools`) with
+        ``backend="daemon"``, where the daemon's mode decides, and under
+        ``tool_policy.enforcement: proactive`` outside observe mode.
+        Otherwise it returns ``candidates`` unchanged. Every call is
+        still decided by :meth:`guard_before`.
+        """
+        if self._remote is not None:
+            return self._remote.filter_tools(list(candidates))
+        policy = getattr(self, "_tool_policy", None)
+        if (
+            policy is None
+            or policy.enforcement != "proactive"
+            or self._mode == "observe"
+        ):
+            return list(candidates)
+        return self.filter_tools(list(candidates))
+
+    def _remote_before(self, tool_name: str, args: dict | None) -> CheckResult:
+        allowed, reason = self._remote.check(tool_name, args)
+        if allowed:
+            return CheckResult(allowed=True)
+        violation = EnforcementResult(
+            action="blocked",
+            message=f"BLOCKED: {self.agent_id}.{tool_name}. {reason}",
+            rule_id="daemon",
+            agent_msg=f"The action `{tool_name}` was rejected: {reason}",
+        )
+        with self._lock:
+            self._violations.append(
+                {
+                    "tool": tool_name,
+                    "constraint": violation.message,
+                    "action": "BLOCKED",
+                }
+            )
+        return CheckResult(allowed=False, det_violations=[violation])
 
     def guard_after(self, tool_name: str, output: Any) -> CheckResult:
         """Check sto constraints AFTER tool execution.
@@ -1808,6 +1905,9 @@ class BaseGuard:
         Returns:
             CheckResult with feedback if sto violations detected.
         """
+        if self._remote is not None:
+            self._remote.observe(tool_name, output)
+            return CheckResult(allowed=True)
         # Auto-tag tool output into the trace *before* the sto check
         # so any new ``contains()`` predicates are visible to sto atoms
         # reading them.
@@ -2376,6 +2476,10 @@ class BaseGuard:
         clean = {k: v for k, v in facts.items() if k is not None and v is not None}
         if not clean:
             return
+        if self._remote is not None:
+            # Sent with the next check, as the hook path sends ``context``.
+            self._remote.add_context(clean)
+            return
         self._monitor.check_action(
             agent_id=self.agent_id,
             action="<context_update>",
@@ -2539,6 +2643,10 @@ class BaseGuard:
         else:
             pending_count = len(self._pending_liveness_violations)
 
+        if self._remote is not None:
+            # The daemon holds the history; a new session id starts an
+            # empty one there.
+            self._remote.rotate()
         # Step 2. snapshot guard-side counts under the lock, rotate
         # the monitor, clear guard-side state. A concurrent
         # ``guard_before`` either fully observes the old window (if it

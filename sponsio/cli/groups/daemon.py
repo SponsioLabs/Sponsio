@@ -133,7 +133,22 @@ def daemon_run(
         root=(plugin_root or Path.home() / ".sponsio" / "plugins").expanduser(),
         state_dir=resolved_state,
         watch=watch,
+        run_dir=path.parent,
     )
+
+    exporter = None
+    cfg = service.config.current()
+    if cfg.audit_otlp_endpoint:
+        import socket as _socket
+
+        from sponsio.daemon.audit_export import AuditOtlpExporter
+
+        exporter = AuditOtlpExporter(
+            cfg.audit_otlp_endpoint,
+            headers=cfg.audit_otlp_headers,
+            host=_socket.gethostname(),
+        )
+        audit.set_exporter(service.state_dir, exporter.export)
 
     def _record_start(server) -> None:
         prior = server.previous_pid
@@ -176,7 +191,11 @@ def daemon_run(
     finally:
         service.stop_watch()
         service.stop_cloud_verify()
+        service.close_gateway()
     audit.append(service.state_dir, audit.DAEMON_STOP, socket=str(path))
+    if exporter is not None:
+        audit.set_exporter(service.state_dir, None)
+        exporter.close()
     click.echo("daemon stopped")
 
 

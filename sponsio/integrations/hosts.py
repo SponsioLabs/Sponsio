@@ -242,6 +242,8 @@ def shim_command(
     python: str | None = None,
     sponsio: str | None = None,
     deadline_s: float = DEFAULT_SHIM_DEADLINE_S,
+    shim: Path | None = None,
+    no_start: bool = False,
 ) -> str:
     """The hook command: the shim under this interpreter, fully pinned.
 
@@ -260,6 +262,8 @@ def shim_command(
 
     ``sponsio`` overrides how the shim starts a daemon (``--binary`` on
     ``host install``); by default it is ``<python> -m sponsio.cli``.
+    ``shim`` and ``no_start`` are for a system install: the root-owned
+    copy of the shim, which never starts a daemon itself.
     """
     import shlex
     import sys
@@ -267,7 +271,13 @@ def shim_command(
     from sponsio.shim import shim_path
 
     interpreter = python or sys.executable
-    parts = [shlex.quote(interpreter), "-I", "-S", shlex.quote(str(shim_path())), host]
+    parts = [
+        shlex.quote(interpreter),
+        "-I",
+        "-S",
+        shlex.quote(str(shim or shim_path())),
+        host,
+    ]
     if event:
         parts += ["--event", event]
     sock = socket_path if socket_path is not None else _default_socket_path()
@@ -279,7 +289,47 @@ def shim_command(
     parts += ["--deadline", f"{deadline_s:g}"]
     if sponsio:
         parts += ["--sponsio", shlex.quote(sponsio)]
+    if no_start:
+        parts.append("--no-start")
     return " ".join(parts)
+
+
+def gateway_server_entry(
+    *,
+    socket_path: Path | None = None,
+    plugin_root: Path | None = None,
+    state_dir: Path | None = None,
+    python: str | None = None,
+    shim: Path | None = None,
+    no_start: bool = False,
+) -> dict:
+    """The MCP server entry that points a host at the gateway shim.
+
+    ``{"command": <python>, "args": ["-I", "-S", <shim>, "--socket", S,
+    "--plugin-root", R, "--state-dir", D]}``, pinned like
+    :func:`shim_command`: the shim reads no environment variable.
+    """
+    import sys
+
+    from sponsio.shim import mcp_shim_path
+
+    sock = socket_path if socket_path is not None else _default_socket_path()
+    root = plugin_root if plugin_root is not None else _default_plugin_root()
+    state = state_dir if state_dir is not None else _default_state_dir()
+    args = [
+        "-I",
+        "-S",
+        str(shim or mcp_shim_path()),
+        "--socket",
+        str(sock),
+        "--plugin-root",
+        str(root),
+        "--state-dir",
+        str(state),
+    ]
+    if no_start:
+        args.append("--no-start")
+    return {"command": python or sys.executable, "args": args}
 
 
 def set_daemon_mode(

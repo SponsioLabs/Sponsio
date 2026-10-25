@@ -33,40 +33,165 @@ class Guarantee:
     ok: bool
     detail: str
     fix: str = ""
+    required: bool = True
+    """A guarantee that is not required leaves the tier standing when it
+    fails, and marks it degraded."""
 
 
 @dataclass
 class TierReport:
     tier: int
     guarantees: list[Guarantee] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    """Per-host remarks, such as a host that stays at Tier 1."""
 
     def missing(self, tier: int) -> list[Guarantee]:
-        return [g for g in self.guarantees if g.tier == tier and not g.ok]
+        return [
+            g for g in self.guarantees if g.tier == tier and not g.ok and g.required
+        ]
+
+    @property
+    def degraded(self) -> list[Guarantee]:
+        return [
+            g
+            for g in self.guarantees
+            if 0 < g.tier <= self.tier and not g.ok and not g.required
+        ]
 
     def as_dict(self) -> dict:
         return {
             "tier": self.tier,
+            "degraded": bool(self.degraded),
             "guarantees": [g.__dict__ for g in self.guarantees],
+            "notes": list(self.notes),
         }
 
 
-def managed_settings_paths() -> tuple[Path, ...]:
-    """Where Claude Code reads managed (system) settings."""
+MIN_CLAUDE_CODE = "2.1.295"
+
+
+def _claude_dir() -> Path:
     if sys.platform == "darwin":
-        return (Path("/Library/Application Support/ClaudeCode/managed-settings.json"),)
-    return (Path("/etc/claude-code/managed-settings.json"),)
+        return Path("/Library/Application Support/ClaudeCode")
+    return Path("/etc/claude-code")
+
+
+def managed_settings_paths() -> tuple[Path, ...]:
+    """Claude Code's managed settings files, in the order it merges them:
+    ``managed-settings.json``, then ``managed-settings.d/*.json``."""
+    base = _claude_dir()
+    dropins = sorted((base / "managed-settings.d").glob("*.json"))
+    return (base / "managed-settings.json", *dropins)
+
+
+def mdm_settings_path() -> Path | None:
+    """A managed source Claude Code ranks above the files (macOS MDM)."""
+    if sys.platform == "darwin":
+        return Path("/Library/Managed Preferences/com.anthropic.claudecode.plist")
+    return None
+
+
+def _merged_managed(paths: tuple[Path, ...]) -> tuple[dict, list[Path]]:
+    """The files' settings merged in order, as Claude Code merges them:
+    objects merge key by key at every depth, lists are concatenated, and
+    a later scalar wins. Returns which files were read too."""
+    merged: dict = {}
+    read: list[Path] = []
+    for p in paths:
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        read.append(p)
+        _deep_merge(merged, data)
+    return merged, read
+
+
+def _deep_merge(into: dict, data: dict) -> None:
+    for key, value in data.items():
+        have = into.get(key)
+        if isinstance(have, dict) and isinstance(value, dict):
+            _deep_merge(have, value)
+        elif isinstance(have, list) and isinstance(value, list):
+            into[key] = have + value
+        elif isinstance(value, dict):
+            into[key] = {}
+            _deep_merge(into[key], value)
+        elif isinstance(value, list):
+            into[key] = list(value)
+        else:
+            into[key] = value
+
+
+_PLATFORM_NAMES = {"darwin": ("macos", "darwin", "mac"), "linux": ("linux",)}
+
+
+def _sandbox_platform_off(sandbox: dict) -> str | None:
+    """Why the sandbox is off on this platform although enabled, or ``None``."""
+    platforms = sandbox.get("enabledPlatforms")
+    if platforms is None:
+        return None
+    names = _PLATFORM_NAMES.get(sys.platform, (sys.platform,))
+    if isinstance(platforms, list) and any(
+        str(x).strip().lower() in names for x in platforms
+    ):
+        return None
+    return f"sandbox.enabledPlatforms ({platforms!r}) leaves out this platform"
+
+
+def _version_tuple(v: object) -> tuple[int, ...]:
+    try:
+        return tuple(int(x) for x in str(v).split("."))
+    except ValueError:
+        return ()
+
+
+def _higher_source_ignores_files(mdm: Path | None) -> str | None:
+    """Why Claude Code ignores the managed settings files, or ``None``."""
+    if mdm is None or not mdm.exists():
+        return None
+    try:
+        import plistlib
+
+        data = plistlib.loads(mdm.read_bytes())
+    except Exception:  # noqa: BLE001 - unreadable profile: assume it wins
+        data = {}
+    if isinstance(data, dict) and data.get("managedSourcesBehavior") == "merge":
+        return None
+    return (
+        f"an MDM profile ({mdm}) ranks above the managed settings files, so "
+        f"Claude Code ignores them"
+    )
 
 
 def _root_owned_readonly(path: Path) -> tuple[bool, str]:
+    """Is ``path`` root-owned and out of this user's reach, together with
+    every directory above it? A writable directory anywhere up the chain
+    lets the user rename the path away and put another in its place."""
     try:
         st = path.stat()
     except OSError:
         return False, f"{path} is missing"
     if st.st_uid != 0:
         return False, f"{path} is owned by uid {st.st_uid}, not root"
-    if os.access(path, os.W_OK) or os.access(path.parent, os.W_OK):
-        return False, f"{path} (or its directory) is writable by this user"
+    if os.access(path, os.W_OK):
+        return False, f"{path} is writable by this user"
+    for parent in path.parents:
+        try:
+            pst = parent.stat()
+        except OSError:
+            return False, f"{parent} cannot be read"
+        if pst.st_uid != 0:
+            return False, f"{parent}, above {path}, is owned by uid {pst.st_uid}"
+        if os.access(parent, os.W_OK):
+            return False, f"{parent}, above {path}, is writable by this user"
     return True, f"{path} is root-owned and read-only to this user"
+
+
+def _owned_check(path: Path) -> tuple[bool, str]:
+    return _root_owned_readonly(path)
 
 
 def assess(
@@ -79,6 +204,9 @@ def assess(
     plugin_root: Path,
     managed_settings: tuple[Path, ...] | None = None,
     uid: int | None = None,
+    mdm_settings: Path | None = None,
+    cursor_hooks: Path | None = None,
+    sandboxed: bool | None = None,
 ) -> TierReport:
     uid = os.getuid() if uid is None else uid
     g: list[Guarantee] = []
@@ -153,57 +281,183 @@ def assess(
         )
     )
 
-    managed = None
-    for p in (
+    paths = (
         managed_settings if managed_settings is not None else managed_settings_paths()
-    ):
-        try:
-            managed = (p, json.loads(p.read_text(encoding="utf-8")))
-            break
-        except (OSError, ValueError):
-            continue
-    text = json.dumps(managed[1]) if managed else ""
-    hooks_ok = (
-        bool(managed)
-        and "sponsio_shim" in text
-        and bool(managed[1].get("allowManagedHooksOnly"))
     )
+    merged, read = _merged_managed(tuple(paths))
+    ignored = _higher_source_ignores_files(
+        mdm_settings if mdm_settings is not None else mdm_settings_path()
+    )
+    where = ", ".join(str(p) for p in read) or "no Claude Code managed settings"
+    problem = ignored
+    if problem is None and merged.get("disableAllHooks") is True:
+        problem = (
+            f"disableAllHooks is on in the managed settings ({where}), which "
+            f"turns off managed hooks too"
+        )
+    if problem is None:
+        # The files, and the directories holding them, must be out of the
+        # agent user's reach, or it can remove the hooks.
+        for f in [*read, *{p.parent for p in paths}]:
+            if not f.exists():
+                continue
+            ok, detail = _owned_check(f)
+            if not ok:
+                problem = detail
+                break
+    hooks_ok = "sponsio_shim" in json.dumps(merged.get("hooks", {})) and not problem
     g.append(
         Guarantee(
             2,
-            "Host hooks come from managed settings only",
+            "Host hooks come from managed settings",
             hooks_ok,
-            f"{managed[0]}" if managed else "no Claude Code managed settings",
-            "" if hooks_ok else "system install writes managed-settings.json (P1.6)",
+            problem or where,
+            ""
+            if hooks_ok
+            else (
+                "add `managedSourcesBehavior: merge` to the MDM profile, or put "
+                "Sponsio's settings in it"
+                if ignored
+                else "remove disableAllHooks from the managed settings"
+                if problem and "disableAllHooks" in problem
+                else "make the managed settings root-owned and not writable by users"
+                if problem
+                else "`sudo sponsio install --system`"
+            ),
         )
     )
-    sandbox = managed[1].get("sandbox") if managed else None
-    sandbox_ok = isinstance(sandbox, dict) and sandbox.get("enabled") is True
+    only = bool(merged.get("allowManagedHooksOnly")) and not ignored
     g.append(
         Guarantee(
             2,
-            "The host sandbox is on",
+            "Only managed hooks load",
+            only,
+            "allowManagedHooksOnly is on"
+            if only
+            else "user and project hooks still load, and could change a tool's input",
+            "" if only else "reinstall without --allow-user-hooks",
+            required=False,
+        )
+    )
+    sandbox = merged.get("sandbox") if not ignored else None
+    sandbox_off = _sandbox_platform_off(sandbox) if isinstance(sandbox, dict) else None
+    sandbox_ok = (
+        isinstance(sandbox, dict)
+        and sandbox.get("enabled") is True
+        and sandbox.get("failIfUnavailable") is True
+        and sandbox.get("allowUnsandboxedCommands") is False
+        and sandbox_off is None
+    )
+    g.append(
+        Guarantee(
+            2,
+            "The host sandbox is on and cannot be bypassed",
             sandbox_ok,
-            "sandbox enabled in managed settings" if sandbox_ok else "not enabled",
-            ""
+            "enabled, fails when unavailable, no unsandboxed commands"
             if sandbox_ok
-            else "system install enables it in managed settings (P1.6)",
+            else sandbox_off
+            or "not enabled in managed settings, or a command may run outside it",
+            "" if sandbox_ok else "`sudo sponsio install --system`",
+        )
+    )
+    version_ok = (
+        _version_tuple(merged.get("requiredMinimumVersion"))
+        >= _version_tuple(MIN_CLAUDE_CODE)
+        and not ignored
+    )
+    g.append(
+        Guarantee(
+            2,
+            f"Claude Code older than {MIN_CLAUDE_CODE} will not start",
+            version_ok,
+            f"requiredMinimumVersion is {merged.get('requiredMinimumVersion')}"
+            if version_ok
+            else "older versions ignore onFailure: block on hooks",
+            "" if version_ok else "`sudo sponsio install --system`",
         )
     )
 
-    for name in (
-        "Tool calls go through Sponsio's gateway",
-        "Network egress goes through Sponsio's proxy",
-    ):
-        g.append(Guarantee(3, name, False, "not available in this release", "P3"))
+    notes: list[str] = []
+    cursor = cursor_hooks if cursor_hooks is not None else cursor_hooks_path()
+    try:
+        cursor_text = cursor.read_text(encoding="utf-8") if cursor else ""
+    except OSError:
+        cursor_text = ""
+    if "sponsio_shim" in cursor_text:
+        notes.append(
+            "Cursor stays at Tier 1 with its system hooks: nothing documented "
+            "stops a user from switching them off, the @cursor/sdk local runtime "
+            "loads no hooks, and a prompt right after startup can run before they "
+            'load. Turn on "Block until hooks are ready" in Cursor\'s admin '
+            "settings."
+        )
+
+    sandboxed = inside_sandbox() if sandboxed is None else sandboxed
+    how = (
+        "this process runs in Sponsio's sandbox"
+        if sandboxed
+        else "doctor cannot see how an agent is started"
+    )
+    g.append(
+        Guarantee(
+            3,
+            "The agent's only network route is Sponsio's egress proxy",
+            sandboxed,
+            how,
+            ""
+            if sandboxed
+            else "start the agent with `sponsio run --sandbox -- <agent>`",
+        )
+    )
+    g.append(
+        Guarantee(
+            3,
+            "The agent's tools go through Sponsio's gateway",
+            sandboxed,
+            how,
+            ""
+            if sandboxed
+            else "give the agent `sponsio gateway command` as its only MCP server, "
+            "and the tool credentials to gateway.yaml",
+        )
+    )
 
     tier = 0
     for t in (1, 2, 3):
-        if all(x.ok for x in g if x.tier == t):
+        if all(x.ok for x in g if x.tier == t and x.required):
             tier = t
         else:
             break
-    return TierReport(tier, g)
+    return TierReport(tier, g, notes)
+
+
+def inside_sandbox() -> bool:
+    """Is this process inside ``sponsio run --sandbox``?
+
+    Checked by behaviour, not by trusting the environment: the run sets
+    ``SPONSIO_SANDBOX``, and a direct connection out must then fail at
+    once, as the sandbox refuses it (TEST-NET-1, never routed anywhere).
+    """
+    if os.environ.get("SPONSIO_SANDBOX") != "1":
+        return False
+    import errno
+    import socket
+
+    try:
+        with socket.create_connection(("192.0.2.1", 443), timeout=1.0):
+            return False
+    except PermissionError:
+        return True
+    except OSError as e:
+        return e.errno in (errno.ENETUNREACH, errno.EACCES, errno.EPERM)
+
+
+def cursor_hooks_path() -> Path | None:
+    if sys.platform == "darwin":
+        return Path("/Library/Application Support/Cursor/hooks.json")
+    if sys.platform == "linux":
+        return Path("/etc/cursor/hooks.json")
+    return None
 
 
 def assess_this_machine(hooks_through_daemon: bool) -> TierReport:
@@ -211,7 +465,20 @@ def assess_this_machine(hooks_through_daemon: bool) -> TierReport:
     from sponsio.daemon.client import default_socket_path
     from sponsio.daemon.server import admin_socket_for
     from sponsio.shim import shim_path
+    from sponsio.system_install import installed_layout
 
+    lay = installed_layout()
+    if lay is not None:
+        # The rule store sits inside the daemon's private state dir, which
+        # this user cannot enter; the state dir's own owner is the answer.
+        return assess(
+            hooks_through_daemon=hooks_through_daemon,
+            socket_path=lay.socket,
+            admin_socket_path=lay.admin_socket,
+            shim_path=lay.shim,
+            engine_dir=lay.prefix,
+            plugin_root=lay.state,
+        )
     sock = default_socket_path()
     return assess(
         hooks_through_daemon=hooks_through_daemon,

@@ -200,9 +200,10 @@ def test_rules_verify_cli_over_the_admin_socket(tmp, cloud, monkeypatch):
     from sponsio.cli import cli
 
     _lib(tmp, NO_RM)
-    monkeypatch.setenv("SPONSIO_API_KEY", "sk-test")
     monkeypatch.setenv("SPONSIO_API_URL", cloud.url)
     svc = _svc(tmp)
+    # The daemon's key is its own, not the environment's.
+    svc.set_cloud_key("sk-test", None)
     server = DaemonServer(tmp / "sock", accept_timeout_s=0.05)
     register_default_handlers(server, guard_service=svc)
     server.start()

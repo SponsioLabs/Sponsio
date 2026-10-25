@@ -35,17 +35,21 @@ from sponsio.cli.commands.patterns import patterns
 from sponsio.cli.commands.prompt import cmd_prompt
 from sponsio.cli.commands.replay import replay
 from sponsio.cli.commands.report import report
+from sponsio.cli.commands.run import run_cmd
 from sponsio.cli.commands.scan import (
     _drop_contract_indices,
     _filter_invalid_contracts,
     scan,
 )
 from sponsio.cli.commands.serve import serve
+from sponsio.cli.commands.system import install_cmd, uninstall_cmd
 from sponsio.cli.commands.validate import validate
 
 # Command groups.
+from sponsio.cli.groups.admin import admin
 from sponsio.cli.groups.cursor import cursor
 from sponsio.cli.groups.daemon import daemon
+from sponsio.cli.groups.gateway import gateway
 from sponsio.cli.groups.host import _refresh_per_host_bundles, host
 from sponsio.cli.groups.plugin import _stamp_bundled_source, plugin
 from sponsio.cli.groups.rules import rules
@@ -77,7 +81,10 @@ __all__ = [
     "explain",
     "replay",
     "report",
+    "run_cmd",
     "serve",
+    "install_cmd",
+    "uninstall_cmd",
     "scan",
     "export_cmd",
     "export_sessions_cmd",
@@ -88,10 +95,12 @@ __all__ = [
     "cmd_mode",
     "cmd_prompt",
     # groups
+    "admin",
     "skill",
     "plugin",
     "host",
     "daemon",
+    "gateway",
     "rules",
     "cursor",
     # helpers imported elsewhere

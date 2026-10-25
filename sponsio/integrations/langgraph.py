@@ -172,6 +172,39 @@ class LangGraphGuard(BaseGuard):
         wrapped = [self._wrap_tool(t, registry=registry) for t in tools]
         return ToolNode(wrapped, handle_tool_errors=True)
 
+    def dynamic_model(self, model: Any, tools: list | Any) -> Any:
+        """A model that is offered, each turn, only the tools the session's
+        state allows.
+
+        For ``create_react_agent``'s dynamic model: every model call binds
+        the subset of ``tools`` :meth:`tools_for_turn` returns, so a tool
+        behind ``must_precede`` appears once its prerequisite has run and
+        one ``no_reversal`` forbids drops out. Pass the same tools,
+        wrapped, as the agent's tools; each call is still checked there::
+
+            agent = create_react_agent(
+                guard.dynamic_model(model, tools), guard.wrap(tools)
+            )
+
+        Args:
+            model: A chat model with ``bind_tools``.
+            tools: The agent's tools, unwrapped or wrapped.
+
+        Returns:
+            A callable ``(state, runtime) -> model with tools bound``.
+        """
+        tools = list(tools)
+        named = [
+            (getattr(t, "name", None) or getattr(t, "__name__", ""), t) for t in tools
+        ]
+        names = [n for n, _t in named]
+
+        def select(state: Any, runtime: Any = None) -> Any:
+            offered = set(self.tools_for_turn(names))
+            return model.bind_tools([t for n, t in named if n in offered])
+
+        return select
+
     def tool_node(self, *args, **kwargs):
         """Deprecated: use ``wrap()`` instead."""
         return self.wrap(*args, **kwargs)

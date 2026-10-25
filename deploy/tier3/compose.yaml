@@ -1,0 +1,45 @@
+# Tier 3 on a server: the agent's container is the sandbox.
+#
+# The agent sits on an internal network with no route out. Its only way to
+# the network is the egress proxy the daemon opens for each run, reached
+# through the shared socket volume; its tools are MCP servers behind the
+# daemon's gateway, which holds their credentials (gateway.yaml). Neither
+# container can change the other's files.
+#
+#   docker compose up -d sponsiod
+#   docker compose run --rm agent <your agent command>
+services:
+  sponsiod:
+    build:
+      context: ../..
+      dockerfile: deploy/tier3/Dockerfile.sponsiod
+      args:
+        SPONSIO_SPEC: ${SPONSIO_SPEC:---pre sponsio[signing]}
+    volumes:
+      - sponsio-run:/run/sponsio
+      - sponsio-state:/var/lib/sponsio
+      - ./daemon.yaml:/var/lib/sponsio/daemon.yaml:ro
+      - ./gateway.yaml:/var/lib/sponsio/gateway.yaml:ro
+    networks: [agents, outside]
+    restart: unless-stopped
+
+  agent:
+    build:
+      context: ../..
+      dockerfile: deploy/tier3/Dockerfile.agent
+      args:
+        SPONSIO_SPEC: ${SPONSIO_AGENT_SPEC:---pre sponsio}
+    depends_on: [sponsiod]
+    volumes:
+      - sponsio-run:/run/sponsio
+      - ./workspace:/workspace
+    networks: [agents]
+
+networks:
+  agents:
+    internal: true
+  outside: {}
+
+volumes:
+  sponsio-run: {}
+  sponsio-state: {}

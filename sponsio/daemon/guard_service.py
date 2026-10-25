@@ -58,11 +58,15 @@ from sponsio.guard_stdin import (
     GuardOutcome,
     GuardPolicy,
     LibrarySnapshot,
+    ProjectLayer,
     _error_outcome,
     _resolve_library,
     _safe_conv_id,
+    allowed_tools,
     conversation_key,
+    derive_plugin_id,
     evaluate,
+    find_project_layer,
     library_root,
     load_snapshot,
     malformed_outcome,
@@ -104,6 +108,42 @@ class _CacheEntry:
     stats: tuple
     loaded: LibrarySnapshot
     served: LibrarySnapshot
+    unsigned: bool = False
+    """The loaded content failed its signature check."""
+    placeholder: bool = False
+    """``served`` is a signature hold, not rules that passed."""
+    signing: Any = None
+    """The signing requirement the entry was checked under (the key, or
+    ``None``); an entry checked under another one is not reused."""
+    missing: bool = False
+    """The rule file is gone and ``served`` is the last signed rules."""
+
+
+def _load_recorded(
+    plugin_id: str, lib_path: Path, agent_id: str
+) -> tuple[LibrarySnapshot, dict[str, bytes], dict[str, tuple]]:
+    """:func:`load_snapshot`, keeping the bytes of every file it parsed and
+    each file's ``(mtime_ns, size)`` when it was read, by real path."""
+    from sponsio.config import _FILE_READER
+
+    contents: dict[str, bytes] = {}
+    stats: dict[str, tuple] = {}
+
+    def reader(path: Path) -> str:
+        with open(path, "rb") as fh:
+            st = os.fstat(fh.fileno())
+            data = fh.read()
+        real = os.path.realpath(path)
+        contents[real] = data
+        stats[real] = (st.st_mtime_ns, st.st_size)
+        return data.decode("utf-8")
+
+    token = _FILE_READER.set(reader)
+    try:
+        snap = load_snapshot(plugin_id, lib_path, agent_id)
+    finally:
+        _FILE_READER.reset(token)
+    return snap, contents, stats
 
 
 class SnapshotStore:
@@ -120,11 +160,30 @@ class SnapshotStore:
         root: Path | Callable[[], Path] | None = None,
         *,
         on_change: OnChange | None = None,
+        signature: Callable[[str, tuple[str, ...], dict[str, bytes]], str | None]
+        | None = None,
+        on_unsigned: Callable[[str, str, bool], None] | None = None,
+        signing_state: Callable[[str], Any] | None = None,
+        known: Callable[[str], bool] | None = None,
     ) -> None:
         self._root = root if root is not None else library_root
         self._on_change: OnChange = on_change or (lambda _old, new: new)
+        self._signature = signature
+        """``(plugin_id, files, contents) -> reason`` when the files must be
+        signed and the bytes parsed (``contents``, by real path) are not;
+        ``None`` when they pass or need no signature."""
+        self._on_unsigned = on_unsigned
+        """Told ``(plugin_id, reason, kept_previous)`` when a load fails
+        its signature check."""
+        self._signing_state = signing_state
+        """``plugin_id -> state``: ``None`` when the bucket needs no
+        signature, otherwise what it is checked against (the key)."""
+        self._known = known
+        """Whether rules for a bucket were applied before (an approved
+        ruleset is on record), so a missing file is a removal."""
         self._lock = threading.Lock()
         self._cache: dict[str, _CacheEntry] = {}
+        self._held_missing: set[str] = set()
 
     @property
     def root(self) -> Path:
@@ -133,42 +192,160 @@ class SnapshotStore:
     def resolve(self, plugin_id: str) -> LibrarySnapshot | None:
         root = self.root
         lib_path, agent_id = _resolve_library(plugin_id, root)
-        if not lib_path.exists():
-            with self._lock:
-                self._cache.pop(plugin_id, None)
-            return None
+        signing = (
+            self._signing_state(plugin_id)
+            if self._signing_state is not None and self._signature is not None
+            else None
+        )
         with self._lock:
             entry = self._cache.get(plugin_id)
+            if entry is not None and entry.signing != signing:
+                # Signing turned on, or the key changed: nothing checked
+                # under the old requirement is kept.
+                self._cache.pop(plugin_id, None)
+                entry = None
+            if not lib_path.exists():
+                if signing is not None:
+                    return self._missing_signed(plugin_id, lib_path, agent_id, entry)
+                self._cache.pop(plugin_id, None)
+                return None
+            self._held_missing.discard(plugin_id)
             if (
                 entry is not None
                 and entry.path == str(lib_path)
                 and entry.stats == _stat_signature(entry.files)
             ):
                 return entry.served
-            snap = load_snapshot(plugin_id, lib_path, agent_id)
+            if signing is None:
+                snap = load_snapshot(plugin_id, lib_path, agent_id)
+                contents: dict[str, bytes] = {}
+                read_stats: dict[str, tuple] = {}
+            else:
+                snap, contents, read_stats = _load_recorded(
+                    plugin_id, lib_path, agent_id
+                )
             files = (
                 tuple(snap.config.source_files)
                 if snap.config is not None and snap.config.source_files
                 else (str(lib_path),)
             )
-            stats = _stat_signature(files)
+            unsigned = None
+            if signing is not None:
+                from sponsio.daemon.signing import SIG_SUFFIX
+
+                # Every file parsed is checked, including the ones read
+                # before a parse failure, and against the bytes parsed. The
+                # bucket's own file is named as it sits in the plugin root,
+                # so a link from there into the engine is not taken for a
+                # pack that ships with it.
+                files = tuple(dict.fromkeys((str(lib_path), *files, *contents)))
+                unsigned = self._signature(plugin_id, files, contents)
+                if unsigned is None and snap.error is not None:
+                    # A file that failed to resolve or parse was never read,
+                    # so nothing proves the failure is in signed content.
+                    unsigned = f"they do not load: {snap.error}"
+                # A signature added or replaced must be seen as a change.
+                files = files + tuple(f + SIG_SUFFIX for f in files)
+            stats = tuple(
+                read_stats.get(os.path.realpath(f), now)
+                for f, now in zip(files, _stat_signature(files))
+            )
+            if unsigned is not None:
+                # Keep serving the last rules that passed; with none, the
+                # bucket is held, and nothing of the unsigned file decides.
+                keep = entry is not None and not entry.placeholder
+                served = (
+                    entry.served
+                    if keep
+                    else replace(
+                        snap,
+                        config=None,
+                        error=None,
+                        held_reason=(
+                            f"Sponsio: the rules for {plugin_id} cannot be "
+                            f"verified against the configured key ({unsigned}), "
+                            f"so this call is denied. Signed rules apply on the "
+                            f"next call."
+                        ),
+                    )
+                )
+                self._cache[plugin_id] = _CacheEntry(
+                    path=str(lib_path),
+                    files=files,
+                    stats=stats,
+                    loaded=snap,
+                    served=served,
+                    unsigned=True,
+                    placeholder=not keep,
+                    signing=signing,
+                )
+                if self._on_unsigned is not None:
+                    self._on_unsigned(plugin_id, unsigned, keep)
+                return served
             if (
                 entry is not None
                 and entry.path == str(lib_path)
                 and entry.loaded.content_hash == snap.content_hash
+                and not entry.unsigned
+                and not entry.missing
             ):
                 # Touched but not changed (a save with identical bytes).
                 entry.stats = stats
                 return entry.served
-            served = self._on_change(entry.served if entry else None, snap)
+            # A signature hold is not a ruleset to compare with; the
+            # policy compares with the last approved one instead.
+            old = entry.served if entry is not None and not entry.placeholder else None
+            served = self._on_change(old, snap)
             self._cache[plugin_id] = _CacheEntry(
                 path=str(lib_path),
                 files=files,
                 stats=stats,
                 loaded=snap,
                 served=served,
+                signing=signing,
             )
             return served
+
+    def _missing_signed(
+        self,
+        plugin_id: str,
+        lib_path: Path,
+        agent_id: str,
+        entry: _CacheEntry | None,
+    ) -> LibrarySnapshot | None:
+        """A covered bucket with no rule file. Nothing signed says the bucket
+        has no rules, and a removal looks the same as a bucket that never
+        had a file: the last signed rules keep enforcing, and with none
+        loaded the bucket is held, whatever ``unconfigured`` says. Called
+        with the lock held."""
+        if entry is not None and not entry.placeholder:
+            if not entry.missing:
+                entry.missing = True
+                if self._on_unsigned is not None:
+                    self._on_unsigned(plugin_id, f"{lib_path.name} was removed", True)
+            return entry.served
+        self._cache.pop(plugin_id, None)
+        removed = self._known is not None and self._known(plugin_id)
+        reason = (
+            f"{lib_path.name} was removed"
+            if removed
+            else f"there is no signed {lib_path.name}"
+        )
+        if plugin_id not in self._held_missing:
+            self._held_missing.add(plugin_id)
+            if self._on_unsigned is not None:
+                self._on_unsigned(plugin_id, reason, False)
+        return LibrarySnapshot(
+            plugin_id=plugin_id,
+            agent_id=agent_id,
+            path=str(lib_path),
+            content_hash="",
+            held_reason=(
+                f"Sponsio: the rules for {plugin_id} must be signed by the "
+                f"configured key and {reason}, so this call is denied. Signed "
+                f"rules apply on the next call."
+            ),
+        )
 
     def snapshots(self) -> list[LibrarySnapshot]:
         """What each cached bucket serves."""
@@ -762,6 +939,7 @@ class GuardService:
         on_change: OnChange | None = None,
         reuse_guards: bool = True,
         watch: bool = False,
+        run_dir: Path | None = None,
     ) -> None:
         self.state_dir = (
             Path(state_dir) if state_dir is not None else default_state_dir()
@@ -786,7 +964,14 @@ class GuardService:
                 return library_root()
             return base() if callable(base) else base
 
-        self.store = SnapshotStore(_root, on_change=on_change or self.rules)
+        self.store = SnapshotStore(
+            _root,
+            on_change=on_change or self.rules,
+            signature=self._unsigned,
+            on_unsigned=self._audit_unsigned,
+            signing_state=self._signing_state,
+            known=lambda bucket: self.rules.approved.get(bucket) is not None,
+        )
         self.traces = MemoryTraceStore(
             self.state_dir / "wal",
             ttl_seconds=lambda: self.policy().trace_ttl_hours * 3600,
@@ -800,8 +985,15 @@ class GuardService:
         self._conv_locks: dict[str, threading.Lock] = {}
         self._tamper_guards: dict[str, Any] = {}
         self._tamper_packs: dict[str, set[str]] = {}
+        self._project_reported: set[tuple[str, ...]] = set()
         self._cloud_status: dict[str, dict[str, Any]] = {}
         self._cloud_stop: threading.Event | None = None
+        self._gateway: Any = None
+        self._gateway_lock = threading.Lock()
+        self.run_dir = Path(run_dir) if run_dir is not None else self.state_dir
+        """Where sockets every user may reach go (the agent socket's
+        directory); the egress proxy's sockets live here."""
+        self._egress: Any = None
 
     @staticmethod
     def _held_snapshot(new: LibrarySnapshot, diff: RulesetDiff) -> LibrarySnapshot:
@@ -814,6 +1006,77 @@ class GuardService:
                 f"`sponsio rules diff`, then `sponsio rules reload` to accept them."
             ),
         )
+
+    def _signing_state(self, plugin_id: str) -> str | None:
+        cfg = self.config.current()
+        if not cfg.requires_signature(plugin_id):
+            return None
+        return cfg.signing_public_key
+
+    def _unsigned(
+        self, plugin_id: str, files: tuple[str, ...], contents: dict[str, bytes]
+    ) -> str | None:
+        key = self._signing_state(plugin_id)
+        if key is None:
+            return None
+        from sponsio.daemon.signing import unsigned_reason
+
+        return unsigned_reason(files, key, contents)
+
+    def _audit_unsigned(self, plugin_id: str, reason: str, kept: bool) -> None:
+        from sponsio.daemon.signing import RULES_UNSIGNED
+
+        audit.append(
+            self.state_dir,
+            RULES_UNSIGNED,
+            bucket=plugin_id,
+            reason=reason,
+            kept_previous=kept,
+        )
+        if kept:
+            self.rules.warn(
+                f"Sponsio: the rules for {plugin_id} on disk are not signed by the "
+                f"configured key ({reason}); the last signed rules keep enforcing."
+            )
+
+    # ---- the daemon's own cloud key (P1.5) ----
+
+    def cloud_key_path(self) -> Path:
+        return self.state_dir / "cloud.key"
+
+    def cloud_api_key(self) -> tuple[str | None, str | None]:
+        """``(key, source)``: the daemon's own key in its state dir, else
+        (Tier 1, where the daemon is the user) the user's ``sponsio
+        login`` credentials. Never an environment variable."""
+        from sponsio.cloud.client import credentials_path, read_api_key_file
+
+        key = read_api_key_file(self.cloud_key_path())
+        if key:
+            return key, "daemon"
+        key = read_api_key_file(credentials_path())
+        return (key, "user") if key else (None, None)
+
+    def set_cloud_key(self, key: str, peer: dict | None) -> dict[str, Any]:
+        import hashlib
+        import tempfile
+
+        path = self.cloud_key_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".cloud.key.", dir=path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(f"api_key = {key}\n")
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
+        fingerprint = hashlib.sha256(key.encode()).hexdigest()[:12]
+        audit.append(
+            self.state_dir, "cloud_key_set", fingerprint=fingerprint, peer=peer
+        )
+        return {"fingerprint": fingerprint, "path": str(path)}
 
     def _trace_tampered(self, conversation: str, problem: str) -> None:
         audit.append(
@@ -890,7 +1153,8 @@ class GuardService:
         if not cfg.cloud_buckets:
             return {}
         if client is None:
-            client = CloudClient(timeout=10.0, retries=0)
+            key, _source = self.cloud_api_key()
+            client = CloudClient(api_key=key or "", timeout=10.0, retries=0)
         results: dict[str, dict[str, Any]] = {}
         for bucket, agent in sorted(cfg.cloud_buckets.items()):
             if not client.configured:
@@ -1167,29 +1431,58 @@ class GuardService:
     ) -> tuple[GuardOutcome, str | None]:
         """The decision, plus the drift warning pending for the next reply
         (appended to a deny's reason, where every host shows it)."""
-        outcome = self._evaluate(event, mode)
+        outcome = self._evaluate(event, mode, project=self._project_layer(event))
         warning = self.rules.take_warning()
         if warning and not outcome.allowed:
             outcome = replace(outcome, reason=f"{outcome.reason} [{warning}]")
         return outcome, warning
 
-    def _evaluate(self, event: dict, mode: str | None = None) -> GuardOutcome:
+    def _evaluate(
+        self,
+        event: dict,
+        mode: str | None = None,
+        *,
+        offered_only: bool = False,
+        library: str | None = None,
+        project: ProjectLayer | None = None,
+        record: bool = True,
+    ) -> GuardOutcome:
         # ``mode`` is what an older hook command or plugin still sends;
         # the daemon config decides, so it is ignored.
         del mode
-        policy = self.policy(event.get("host"))
+        host = event.get("host")
+        policy = self.policy(host)
         conversation_id = conversation_key(event)
         err = io.StringIO()
         with self._lock_for(conversation_id):
             try:
                 with redirect_stderr(err):
-                    outcome = evaluate(
-                        event,
-                        store=self.store,
-                        traces=self.traces,
-                        policy=policy,
-                        guards=self.guards,
-                    )
+                    tool = event.get("tool_name") or ""
+                    if offered_only and not self._offered(
+                        tool, host, conversation_id, policy, library
+                    ):
+                        # The gateway lists only these tools; a call by
+                        # name to one it did not list is refused even
+                        # where the call's arguments would pass.
+                        outcome = GuardOutcome(
+                            allowed=False,
+                            reason=(
+                                f"Sponsio: `{tool}` is not available in this "
+                                f"session's current state."
+                            ),
+                            plugin_id=library or derive_plugin_id(tool, host=host),
+                        )
+                    else:
+                        outcome = evaluate(
+                            event,
+                            store=self.store,
+                            traces=self.traces,
+                            policy=policy,
+                            guards=self.guards,
+                            library=library,
+                            project=project,
+                            record=record,
+                        )
             except Exception as e:  # noqa: BLE001 - every failure is a decision
                 outcome = _error_outcome(e, "", None, policy.on_error)
         if err.getvalue():
@@ -1205,7 +1498,153 @@ class GuardService:
                 reason=outcome.reason,
             )
         self._audit_tamper(event, outcome)
+        self._audit_project(event, project, outcome)
         return outcome
+
+    def _project_layer(self, event: dict) -> ProjectLayer | None:
+        """The project layer of a host hook's event, read as the agent's
+        user would own it (the connection's peer; this process's user
+        outside a request)."""
+        from sponsio.daemon.server import current_peer
+
+        peer = current_peer()
+        uid = peer.uid if peer is not None else os.getuid()
+        try:
+            return find_project_layer(event, uid)
+        except Exception as e:  # noqa: BLE001 - a missing layer only adds nothing
+            sys.stderr.write(f"sponsio: project layer lookup failed: {e}\n")
+            return None
+
+    def _audit_project(
+        self, event: dict, project: ProjectLayer | None, outcome: GuardOutcome
+    ) -> None:
+        """A project layer that tried to weaken the protected library, or
+        that is not the agent's own file, is an attempted tamper (D5).
+        Recorded once per file content, not on every call."""
+        if project is None:
+            return
+        if project.refused is not None:
+            key: tuple[str, ...] = ("refused", project.path, project.refused)
+            what = [f"{project.path} is ignored: {project.refused}"]
+        elif outcome.project_dropped:
+            key = ("dropped", project.path, project.digest)
+            what = list(outcome.project_dropped)
+        else:
+            return
+        if key in self._project_reported:
+            return
+        if len(self._project_reported) > 4096:
+            self._project_reported.clear()
+        self._project_reported.add(key)
+        for line in what:
+            sys.stderr.write(f"sponsio: project layer: {line}\n")
+        audit.append(
+            self.state_dir,
+            TAMPER_ATTEMPT,
+            host=event.get("host"),
+            source="project_layer",
+            path=project.path,
+            dropped=what,
+        )
+
+    def _offered(
+        self,
+        tool: str,
+        host: Any,
+        conversation_id: str | None,
+        policy: GuardPolicy,
+        library: str | None = None,
+    ) -> bool:
+        return bool(
+            allowed_tools(
+                [tool],
+                host=host if isinstance(host, str) else None,
+                conversation_id=conversation_id,
+                store=self.store,
+                traces=self.traces,
+                policy=policy,
+                guards=self.guards,
+                library=library,
+            )
+        )
+
+    def allowed_tools(
+        self,
+        host: str,
+        conversation_id: str,
+        names: list[str],
+        library: str | None = None,
+    ) -> list[str]:
+        """The tools in ``names`` a call to which the conversation's current
+        state admits (:func:`sponsio.guard_stdin.allowed_tools`)."""
+        with self._lock_for(conversation_id):
+            with redirect_stderr(io.StringIO()):
+                return allowed_tools(
+                    names,
+                    host=host,
+                    conversation_id=conversation_id,
+                    store=self.store,
+                    traces=self.traces,
+                    policy=self.policy(host),
+                    guards=self.guards,
+                    library=library,
+                )
+
+    def decide(
+        self,
+        event: dict,
+        *,
+        offered_only: bool = False,
+        library: str | None = None,
+        record: bool = True,
+    ) -> GuardOutcome:
+        """Decide a Sponsio-shaped event (``tool_name``, ``tool_input``,
+        ``hook_event_name``, ``host``, ``session_id``) for a caller that is
+        not a host hook. ``offered_only`` also refuses a tool that
+        :meth:`allowed_tools` would not list; ``library`` names the
+        library instead of deriving it from the tool name. With
+        ``record=False`` an admitted call is added to the history only by
+        :meth:`commit`, once the caller knows it ran."""
+        return self._evaluate(
+            event, offered_only=offered_only, library=library, record=record
+        )
+
+    def commit(self, outcome: GuardOutcome, conversation_id: str) -> None:
+        """Add a call decided with ``record=False`` to its history."""
+        if not outcome.allowed or outcome.pending is None:
+            return
+        with self._lock_for(conversation_id):
+            self.traces.append(outcome.plugin_id, conversation_id, outcome.pending)
+
+    @property
+    def gateway(self) -> Any:
+        """The MCP gateway (:mod:`sponsio.daemon.gateway`), started on
+        first use."""
+        with self._gateway_lock:
+            if self._gateway is None:
+                from sponsio.daemon.gateway import Gateway
+
+                self._gateway = Gateway(self)
+            return self._gateway
+
+    def close_gateway(self) -> None:
+        with self._gateway_lock:
+            gateway, self._gateway = self._gateway, None
+            egress, self._egress = self._egress, None
+        if gateway is not None:
+            gateway.close()
+        if egress is not None:
+            egress.close_all()
+
+    @property
+    def egress(self) -> Any:
+        """The egress proxy (:mod:`sponsio.daemon.egress`), on first use."""
+        with self._gateway_lock:
+            if self._egress is None:
+                from sponsio.daemon.egress import Egress
+
+                self._egress = Egress(self, self.run_dir)
+            return self._egress
 
     def _handle_stdin_protocol(
         self,

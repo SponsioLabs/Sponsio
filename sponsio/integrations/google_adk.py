@@ -79,6 +79,45 @@ class GoogleADKGuard(BaseGuard):
         )
         self.last_check: CheckResult | None = None
 
+    def before_model_callback(self, callback_context: Any, llm_request: Any) -> None:
+        """Offer the model only the tools the session's state allows.
+
+        Pass as ``Agent(before_model_callback=guard.before_model_callback)``.
+        ADK calls it before every model request; it removes the tools
+        :meth:`tools_for_turn` does not return from the request
+        (``tools_dict`` and the function declarations in
+        ``config.tools``), so a tool behind ``must_precede`` appears once
+        its prerequisite has run. Each call is still checked by the
+        wrapped tool. Returns ``None``: the request goes ahead.
+        """
+        tools_dict = getattr(llm_request, "tools_dict", None)
+        if not isinstance(tools_dict, dict) or not tools_dict:
+            return None
+        names = list(tools_dict)
+        offered = set(self.tools_for_turn(names))
+        if offered == set(names):
+            return None
+        for name in names:
+            if name not in offered:
+                tools_dict.pop(name, None)
+        config = getattr(llm_request, "config", None)
+        for tool in list(getattr(config, "tools", None) or []):
+            decls = getattr(tool, "function_declarations", None)
+            if decls:
+                tool.function_declarations = [
+                    d
+                    for d in decls
+                    if getattr(d, "name", None) not in set(names) - offered
+                ]
+        if config is not None and getattr(config, "tools", None):
+            config.tools = [
+                t
+                for t in config.tools
+                if getattr(t, "function_declarations", None) is None
+                or t.function_declarations
+            ]
+        return None
+
     def wrap_tool(self, tool: Callable[..., Any]) -> Callable[..., Any]:
         """Wrap one ADK function tool with contract enforcement."""
         if not callable(tool):

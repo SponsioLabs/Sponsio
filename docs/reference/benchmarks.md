@@ -94,14 +94,27 @@ End-to-end `guard_before` wall-clock, taken on the actual benchmark traces again
 
 **Key takeaway:** Per-call cost scales linearly with contract count. p99 stays under 1.04 ms across every workload measured. The heaviest scenario (RedCode python whole-script regex over a 9-contract layered set) is still 50× faster than the cheapest LLM-as-judge call.
 
+### Session length
+
+A check costs the same however long the session is. Each formula keeps its progression state and advances one step per event; a blocked call, or a `filter_tools` probe, restores the state from before the event instead of grounding the session again. Measured in-process on macOS with the shipped `_host_claude_code` library (median of 30 checks, 8 at 5,000 events):
+
+| Events in the session | Allowed call | Blocked call | `filter_tools`, 5 tools |
+|---:|---:|---:|---:|
+| 10 | 1.82 ms | 1.81 ms | 7.50 ms |
+| 500 | 1.89 ms | 1.86 ms | 7.50 ms |
+| 5,000 | 2.11 ms | 1.71 ms | 7.69 ms |
+
+Before this change, the same checks at 5,000 events took 24.9 ms, 1,491 ms and 7,522 ms. A differential test holds the incremental evaluation to the recursive reference evaluator on random traces for every shipped pack and host library.
+
 ### Host hook path
 
 The numbers above are in-process checks. A host hook (Claude Code, Cursor) runs a short-lived shim process for every tool call, which forwards the event to the Sponsio daemon and writes back its reply. Process start dominates the cost.
 
 | Session length | p50 | Measured on |
 |---|---:|---|
-| ~10 events | 32.6 ms | macOS, shipped `_host_claude_code` library, shim to a running daemon |
-| ~500 events | 37.9 ms | same |
+| 10 events | 27.9 ms | macOS, shipped `_host_claude_code` library, shim to a running daemon |
+| 500 events | 27.1 ms | same |
+| 5,000 events | 30.3 ms | same |
 
 Measured end to end: the wall-clock time of `python -I -S sponsio_shim.py claude-code` with a benign Bash event on stdin, through to its exit. Not yet measured: Linux. Tier 2 and Tier 3 deployments are not in this release.
 

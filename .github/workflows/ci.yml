@@ -32,7 +32,7 @@ jobs:
 
       - name: Install test + integration dependencies
         run: |
-          pip install pytest pytest-cov langgraph langchain-core fastapi pydantic uvicorn python-multipart httpx opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http
+          pip install pytest pytest-cov langgraph langchain-core fastapi pydantic uvicorn python-multipart httpx opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http cryptography
           pip install claude-agent-sdk vercel-ai-sdk || echo "Optional SDK install failed (platform-specific), tests will skip"
 
       # Build the canonical OpenClaw plugin TS so the
@@ -60,6 +60,134 @@ jobs:
         if: matrix.python-version == '3.12'
         working-directory: plugins/sponsio-openclaw
         run: SPONSIO_TEST_PYTHON="$(command -v python)" npm test
+
+  tier2:
+    name: Tier 2 (system install, Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The engine is built on the root-owned system interpreter; a
+      # setup-python install under the runner's home would not count.
+      - name: System Python with venv
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-venv
+          /usr/bin/python3 --version
+
+      - name: Sources every user can read
+        run: |
+          cp -r "$GITHUB_WORKSPACE" /tmp/src
+          chmod -R a+rX /tmp/src
+
+      - name: The operator's CLI
+        run: |
+          /usr/bin/python3 -m venv /tmp/operator
+          /tmp/operator/bin/pip install --quiet /tmp/src
+
+      # The runner image leaves some shared directories writable by other
+      # users; the installer refuses those, as it should on any machine,
+      # and the operator fixes them first.
+      - name: Shared parent directories as an operator would leave them
+        run: |
+          for d in /opt /usr/local /usr/local/libexec /var/lib /var/log /run; do
+            if [ -d "$d" ]; then sudo chown root:root "$d" && sudo chmod go-w "$d"; fi
+          done
+
+      - name: sudo sponsio install --system
+        run: |
+          sudo /tmp/operator/bin/sponsio install --system \
+            --python /usr/bin/python3 --package "/tmp/src[signing]" --no-migrate
+
+      - name: An unprivileged agent user
+        run: |
+          sudo useradd --create-home agentuser
+          sudo -u agentuser /usr/bin/python3 -m venv /home/agentuser/venv
+          # Built here: the agent user cannot write into /tmp/src.
+          /tmp/operator/bin/pip wheel --quiet --no-deps -w /tmp/wheels /tmp/src
+          chmod -R a+rX /tmp/wheels
+          sudo -u agentuser /home/agentuser/venv/bin/pip install --quiet /tmp/wheels/*.whl pytest
+
+      - name: Tier 2 from the agent's side
+        working-directory: /tmp/src
+        run: |
+          sudo -u agentuser env SPONSIO_TEST_TIER=2 HOME=/home/agentuser \
+            /home/agentuser/venv/bin/python -m pytest -v -p no:cacheprovider \
+            tests/test_tier2_live.py tests/security/test_boundary_corpus.py
+
+      - name: Daemon log
+        if: failure()
+        run: |
+          sudo cat /var/log/sponsio/daemon.log || true
+          sudo journalctl -u sponsio --no-pager | tail -50 || true
+
+      - name: Uninstall leaves nothing behind
+        run: |
+          sudo /tmp/operator/bin/sponsio uninstall --system
+          for p in /opt/sponsio /usr/local/libexec/sponsio /var/lib/sponsio \
+                   /var/log/sponsio /run/sponsio /etc/systemd/system/sponsio.service \
+                   /etc/claude-code/managed-settings.d/50-sponsio.json; do
+            if sudo test -e "$p"; then echo "left behind: $p"; exit 1; fi
+          done
+          if id _sponsio 2>/dev/null; then echo "user _sponsio left behind"; exit 1; fi
+
+  tier3:
+    name: Tier 3 (sandbox, egress proxy, container recipe)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # Ubuntu restricts unprivileged user namespaces through AppArmor;
+      # bubblewrap needs them.
+      - name: bubblewrap with user namespaces
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Install
+        run: pip install -e . pytest
+
+      - name: Sandbox, egress proxy and gateway, for real
+        run: pytest -v tests/test_sandbox_run.py tests/test_egress.py tests/test_gateway.py
+
+      # The boundary corpus at Tier 2 and 3 runs here or in a VM, never on
+      # a developer machine.
+      - name: Boundary corpus, Tier 3
+        env:
+          SPONSIO_TEST_TIER: "3"
+        run: pytest -v -p no:cacheprovider tests/security/test_boundary_corpus.py
+
+      - name: Container recipe
+        working-directory: deploy/tier3
+        env:
+          SPONSIO_SPEC: "/src[signing]"
+          SPONSIO_AGENT_SPEC: "/src"
+        run: |
+          docker compose up -d --build sponsiod
+          for i in $(seq 1 30); do
+            docker compose exec -T sponsiod test -S /run/sponsio/agent.sock && break
+            sleep 1
+          done
+          out=$(docker compose run --rm -v "$PWD/probe.py:/probe.py:ro" agent python /probe.py)
+          echo "$out"
+          python3 - "$out" <<'PY'
+          import json, sys
+          r = json.loads(sys.argv[1].strip().splitlines()[-1])
+          assert r["direct"].startswith("fail"), r
+          assert r["allowed"] == 200, r
+          assert r["refused"].startswith("refused") and "403" in r["refused"], r
+          PY
+
+      - name: Daemon log
+        if: failure()
+        working-directory: deploy/tier3
+        run: docker compose logs sponsiod || true
 
   build-smoke-test:
     name: Build wheel + install smoke test

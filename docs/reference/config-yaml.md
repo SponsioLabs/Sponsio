@@ -193,7 +193,7 @@ tool_policy:
 |---|---|---|
 | `default` | `allow` | `deny` synthesizes a `tool_allowlist` contract that blocks every tool not in `approved`. `allow` is a no-op (backwards-compat). |
 | `approved` | `[]` | Explicit allowlist. Empty plus deny blocks every tool (useful for a complete lockdown). Accepts a flat list or `{tools: [...]}` for future per-host scoping. |
-| `enforcement` | `reactive` | `reactive`: the agent still sees the full tool menu; denied calls get blocked at call time via `guard_before`. `proactive`: wrap-time adapters (LangGraph, CrewAI, OpenAI Agents SDK, Google ADK) strip denied tools from the bound toolset before the model ever sees them. |
+| `enforcement` | `reactive` | `reactive`: the agent still sees the full tool menu; denied calls get blocked at call time via `guard_before`. `proactive`: wrap-time adapters (LangGraph, CrewAI, OpenAI Agents SDK, Google ADK) strip denied tools from the bound toolset before the model ever sees them, and adapters with a per-turn hook offer only the tools the session's state allows on each turn ([per adapter](../integrations/index.md#what-proactive-does-per-adapter)). |
 
 Inline equivalent on `Sponsio(tool_policy={...})`. The two paths produce the same synthesized contract.
 
@@ -309,6 +309,34 @@ sponsio doctor
 Broader. Also checks framework detection, provider credentials, and session-log writability.
 
 ---
+
+## A protected library with a project layer
+
+`sponsio.config.load_layered_config(protected, project)` reads a library the agent cannot write (the protected layer) with a file it can write on top (the project layer). The project file may add contracts, and may customize its own. It cannot weaken the protected layer:
+
+- a `customized:` entry that matches a protected contract is dropped;
+- the project file's `defaults`, `runtime`, `tool_policy`, `mode`, `performance`, `extractor` and `judge` are ignored.
+
+The function returns the effective config, with every contract tagged `layer: protected` or `layer: project`, and one line for each thing it dropped.
+
+### The project layer for host hooks
+
+The daemon reads a project layer for every host hook call that names a working directory (Claude Code's `cwd`; Cursor's `cwd` or first workspace root; OpenClaw sends neither, so it gets none). The project is the nearest directory up from `cwd` that holds `.git`, or `cwd` itself, and the layer is `<project>/.sponsio/host.yaml`. It has the shape of a library, with one agent per bucket:
+
+```yaml
+version: "1"
+agents:
+  _host_claude_code:
+    contracts:
+      - desc: "no curl in this repo"
+        G: {pattern: arg_blacklist, args: [Bash, command, ["curl"]]}
+```
+
+- Its contracts are added to the bucket's library for calls made in that project. A bucket with no library is not created by a project layer.
+- An entry that would disable, customize or override a protected contract, and every top-level setting listed above, is dropped. The daemon writes the dropped lines to its log and records one `tamper_attempt` audit event (`source: project_layer`) per file content.
+- The file must be a regular file owned by the agent's user (the connecting process's uid). A link, or a file owned by anyone else, is ignored and recorded as a `tamper_attempt`.
+- A file that does not parse is decided like a library that does not parse: by `on_error`.
+- The agent can edit this file, so its contracts are the project's own conventions, not a boundary. At Tier 2 the daemon reads it as `_sponsio`; a project the daemon cannot read gets no layer, with a line in the daemon log.
 
 ## Loading from Python
 

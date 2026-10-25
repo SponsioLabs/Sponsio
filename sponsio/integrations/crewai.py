@@ -200,6 +200,11 @@ class CrewAIGuard(BaseGuard):
             List of CrewAI Tool objects. Each has a ``.name`` attribute
             matching the original function name.
 
+        CrewAI fixes an agent's tools for a task, so the tool list cannot
+        follow the session's state turn by turn. Pass the tools
+        :meth:`tools_for_turn` returns when building each task; every call
+        is still checked here.
+
         Raises:
             ImportError: If ``crewai`` is not installed.
         """

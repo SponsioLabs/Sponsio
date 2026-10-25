@@ -122,7 +122,16 @@ def test_the_admin_socket_is_owner_only(daemon):
 # Method tables
 # ---------------------------------------------------------------------------
 
-AGENT_ONLY = ["guard.check", "guard.observe", "proposal.submit"]
+AGENT_ONLY = [
+    "guard.check",
+    "guard.observe",
+    "gateway.list_tools",
+    "gateway.call_tool",
+    "sdk.check",
+    "sdk.observe",
+    "sdk.filter_tools",
+    "proposal.submit",
+]
 ADMIN_ONLY = [
     "plugin.append",
     "mode.set",
@@ -130,6 +139,9 @@ ADMIN_ONLY = [
     "proposal.show",
     "proposal.approve",
     "proposal.reject",
+    "audit.verify",
+    "cloud.set_key",
+    "cloud.key_status",
 ]
 
 
@@ -285,3 +297,19 @@ def test_proposal_files_are_private(daemon, tmp):
     path = tmp / "state" / "proposals" / f"{p['id']}.json"
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert json.loads(path.read_text())["kind"] == "plugin.append"
+
+
+def test_a_proposal_writes_only_to_the_daemons_rule_store(daemon, tmp):
+    elsewhere = tmp / "elsewhere"
+    (elsewhere / BUCKET).mkdir(parents=True)
+    (elsewhere / BUCKET / "sponsio.yaml").write_text(LIBRARY)
+    params = {"target": BUCKET, "staging_yaml": STAGING, "root": str(elsewhere)}
+    p = _agent(daemon).call(
+        "proposal.submit", {"kind": "plugin.append", "params": params}
+    )
+    _admin(daemon).call("proposal.approve", {"id": p["id"]})
+    assert (elsewhere / BUCKET / "sponsio.yaml").read_text() == LIBRARY
+    assert (
+        "at most 3 Bash calls"
+        in (tmp / "plugins" / BUCKET / "sponsio.yaml").read_text()
+    )

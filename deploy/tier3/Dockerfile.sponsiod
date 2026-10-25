@@ -1,0 +1,14 @@
+# The Sponsio daemon for the Tier 3 container recipe. It holds the rules,
+# the session history, the MCP gateway's credentials and the egress proxy;
+# the agent's container reaches it only through sockets in a shared volume.
+FROM python:3.12-slim
+ARG SPONSIO_SPEC="--pre sponsio[signing]"
+COPY . /src
+RUN pip install --no-cache-dir ${SPONSIO_SPEC} \
+ && useradd --system --uid 10001 --no-create-home sponsio \
+ && mkdir -p /run/sponsio /var/lib/sponsio/plugins \
+ && chown -R sponsio /run/sponsio /var/lib/sponsio
+USER sponsio
+ENV HOME=/var/lib/sponsio
+CMD ["sponsio", "daemon", "run", "--socket", "/run/sponsio/agent.sock", "--mode", "0666", \
+     "--state-dir", "/var/lib/sponsio", "--plugin-root", "/var/lib/sponsio/plugins"]

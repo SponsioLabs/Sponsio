@@ -9,7 +9,8 @@ of the product's propose-then-approve loop.
 At Tier 1 the human and the agent share an OS user, so ``sponsio plugin
 append`` submits and approves in one step; both calls are audited with
 the caller's peer identity. At Tier 2 only root reaches the admin
-socket, and approval waits for a person (P1.4 adds the review CLI).
+socket, and approval waits for a person: ``sudo sponsio admin proposals
+approve <id>``. The approval's audit record carries the change.
 
 Only ``plugin.append`` can be proposed today.
 """
@@ -17,6 +18,7 @@ Only ``plugin.append`` can be proposed today.
 from __future__ import annotations
 
 import datetime as _dt
+import hashlib
 import json
 import os
 import secrets
@@ -163,5 +165,11 @@ class ProposalStore:
             id=proposal_id,
             kind=record["kind"],
             peer=record["decided_by"],
+            # What was applied, not the preview shown at submit time: the
+            # stored proposal could have changed in between.
+            change=record.get("result") if approve else record.get("preview"),
+            params_sha256=hashlib.sha256(
+                json.dumps(record["params"], sort_keys=True, default=str).encode()
+            ).hexdigest(),
         )
         return record

@@ -1,0 +1,9 @@
+# The daemon's config for the recipe. Hosts the agent may reach through the
+# egress proxy; everything else is refused.
+mode: enforce
+on_error: deny
+egress:
+  allow:
+    - api.anthropic.com
+    - pypi.org
+    - files.pythonhosted.org

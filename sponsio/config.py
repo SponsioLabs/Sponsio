@@ -57,11 +57,12 @@ Usage::
 
 from __future__ import annotations
 
+import contextvars
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 @dataclass
@@ -165,6 +166,9 @@ class ContractEntry:
     contracts pulled in via ``include:``.  Used by ``customized:`` to
     target entries by their pack and by ``sponsio validate`` to surface
     where a contract came from."""
+    layer: str | None = None
+    """``"protected"`` or ``"project"`` when the config was built by
+    :func:`load_layered_config`; ``None`` for a single file."""
 
 
 @dataclass
@@ -914,8 +918,7 @@ def _load_pack_contracts(
         _files.append(pack_path)
 
     try:
-        with open(pack_path) as f:
-            raw = yaml.safe_load(f)
+        raw = yaml.safe_load(_read_text(pack_path))
     except yaml.YAMLError as e:
         raise ConfigError(f"include {spec!r}: invalid YAML in {pack_path}: {e}")
 
@@ -1433,6 +1436,20 @@ def _parse_tool_rename(raw: Any, agent_id: str) -> dict[str, str]:
     return out
 
 
+_FILE_READER: contextvars.ContextVar[Callable[[Path], str] | None] = (
+    contextvars.ContextVar("sponsio_config_file_reader", default=None)
+)
+"""Reads every file :func:`load_config` parses, when set: the daemon sets
+it to keep the exact bytes it parsed, so a signature is checked against
+those bytes and not against a second read (see
+:mod:`sponsio.daemon.signing`)."""
+
+
+def _read_text(path: str | Path) -> str:
+    reader = _FILE_READER.get()
+    return reader(Path(path)) if reader is not None else Path(path).read_text()
+
+
 def load_config(path: str | Path) -> SponsoConfig:
     """Load and validate a sponsio.yaml config file.
 
@@ -1466,10 +1483,9 @@ def load_config(path: str | Path) -> SponsoConfig:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
-    source_files: list[Path] = [path.resolve()]
 
     try:
-        text = path.read_text()
+        text = _read_text(path)
         raw = yaml.safe_load(text)
     except yaml.YAMLError as e:
         raise ConfigError(f"Invalid YAML: {e}")
@@ -1484,6 +1500,12 @@ def load_config(path: str | Path) -> SponsoConfig:
 
     if not isinstance(raw, dict):
         raise ConfigError("Config must be a YAML mapping (dict)")
+    return _build_config(raw, stamp, path)
+
+
+def _build_config(raw: dict, stamp: str | None, path: Path) -> SponsoConfig:
+    """The :class:`SponsoConfig` for a parsed file at ``path``."""
+    source_files: list[Path] = [path.resolve()]
 
     # ``${ENV_VAR}`` interpolation runs *after* YAML parse so users
     # can put secrets in env vars instead of committing them.  We
@@ -1617,6 +1639,130 @@ def load_config(path: str | Path) -> SponsoConfig:
 
     config.source_files = tuple(str(p) for p in source_files)
     return config
+
+
+# ---------------------------------------------------------------------------
+# Layers (D5): a writable layer may add, never weaken
+# ---------------------------------------------------------------------------
+
+_PROTECTED_ONLY_SETTINGS = (
+    "defaults",
+    "runtime",
+    "tool_policy",
+    "mode",
+    "performance",
+    "extractor",
+    "judge",
+)
+"""Top-level sections only the protected layer may set: each of them can
+change how every contract is decided."""
+
+
+def load_layered_config(
+    protected_path: str | Path, project_path: str | Path
+) -> tuple[SponsoConfig, list[str]]:
+    """A protected library with a project layer on top: ``(config, dropped)``.
+
+    The protected file is the one the agent cannot write (a daemon-owned
+    bucket, at Tier 2). The project file is one it can. The result holds
+    every protected contract and every project contract, tagged with
+    ``layer``; the project layer can add, and nothing else:
+
+    * a ``customized:`` entry in the project file that matches a
+      protected contract is dropped (it would disable or retune it);
+    * the project file's ``defaults``, ``runtime``, ``tool_policy``,
+      ``mode`` and the other top-level settings are ignored.
+
+    ``dropped`` says what was left out, one line each, for the caller to
+    report (the daemon records each as a ``tamper_attempt``). A
+    ``customized:`` entry that matches neither layer is still an error,
+    as in a single file.
+    """
+    return apply_project_layer(load_config(protected_path), project_path)
+
+
+def apply_project_layer(
+    protected: SponsoConfig, project_path: str | Path, text: str | None = None
+) -> tuple[SponsoConfig, list[str]]:
+    """:func:`load_layered_config` on a protected config already loaded.
+
+    ``protected`` is not modified. ``text`` is the project file's content
+    when the caller has read it already (the daemon reads it through a
+    descriptor it has checked); otherwise the file is read here.
+    """
+    import yaml
+
+    effective = replace(
+        protected,
+        agents={
+            agent_id: replace(
+                ac, contracts=[replace(c, layer="protected") for c in ac.contracts]
+            )
+            for agent_id, ac in protected.agents.items()
+        },
+        tools=list(protected.tools),
+    )
+
+    path = Path(project_path)
+    try:
+        raw = yaml.safe_load(path.read_text() if text is None else text)
+    except yaml.YAMLError as e:
+        raise ConfigError(f"Invalid YAML in {path}: {e}")
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{path}: config must be a YAML mapping (dict)")
+    raw = dict(raw)
+    dropped: list[str] = []
+    for key in _PROTECTED_ONLY_SETTINGS:
+        if raw.pop(key, None) not in (None, {}, [], ""):
+            dropped.append(
+                f"{path.name}: `{key}` is ignored; only the protected layer sets it"
+            )
+    agents = raw.get("agents")
+    if isinstance(agents, dict):
+        agents = dict(agents)
+        for agent_id, data in agents.items():
+            if not isinstance(data, dict) or not isinstance(
+                data.get("customized"), list
+            ):
+                continue
+            protected = (
+                effective.agents[agent_id].contracts
+                if agent_id in effective.agents
+                else []
+            )
+            kept = []
+            for i, entry in enumerate(data["customized"]):
+                rule = _parse_override_rule(entry, agent_id, i)
+                hits = [c for c in protected if _matches_override(rule, c)]
+                if hits:
+                    dropped.append(
+                        f"{path.name}: customized entry {rule.match!r} would "
+                        f"change {len(hits)} protected contract(s) of {agent_id}; "
+                        f"dropped"
+                    )
+                else:
+                    kept.append(entry)
+            data = dict(data)
+            if kept:
+                data["customized"] = kept
+            else:
+                data.pop("customized")
+            agents[agent_id] = data
+        raw["agents"] = agents
+
+    project = _build_config(raw, None, path)
+    for agent_id, ac in project.agents.items():
+        for contract in ac.contracts:
+            contract.layer = "project"
+        if agent_id in effective.agents:
+            effective.agents[agent_id].contracts.extend(ac.contracts)
+        else:
+            effective.agents[agent_id] = ac
+    effective.tools.extend(project.tools)
+    effective.source_files = tuple(
+        dict.fromkeys((*effective.source_files, *project.source_files))
+    )
+    return effective, dropped
 
 
 # ---------------------------------------------------------------------------

@@ -729,6 +729,51 @@ def _before_call(guard: OpenAIGuard, kind: str, kwargs: dict) -> None:
         guard._auto_observe_tool_messages(kwargs.get("messages"))
     else:
         guard._auto_observe_responses_input(kwargs.get("input"))
+    _offer_tools_for_turn(guard, kind, kwargs)
+
+
+def _function_name(kind: str, tool: Any) -> str | None:
+    """A function tool's name in ``tools=``; ``None`` for anything else
+    (hosted tools such as web search are left alone)."""
+    if not isinstance(tool, dict) or tool.get("type") != "function":
+        return None
+    if kind == "chat":
+        fn = tool.get("function")
+        name = fn.get("name") if isinstance(fn, dict) else None
+    else:
+        name = tool.get("name")
+    return name if isinstance(name, str) else None
+
+
+def _offer_tools_for_turn(guard: OpenAIGuard, kind: str, kwargs: dict) -> None:
+    """Narrow ``tools=`` to what the session's state allows this turn
+    (:meth:`BaseGuard.tools_for_turn`). A request left with no tools
+    loses ``tools`` and ``tool_choice``; the API rejects an empty list."""
+    tools = kwargs.get("tools")
+    if not isinstance(tools, list) or not tools:
+        return
+    names = [n for n in (_function_name(kind, t) for t in tools) if n]
+    if not names:
+        return
+    offered = set(guard.tools_for_turn(names))
+    if offered == set(names):
+        return
+    kept = [
+        t
+        for t in tools
+        if _function_name(kind, t) is None or _function_name(kind, t) in offered
+    ]
+    if not kept:
+        kwargs.pop("tools", None)
+        kwargs.pop("tool_choice", None)
+        kwargs.pop("parallel_tool_calls", None)
+        return
+    kwargs["tools"] = kept
+    choice = kwargs.get("tool_choice")
+    if isinstance(choice, dict):
+        named = (choice.get("function") or {}).get("name") or choice.get("name")
+        if named and named not in offered:
+            kwargs.pop("tool_choice", None)
 
 
 class ToolCallBlocked(Exception):

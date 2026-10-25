@@ -1,0 +1,6 @@
+# Upstream MCP servers the gateway runs, with their credentials. The agent
+# is given only the gateway (`sponsio gateway command`).
+servers: {}
+#  github:
+#    command: [npx, -y, "@modelcontextprotocol/server-github"]
+#    env: {GITHUB_PERSONAL_ACCESS_TOKEN: "..."}

@@ -150,6 +150,12 @@ class GroundingState:
     last_ts: dict[str, float] = field(default_factory=dict)
     true_at_prev: set[str] = field(default_factory=set)
 
+    def copy(self) -> "GroundingState":
+        """An independent copy, for undoing the next event's grounding."""
+        import copy
+
+        return copy.deepcopy(self)
+
     def reset(self) -> None:
         """Clear all accumulators. Called on rollback / new session."""
         self.call_counts.clear()

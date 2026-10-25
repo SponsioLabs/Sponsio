@@ -45,7 +45,7 @@ import json
 import os
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -83,6 +83,12 @@ class GuardOutcome:
     fail_open: bool = False
     """Allowed only because the call could not be evaluated and the
     on-error policy is ``allow``. The daemon audits every such call."""
+    project_dropped: tuple[str, ...] = ()
+    """What the project layer tried that would have weakened the
+    protected library, and was dropped. The daemon audits it."""
+    pending: dict | None = None
+    """An admitted call decided with ``record=False``: the trace record to
+    add once the caller knows the call ran (``TraceStore.append``)."""
 
 
 def _bucket_for_host(host: str | None, is_subagent: bool) -> str:
@@ -113,6 +119,10 @@ def _bucket_for_host(host: str | None, is_subagent: bool) -> str:
     """
     if host == "openclaw":
         return "_host_openclaw"
+    if host == "gateway":
+        # The MCP gateway's own library: its ``defaults`` (e.g.
+        # ``unconfigured: deny``) cover every upstream server.
+        return "_gateway"
     if host == "cursor":
         return "_host_cursor_subagent" if is_subagent else "_host_cursor"
     if host == "claude-code":
@@ -200,6 +210,27 @@ def derive_plugin_id(
         if plugin:
             return plugin
     return fallback
+
+
+GATEWAY_SERVER = "sponsio"
+"""The name the MCP gateway shim is registered under in a host's MCP
+config (``sponsio gateway command``)."""
+
+
+def gateway_inner_name(tool_name: str) -> str:
+    """``mcp__sponsio__<server>__<tool>`` -> ``mcp__<server>__<tool>``.
+
+    A host hook sees a gateway tool under the gateway's server name. It is
+    decided under the upstream's own name, against the upstream's library,
+    as the gateway decides it, so a server that merely calls itself
+    ``sponsio`` gets no library of its own to hide behind.
+    """
+    prefix = f"mcp__{GATEWAY_SERVER}__"
+    if tool_name[: len(prefix)].casefold() == prefix:
+        inner = tool_name[len(prefix) :]
+        if "__" in inner.strip("_"):
+            return f"mcp__{inner}"
+    return tool_name
 
 
 def library_root() -> Path:
@@ -711,6 +742,139 @@ class LibrarySnapshot:
         return raw if isinstance(raw, dict) else {}
 
 
+PROJECT_LAYER_FILE = Path(".sponsio") / "host.yaml"
+"""The project layer, relative to the project's root (D5, P1.3)."""
+
+_PROJECT_LAYER_MAX_BYTES = 1 << 20
+
+
+@dataclass(frozen=True)
+class ProjectLayer:
+    """A project's ``.sponsio/host.yaml``, as the daemon found it.
+
+    ``text`` is set when the file was accepted. ``refused`` says why it
+    was not read as a layer: a link, not a regular file, or owned by
+    someone other than the agent's user. A refused file is ignored and
+    is evidence of tampering. ``error`` is a file that was accepted but
+    cannot be a layer (too large, not UTF-8); it is decided like a
+    library that does not parse.
+    """
+
+    path: str
+    text: str | None = None
+    refused: str | None = None
+    error: str | None = None
+
+    @property
+    def digest(self) -> str:
+        return hashlib.sha256((self.text or "").encode("utf-8")).hexdigest()
+
+
+def find_project_layer(event: dict, owner_uid: int) -> ProjectLayer | None:
+    """The project layer for a hook event, or ``None`` when it has none.
+
+    The project is the one the event's ``cwd`` is in (Cursor sends
+    ``workspace_roots`` when it has no ``cwd``): its root is the nearest
+    directory up from ``cwd`` that holds ``.git``, or ``cwd`` itself.
+    The layer is ``<root>/.sponsio/host.yaml``.
+
+    The file is opened without following a link and must be a regular
+    file owned by ``owner_uid``, the agent's user as the daemon's peer
+    credentials give it. The daemon reads it with its own privileges,
+    so a file the agent does not own is never read as its layer.
+    """
+    cwd = event.get("cwd")
+    if not isinstance(cwd, str) or not cwd:
+        roots = event.get("workspace_roots")
+        cwd = roots[0] if isinstance(roots, list) and roots else None
+    if not isinstance(cwd, str) or not os.path.isabs(cwd):
+        return None
+    start = Path(os.path.normpath(cwd))
+    root = start
+    for d in (start, *start.parents):
+        try:
+            if (d / ".git").exists():
+                root = d
+                break
+        except OSError:
+            break
+    path = root / PROJECT_LAYER_FILE
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as e:
+        if os.path.islink(path):
+            return ProjectLayer(str(path), refused="it is a symbolic link")
+        _warn_once(
+            f"project:{path}",
+            f"sponsio: the project layer {path} cannot be read by the daemon "
+            f"({e.strerror}); its contracts do not apply.\n",
+        )
+        return None
+    with os.fdopen(fd, "rb") as fh:
+        import stat
+
+        st = os.fstat(fh.fileno())
+        if not stat.S_ISREG(st.st_mode):
+            return ProjectLayer(str(path), refused="it is not a regular file")
+        if st.st_uid != owner_uid:
+            return ProjectLayer(
+                str(path),
+                refused=f"it is owned by uid {st.st_uid}, not the agent's ({owner_uid})",
+            )
+        data = fh.read(_PROJECT_LAYER_MAX_BYTES + 1)
+    if len(data) > _PROJECT_LAYER_MAX_BYTES:
+        return ProjectLayer(str(path), error="it is larger than 1 MiB")
+    try:
+        return ProjectLayer(str(path), text=data.decode("utf-8"))
+    except UnicodeDecodeError:
+        return ProjectLayer(str(path), error="it is not UTF-8")
+
+
+_WARNED: set[str] = set()
+
+
+def _warn_once(key: str, message: str) -> None:
+    if key not in _WARNED:
+        _WARNED.add(key)
+        sys.stderr.write(message)
+
+
+_LAYERED: dict[tuple[str, str, str], tuple[LibrarySnapshot, tuple[str, ...]]] = {}
+_LAYERED_MAX = 64
+
+
+def _with_project_layer(
+    snap: LibrarySnapshot, project: ProjectLayer
+) -> tuple[LibrarySnapshot, tuple[str, ...]]:
+    """``snap`` with ``project`` on top (:func:`sponsio.config.apply_project_layer`),
+    and what the layer tried that was dropped. Raises on a layer that does
+    not parse."""
+    if project.error is not None:
+        from sponsio.config import ConfigError
+
+        raise ConfigError(f"{project.path}: {project.error}")
+    key = (snap.content_hash, project.path, project.digest)
+    hit = _LAYERED.get(key)
+    if hit is not None:
+        return hit
+    from sponsio.config import apply_project_layer
+
+    config, dropped = apply_project_layer(snap.config, project.path, project.text)
+    layered = replace(
+        snap,
+        config=config,
+        content_hash=hashlib.sha256(
+            f"{snap.content_hash}\0{project.path}\0{project.digest}".encode()
+        ).hexdigest(),
+    )
+    if len(_LAYERED) >= _LAYERED_MAX:
+        _LAYERED.pop(next(iter(_LAYERED)))
+    _LAYERED[key] = (layered, tuple(dropped))
+    return layered, tuple(dropped)
+
+
 class RuleStore(Protocol):
     """Where libraries come from."""
 
@@ -863,6 +1027,10 @@ def _unconfigured_denies(
     snap = store.resolve(host_bucket)
     if snap is None:
         return False
+    if snap.held_reason is not None:
+        # The host library is not being served (unsigned, or weaker than
+        # what was approved): nothing in it decides, so the strict posture.
+        return True
     return str(snap.defaults.get("unconfigured", "")).strip().lower() in _DENY_WORDS
 
 
@@ -1036,6 +1204,9 @@ def evaluate(
     traces: TraceStore,
     policy: GuardPolicy,
     guards: GuardCache | None = None,
+    library: str | None = None,
+    project: ProjectLayer | None = None,
+    record: bool = True,
 ) -> GuardOutcome:
     """Decide one hook event. Pure in its inputs: no file, no environment.
 
@@ -1046,6 +1217,18 @@ def evaluate(
     ``guards`` (the daemon's) reuses a live guard per (bucket, library
     content, conversation, mode) instead of building one and replaying
     the history on every call; the decision is the same either way.
+
+    ``library`` names the library to decide against, for a caller that
+    has one (the SDK's ``backend="daemon"``); otherwise it is derived
+    from the tool name and host (:func:`derive_plugin_id`).
+
+    ``project`` is the project layer the caller found for the event
+    (:func:`find_project_layer`). Its contracts are added to the
+    library's; nothing in it can weaken the library.
+
+    With ``record=False`` an admitted call is not added to the history;
+    the outcome carries it as ``pending`` for the caller to append once
+    the call ran (the gateway, which learns that only from the upstream).
     """
     tool_name = event.get("tool_name") or ""
     tool_input = event.get("tool_input") or {}
@@ -1075,7 +1258,14 @@ def evaluate(
     # drift).
     raw_agent_id = event.get("agent_id")
     is_subagent = isinstance(raw_agent_id, str) and bool(raw_agent_id.strip())
-    plugin_id = derive_plugin_id(tool_name, host=host, is_subagent=is_subagent)
+    if library is None:
+        # A host hook sees gateway tools under the shim's server name. A
+        # caller that names its library (the SDK) decides on the names its
+        # own contracts use.
+        tool_name = gateway_inner_name(tool_name)
+    plugin_id = library or derive_plugin_id(
+        tool_name, host=host, is_subagent=is_subagent
+    )
     hook_event = event.get("hook_event_name") or "PreToolUse"
     if hook_event != "PreToolUse":
         # The tool has already run. There is nothing to gate, and running
@@ -1127,9 +1317,12 @@ def evaluate(
         )
     if snap.error is not None:
         return _error_outcome(snap.error, plugin_id, snap.path, policy.on_error)
-
-    # Lazy import — keeps cold-start cheap when no library exists.
-    from sponsio.integrations.base import BaseGuard
+    dropped: tuple[str, ...] = ()
+    if project is not None and project.refused is None:
+        try:
+            snap, dropped = _with_project_layer(snap, project)
+        except Exception as e:  # noqa: BLE001 - a layer error is a decision input
+            return _error_outcome(e, plugin_id, project.path, policy.on_error)
 
     # BaseGuard prints a live reporter banner on each event regardless
     # of ``verbose``. Claude Code's hook protocol expects either nothing
@@ -1145,7 +1338,7 @@ def evaluate(
     # history, merged across buckets.
     conversation_id = conversation_key(event)
     cache_key = (plugin_id, snap.content_hash, conversation_id, policy.mode)
-    guard = guards.checkout(cache_key, conversation_id) if guards else None
+    guard = None
     used_context = False
 
     try:
@@ -1153,30 +1346,9 @@ def evaluate(
             contextlib.redirect_stdout(captured_out),
             contextlib.redirect_stderr(captured_err),
         ):
-            if guard is None:
-                # ``env_mode=False``: the policy's mode is the decision's
-                # mode. The process environment is not consulted, so a
-                # daemon serving several hosts can hold a mode per host,
-                # and a client's environment never reaches the decision.
-                guard = BaseGuard(
-                    agent_id=snap.agent_id,
-                    parsed_config=snap.config,
-                    verbose=False,
-                    verbosity=0,
-                    mode=policy.mode,
-                    env_mode=False,
-                    init_banner=False,
-                    auto_summary=False,
-                )
-                # Seed the monitor with the reconstructed trace so
-                # trace-aware contracts (must_precede, cooldown, A→G
-                # temporal, …) see the full session history rather than
-                # an empty trace.
-                prior_events = traces.events(plugin_id, conversation_id)
-                if prior_events:
-                    from sponsio.models.trace import Trace
-
-                    guard._monitor.import_trace(Trace(events=list(prior_events)))
+            guard = _session_guard(
+                snap, plugin_id, conversation_id, policy, traces, guards
+            )
             # Bridge any host-supplied context facts (caller identity,
             # tenant, signed-message metadata, …) into the contract layer
             # before the tool call is evaluated. The host plugin packs
@@ -1211,18 +1383,26 @@ def evaluate(
         # ourselves we'd race the monitor's own ts and collisions would
         # silently confuse re-grounded valuations on the next check.
         last_event = guard._monitor.trace.events[-1]
-        try:
-            traces.append(
-                plugin_id,
-                conversation_id,
-                {
-                    "ts": last_event.ts,
-                    "agent": last_event.agent,
-                    "type": last_event.event_type,
-                    "tool": last_event.tool,
-                    "args": last_event.args,
-                },
+        admitted = {
+            "ts": last_event.ts,
+            "agent": last_event.agent,
+            "type": last_event.event_type,
+            "tool": last_event.tool,
+            "args": last_event.args,
+        }
+        if not record:
+            # The guard's trace holds a call the store does not (yet).
+            if guards:
+                guards.discard(cache_key)
+            return GuardOutcome(
+                allowed=True,
+                plugin_id=plugin_id,
+                library_path=snap.path,
+                project_dropped=dropped,
+                pending=admitted,
             )
+        try:
+            traces.append(plugin_id, conversation_id, admitted)
         except OSError as e:  # pragma: no cover - log-write failure
             sys.stderr.write(
                 f"sponsio shield guard:could not append trace event: {e}\n"
@@ -1232,6 +1412,7 @@ def evaluate(
             allowed=True,
             plugin_id=plugin_id,
             library_path=snap.path,
+            project_dropped=dropped,
         )
     _return_guard(guards, cache_key, guard, conversation_id, used_context)
 
@@ -1254,7 +1435,123 @@ def evaluate(
         reason=reason,
         plugin_id=plugin_id,
         library_path=snap.path,
+        project_dropped=dropped,
     )
+
+
+def _session_guard(
+    snap: LibrarySnapshot,
+    plugin_id: str,
+    conversation_id: str | None,
+    policy: GuardPolicy,
+    traces: TraceStore,
+    guards: GuardCache | None,
+) -> Any:
+    """A guard for ``snap`` that has seen the conversation's history:
+    the cached one when ``guards`` holds it, otherwise a new one."""
+    cache_key = (plugin_id, snap.content_hash, conversation_id, policy.mode)
+    guard = guards.checkout(cache_key, conversation_id) if guards else None
+    if guard is not None:
+        return guard
+    from sponsio.integrations.base import BaseGuard
+
+    # ``env_mode=False``: the policy's mode is the decision's mode. The
+    # process environment is not consulted, so a daemon serving several
+    # hosts can hold a mode per host, and a client's environment never
+    # reaches the decision.
+    guard = BaseGuard(
+        agent_id=snap.agent_id,
+        parsed_config=snap.config,
+        verbose=False,
+        verbosity=0,
+        mode=policy.mode,
+        env_mode=False,
+        init_banner=False,
+        auto_summary=False,
+    )
+    # Seed the monitor with the reconstructed trace so trace-aware
+    # contracts (must_precede, cooldown, A→G temporal, …) see the full
+    # session history rather than an empty trace.
+    prior_events = traces.events(plugin_id, conversation_id)
+    if prior_events:
+        from sponsio.models.trace import Trace
+
+        guard._monitor.import_trace(Trace(events=list(prior_events)))
+    return guard
+
+
+def allowed_tools(
+    tool_names: list[str],
+    *,
+    host: str | None,
+    conversation_id: str | None,
+    store: RuleStore,
+    traces: TraceStore,
+    policy: GuardPolicy,
+    guards: GuardCache | None = None,
+    library: str | None = None,
+) -> list[str]:
+    """The subset of ``tool_names`` a call to which would be admitted now.
+
+    The name-level question :meth:`BaseGuard.filter_tools` answers, asked
+    of each tool's own library with the conversation's history, so a
+    gateway can list only the tools the session's current state allows.
+    Arguments are not known yet; a call is still decided by
+    :func:`evaluate`. A library that is held or broken (with ``on_error:
+    deny``) allows none of its tools; a tool with no library is allowed
+    unless unconfigured tools are denied. In observe mode every tool its
+    library would let :func:`evaluate` decide is allowed, since observe
+    blocks no contract. Order is kept. Like :func:`evaluate`, the
+    caller serialises calls per conversation.
+    """
+    groups: dict[str, list[str]] = {}
+    for name in tool_names:
+        # Named as :func:`evaluate` names it, so the list and the call
+        # are decided against the same tool.
+        inner = name if library is not None else gateway_inner_name(name)
+        plugin_id = library or derive_plugin_id(inner, host=host)
+        groups.setdefault(plugin_id, []).append(name)
+    allowed: set[str] = set()
+    for plugin_id, names in groups.items():
+        snap = store.resolve(plugin_id)
+        if snap is None:
+            if not _unconfigured_denies(policy, store, _bucket_for_host(host, False)):
+                allowed.update(names)
+            continue
+        if snap.held_reason is not None:
+            continue
+        if snap.error is not None:
+            if policy.on_error == "allow":
+                allowed.update(names)
+            continue
+        if policy.mode == "observe":
+            # Observe blocks no call its library admits to be decided.
+            allowed.update(names)
+            continue
+        cache_key = (plugin_id, snap.content_hash, conversation_id, policy.mode)
+        inner_of = {
+            (n if library is not None else gateway_inner_name(n)): n for n in names
+        }
+        try:
+            with (
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                guard = _session_guard(
+                    snap, plugin_id, conversation_id, policy, traces, guards
+                )
+                # A redirected call is refused here (nothing substitutes
+                # the safe tool), so it is not offered either.
+                kept = guard.filter_tools(list(inner_of), hide_redirected=True)
+                allowed.update(inner_of[n] for n in kept)
+        except Exception:  # noqa: BLE001 - an unevaluable library offers nothing
+            if guards:
+                guards.discard(cache_key)
+            if policy.on_error == "allow":
+                allowed.update(names)
+            continue
+        _return_guard(guards, cache_key, guard, conversation_id, False)
+    return [n for n in tool_names if n in allowed]
 
 
 _VIOLATED = "det constraint violated: "

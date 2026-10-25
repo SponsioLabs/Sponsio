@@ -72,6 +72,7 @@ What's NOT on TS yet:
 - **LangGraph adapter redirect dispatch.** Python's `LangGraphGuard._invoke_safe_tool` invokes the substitute tool transparently and records the safe call in the trace. The `@sponsio/sdk/langchain` adapter does not implement this; a redirect-style contract on TS today blocks the call, the application loop has to invoke the substitute manually.
 - **`tool_policy` config layer.** Python's `BaseGuard` synthesizes a `tool_allowlist` contract from a `tool_policy: { default: deny, approved: [...] }` block. TS does not yet have this convenience; you build the same `toolAllowlist([...])` formula by hand.
 - **`filter_tools(candidates)` API + `dry_run` probe.** Python's per-turn proactive filter is a pure probe with no log / callback / perf pollution. TS does not yet expose this. Adapter `wrap()`-time filtering on TS is also not implemented; the same effect can be achieved by filtering the tool list before passing to `wrapTools`.
+- **Per-turn tool lists and `backend="daemon"`.** Python adapters narrow the tools offered on each model call (`tools_for_turn`), and `Sponsio(..., backend="daemon")` sends every check to the daemon. TS has neither; TS guards decide in-process.
 - **`EscalateToHuman` notifier callbacks.** Python's `EscalateToHuman(notify=[...])` fires user-supplied notifiers with isolation. TS lacks the strategy class entirely (see above).
 
 Workaround: for redirect-style contracts on TS today, read the violation outcome and dispatch the substitute tool from your application loop; the formula side fires correctly.
