@@ -74,9 +74,10 @@ def register_default_handlers(
     if state_dir is not None:
         if server.audit_dir is None:
             server.audit_dir = Path(state_dir)
-        register_proposal_handlers(
-            server, ProposalStore(Path(state_dir), {"plugin.append": apply_append})
-        )
+        store = ProposalStore(Path(state_dir), {"plugin.append": apply_append})
+        if guard_service is not None:
+            guard_service.proposals = store
+        register_proposal_handlers(server, store)
         register_audit_handlers(server, Path(state_dir))
 
 

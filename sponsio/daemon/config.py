@@ -76,6 +76,8 @@ class DaemonConfig:
     cloud_buckets: dict[str, str] = field(default_factory=dict)
     """Host bucket -> the cloud agent whose published book it should match."""
     cloud_verify_interval_s: float = 300.0
+    cloud_proposals: bool = False
+    """Upload proposals to the cloud and apply what a person decides there."""
     audit_otlp_endpoint: str | None = None
     audit_otlp_headers: dict[str, str] = field(default_factory=dict)
     signing_public_key: str | None = None
@@ -138,6 +140,8 @@ class DaemonConfig:
             iv = cloud.get("verify_interval_s")
             if isinstance(iv, (int, float)) and not isinstance(iv, bool) and iv >= 30:
                 kw["cloud_verify_interval_s"] = float(iv)
+            if cloud.get("proposals") is True:
+                kw["cloud_proposals"] = True
         aud = raw.get("audit")
         if isinstance(aud, dict):
             ep = aud.get("otlp_endpoint")
@@ -181,8 +185,9 @@ class DaemonConfig:
                 "project": self.cloud_project,
                 "buckets": dict(sorted(self.cloud_buckets.items())),
                 "verify_interval_s": self.cloud_verify_interval_s,
+                "proposals": self.cloud_proposals,
             }
-            if self.cloud_buckets
+            if self.cloud_buckets or self.cloud_proposals
             else None,
             "audit": {
                 "otlp_endpoint": self.audit_otlp_endpoint,

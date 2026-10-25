@@ -142,8 +142,16 @@ class ProposalStore:
         return record
 
     def decide(
-        self, proposal_id: str, approve: bool, peer: Peer | None
+        self,
+        proposal_id: str,
+        approve: bool,
+        peer: Peer | None,
+        *,
+        decided_by: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Approve (apply) or reject a pending proposal. ``decided_by``
+        names who decided when it was not a peer on the admin socket: a
+        person in the cloud console (:mod:`sponsio.daemon.proposal_sync`)."""
         with self._lock:
             record = self.get(proposal_id)
             if record.get("status") != PENDING:
@@ -157,7 +165,9 @@ class ProposalStore:
                 )
             record["status"] = APPROVED if approve else REJECTED
             record["decided_at"] = _now()
-            record["decided_by"] = peer.as_dict() if peer else None
+            record["decided_by"] = (
+                peer.as_dict() if peer else (dict(decided_by) if decided_by else None)
+            )
             self._write(record)
         audit.append(
             self.state_dir,
@@ -168,8 +178,14 @@ class ProposalStore:
             # What was applied, not the preview shown at submit time: the
             # stored proposal could have changed in between.
             change=record.get("result") if approve else record.get("preview"),
-            params_sha256=hashlib.sha256(
-                json.dumps(record["params"], sort_keys=True, default=str).encode()
-            ).hexdigest(),
+            params_sha256=params_sha256(record["params"]),
         )
         return record
+
+
+def params_sha256(params: dict[str, Any]) -> str:
+    """The hash a decision names: a cloud decision applies only to the
+    proposal whose params hash to it."""
+    return hashlib.sha256(
+        json.dumps(params, sort_keys=True, default=str).encode()
+    ).hexdigest()

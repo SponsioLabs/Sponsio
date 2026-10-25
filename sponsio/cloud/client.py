@@ -326,6 +326,32 @@ class CloudClient:
             signing_key=headers.get("x-rulebook-signing-key"),
         )
 
+    def sync_proposals(
+        self, project: str | None, *, machine: str, proposals: list[dict]
+    ) -> dict:
+        """Upload a daemon's proposals; returns ``{"decisions": [...],
+        "conflicts": [...]}``: what a person decided in the console that
+        this daemon has not applied yet."""
+        from urllib.parse import quote
+
+        path = "/v1/daemon/proposals/sync" + (
+            f"?project={quote(project)}" if project else ""
+        )
+        status, body, _ = self._request(
+            "POST",
+            path,
+            body=json.dumps({"machine": machine, "proposals": proposals}).encode(),
+            content_type="application/json",
+        )
+        if status != 200:
+            raise CloudError(
+                self._detail(body, f"proposal sync failed ({status})"), status=status
+            )
+        try:
+            return json.loads(body.decode())
+        except ValueError as exc:
+            raise CloudError("proposal sync returned a non-JSON body") from exc
+
     def signing_key(self) -> dict:
         """The account's fleet signing key: ``public_key`` (what
         ``signing.public_key`` in daemon.yaml takes), ``key_id``,

@@ -43,6 +43,7 @@ cloud:                   # optional: compare loaded rules with the published boo
   project: my-project
   buckets: {_host_claude_code: my-agent}
   verify_interval_s: 300
+  proposals: false       # true: decide proposals in the cloud console
 audit:                   # optional: also send every audit record over OTLP/HTTP
   otlp_endpoint: https://otlp.example.com/v1/traces
   otlp_headers: {x-api-key: "..."}
@@ -64,6 +65,7 @@ egress:                  # optional: hosts the egress proxy may reach
 | `cloud.project` | | Cloud project the buckets are linked to. |
 | `cloud.buckets` | | Host bucket to cloud agent, for `sponsio rules verify`. |
 | `cloud.verify_interval_s` | `300` | How often the daemon compares on its own. At least 30. |
+| `cloud.proposals` | `false` | Upload proposals to `cloud.project` and apply what a person decides in the console, every `verify_interval_s`. See [Proposals](#proposals). |
 | `audit.otlp_endpoint` | | Every audit record is also sent here as an OTLP span, with its chain fields. |
 | `audit.otlp_headers` | | Headers for that endpoint, such as an API key. |
 | `signing.public_key` | | Base64 Ed25519 public key that signs rule files. See [Signed rules](#signed-rules). |
@@ -120,6 +122,8 @@ For a host hook call, the daemon adds the contracts in the project's `.sponsio/h
 ## Proposals
 
 The agent side cannot change rules. `sponsio plugin append` sends `proposal.submit` on the agent socket; the daemon validates the change as a dry run and stores it under `proposals/`. It applies only when `proposal.approve` arrives on the admin socket, which records who approved it and what changed. When the caller can reach the admin socket (Tier 1), `plugin append` approves its own proposal in the same command, and both steps are audited. When it cannot, the proposal waits for `sponsio admin proposals approve <id>`.
+
+**Deciding in the cloud console.** With `cloud: {project: ..., proposals: true}`, the daemon uploads its proposals with their status every `verify_interval_s`, using its own cloud key (`sponsio admin cloud-key set`; the key needs write access, a `publish` key). A person signed in to the console decides under Settings → Machines; no API key can, so a key the agent can read cannot approve what that agent proposed. On its next sync the daemon applies the decision through the same path as `proposal.approve`, and the audit record names the person (`peer: {via: sponsio-cloud, email, user_id}`). A decision applies only when the daemon's own copy of the proposal hashes to the `params_sha256` the person saw; otherwise it is refused and recorded as `proposal_cloud_refused`. The cloud keeps the params from the first upload and refuses different ones under the same id.
 
 ---
 
@@ -235,6 +239,7 @@ Every line of `audit.jsonl` is a JSON object with `ts` (UTC, ISO 8601), `event` 
 | `tamper_attempt` (`source: project_layer`) | A project layer tried to weaken a protected contract, or is not the agent's own regular file. Once per file content. | `host`, `source`, `path`, `dropped` |
 | `proposal_submitted` | A rule change was proposed. | `id`, `kind`, `peer` |
 | `proposal_approved`, `proposal_rejected` | A proposal was decided. `change` is what was applied (the preview, for a rejection). | `id`, `kind`, `peer`, `change`, `params_sha256` |
+| `proposal_cloud_refused` | A decision from the cloud console was not applied (other params, no such proposal, or applying failed). Once per proposal. | `id`, `reason` |
 | `audit_log_cut` | The log no longer held the last record this daemon wrote. | `expected_seq`, `file_seq` |
 | `rules_unsigned` | A covered bucket's rule files failed the signature check. | `bucket`, `reason`, `kept_previous` |
 | `cloud_key_set` | The daemon was given a cloud key. | `fingerprint`, `peer` |

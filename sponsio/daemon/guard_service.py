@@ -988,6 +988,11 @@ class GuardService:
         self._project_reported: set[tuple[str, ...]] = set()
         self._cloud_status: dict[str, dict[str, Any]] = {}
         self._cloud_stop: threading.Event | None = None
+        # The proposal store the daemon's handlers serve, set when they
+        # are registered; cloud proposal sync decides through it.
+        self.proposals: Any = None
+        self._proposal_refused: set[str] = set()
+        self._proposal_status: dict[str, Any] = {}
         self._gateway: Any = None
         self._gateway_lock = threading.Lock()
         self.run_dir = Path(run_dir) if run_dir is not None else self.state_dir
@@ -1205,8 +1210,44 @@ class GuardService:
                 )
         return results
 
+    def sync_proposals(self, client: Any = None) -> dict[str, Any]:
+        """Upload proposals and apply what a person decided in the cloud
+        console (``cloud: {proposals: true}``). See
+        :mod:`sponsio.daemon.proposal_sync`."""
+        from sponsio.cloud.client import CloudClient, CloudError
+        from sponsio.daemon.proposal_sync import sync_once
+
+        cfg = self.config.current()
+        if not cfg.cloud_proposals or self.proposals is None:
+            return {"status": "off"}
+        if client is None:
+            key, _source = self.cloud_api_key()
+            client = CloudClient(api_key=key or "", timeout=10.0, retries=0)
+        if not client.configured:
+            result: dict[str, Any] = {"status": "no_key"}
+        else:
+            try:
+                result = {
+                    "status": "ok",
+                    **sync_once(
+                        self.proposals,
+                        client,
+                        project=cfg.cloud_project,
+                        refused=self._proposal_refused,
+                    ),
+                }
+            except CloudError as e:
+                result = {
+                    "status": "unreachable" if e.status is None else "error",
+                    "http_status": e.status,
+                    "detail": str(e),
+                }
+        self._proposal_status = result
+        return result
+
     def start_cloud_verify(self) -> None:
-        """Verify every ``cloud_verify_interval_s`` on a background thread."""
+        """Verify (and sync proposals) every ``cloud_verify_interval_s`` on
+        a background thread."""
         stop = threading.Event()
         self._cloud_stop = stop
 
@@ -1216,6 +1257,10 @@ class GuardService:
                     self.verify_cloud()
                 except Exception as e:  # noqa: BLE001 - the loop must not die
                     sys.stderr.write(f"sponsio: cloud verification failed: {e}\n")
+                try:
+                    self.sync_proposals()
+                except Exception as e:  # noqa: BLE001 - the loop must not die
+                    sys.stderr.write(f"sponsio: proposal sync failed: {e}\n")
                 if stop.wait(self.config.current().cloud_verify_interval_s):
                     return
 
@@ -1239,6 +1284,7 @@ class GuardService:
             "held": self.rules.status(),
             "watch": self.rules.watch,
             "cloud": dict(self._cloud_status),
+            "proposals": dict(self._proposal_status),
         }
 
     def rules_reload(self, bucket: str | None, peer: dict | None) -> dict[str, Any]:
