@@ -86,7 +86,14 @@ def _g(tmp, **kw):
     return {x.name: x for x in _assess(tmp, **kw).guarantees}
 
 
-def test_managed_settings_must_name_the_shim(tmp):
+@pytest.fixture
+def root_owned(monkeypatch):
+    """Stand in for root-owned managed settings: the files here are the
+    test user's own, which the real check rightly refuses."""
+    monkeypatch.setattr("sponsio.tier._owned_check", lambda p: (True, f"{p} ok"))
+
+
+def test_managed_settings_must_name_the_shim(tmp, root_owned):
     managed = tmp / "managed.json"
     managed.write_text(json.dumps({"hooks": {"PreToolUse": []}}))
     g = _g(tmp)
@@ -99,7 +106,7 @@ def test_managed_settings_must_name_the_shim(tmp):
     assert g["Claude Code older than 2.1.295 will not start"].ok
 
 
-def test_drop_ins_merge_after_the_main_file(tmp):
+def test_drop_ins_merge_after_the_main_file(tmp, root_owned):
     main = tmp / "managed.json"
     main.write_text(json.dumps({"permissions": {"deny": []}}))
     dropin = tmp / "50-sponsio.json"
@@ -125,7 +132,7 @@ def test_a_sandbox_that_lets_commands_out_does_not_count(tmp):
     assert not _g(tmp)["The host sandbox is on and cannot be bypassed"].ok
 
 
-def test_an_mdm_profile_hides_the_files(tmp):
+def test_an_mdm_profile_hides_the_files(tmp, root_owned):
     import plistlib
 
     (tmp / "managed.json").write_text(json.dumps(SYSTEM_SETTINGS))
@@ -180,3 +187,45 @@ def test_the_sandbox_variable_alone_proves_nothing(monkeypatch):
 
     monkeypatch.delenv("SPONSIO_SANDBOX", raising=False)
     assert inside_sandbox() is False
+
+
+def test_managed_settings_the_user_can_write_do_not_count(tmp):
+    (tmp / "managed.json").write_text(json.dumps(SYSTEM_SETTINGS))
+    g = _g(tmp)["Host hooks come from managed settings"]
+    assert not g.ok and "owned by uid" in g.detail
+
+
+def test_disable_all_hooks_turns_managed_hooks_off(tmp, root_owned):
+    (tmp / "managed.json").write_text(
+        json.dumps(dict(SYSTEM_SETTINGS, disableAllHooks=True))
+    )
+    g = _g(tmp)["Host hooks come from managed settings"]
+    assert not g.ok and "disableAllHooks" in g.detail
+
+
+def test_the_sandbox_merges_across_files_and_honours_platforms(tmp, root_owned):
+    import sys
+
+    main = tmp / "managed.json"
+    main.write_text(json.dumps({"sandbox": {"enabledPlatforms": []}}))
+    dropin = tmp / "50-sponsio.json"
+    dropin.write_text(json.dumps(SYSTEM_SETTINGS))
+    name = "The host sandbox is on and cannot be bypassed"
+    g = _g(tmp, managed_settings=(main, dropin))[name]
+    assert not g.ok and "enabledPlatforms" in g.detail
+    here = "macos" if sys.platform == "darwin" else "linux"
+    main.write_text(json.dumps({"sandbox": {"enabledPlatforms": [here]}}))
+    assert _g(tmp, managed_settings=(main, dropin))[name].ok
+
+
+def test_a_writable_directory_above_a_root_owned_file_does_not_count(monkeypatch):
+    from sponsio import tier
+
+    real_access = os.access
+    monkeypatch.setattr(
+        tier.os,
+        "access",
+        lambda p, mode: str(p) == "/usr" or real_access(p, mode),
+    )
+    ok, detail = tier._root_owned_readonly(Path("/usr/bin/env"))
+    assert not ok and "/usr" in detail

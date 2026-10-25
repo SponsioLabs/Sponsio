@@ -1502,7 +1502,7 @@ sudo sponsio install --system                # Claude Code
 sudo sponsio install --system --host claude-code --host cursor
 ```
 
-It creates a `_sponsio` system user and runs the daemon as that user under launchd (macOS) or systemd (Linux). The engine goes into a root-owned `/opt/sponsio`, the hook shims into `/usr/local/libexec/sponsio`, and the rules, history, audit log and config into a directory only `_sponsio` can open: `/Library/Application Support/Sponsio/state` on macOS, `/var/lib/sponsio` on Linux. Your libraries under `~/.sponsio/plugins` are copied in once; after that the daemon reads only its own copy.
+It creates a `_sponsio` system user and runs the daemon as that user under launchd (macOS) or systemd (Linux). The engine goes into a root-owned `/opt/sponsio`, the hook shims into `/usr/local/libexec/sponsio`, and the rules, history, audit log and config into a directory only `_sponsio` can open: `/Library/Application Support/Sponsio/state` on macOS, `/var/lib/sponsio` on Linux. Your libraries under `~/.sponsio/plugins` are copied in once (directories and regular files only: a link or anything else in a bucket is left out and listed); after that the daemon reads only its own copy. Once the system install is in place, every Sponsio client on the machine talks to its socket, also while the daemon restarts, never to a daemon your own user runs.
 
 For Claude Code it writes `managed-settings.d/50-sponsio.json` beside Claude Code's managed settings. Your own settings cannot remove those hooks. It also turns off user and project hooks (`allowManagedHooksOnly`), denies edits to Sponsio's paths, turns on Claude Code's sandbox with no unsandboxed fallback, and refuses Claude Code versions older than 2.1.295. `--allow-user-hooks` leaves user and project hooks loading; doctor then reports Tier 2 (degraded).
 
@@ -1516,7 +1516,9 @@ Things to know:
 
 Afterwards, commands that change Sponsio need root: `sudo sponsio rules reload`, `sudo sponsio admin proposals approve <id>`, `sudo sponsio admin audit verify`. Check the result as your own user with `sponsio doctor --tier`.
 
-To remove it: `sudo sponsio uninstall --system` (add `--keep-state` to keep the rules and the audit log).
+To remove it: `sudo sponsio uninstall --system` (add `--keep-state` to keep the rules and the audit log; the `_sponsio` user that owns them is kept too).
+
+`sponsio doctor --tier` counts Claude Code's managed settings only when the files and the directories holding them are root-owned and not writable by your user, `disableAllHooks` is not set in them, and the sandbox they enable covers this platform (`sandbox.enabledPlatforms`). The shim and the engine count as root-owned only when every directory above them is root-owned and read-only to your user too. The installer removes group and other write from the host settings directories it writes into.
 
 ## Tier 3: sandbox, gateway and egress proxy
 

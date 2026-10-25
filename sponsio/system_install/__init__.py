@@ -31,6 +31,7 @@ import json
 import os
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -288,14 +289,55 @@ class Executor:
             path, Path(source).read_text(encoding="utf-8"), owner=owner, mode=mode
         )
 
-    def copytree(self, source: Path, path: Path, *, owner: str) -> None:
+    def copytree(self, source: Path, path: Path, *, owner: str) -> list[str]:
+        """Copy the directories and regular files under ``source``. This
+        runs as root over a directory the user owns, so a link is never
+        followed and anything but a regular file is left out; returns
+        what was left out."""
         self._say(f"copy {source} -> {path} ({owner})")
+        skipped: list[str] = []
+        if source.is_symlink() or not source.is_dir():
+            return [str(source)]
+        if self.dry_run:
+            return skipped
+        target = self.layout.fs(path)
+        for here, dirs, files in os.walk(source, followlinks=False):
+            rel = Path(here).relative_to(source)
+            dest = target / rel
+            dest.mkdir(parents=True, exist_ok=True)
+            self._own(dest, owner, 0o700)
+            for name in [*dirs]:
+                if (Path(here) / name).is_symlink():
+                    dirs.remove(name)
+                    skipped.append(str(Path(here) / name))
+            for name in files:
+                src = Path(here) / name
+                st = os.lstat(src)
+                if not stat.S_ISREG(st.st_mode):
+                    skipped.append(str(src))
+                    continue
+                fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW)
+                with os.fdopen(fd, "rb") as fh:
+                    data = fh.read()
+                (dest / name).write_bytes(data)
+                self._own(dest / name, owner, 0o600)
+        return skipped
+
+    def tighten(self, path: Path) -> None:
+        """A shared directory that already exists (a host's settings
+        directory): make it root's and not writable by other users,
+        leaving the rest of its mode as it was."""
+        target = self.layout.fs(path)
+        if not target.is_dir():
+            return
+        st = target.stat()
+        mode = stat.S_IMODE(st.st_mode)
+        if mode & 0o022 == 0 and (st.st_uid == 0 or not self.chown):
+            return
+        self._say(f"tighten {path} (root, {mode & ~0o022:o})")
         if self.dry_run:
             return
-        target = self.layout.fs(path)
-        shutil.copytree(source, target, dirs_exist_ok=True)
-        for p in [target, *target.rglob("*")]:
-            self._own(p, owner, 0o700 if p.is_dir() else 0o600)
+        self._own(target, "root", mode & ~0o022)
 
     def remove(self, path: Path) -> None:
         target = self.layout.fs(path)
@@ -465,8 +507,14 @@ def claude_managed_settings(layout: Layout, *, allow_user_hooks: bool) -> dict:
         "command": hook_command(layout, "claude-code"),
         "timeout": 10,
     }
+    # A directory is denied with everything under it; a file (the service
+    # definition) by its own path, which `<file>/**` would not match.
     paths = [str(p) for p in layout.protected_paths()]
-    deny = [f"Edit(/{p}/**)" for p in paths]
+    files = {layout.service_file}
+    deny = [
+        f"Edit(/{p})" if p in files else f"Edit(/{p}/**)"
+        for p in layout.protected_paths()
+    ]
     deny.append(f"Read(/{layout.state}/**)")
     return {
         "allowManagedHooksOnly": not allow_user_hooks,
@@ -598,8 +646,10 @@ def import_user_libraries(
             if ex.exists(target / "sponsio.yaml"):
                 lines.append(f"kept {bucket}: the rule store already has it")
                 continue
-            ex.copytree(lib.parent, target, owner=SERVICE_USER)
+            skipped = ex.copytree(lib.parent, target, owner=SERVICE_USER)
             lines.append(f"imported {bucket} ({_count(lib)} contracts) from {lib}")
+            for item in skipped:
+                lines.append(f"left out {item}: not a regular file in {bucket}")
     wanted = [b for host in hosts for b in HOST_BUCKETS.get(host, ())]
     for bucket in wanted:
         if ex.exists(ex.layout.plugins / bucket / "sponsio.yaml"):
@@ -667,6 +717,9 @@ def install(ex: Executor, opts: InstallOptions) -> dict:
     # 3. The engine.
     ex.mkdir(lay.prefix.parent, shared=True)
     ex.run([str(python), "-m", "venv", "--clear", str(lay.prefix)])
+    # `venv --clear` empties a directory that exists but keeps its owner
+    # and mode: make it root's whatever it was before.
+    ex.mkdir(lay.prefix)
     ex.run(
         [
             str(lay.python),
@@ -710,6 +763,8 @@ def install(ex: Executor, opts: InstallOptions) -> dict:
     # 8. The hosts.
     if "claude-code" in opts.hosts:
         ex.mkdir(lay.claude_settings.parent, shared=True)
+        ex.tighten(lay.claude_settings.parent)
+        ex.tighten(lay.claude_managed_dir)
         ex.write(
             lay.claude_settings,
             json.dumps(
@@ -720,6 +775,7 @@ def install(ex: Executor, opts: InstallOptions) -> dict:
         )
     if "cursor" in opts.hosts:
         ex.mkdir(lay.cursor_hooks.parent, shared=True)
+        ex.tighten(lay.cursor_hooks.parent)
         ex.write(lay.cursor_hooks, cursor_hooks(lay, ex.read(lay.cursor_hooks)))
 
     import sponsio
@@ -783,13 +839,18 @@ def uninstall(ex: Executor, *, keep_state: bool = False) -> list[str]:
     ex.remove(lay.prefix)
     ex.remove(lay.run)
     if keep_state:
-        notes.append(f"kept {lay.state} and {lay.logs} (--keep-state)")
+        # The kept files belong to the service user: removing it would
+        # leave them to whichever account gets its id next.
+        notes.append(
+            f"kept {lay.state} and {lay.logs}, and the {SERVICE_USER} user that "
+            f"owns them (--keep-state)"
+        )
     else:
         ex.remove(lay.state)
         ex.remove(lay.logs)
         if lay.base:
             ex.remove(lay.base)
-    platform_mod.remove_user(ex)
+        platform_mod.remove_user(ex)
     notes.append(
         "Hooks now load from user settings again. To guard Claude Code at "
         "Tier 1, run `sponsio host install claude-code` as your own user."

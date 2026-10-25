@@ -92,8 +92,9 @@ def mdm_settings_path() -> Path | None:
 
 
 def _merged_managed(paths: tuple[Path, ...]) -> tuple[dict, list[Path]]:
-    """The files' settings merged in order (later keys win; hook lists
-    are concatenated), and which files were read."""
+    """The files' settings merged in order, as Claude Code merges them:
+    objects merge key by key at every depth, lists are concatenated, and
+    a later scalar wins. Returns which files were read too."""
     merged: dict = {}
     read: list[Path] = []
     for p in paths:
@@ -104,15 +105,40 @@ def _merged_managed(paths: tuple[Path, ...]) -> tuple[dict, list[Path]]:
         if not isinstance(data, dict):
             continue
         read.append(p)
-        for key, value in data.items():
-            if key == "hooks" and isinstance(value, dict):
-                hooks = merged.setdefault("hooks", {})
-                for event, entries in value.items():
-                    if isinstance(entries, list):
-                        hooks.setdefault(event, []).extend(entries)
-            else:
-                merged[key] = value
+        _deep_merge(merged, data)
     return merged, read
+
+
+def _deep_merge(into: dict, data: dict) -> None:
+    for key, value in data.items():
+        have = into.get(key)
+        if isinstance(have, dict) and isinstance(value, dict):
+            _deep_merge(have, value)
+        elif isinstance(have, list) and isinstance(value, list):
+            into[key] = have + value
+        elif isinstance(value, dict):
+            into[key] = {}
+            _deep_merge(into[key], value)
+        elif isinstance(value, list):
+            into[key] = list(value)
+        else:
+            into[key] = value
+
+
+_PLATFORM_NAMES = {"darwin": ("macos", "darwin", "mac"), "linux": ("linux",)}
+
+
+def _sandbox_platform_off(sandbox: dict) -> str | None:
+    """Why the sandbox is off on this platform although enabled, or ``None``."""
+    platforms = sandbox.get("enabledPlatforms")
+    if platforms is None:
+        return None
+    names = _PLATFORM_NAMES.get(sys.platform, (sys.platform,))
+    if isinstance(platforms, list) and any(
+        str(x).strip().lower() in names for x in platforms
+    ):
+        return None
+    return f"sandbox.enabledPlatforms ({platforms!r}) leaves out this platform"
 
 
 def _version_tuple(v: object) -> tuple[int, ...]:
@@ -141,15 +167,31 @@ def _higher_source_ignores_files(mdm: Path | None) -> str | None:
 
 
 def _root_owned_readonly(path: Path) -> tuple[bool, str]:
+    """Is ``path`` root-owned and out of this user's reach, together with
+    every directory above it? A writable directory anywhere up the chain
+    lets the user rename the path away and put another in its place."""
     try:
         st = path.stat()
     except OSError:
         return False, f"{path} is missing"
     if st.st_uid != 0:
         return False, f"{path} is owned by uid {st.st_uid}, not root"
-    if os.access(path, os.W_OK) or os.access(path.parent, os.W_OK):
-        return False, f"{path} (or its directory) is writable by this user"
+    if os.access(path, os.W_OK):
+        return False, f"{path} is writable by this user"
+    for parent in path.parents:
+        try:
+            pst = parent.stat()
+        except OSError:
+            return False, f"{parent} cannot be read"
+        if pst.st_uid != 0:
+            return False, f"{parent}, above {path}, is owned by uid {pst.st_uid}"
+        if os.access(parent, os.W_OK):
+            return False, f"{parent}, above {path}, is writable by this user"
     return True, f"{path} is root-owned and read-only to this user"
+
+
+def _owned_check(path: Path) -> tuple[bool, str]:
+    return _root_owned_readonly(path)
 
 
 def assess(
@@ -247,19 +289,39 @@ def assess(
         mdm_settings if mdm_settings is not None else mdm_settings_path()
     )
     where = ", ".join(str(p) for p in read) or "no Claude Code managed settings"
-    hooks_ok = "sponsio_shim" in json.dumps(merged.get("hooks", {})) and not ignored
+    problem = ignored
+    if problem is None and merged.get("disableAllHooks") is True:
+        problem = (
+            f"disableAllHooks is on in the managed settings ({where}), which "
+            f"turns off managed hooks too"
+        )
+    if problem is None:
+        # The files, and the directories holding them, must be out of the
+        # agent user's reach, or it can remove the hooks.
+        for f in [*read, *{p.parent for p in paths}]:
+            if not f.exists():
+                continue
+            ok, detail = _owned_check(f)
+            if not ok:
+                problem = detail
+                break
+    hooks_ok = "sponsio_shim" in json.dumps(merged.get("hooks", {})) and not problem
     g.append(
         Guarantee(
             2,
             "Host hooks come from managed settings",
             hooks_ok,
-            ignored or where,
+            problem or where,
             ""
             if hooks_ok
             else (
                 "add `managedSourcesBehavior: merge` to the MDM profile, or put "
                 "Sponsio's settings in it"
                 if ignored
+                else "remove disableAllHooks from the managed settings"
+                if problem and "disableAllHooks" in problem
+                else "make the managed settings root-owned and not writable by users"
+                if problem
                 else "`sudo sponsio install --system`"
             ),
         )
@@ -278,11 +340,13 @@ def assess(
         )
     )
     sandbox = merged.get("sandbox") if not ignored else None
+    sandbox_off = _sandbox_platform_off(sandbox) if isinstance(sandbox, dict) else None
     sandbox_ok = (
         isinstance(sandbox, dict)
         and sandbox.get("enabled") is True
         and sandbox.get("failIfUnavailable") is True
         and sandbox.get("allowUnsandboxedCommands") is False
+        and sandbox_off is None
     )
     g.append(
         Guarantee(
@@ -291,7 +355,8 @@ def assess(
             sandbox_ok,
             "enabled, fails when unavailable, no unsandboxed commands"
             if sandbox_ok
-            else "not enabled in managed settings, or a command may run outside it",
+            else sandbox_off
+            or "not enabled in managed settings, or a command may run outside it",
             "" if sandbox_ok else "`sudo sponsio install --system`",
         )
     )
