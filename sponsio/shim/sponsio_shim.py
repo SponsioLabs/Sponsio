@@ -194,6 +194,14 @@ def recovery_reason(
     )
 
 
+def _recovery(opts: "Options", cause: str) -> str:
+    """The deny reason for a call no daemon decided: the system install's
+    recovery (``--no-start``), or the per-user one."""
+    if opts.no_start:
+        return system_recovery_reason(cause)
+    return recovery_reason(cause, opts.socket, opts.state_dir, opts.host)
+
+
 def deny_reply(host: str, event_name: str, reason: str) -> tuple[str, int]:
     """The host's deny shape for ``event_name``, always with exit 2."""
     if host == "cursor":
@@ -384,7 +392,7 @@ def run(argv: list[str], stdin_text: str) -> tuple[str, int, str]:
         result = None
 
     if result is None:
-        reason = recovery_reason(cause, opts.socket, opts.state_dir, opts.host)
+        reason = _recovery(opts, cause)
         out, code = deny_reply(opts.host, event_name, reason)
         return out, code, reason + "\n"
     out = result.get("stdout")
@@ -408,12 +416,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as e:  # noqa: BLE001 - any failure in the shim is a deny
         opts = parse_args(argv)
         _method, event_name = classify(opts.host, opts.event, stdin_text)
-        reason = recovery_reason(
-            f"shim failure {e.__class__.__name__}: {e}",
-            opts.socket,
-            opts.state_dir,
-            opts.host,
-        )
+        reason = _recovery(opts, f"shim failure {e.__class__.__name__}: {e}")
         out, code = deny_reply(opts.host, event_name, reason)
         err = reason + "\n"
     try:

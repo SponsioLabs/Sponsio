@@ -41,23 +41,38 @@ def _exists(ex: Executor) -> bool:
 
 
 def ensure_user(ex: Executor) -> None:
-    if _exists(ex):
-        ex.echo(f"user {SERVICE_USER} exists")
-        return
-    taken = _taken(ex, "Users", "UniqueID") | _taken(ex, "Groups", "PrimaryGroupID")
-    free = next((i for i in _ID_RANGE if i not in taken), None)
-    if free is None:
-        raise InstallError("no free id below 500 for the _sponsio user")
+    """Create ``_sponsio``, or finish it. Every setting that keeps the
+    account from being used to log in is applied on every run, so an
+    install that stopped partway is completed by running it again."""
     group = f"/Groups/{SERVICE_USER}"
     user = f"/Users/{SERVICE_USER}"
+    if _exists(ex):
+        import grp
+        import pwd
+
+        ex.echo(f"user {SERVICE_USER} exists; applying its settings again")
+        gid = pwd.getpwnam(SERVICE_USER).pw_gid
+        try:
+            grp.getgrnam(SERVICE_USER)
+        except KeyError:
+            ex.run(["dscl", ".", "-create", group])
+            ex.run(["dscl", ".", "-create", group, "PrimaryGroupID", str(gid)])
+    else:
+        taken = _taken(ex, "Users", "UniqueID") | _taken(ex, "Groups", "PrimaryGroupID")
+        free = next((i for i in _ID_RANGE if i not in taken), None)
+        if free is None:
+            raise InstallError("no free id below 500 for the _sponsio user")
+        for argv in (
+            ["dscl", ".", "-create", group],
+            ["dscl", ".", "-create", group, "PrimaryGroupID", str(free)],
+            ["dscl", ".", "-create", user],
+            ["dscl", ".", "-create", user, "UniqueID", str(free)],
+            ["dscl", ".", "-create", user, "PrimaryGroupID", str(free)],
+        ):
+            ex.run(argv)
     for argv in (
-        ["dscl", ".", "-create", group],
-        ["dscl", ".", "-create", group, "PrimaryGroupID", str(free)],
         ["dscl", ".", "-create", group, "RealName", "Sponsio daemon"],
         ["dscl", ".", "-create", group, "Password", "*"],
-        ["dscl", ".", "-create", user],
-        ["dscl", ".", "-create", user, "UniqueID", str(free)],
-        ["dscl", ".", "-create", user, "PrimaryGroupID", str(free)],
         ["dscl", ".", "-create", user, "UserShell", "/usr/bin/false"],
         ["dscl", ".", "-create", user, "NFSHomeDirectory", "/var/empty"],
         ["dscl", ".", "-create", user, "RealName", "Sponsio daemon"],

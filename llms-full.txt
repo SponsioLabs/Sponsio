@@ -1509,6 +1509,8 @@ For Claude Code it writes `managed-settings.d/50-sponsio.json` beside Claude Cod
 
 Things to know:
 
+- **Shared directories above Sponsio's own must be root's.** If `/opt`, `/usr/local` or another directory above where Sponsio installs can be changed by a user other than root, the install stops and names it: such a directory lets that user swap out what is below it. The installer does not change shared directories; fix them (`sudo chown root <dir> && sudo chmod go-w <dir>`) and run it again. Sponsio's own directories are made root's, and nothing under them is writable by group or others.
+- **The `_sponsio` account is hardened on every run.** Its shell, home, locked password and (on macOS) hidden flag are applied again when it already exists, so a run that stopped partway is finished by the next.
 - **The engine needs a root-owned Python 3.10 or newer.** Its standard library is part of the engine, so a Python under your home or under Homebrew does not count. On macOS install one from python.org; the system `/usr/bin/python3` is too old. Pass `--python` to choose.
 - **An MDM profile can hide the file.** Claude Code reads a managed MDM profile before the managed settings files, and ignores the files unless the profile sets `managedSourcesBehavior: merge`. `sponsio doctor --tier` says when this is the case.
 - **The sandbox has exceptions.** Commands listed in `sandbox.excludedCommands`, and commands you run yourself with `!`, run outside it. On Linux it needs `bubblewrap` and `socat`.

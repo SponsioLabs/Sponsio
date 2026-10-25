@@ -85,6 +85,15 @@ jobs:
           /usr/bin/python3 -m venv /tmp/operator
           /tmp/operator/bin/pip install --quiet /tmp/src
 
+      # The runner image leaves some shared directories writable by other
+      # users; the installer refuses those, as it should on any machine,
+      # and the operator fixes them first.
+      - name: Shared parent directories as an operator would leave them
+        run: |
+          for d in /opt /usr/local /usr/local/libexec /var/lib /var/log /run; do
+            if [ -d "$d" ]; then sudo chown root:root "$d" && sudo chmod go-w "$d"; fi
+          done
+
       - name: sudo sponsio install --system
         run: |
           sudo /tmp/operator/bin/sponsio install --system \

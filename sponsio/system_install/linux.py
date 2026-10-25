@@ -27,19 +27,33 @@ def _exists(ex: Executor) -> bool:
 
 
 def ensure_user(ex: Executor) -> None:
+    """Create ``_sponsio``, or finish it: its shell, home and locked
+    password are set on every run, so an earlier partial install or a
+    hand-made account ends up the same."""
     if _exists(ex):
-        ex.echo(f"user {SERVICE_USER} exists")
-        return
+        ex.echo(f"user {SERVICE_USER} exists; applying its settings again")
+    else:
+        ex.run(
+            [
+                "useradd",
+                "--system",
+                "--user-group",
+                "--no-create-home",
+                "--home-dir",
+                "/nonexistent",
+                "--shell",
+                "/usr/sbin/nologin",
+                SERVICE_USER,
+            ]
+        )
     ex.run(
         [
-            "useradd",
-            "--system",
-            "--user-group",
-            "--no-create-home",
-            "--home-dir",
-            "/nonexistent",
+            "usermod",
             "--shell",
             "/usr/sbin/nologin",
+            "--home",
+            "/nonexistent",
+            "--lock",
             SERVICE_USER,
         ]
     )

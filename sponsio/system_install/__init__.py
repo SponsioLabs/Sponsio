@@ -323,6 +323,24 @@ class Executor:
                 self._own(dest / name, owner, 0o600)
         return skipped
 
+    def secure_tree(self, path: Path) -> None:
+        """``path`` and everything under it (links not followed): root's,
+        with group and other write removed."""
+        self._say(f"secure {path} (root, no group or other write)")
+        if self.dry_run:
+            return
+        top = self.layout.fs(path)
+        for here, dirs, files in os.walk(top, followlinks=False):
+            for p in [Path(here), *(Path(here) / n for n in [*dirs, *files])]:
+                st = os.lstat(p)
+                if stat.S_ISLNK(st.st_mode):
+                    if self.chown and st.st_uid != 0:
+                        os.lchown(p, 0, 0)
+                    continue
+                mode = stat.S_IMODE(st.st_mode)
+                if mode & 0o022 or (self.chown and st.st_uid != 0):
+                    self._own(p, "root", mode & ~0o022)
+
     def tighten(self, path: Path) -> None:
         """A shared directory that already exists (a host's settings
         directory): make it root's and not writable by other users,
@@ -390,6 +408,30 @@ def _root_owned_chain(path: Path) -> str | None:
         if st.st_mode & 0o020 and st.st_gid != 0:
             return f"{p} is writable by group {st.st_gid}"
     return None
+
+
+def shared_parent_problems(layout: Layout) -> list[str]:
+    """Why a directory above one of Sponsio's own could be changed by a
+    user other than root, one line per directory, or ``[]``. Sponsio's
+    own directories are made root's by the install; the shared ones above
+    them (``/opt``, ``/usr/local``, ...) are only checked."""
+    own = [
+        layout.prefix,
+        layout.libexec,
+        layout.base or layout.state,
+        layout.logs,
+        layout.run,
+        layout.service_file,
+    ]
+    problems: dict[str, None] = {}
+    for path in own:
+        parent = layout.fs(path).parent
+        while not parent.exists() and parent != parent.parent:
+            parent = parent.parent
+        problem = _root_owned_chain(parent)
+        if problem:
+            problems[problem] = None
+    return list(problems)
 
 
 def check_interpreter(python: Path, runner: Runner = _run) -> str | None:
@@ -711,10 +753,28 @@ def install(ex: Executor, opts: InstallOptions) -> dict:
     else:
         python = Path(opts.python or sys.executable)
 
-    # 2. Who the daemon runs as.
+    # 2. Directories above Sponsio's own that someone other than root can
+    # change: renaming one swaps out what is below it. They are shared, so
+    # they are not changed here; the operator fixes them.
+    if lay.root == Path("/"):
+        problems = shared_parent_problems(lay)
+        if problems:
+            message = (
+                "a directory above Sponsio's own can be changed by a user other "
+                "than root, so the agent's user could replace Sponsio's files:\n  "
+                + "\n  ".join(problems)
+                + "\nMake each root-owned and not group- or world-writable (for "
+                "example `sudo chown root <dir> && sudo chmod go-w <dir>`), then "
+                "run the install again."
+            )
+            if not ex.dry_run:
+                raise InstallError(message)
+            ex.echo("warning: " + message)
+
+    # 3. Who the daemon runs as.
     platform_mod.ensure_user(ex)
 
-    # 3. The engine.
+    # 4. The engine.
     ex.mkdir(lay.prefix.parent, shared=True)
     ex.run([str(python), "-m", "venv", "--clear", str(lay.prefix)])
     # `venv --clear` empties a directory that exists but keeps its owner
@@ -732,12 +792,16 @@ def install(ex: Executor, opts: InstallOptions) -> dict:
         ]
     )
 
-    # 4. The shims, root-owned.
+    # Everything Sponsio put under its prefix: root's, writable by no one
+    # else.
+    ex.secure_tree(lay.prefix)
+
+    # 5. The shims, root-owned.
     ex.mkdir(lay.libexec)
     ex.copy(_engine_file(ex, "sponsio_shim.py"), lay.shim)
     ex.copy(_engine_file(ex, "sponsio_mcp.py"), lay.mcp_shim)
 
-    # 5. State, logs and sockets.
+    # 6. State, logs and sockets.
     if lay.base:
         ex.mkdir(lay.base)
     ex.mkdir(lay.state, owner=SERVICE_USER, mode=0o700)
@@ -752,15 +816,15 @@ def install(ex: Executor, opts: InstallOptions) -> dict:
             mode=0o600,
         )
 
-    # 6. The rules (P1.2).
+    # 7. The rules (P1.2).
     imported = import_user_libraries(ex, opts.migrate_from, opts.hosts)
     for line in imported:
         ex.echo("  " + line)
 
-    # 7. The service.
+    # 8. The service.
     platform_mod.install_service(ex)
 
-    # 8. The hosts.
+    # 9. The hosts.
     if "claude-code" in opts.hosts:
         ex.mkdir(lay.claude_settings.parent, shared=True)
         ex.tighten(lay.claude_settings.parent)
