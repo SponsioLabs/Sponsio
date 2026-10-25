@@ -101,7 +101,7 @@ jobs:
         run: |
           sudo -u agentuser env SPONSIO_TEST_TIER=2 HOME=/home/agentuser \
             /home/agentuser/venv/bin/python -m pytest -v -p no:cacheprovider \
-            tests/test_tier2_live.py
+            tests/test_tier2_live.py tests/security/test_boundary_corpus.py
 
       - name: Daemon log
         if: failure()
@@ -143,6 +143,13 @@ jobs:
 
       - name: Sandbox, egress proxy and gateway, for real
         run: pytest -v tests/test_sandbox_run.py tests/test_egress.py tests/test_gateway.py
+
+      # The boundary corpus at Tier 2 and 3 runs here or in a VM, never on
+      # a developer machine.
+      - name: Boundary corpus, Tier 3
+        env:
+          SPONSIO_TEST_TIER: "3"
+        run: pytest -v -p no:cacheprovider tests/security/test_boundary_corpus.py
 
       - name: Container recipe
         working-directory: deploy/tier3
