@@ -40,6 +40,7 @@ except ImportError:  # pragma: no cover - non-POSIX
 
 from sponsio.daemon.peercred import Peer, get_peer
 from sponsio.daemon.protocol import (
+    MAX_FRAME_BYTES,
     FrameError,
     Request,
     Response,
@@ -381,10 +382,19 @@ class DaemonServer:
                     code="internal",
                 )
             try:
-                write_frame(conn, response.to_json())
+                body = response.to_json()
+                if len(body) > MAX_FRAME_BYTES:
+                    # Say so rather than close: a client that sees the
+                    # connection drop cannot tell whether the call ran.
+                    body = Response.failure(
+                        f"the reply ({len(body)} bytes) is larger than the "
+                        f"{MAX_FRAME_BYTES} bytes a frame carries; the call "
+                        f"completed but its result cannot be returned",
+                        code="too_large",
+                    ).to_json()
+                write_frame(conn, body)
             except (OSError, FrameError):
-                # Peer gone or response too big; we already logged above
-                # if the body was the cause.
+                # Peer gone.
                 pass
 
     def _dispatch_admin(self, req: Request, peer: Peer | None) -> Response:

@@ -68,13 +68,24 @@ class Bridge:
 
     # ---- daemon ----
 
-    def rpc(self, method: str, params: dict) -> dict:
+    def rpc(self, method: str, params: dict, *, once: bool = False) -> dict:
         """One gateway RPC; raises ``RuntimeError`` with the reason the
-        host should see when no daemon answers or it refuses."""
+        host should see when no daemon answers or it refuses.
+
+        ``once`` is for a request with an effect (``gateway.call_tool``):
+        if it was sent and the reply was lost, the daemon may have run the
+        tool, so it is not sent again."""
         params = {"session": self.session, **params}
         deadline = time.monotonic() + self.timeout
         try:
             return transport.call(self.opts.socket, method, params, deadline)
+        except transport.ReplyLost as first:
+            if once:
+                raise RuntimeError(
+                    f"Sponsio gateway: the daemon took the call but its reply was "
+                    f"lost ({first}). The tool may have run; it is not sent again."
+                ) from first
+            cause = str(first)
         except transport.Unreachable as first:
             cause = str(first)
         if self.opts.no_start:
@@ -162,7 +173,9 @@ class Bridge:
             arguments = params.get("arguments")
             try:
                 reply = self.rpc(
-                    "gateway.call_tool", {"name": name, "arguments": arguments}
+                    "gateway.call_tool",
+                    {"name": name, "arguments": arguments},
+                    once=True,
                 )
             except RuntimeError as e:
                 return _error_result(str(e))
@@ -194,6 +207,13 @@ class Bridge:
                     }
                 )
                 continue
+            if isinstance(msg, list) and msg:
+                # A JSON-RPC batch (MCP 2025-03-26): one reply per request,
+                # together, off the reading thread.
+                t = threading.Thread(target=self._reply_batch, args=(msg,), daemon=True)
+                t.start()
+                workers.append(t)
+                continue
             if not isinstance(msg, dict):
                 self.write(
                     {
@@ -214,17 +234,34 @@ class Bridge:
         for t in workers:
             t.join(self.timeout)
 
-    def _reply(self, msg: dict) -> None:
+    def _answer(self, msg: object) -> dict | None:
+        if not isinstance(msg, dict):
+            return {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": -32600, "message": "invalid request"},
+            }
         try:
-            reply = self.handle(msg)
+            return self.handle(msg)
         except Exception as e:  # noqa: BLE001 - a shim failure is an error reply
-            reply = {
+            return {
                 "jsonrpc": "2.0",
                 "id": msg.get("id"),
                 "error": {"code": -32603, "message": f"sponsio shim: {e}"},
             }
+
+    def _reply(self, msg: dict) -> None:
+        reply = self._answer(msg)
         if reply is not None:
             self.write(reply)
+
+    def _reply_batch(self, batch: list) -> None:
+        replies = [r for r in (self._answer(m) for m in batch) if r is not None]
+        if replies:
+            line = json.dumps(replies, separators=(",", ":")) + "\n"
+            with self._write_lock:
+                self.out.write(line)
+                self.out.flush()
 
 
 def recovery_reason(cause: str, opts: transport.Options) -> str:

@@ -1778,7 +1778,9 @@ class BaseGuard:
         approved = set(policy.approved)
         return [t for t in tools if name_fn(t) in approved]
 
-    def filter_tools(self, candidates: list[str]) -> list[str]:
+    def filter_tools(
+        self, candidates: list[str], *, hide_redirected: bool = False
+    ) -> list[str]:
         """Return the subset of ``candidates`` legal to call right now.
 
         Probes each candidate against the current trace + det contracts
@@ -1815,6 +1817,9 @@ class BaseGuard:
         Args:
             candidates: Tool names the framework would normally expose
                 to the agent for the next turn.
+            hide_redirected: Also drop a tool whose call would be
+                redirected, for a caller that has no safe tool to
+                substitute and so refuses a redirected call.
 
         Returns:
             The subset of ``candidates`` (preserving order) for which
@@ -1836,7 +1841,8 @@ class BaseGuard:
                 # see the candidate call; we always pop it on the way
                 # out so the trace is restored to its real state.
                 self._monitor.rollback_last_event()
-                if not any(r.action == "blocked" for r in results):
+                stops = is_stopping_action if hide_redirected else "blocked".__eq__
+                if not any(stops(r.action) for r in results):
                     allowed.append(tool_name)
             return allowed
 

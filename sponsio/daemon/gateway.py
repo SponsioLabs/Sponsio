@@ -82,6 +82,12 @@ class GatewayError(Exception):
     """An upstream server could not be started or did not answer."""
 
 
+class NotRun(GatewayError):
+    """The request certainly did not run upstream: the server could not be
+    started, the request could not be sent, or the server answered it with
+    a JSON-RPC error (in MCP, a protocol error: the tool was not run)."""
+
+
 @dataclass(frozen=True)
 class ServerSpec:
     name: str
@@ -239,7 +245,14 @@ class Upstream:
             except ValueError:
                 continue
             if isinstance(msg, dict):
-                self._on_message(msg)
+                try:
+                    self._on_message(msg)
+                except Exception:  # noqa: BLE001 - one bad message must not stop the reader
+                    _logger.warning(
+                        "gateway %s: ignored a message it could not handle",
+                        self.spec.name,
+                        exc_info=True,
+                    )
         # The server exited: nothing pending will be answered.
         with self._lock:
             pending, self._pending = self._pending, {}
@@ -256,8 +269,12 @@ class Upstream:
     def _on_message(self, msg: dict) -> None:
         method = msg.get("method")
         if method is None:
+            rid = msg.get("id")
+            if not isinstance(rid, int) or isinstance(rid, bool):
+                # Not an id the gateway sent: ignore it, keep reading.
+                return
             with self._lock:
-                p = self._pending.pop(msg.get("id"), None)  # type: ignore[arg-type]
+                p = self._pending.pop(rid, None)
             if p is not None:
                 p.reply = msg
                 p.done.set()
@@ -304,10 +321,10 @@ class Upstream:
             msg["params"] = params
         try:
             self._send(msg)
-        except GatewayError:
+        except GatewayError as e:
             with self._lock:
                 self._pending.pop(rid, None)
-            raise
+            raise NotRun(str(e)) from e
         if not pending.done.wait(self.spec.timeout_s):
             with self._lock:
                 self._pending.pop(rid, None)
@@ -326,7 +343,7 @@ class Upstream:
         if "error" in reply:
             err = reply["error"]
             message = err.get("message") if isinstance(err, dict) else err
-            raise GatewayError(f"`{self.spec.name}` {method} failed: {message}")
+            raise NotRun(f"`{self.spec.name}` {method} failed: {message}")
         result = reply.get("result")
         return result if isinstance(result, dict) else {}
 
@@ -374,7 +391,10 @@ class Upstream:
         return tools
 
     def call(self, tool: str, arguments: dict) -> dict:
-        self._ensure()
+        try:
+            self._ensure()
+        except GatewayError as e:
+            raise NotRun(str(e)) from e
         return self._request("tools/call", {"name": tool, "arguments": arguments})
 
 
@@ -399,6 +419,7 @@ class Gateway:
         self.service = service
         self.state_dir = Path(service.state_dir)
         self._lock = threading.Lock()
+        self._session_locks: dict[str, threading.Lock] = {}
         self._sig: tuple | None = None
         self._upstreams: dict[str, Upstream] = {}
 
@@ -508,25 +529,42 @@ class Gateway:
             "tool_name": contract_name,
             "tool_input": arguments,
         }
-        outcome = self.service.decide(event, offered_only=True)
-        if not outcome.allowed:
-            return done(_error_result(outcome.reason or "blocked by Sponsio"))
-        try:
-            result = self.upstreams()[server].call(tool["name"], arguments)
-        except (GatewayError, KeyError) as e:
-            return done(_error_result(f"Sponsio gateway: {e}"))
-        self.service.decide(
-            {
-                "host": HOST,
-                "session_id": session,
-                "hook_event_name": "PostToolUse",
-                "tool_name": contract_name,
-                "tool_input": arguments,
-                "tool_response": result.get("structuredContent")
-                or result.get("content"),
-            }
-        )
+        # One call at a time per session: the decision, the call and its
+        # record are one step, so a call is decided against every call
+        # before it that ran, and against none that did not.
+        with self._session_lock(conv):
+            outcome = self.service.decide(event, offered_only=True, record=False)
+            if not outcome.allowed:
+                return done(_error_result(outcome.reason or "blocked by Sponsio"))
+            try:
+                result = self.upstreams()[server].call(tool["name"], arguments)
+            except (NotRun, KeyError) as e:
+                # Not run, so not in the history: it satisfies nothing.
+                return done(_error_result(f"Sponsio gateway: {e}"))
+            except GatewayError as e:
+                # Sent, then no answer: it may have run, so it counts.
+                self.service.commit(outcome, conv)
+                return done(_error_result(f"Sponsio gateway: {e}"))
+            self.service.commit(outcome, conv)
+            self.service.decide(
+                {
+                    "host": HOST,
+                    "session_id": session,
+                    "hook_event_name": "PostToolUse",
+                    "tool_name": contract_name,
+                    "tool_input": arguments,
+                    "tool_response": result.get("structuredContent")
+                    or result.get("content"),
+                }
+            )
         return done(result)
+
+    def _session_lock(self, conv: str) -> threading.Lock:
+        with self._lock:
+            lock = self._session_locks.get(conv)
+            if lock is None:
+                lock = self._session_locks[conv] = threading.Lock()
+            return lock
 
     def close(self) -> None:
         with self._lock:

@@ -86,6 +86,9 @@ class GuardOutcome:
     project_dropped: tuple[str, ...] = ()
     """What the project layer tried that would have weakened the
     protected library, and was dropped. The daemon audits it."""
+    pending: dict | None = None
+    """An admitted call decided with ``record=False``: the trace record to
+    add once the caller knows the call ran (``TraceStore.append``)."""
 
 
 def _bucket_for_host(host: str | None, is_subagent: bool) -> str:
@@ -1203,6 +1206,7 @@ def evaluate(
     guards: GuardCache | None = None,
     library: str | None = None,
     project: ProjectLayer | None = None,
+    record: bool = True,
 ) -> GuardOutcome:
     """Decide one hook event. Pure in its inputs: no file, no environment.
 
@@ -1221,6 +1225,10 @@ def evaluate(
     ``project`` is the project layer the caller found for the event
     (:func:`find_project_layer`). Its contracts are added to the
     library's; nothing in it can weaken the library.
+
+    With ``record=False`` an admitted call is not added to the history;
+    the outcome carries it as ``pending`` for the caller to append once
+    the call ran (the gateway, which learns that only from the upstream).
     """
     tool_name = event.get("tool_name") or ""
     tool_input = event.get("tool_input") or {}
@@ -1250,7 +1258,11 @@ def evaluate(
     # drift).
     raw_agent_id = event.get("agent_id")
     is_subagent = isinstance(raw_agent_id, str) and bool(raw_agent_id.strip())
-    tool_name = gateway_inner_name(tool_name)
+    if library is None:
+        # A host hook sees gateway tools under the shim's server name. A
+        # caller that names its library (the SDK) decides on the names its
+        # own contracts use.
+        tool_name = gateway_inner_name(tool_name)
     plugin_id = library or derive_plugin_id(
         tool_name, host=host, is_subagent=is_subagent
     )
@@ -1371,18 +1383,26 @@ def evaluate(
         # ourselves we'd race the monitor's own ts and collisions would
         # silently confuse re-grounded valuations on the next check.
         last_event = guard._monitor.trace.events[-1]
-        try:
-            traces.append(
-                plugin_id,
-                conversation_id,
-                {
-                    "ts": last_event.ts,
-                    "agent": last_event.agent,
-                    "type": last_event.event_type,
-                    "tool": last_event.tool,
-                    "args": last_event.args,
-                },
+        admitted = {
+            "ts": last_event.ts,
+            "agent": last_event.agent,
+            "type": last_event.event_type,
+            "tool": last_event.tool,
+            "args": last_event.args,
+        }
+        if not record:
+            # The guard's trace holds a call the store does not (yet).
+            if guards:
+                guards.discard(cache_key)
+            return GuardOutcome(
+                allowed=True,
+                plugin_id=plugin_id,
+                library_path=snap.path,
+                project_dropped=dropped,
+                pending=admitted,
             )
+        try:
+            traces.append(plugin_id, conversation_id, admitted)
         except OSError as e:  # pragma: no cover - log-write failure
             sys.stderr.write(
                 f"sponsio shield guard:could not append trace event: {e}\n"
@@ -1479,16 +1499,17 @@ def allowed_tools(
     Arguments are not known yet; a call is still decided by
     :func:`evaluate`. A library that is held or broken (with ``on_error:
     deny``) allows none of its tools; a tool with no library is allowed
-    unless unconfigured tools are denied. In observe mode every tool is
-    allowed: :meth:`BaseGuard.filter_tools` answers regardless of mode,
-    and observe blocks nothing. Order is kept. Like :func:`evaluate`, the
+    unless unconfigured tools are denied. In observe mode every tool its
+    library would let :func:`evaluate` decide is allowed, since observe
+    blocks no contract. Order is kept. Like :func:`evaluate`, the
     caller serialises calls per conversation.
     """
-    if policy.mode == "observe":
-        return list(tool_names)
     groups: dict[str, list[str]] = {}
     for name in tool_names:
-        plugin_id = library or derive_plugin_id(name, host=host)
+        # Named as :func:`evaluate` names it, so the list and the call
+        # are decided against the same tool.
+        inner = name if library is not None else gateway_inner_name(name)
+        plugin_id = library or derive_plugin_id(inner, host=host)
         groups.setdefault(plugin_id, []).append(name)
     allowed: set[str] = set()
     for plugin_id, names in groups.items():
@@ -1503,7 +1524,14 @@ def allowed_tools(
             if policy.on_error == "allow":
                 allowed.update(names)
             continue
+        if policy.mode == "observe":
+            # Observe blocks no call its library admits to be decided.
+            allowed.update(names)
+            continue
         cache_key = (plugin_id, snap.content_hash, conversation_id, policy.mode)
+        inner_of = {
+            (n if library is not None else gateway_inner_name(n)): n for n in names
+        }
         try:
             with (
                 contextlib.redirect_stdout(io.StringIO()),
@@ -1512,7 +1540,10 @@ def allowed_tools(
                 guard = _session_guard(
                     snap, plugin_id, conversation_id, policy, traces, guards
                 )
-                allowed.update(guard.filter_tools(names))
+                # A redirected call is refused here (nothing substitutes
+                # the safe tool), so it is not offered either.
+                kept = guard.filter_tools(list(inner_of), hide_redirected=True)
+                allowed.update(inner_of[n] for n in kept)
         except Exception:  # noqa: BLE001 - an unevaluable library offers nothing
             if guards:
                 guards.discard(cache_key)

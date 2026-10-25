@@ -230,6 +230,12 @@ class Unreachable(Exception):
     """No daemon answered (missing socket, refused, or timed out)."""
 
 
+class ReplyLost(Unreachable):
+    """The request was sent and no reply came back: the daemon may have
+    acted on it. Retrying is safe only for a request that has no effect
+    of its own."""
+
+
 def call(socket_path: str, method: str, params: dict, deadline: float) -> dict:
     """One RPC; raises :class:`Unreachable` when no daemon answers and
     ``RuntimeError`` when a daemon answers with an error."""
@@ -237,20 +243,22 @@ def call(socket_path: str, method: str, params: dict, deadline: float) -> dict:
     if remaining <= 0:
         raise Unreachable("deadline passed")
     body = json.dumps({"method": method, "params": params}).encode("utf-8")
+    sent = False
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
             s.settimeout(remaining)
             s.connect(socket_path)
             s.sendall(_LEN.pack(len(body)) + body)
+            sent = True
             header = _recv_exact(s, _LEN.size)
             (length,) = _LEN.unpack(header)
             if length > _MAX_FRAME:
                 raise RuntimeError("reply too large")
             reply = json.loads(_recv_exact(s, length).decode("utf-8"))
     except socket.timeout as e:
-        raise Unreachable("timed out") from e
+        raise (ReplyLost if sent else Unreachable)("timed out") from e
     except (OSError, ConnectionError) as e:
-        raise Unreachable(_describe(e, socket_path)) from e
+        raise (ReplyLost if sent else Unreachable)(_describe(e, socket_path)) from e
     if not isinstance(reply, dict) or not reply.get("ok"):
         err = reply.get("error") if isinstance(reply, dict) else reply
         raise RuntimeError(f"daemon error: {err}")

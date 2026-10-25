@@ -1441,6 +1441,7 @@ class GuardService:
         offered_only: bool = False,
         library: str | None = None,
         project: ProjectLayer | None = None,
+        record: bool = True,
     ) -> GuardOutcome:
         # ``mode`` is what an older hook command or plugin still sends;
         # the daemon config decides, so it is ignored.
@@ -1476,6 +1477,7 @@ class GuardService:
                             guards=self.guards,
                             library=library,
                             project=project,
+                            record=record,
                         )
             except Exception as e:  # noqa: BLE001 - every failure is a decision
                 outcome = _error_outcome(e, "", None, policy.on_error)
@@ -1585,14 +1587,30 @@ class GuardService:
                 )
 
     def decide(
-        self, event: dict, *, offered_only: bool = False, library: str | None = None
+        self,
+        event: dict,
+        *,
+        offered_only: bool = False,
+        library: str | None = None,
+        record: bool = True,
     ) -> GuardOutcome:
         """Decide a Sponsio-shaped event (``tool_name``, ``tool_input``,
         ``hook_event_name``, ``host``, ``session_id``) for a caller that is
         not a host hook. ``offered_only`` also refuses a tool that
         :meth:`allowed_tools` would not list; ``library`` names the
-        library instead of deriving it from the tool name."""
-        return self._evaluate(event, offered_only=offered_only, library=library)
+        library instead of deriving it from the tool name. With
+        ``record=False`` an admitted call is added to the history only by
+        :meth:`commit`, once the caller knows it ran."""
+        return self._evaluate(
+            event, offered_only=offered_only, library=library, record=record
+        )
+
+    def commit(self, outcome: GuardOutcome, conversation_id: str) -> None:
+        """Add a call decided with ``record=False`` to its history."""
+        if not outcome.allowed or outcome.pending is None:
+            return
+        with self._lock_for(conversation_id):
+            self.traces.append(outcome.plugin_id, conversation_id, outcome.pending)
 
     @property
     def gateway(self) -> Any:
