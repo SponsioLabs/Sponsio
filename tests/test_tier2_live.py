@@ -57,7 +57,9 @@ def test_the_agent_socket_decides_calls(layout):
             },
         },
     )
-    assert out["allowed"] is False and out["exit_code"] == 2
+    # A rule's deny is a JSON decision the host reads on exit 0; exit 2 is
+    # for a hook that cannot get a decision at all.
+    assert out["allowed"] is False and '"deny"' in out["stdout"]
 
 
 def test_the_admin_socket_is_closed(layout):
@@ -118,6 +120,8 @@ def test_doctor_reports_tier_2(layout):
     )
     report = json.loads(out.stdout)
     failing = [
-        g["name"] for g in report["guarantees"] if g["tier"] <= 2 and not g["ok"]
+        f"{g['name']}: {g['detail']}"
+        for g in report["guarantees"]
+        if g["tier"] <= 2 and not g["ok"]
     ]
     assert report["tier"] >= 2, failing
