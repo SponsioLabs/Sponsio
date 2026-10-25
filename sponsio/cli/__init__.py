@@ -20,7 +20,7 @@ from sponsio.cli.app import cli
 
 # Top-level commands (importing each registers it on `cli`).
 from sponsio.cli.commands.check import check
-from sponsio.cli.commands.cloud import login, projects, pull, push
+from sponsio.cli.commands.cloud import login, projects, pull, push, signing_key
 from sponsio.cli.commands.demo import demo
 from sponsio.cli.commands.doctor import doctor
 from sponsio.cli.commands.eval import eval_cmd
@@ -78,6 +78,7 @@ __all__ = [
     "projects",
     "pull",
     "push",
+    "signing_key",
     "explain",
     "replay",
     "report",

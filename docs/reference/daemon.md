@@ -151,6 +151,8 @@ With `signing:` in `daemon.yaml`, every rule file of a covered bucket needs a de
 
 Verifying needs `cryptography` (`pip install --pre 'sponsio[signing]'`). Without it, covered buckets are denied, not served unchecked. Signing itself happens where the rules are published; the daemon only verifies.
 
+**Signed by Sponsio Cloud.** The cloud signs every published book it serves with the account's fleet key; drafts are never signed. `sponsio signing-key` prints the `signing:` block to put in `daemon.yaml`. `sponsio pull <project> --agent <bucket> -o <file>` writes the file and `<file>.sig` from the exact bytes served; add `--public-key <key>` to refuse anything not signed by that key. When an admin rotates the account's key, a daemon pinned to the old one holds its rules until the new key is pinned.
+
 ---
 
 ## MCP gateway
