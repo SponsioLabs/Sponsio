@@ -10,6 +10,61 @@ broke.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Tier 2: `sudo sponsio install --system`** (macOS and Linux). A
+  `_sponsio` service user runs the daemon under launchd or systemd; the
+  engine and hook shims are root-owned; the rules, history, audit log
+  and config live in a directory only `_sponsio` can open; Claude Code
+  gets its hooks from managed settings (`managed-settings.d`), with
+  `allowManagedHooksOnly` on unless `--allow-user-hooks`. Libraries under
+  `~/.sponsio/plugins` are imported once. `sponsio uninstall --system`
+  removes it. The install stops if a shared directory above Sponsio's
+  own (`/opt`, `/usr/local`, ...) is writable by a user other than root.
+  See [running Sponsio on a host](docs/guides/host-operations.md).
+- **Tier 3: complete mediation.** The MCP gateway runs the upstream MCP
+  servers with their credentials and gives the host one MCP server whose
+  tool list follows the session's contract state. `sponsio run
+  --sandbox` starts an agent in a sandbox (bubblewrap on Linux, Seatbelt
+  on macOS, or a container recipe under `deploy/tier3`) whose only route
+  out is an egress proxy that decides every connection against
+  `egress.allow` and the `_egress` library.
+- **SDK `backend="daemon"`.** A guard can hand its decisions to the
+  daemon, and every adapter offers the model the tools the session's
+  state allows on each turn.
+- **Hash-chained audit log.** Every record carries `seq`, `prev_hash`
+  and `hash`; `sponsio admin audit verify` checks the chain against the
+  daemon's head, and records can be exported over OTLP. The integrity of
+  the log while the daemon is stopped depends on that remote copy.
+- **Signed rules.** With `signing:` in `daemon.yaml`, a covered bucket
+  serves only rule files with a valid Ed25519 signature by the pinned
+  key; anything unverified (an unsigned edit, a removal, a file that
+  does not load) leaves the last signed rules enforcing, or holds the
+  bucket. Needs the `signing` extra.
+- **Project layer.** A repository's `.sponsio/host.yaml` adds contracts
+  for hook calls made in it, and can never weaken a protected one;
+  attempts are recorded as `tamper_attempt`.
+- **Proposal review** on the admin socket (`sponsio admin proposals`),
+  and the daemon's own cloud key (`sponsio admin cloud-key`).
+
+### Changed
+
+- **A check costs the same on a long session.** Contracts are evaluated
+  incrementally: at 5,000 events a check takes about as long as at 500.
+- **`sponsio doctor --tier`** reports Tier 2 only when every guarantee
+  holds on the machine as Claude Code will load it: managed settings and
+  every directory above the shim and engine root-owned and not writable
+  by your user, no `disableAllHooks`, and a sandbox that covers this
+  platform.
+
+### Fixed
+
+- Fixes from a second review of the Tier 2 and Tier 3 work: the audit
+  log, rule signing, the MCP gateway, the system install and doctor
+  (27 issues, each with a regression test).
+
 ## [0.2.0a20]: 2026-10-24
 
 ### Added
