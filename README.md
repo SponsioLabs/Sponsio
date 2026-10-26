@@ -28,7 +28,7 @@ Sponsio checks an agent's tool calls before they run. A rule can look at what al
 
 > An **agent contract** is a runtime rule that is checked at every agent action, [backed by formal methods](docs/concepts/formal-methods.md).
 
-> **v0.2.0a20 alpha is out.** `pip install --pre sponsio`. Host hooks for Claude Code, Cursor and OpenClaw are now decided by the Sponsio daemon and fail closed on every path; the mode and policy come from the daemon's own config, not the hook's environment; and a rule change that would weaken enforcement is held until you review it with `sponsio rules reload`. `sponsio doctor --tier` tells you what the agent can and cannot do to Sponsio on your machine ([threat model](docs/concepts/threat-model.md)). Reinstall your hooks to move to it, and see the [release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a20) for the behaviour changes. TypeScript `@sponsio/sdk@0.2.0-alpha.10` ships alongside.
+> **v0.2.0a21 alpha is out.** `pip install --pre sponsio`. Sponsio can now sit outside the agent's reach: `sudo sponsio install --system` (Tier 2) runs the daemon as its own user behind root-owned hooks, and `sponsio run --sandbox` (Tier 3) starts the agent in a sandbox whose only route out is an egress proxy Sponsio decides, with MCP servers behind Sponsio's gateway. A fleet of daemons can pair with Sponsio Cloud: signed rulebooks, rule changes decided by a person in the console, and an audit chain the cloud checks. `sponsio doctor --tier` says which tier your machine is at ([threat model](docs/concepts/threat-model.md)); see the [release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a21). TypeScript `@sponsio/sdk` is unchanged at `0.2.0-alpha.10`.
 
 ---
 
