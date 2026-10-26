@@ -1,8 +1,10 @@
 """Run the boundary corpus against the current tree.
 
 Tier 1 runs in normal CI. Tier 2 and Tier 3 run only when
-``SPONSIO_TEST_TIER`` is ``2`` or ``3`` (CI jobs for those land in
-P1.8 and P3.7). A case whose closing phase is not in
+``SPONSIO_TEST_TIER`` is ``2`` or ``3``, in the CI jobs of those names.
+Tier 1 and Tier 3 cases get the throwaway :class:`~tests.security.corpus.Sandbox`;
+Tier 2 cases get a :class:`~tests.security.system_sandbox.SystemSandbox`
+on the machine's system install. A case whose closing phase is not in
 ``corpus.CLOSED_PHASES`` is a strict xfail: when the fix lands the
 test flips and the phase has to be recorded.
 """
@@ -21,6 +23,7 @@ from tests.security.corpus import (
     Vector,
     make_sandbox,
 )
+from tests.security.system_sandbox import open_system_sandbox
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -47,32 +50,45 @@ def sandbox(monkeypatch):
     sb.close()
 
 
-def _run(vector: Vector, tier: int, sandbox) -> None:
+@pytest.fixture
+def system_sandbox(request):
+    sb = open_system_sandbox(request.node.callspec.params["vector"].id)
+    yield sb
+    sb.close()
+
+
+# Which sandbox fixture each tier's cases run in.
+_SANDBOX_FIXTURE = {1: "sandbox", 2: "system_sandbox", 3: "sandbox"}
+
+
+def _run(vector: Vector, tier: int, request) -> None:
     case = vector.case(tier)
     if case.expect in UNASSERTED:
         pytest.skip(f"{vector.id} is {case.expect} at tier {tier}: not asserted")
     if case.run is None:
-        pytest.skip(f"tier {tier} harness lands in P1.8 / P3.7")
-    case.run(sandbox)
+        pytest.skip(f"{vector.id} has no tier {tier} runner yet")
+    # Requested only now, so a case with nothing to run never needs the
+    # system install.
+    case.run(request.getfixturevalue(_SANDBOX_FIXTURE[tier]))
 
 
 @pytest.mark.parametrize("vector", [_param(v, 1) for v in VECTORS])
-def test_tier1(vector: Vector, sandbox):
-    _run(vector, 1, sandbox)
+def test_tier1(vector: Vector, request):
+    _run(vector, 1, request)
 
 
 @pytest.mark.parametrize("vector", [_param(v, 2) for v in VECTORS])
-def test_tier2(vector: Vector, sandbox):
+def test_tier2(vector: Vector, request):
     if _requested_tier() != 2:
         pytest.skip("Tier 2 expectations run only with SPONSIO_TEST_TIER=2")
-    _run(vector, 2, sandbox)
+    _run(vector, 2, request)
 
 
 @pytest.mark.parametrize("vector", [_param(v, 3) for v in VECTORS])
-def test_tier3(vector: Vector, sandbox):
+def test_tier3(vector: Vector, request):
     if _requested_tier() != 3:
         pytest.skip("Tier 3 expectations run only with SPONSIO_TEST_TIER=3")
-    _run(vector, 3, sandbox)
+    _run(vector, 3, request)
 
 
 # ---------------------------------------------------------------------------
