@@ -638,7 +638,9 @@ def test_broken_library_denies_by_default(tmp_path, monkeypatch):
     )
     outcome = evaluate_event(_RM_ROOT)
     assert outcome.allowed is False
-    assert "SPONSIO_HOOK_ON_ERROR" in outcome.reason
+    assert "until the contract library is fixed" in outcome.reason
+    # The agent reads the reason: it must not say how to let calls through.
+    assert "SPONSIO_" not in outcome.reason and "allow" not in outcome.reason
 
 
 @pytest.mark.direct_only

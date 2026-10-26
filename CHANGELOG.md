@@ -70,6 +70,12 @@ broke.
   every directory above the shim and engine root-owned and not writable
   by your user, no `disableAllHooks`, and a sandbox that covers this
   platform.
+- **A call denied because its library would not load no longer tells the
+  agent how to let it through.** The reason used to end "set
+  SPONSIO_HOOK_ON_ERROR=allow to fail open": the agent reads that reason,
+  and under the daemon that variable has no effect anyway (the switch is
+  `on_error` in `daemon.yaml`). It now says the call is denied until the
+  contract library is fixed.
 
 ### Fixed
 

@@ -195,7 +195,9 @@ def test_broken_library_denies_through_the_service(root: Path, short_tmp: Path):
     svc = _service(root, short_tmp)
     res = svc.check(host=HOST, payload=_bash("ls"))
     assert res["allowed"] is False
-    assert "SPONSIO_HOOK_ON_ERROR" in res["reason"]
+    assert "until the contract library is fixed" in res["reason"]
+    # Under the daemon the env var does nothing, and the agent reads this.
+    assert "SPONSIO_" not in res["reason"] and "on_error" not in res["reason"]
 
 
 def test_root_comes_from_the_service_not_the_environment(root: Path, short_tmp: Path):
