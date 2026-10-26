@@ -222,6 +222,18 @@ class ApprovedRulesets:
         except (OSError, ValueError):
             return None
 
+    def buckets(self) -> list[str]:
+        """Every bucket with a ruleset on record."""
+        out = []
+        for path in sorted(self.dir.glob("*.json")) if self.dir.is_dir() else []:
+            try:
+                bucket = json.loads(path.read_text(encoding="utf-8")).get("bucket")
+            except (OSError, ValueError, AttributeError):
+                continue
+            if isinstance(bucket, str) and bucket:
+                out.append(bucket)
+        return out
+
     def put(self, bucket: str, ids: dict[str, str], snap: Any, how: str) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
         os.chmod(self.dir, 0o700)

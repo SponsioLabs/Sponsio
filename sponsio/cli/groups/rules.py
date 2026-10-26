@@ -57,10 +57,18 @@ def rules_status(socket_path: Path | None, as_json: bool):
     if as_json:
         click.echo(json.dumps(st, indent=2))
         return
+    unsigned = False
     for bucket, info in sorted(st["loaded"].items()):
         mark = "HELD" if bucket in st["held"] or info["held"] else "ok"
         click.echo(f"{mark:5} {bucket}  {info['path']}")
-    if not st["held"]:
+        if info.get("unsigned"):
+            unsigned = True
+            click.secho(
+                f"      not signed on disk ({info['unsigned']}); "
+                f"{'nothing is served' if info['held'] else 'the last signed rules apply'}",
+                fg="yellow",
+            )
+    if not st["held"] and not unsigned:
         click.echo("no held changes")
     if st.get("watch"):
         click.echo("(--watch: changes apply at once)")

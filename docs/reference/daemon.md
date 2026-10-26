@@ -24,6 +24,7 @@ Everything lives under the state dir, `~/.sponsio/state` by default (`sponsio da
 | `proposals/<id>.json` | Rule changes submitted from the agent side, pending or decided. |
 | `cloud.key` | The daemon's own cloud API key (`sponsio admin cloud-key set`). |
 | `audit.jsonl` | Append-only, hash-chained record of what the daemon did and saw. |
+| `audit.stream` | The id the exported audit records carry (see [Audit events](#audit-events)). |
 
 All of these are created owner-only (0600 files, 0700 directories). After `sudo sponsio install --system` the state dir is `/Library/Application Support/Sponsio/state` (macOS) or `/var/lib/sponsio` (Linux), owned by `_sponsio`. The sockets are then `run/agent.sock` (macOS, beside `state`) or `/run/sponsio/agent.sock` (Linux), with the admin socket `agent.admin.sock` beside it.
 
@@ -43,6 +44,7 @@ cloud:                   # optional: compare loaded rules with the published boo
   project: my-project
   buckets: {_host_claude_code: my-agent}
   verify_interval_s: 300
+  proposals: false       # true: decide proposals in the cloud console
 audit:                   # optional: also send every audit record over OTLP/HTTP
   otlp_endpoint: https://otlp.example.com/v1/traces
   otlp_headers: {x-api-key: "..."}
@@ -64,6 +66,7 @@ egress:                  # optional: hosts the egress proxy may reach
 | `cloud.project` | | Cloud project the buckets are linked to. |
 | `cloud.buckets` | | Host bucket to cloud agent, for `sponsio rules verify`. |
 | `cloud.verify_interval_s` | `300` | How often the daemon compares on its own. At least 30. |
+| `cloud.proposals` | `false` | Upload proposals to `cloud.project` and apply what a person decides in the console, every `verify_interval_s`. See [Proposals](#proposals). |
 | `audit.otlp_endpoint` | | Every audit record is also sent here as an OTLP span, with its chain fields. |
 | `audit.otlp_headers` | | Headers for that endpoint, such as an API key. |
 | `signing.public_key` | | Base64 Ed25519 public key that signs rule files. See [Signed rules](#signed-rules). |
@@ -94,7 +97,7 @@ The daemon listens on two Unix sockets. The agent socket is the one hooks use (`
 | agent | `proposal.submit` | Validate a rule change as a dry run and store it. Nothing applies. |
 | admin | `ping` | As above. |
 | admin | `mode.set` | Persist a host's mode in `daemon.yaml` (`claude-code`, `cursor`, `openclaw`, `gateway` or `sdk`). |
-| admin | `rules.status` | Loaded libraries, held changes, the last cloud comparison. |
+| admin | `rules.status` | Loaded libraries as they are on disk now, held changes, the last cloud comparison. |
 | admin | `rules.reload` | Apply held changes, for one bucket or all. |
 | admin | `rules.verify` | Compare linked buckets with the cloud's published books now. |
 | admin | `plugin.append` | Merge contracts into a host bucket. |
@@ -121,6 +124,10 @@ For a host hook call, the daemon adds the contracts in the project's `.sponsio/h
 
 The agent side cannot change rules. `sponsio plugin append` sends `proposal.submit` on the agent socket; the daemon validates the change as a dry run and stores it under `proposals/`. It applies only when `proposal.approve` arrives on the admin socket, which records who approved it and what changed. When the caller can reach the admin socket (Tier 1), `plugin append` approves its own proposal in the same command, and both steps are audited. When it cannot, the proposal waits for `sponsio admin proposals approve <id>`.
 
+A bucket whose rules must be signed (see [Signed rules](#signed-rules)) takes no change made on the machine. An appended file is no longer signed, so the daemon would keep the last signed rules and the change would never be enforced. `plugin.append` and `proposal.submit` for such a bucket are refused with `signed`, and so is approving a proposal submitted before signing was turned on: the change goes into the book where it is published, and the machine pulls it.
+
+**Deciding in the cloud console.** With `cloud: {project: ..., proposals: true}`, the daemon uploads its proposals with their status every `verify_interval_s`, using its own cloud key (`sponsio admin cloud-key set`; the key needs write access, a `publish` key). A person signed in to the console decides under Settings → Machines; no API key can, so a key the agent can read cannot approve what that agent proposed. On its next sync the daemon applies the decision through the same path as `proposal.approve`, and the audit record names the person (`peer: {via: sponsio-cloud, email, user_id}`). A decision applies only when the daemon's own copy of the proposal hashes to the `params_sha256` the person saw; otherwise it is refused and recorded as `proposal_cloud_refused`. The cloud keeps the params from the first upload and refuses different ones under the same id. Each sync carries at most 400 pending proposals, oldest first, and those decided in the last 7 days; a proposal whose params exceed 256 KiB is not sent and is decided on the machine.
+
 ---
 
 ## Held rule changes
@@ -139,7 +146,7 @@ Every compiled contract gets a stable id: a hash of its agent, the pack it came 
 
 With `signing:` in `daemon.yaml`, every rule file of a covered bucket needs a detached signature beside it: `sponsio.yaml.sig`, the base64 Ed25519 signature of the file's exact bytes. A file the library includes needs its own. Packs shipped inside Sponsio (`sponsio:...`) need none.
 
-- **A file that is not signed, or signed by another key.** The last rules that passed keep enforcing, and `rules_unsigned` is recorded. With nothing signed loaded, as after a restart, the bucket's calls are denied, whatever `on_error` says.
+- **A file that is not signed, or signed by another key.** The last rules that passed keep enforcing, and `rules_unsigned` is recorded. `sponsio rules status` shows the bucket as not signed on disk, with why. With nothing signed loaded, as after a restart, the bucket's calls are denied, whatever `on_error` says.
 - **A signed change.** It is handled like any other change: additions apply, removals are held until `sponsio rules reload`.
 - **A covered bucket with no rule file.** Nothing signed says the bucket has no rules, and a removal looks the same as a bucket that never had a file. A running daemon keeps enforcing the last signed rules; with none loaded the bucket is held, whatever `unconfigured` says. With `buckets: ["*"]` this means every bucket a call reaches needs signed rules; list buckets by name to cover only those.
 - **A file that does not load** (it does not parse, or an include cannot be read) is held the same way, whatever `on_error` says: nothing proves the failure is in signed content.
@@ -150,6 +157,8 @@ With `signing:` in `daemon.yaml`, every rule file of a covered bucket needs a de
 `signing.buckets` lists the buckets covered; anything but a non-empty list of names (or one name) covers every bucket.
 
 Verifying needs `cryptography` (`pip install --pre 'sponsio[signing]'`). Without it, covered buckets are denied, not served unchecked. Signing itself happens where the rules are published; the daemon only verifies.
+
+**Signed by Sponsio Cloud.** The cloud signs every published book it serves with the account's fleet key; drafts are never signed. `sponsio signing-key` prints the `signing:` block to put in `daemon.yaml`. `sponsio pull <project> --agent <bucket> -o <file>` writes the file and `<file>.sig` from the exact bytes served, creating the bucket's directory if needed; add `--public-key <key>` to refuse anything not signed by that key. When an admin rotates the account's key, a daemon pinned to the old one holds its rules until the new key is pinned.
 
 ---
 
@@ -215,7 +224,7 @@ Each session gets a Unix socket in the agent socket's directory (mode 0666) and 
 
 ## Audit events
 
-Every line of `audit.jsonl` is a JSON object with `ts` (UTC, ISO 8601), `event` and `pid`, plus the fields below. It also has `seq` (1, 2, ...), `prev_hash` (the previous record's `hash`) and `hash` (the SHA-256 of the record's canonical JSON without `hash`). Editing or removing a record breaks the chain at that point; `sponsio admin audit verify` finds it, and asks the running daemon for the last record it wrote, so records cut from the end are found too. Records from before the chain existed are counted as unchained, not as a break. When the daemon finds that the log no longer holds the last record it wrote (the log was deleted, cut or rewritten), it does not start a new chain: it writes `audit_log_cut` chained to the record it remembers, so `verify` keeps reporting the break however many records follow. A cut made while the daemon was not running is found only by the exported copy (`audit.otlp_endpoint`); at Tier 2 the agent's user cannot write the log at all.
+Every line of `audit.jsonl` is a JSON object with `ts` (UTC, ISO 8601), `event` and `pid`, plus the fields below. It also has `seq` (1, 2, ...), `prev_hash` (the previous record's `hash`) and `hash` (the SHA-256 of the record's canonical JSON without `hash`). Editing or removing a record breaks the chain at that point; `sponsio admin audit verify` finds it, and asks the running daemon for the last record it wrote, so records cut from the end are found too. Records from before the chain existed are counted as unchained, not as a break. When the daemon finds that the log no longer holds the last record it wrote (the log was deleted, cut or rewritten), it does not start a new chain: it writes `audit_log_cut` chained to the record it remembers, so `verify` keeps reporting the break however many records follow. A cut made while the daemon was not running is found only by the exported copy (`audit.otlp_endpoint`); at Tier 2 the agent's user cannot write the log at all. Each exported record's resource carries `sponsio.audit.stream`, a random id kept in `audit.stream` in the state dir, so a receiver keeps two daemons on one host apart and a renamed host is still the same chain. Sponsio Cloud checks the copy it receives and alerts when a record number arrives twice with different content (a log cut back or deleted while the daemon was down), when a record does not match its hash or does not follow its predecessor, and when records never arrive.
 
 | Event | Written when | Fields |
 |---|---|---|
@@ -233,6 +242,7 @@ Every line of `audit.jsonl` is a JSON object with `ts` (UTC, ISO 8601), `event` 
 | `tamper_attempt` (`source: project_layer`) | A project layer tried to weaken a protected contract, or is not the agent's own regular file. Once per file content. | `host`, `source`, `path`, `dropped` |
 | `proposal_submitted` | A rule change was proposed. | `id`, `kind`, `peer` |
 | `proposal_approved`, `proposal_rejected` | A proposal was decided. `change` is what was applied (the preview, for a rejection). | `id`, `kind`, `peer`, `change`, `params_sha256` |
+| `proposal_cloud_refused` | A decision from the cloud console was not applied (other params, no such proposal, or applying failed). Once per proposal. | `id`, `reason` |
 | `audit_log_cut` | The log no longer held the last record this daemon wrote. | `expected_seq`, `file_seq` |
 | `rules_unsigned` | A covered bucket's rule files failed the signature check. | `bucket`, `reason`, `kept_previous` |
 | `cloud_key_set` | The daemon was given a cloud key. | `fingerprint`, `peer` |

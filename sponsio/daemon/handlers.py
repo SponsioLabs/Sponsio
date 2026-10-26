@@ -54,7 +54,7 @@ def register_default_handlers(
     audit log and the proposals; without one the daemon serves rule
     writes only, with proposals when ``state_dir`` is given.
     """
-    server.register("plugin.append", _handle_plugin_append, admin=True)
+    append_handler = _handle_plugin_append
     apply_append = _apply_append
     if guard_service is not None:
         register_guard_handlers(server, guard_service)
@@ -62,21 +62,29 @@ def register_default_handlers(
         register_sdk_handlers(server, guard_service)
         state_dir = guard_service.state_dir
 
+        def append_handler(params: dict[str, Any]) -> dict[str, Any]:
+            _refuse_signed(guard_service, params)
+            return _handle_plugin_append(params)
+
         def apply_append(params: dict[str, Any], dry_run: bool) -> dict[str, Any]:
             # A proposal comes from the agent side: it changes the
             # daemon's own rule store, whatever ``root`` it names. At
             # Tier 2 the daemon writes as its own user, and an approved
             # proposal must not write anywhere else.
+            _refuse_signed(guard_service, params)
             return _apply_append(
                 {**params, "root": str(guard_service.store.root)}, dry_run
             )
 
+    server.register("plugin.append", append_handler, admin=True)
+
     if state_dir is not None:
         if server.audit_dir is None:
             server.audit_dir = Path(state_dir)
-        register_proposal_handlers(
-            server, ProposalStore(Path(state_dir), {"plugin.append": apply_append})
-        )
+        store = ProposalStore(Path(state_dir), {"plugin.append": apply_append})
+        if guard_service is not None:
+            guard_service.proposals = store
+        register_proposal_handlers(server, store)
         register_audit_handlers(server, Path(state_dir))
 
 
@@ -391,6 +399,25 @@ def _resolve_plugin_root(params: dict[str, Any]) -> Path:
     if env:
         return Path(env).expanduser()
     return Path.home() / ".sponsio" / "plugins"
+
+
+def _refuse_signed(guard_service: "GuardService", params: dict[str, Any]) -> None:
+    """A bucket whose rules must be signed cannot take a change made on
+    this machine: the appended file is no longer signed, so the daemon
+    would keep the last signed rules and the change would never be
+    enforced, while the proposal said it was approved. Refused at submit
+    and at approval, with where the change has to go instead."""
+    target = params.get("target")
+    if isinstance(target, str) and guard_service.config.current().requires_signature(
+        target
+    ):
+        raise RpcError(
+            f"the rules for {target} must be signed, so a change appended on "
+            f"this machine would never be enforced: the daemon keeps the last "
+            f"signed rules. Add the contracts to the book where it is "
+            f"published, publish it, and pull it again.",
+            code="signed",
+        )
 
 
 def _handle_plugin_append(params: dict[str, Any]) -> dict[str, Any]:

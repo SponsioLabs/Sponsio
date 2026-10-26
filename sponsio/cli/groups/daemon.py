@@ -141,12 +141,17 @@ def daemon_run(
     if cfg.audit_otlp_endpoint:
         import socket as _socket
 
-        from sponsio.daemon.audit_export import AuditOtlpExporter
+        from sponsio.daemon.audit_export import (
+            AuditOtlpExporter,
+            persistent_stream_id,
+        )
 
+        host = _socket.gethostname()
         exporter = AuditOtlpExporter(
             cfg.audit_otlp_endpoint,
             headers=cfg.audit_otlp_headers,
-            host=_socket.gethostname(),
+            host=host,
+            stream=persistent_stream_id(service.state_dir, host),
         )
         audit.set_exporter(service.state_dir, exporter.export)
 
@@ -170,7 +175,8 @@ def daemon_run(
             click.echo("  --watch:   every rule change applies at once (audited)")
         # Rule files, their packs and the engine modules, every 2 s.
         service.start_watch()
-        if service.config.current().cloud_buckets:
+        cfg = service.config.current()
+        if cfg.cloud_buckets or cfg.cloud_proposals:
             service.start_cloud_verify()
 
     try:

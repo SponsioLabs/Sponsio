@@ -117,6 +117,9 @@ class _CacheEntry:
     ``None``); an entry checked under another one is not reused."""
     missing: bool = False
     """The rule file is gone and ``served`` is the last signed rules."""
+    unsigned_reason: str | None = None
+    """Why what is on disk is not what is served: its signature check
+    failed, or the file is gone."""
 
 
 def _load_recorded(
@@ -278,6 +281,7 @@ class SnapshotStore:
                     unsigned=True,
                     placeholder=not keep,
                     signing=signing,
+                    unsigned_reason=unsigned,
                 )
                 if self._on_unsigned is not None:
                     self._on_unsigned(plugin_id, unsigned, keep)
@@ -321,6 +325,7 @@ class SnapshotStore:
         if entry is not None and not entry.placeholder:
             if not entry.missing:
                 entry.missing = True
+                entry.unsigned_reason = f"{lib_path.name} was removed"
                 if self._on_unsigned is not None:
                     self._on_unsigned(plugin_id, f"{lib_path.name} was removed", True)
             return entry.served
@@ -346,6 +351,21 @@ class SnapshotStore:
                 f"rules apply on the next call."
             ),
         )
+
+    def bucket_ids(self) -> list[str]:
+        with self._lock:
+            return list(self._cache)
+
+    def unsigned(self) -> dict[str, str]:
+        """Buckets whose rule file on disk is not what is served, because
+        it failed its signature check or is gone, with why. Each serves
+        the last signed rules, or is held when there are none."""
+        with self._lock:
+            return {
+                pid: e.unsigned_reason
+                for pid, e in self._cache.items()
+                if e.unsigned_reason
+            }
 
     def snapshots(self) -> list[LibrarySnapshot]:
         """What each cached bucket serves."""
@@ -988,6 +1008,11 @@ class GuardService:
         self._project_reported: set[tuple[str, ...]] = set()
         self._cloud_status: dict[str, dict[str, Any]] = {}
         self._cloud_stop: threading.Event | None = None
+        # The proposal store the daemon's handlers serve, set when they
+        # are registered; cloud proposal sync decides through it.
+        self.proposals: Any = None
+        self._proposal_refused: set[str] = set()
+        self._proposal_status: dict[str, Any] = {}
         self._gateway: Any = None
         self._gateway_lock = threading.Lock()
         self.run_dir = Path(run_dir) if run_dir is not None else self.state_dir
@@ -1205,8 +1230,44 @@ class GuardService:
                 )
         return results
 
+    def sync_proposals(self, client: Any = None) -> dict[str, Any]:
+        """Upload proposals and apply what a person decided in the cloud
+        console (``cloud: {proposals: true}``). See
+        :mod:`sponsio.daemon.proposal_sync`."""
+        from sponsio.cloud.client import CloudClient, CloudError
+        from sponsio.daemon.proposal_sync import sync_once
+
+        cfg = self.config.current()
+        if not cfg.cloud_proposals or self.proposals is None:
+            return {"status": "off"}
+        if client is None:
+            key, _source = self.cloud_api_key()
+            client = CloudClient(api_key=key or "", timeout=10.0, retries=0)
+        if not client.configured:
+            result: dict[str, Any] = {"status": "no_key"}
+        else:
+            try:
+                result = {
+                    "status": "ok",
+                    **sync_once(
+                        self.proposals,
+                        client,
+                        project=cfg.cloud_project,
+                        refused=self._proposal_refused,
+                    ),
+                }
+            except CloudError as e:
+                result = {
+                    "status": "unreachable" if e.status is None else "error",
+                    "http_status": e.status,
+                    "detail": str(e),
+                }
+        self._proposal_status = result
+        return result
+
     def start_cloud_verify(self) -> None:
-        """Verify every ``cloud_verify_interval_s`` on a background thread."""
+        """Verify (and sync proposals) every ``cloud_verify_interval_s`` on
+        a background thread."""
         stop = threading.Event()
         self._cloud_stop = stop
 
@@ -1216,6 +1277,10 @@ class GuardService:
                     self.verify_cloud()
                 except Exception as e:  # noqa: BLE001 - the loop must not die
                     sys.stderr.write(f"sponsio: cloud verification failed: {e}\n")
+                try:
+                    self.sync_proposals()
+                except Exception as e:  # noqa: BLE001 - the loop must not die
+                    sys.stderr.write(f"sponsio: proposal sync failed: {e}\n")
                 if stop.wait(self.config.current().cloud_verify_interval_s):
                     return
 
@@ -1227,18 +1292,32 @@ class GuardService:
             self._cloud_stop = None
 
     def rules_status(self) -> dict[str, Any]:
+        # What is on disk now, not as of the last call that happened to
+        # load each bucket: an operator checking a machine has usually
+        # just changed something, and a reload empties the cache.
+        held = self.rules.status()
+        for bucket in {*self.store.bucket_ids(), *self.rules.approved.buckets(), *held}:
+            try:
+                self.store.resolve(bucket)
+            except Exception:  # noqa: BLE001 - a bucket that will not load still reports
+                pass
         loaded = {}
+        unsigned = self.store.unsigned()
         for snap in self.store.snapshots():
             loaded[snap.plugin_id] = {
                 "path": snap.path,
                 "content_hash": snap.content_hash,
                 "held": snap.held_reason is not None,
+                # The file on disk is not what is enforced: an edit made on
+                # the machine to a signed bucket lands here, not in `held`.
+                "unsigned": unsigned.get(snap.plugin_id),
             }
         return {
             "loaded": loaded,
             "held": self.rules.status(),
             "watch": self.rules.watch,
             "cloud": dict(self._cloud_status),
+            "proposals": dict(self._proposal_status),
         }
 
     def rules_reload(self, bucket: str | None, peer: dict | None) -> dict[str, Any]:

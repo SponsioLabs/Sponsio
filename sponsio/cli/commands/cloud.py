@@ -72,18 +72,30 @@ def login(key: str | None, url: str | None) -> None:
 @click.option(
     "-o", "--output", "output", type=click.Path(), help="Write here instead of stdout"
 )
+@click.option(
+    "--public-key",
+    "public_key",
+    help="Refuse to write unless the book is signed by this key "
+    "(the daemon's signing.public_key)",
+)
 @click.option("--url", "url", help="API base URL")
 def pull(
     project: str | None,
     agent: str | None,
     version: int | None,
     output: str | None,
+    public_key: str | None,
     url: str | None,
 ) -> None:
     """Download a project's rulebook as loadable yaml.
 
     A guard with ``config="sponsio://<project>"`` does this itself at
     construction. Use this to inspect what it would get.
+
+    With ``-o FILE``, a published book the cloud signed also gets
+    ``FILE.sig``, which a daemon with ``signing:`` in daemon.yaml needs
+    before it runs the file. An unsigned pull removes a stale
+    ``FILE.sig`` rather than leave one that no longer matches.
     """
     from sponsio.cloud.client import CloudError
 
@@ -114,13 +126,89 @@ def pull(
         if channel == "draft"
         else (f" · {channel}" if channel and channel != "published" else "")
     )
+    body = pulled.body if pulled.body is not None else pulled.yaml_text.encode()
+    if public_key:
+        _require_signed(pulled, body, public_key)
     if output:
-        Path(output).write_text(pulled.yaml_text)
-        click.echo(f"wrote {output} · {pulled.versions or '?'}{head}")
+        sig_path = Path(output + ".sig")
+        try:
+            # The bytes as served: a signature covers exactly these. Each
+            # file is replaced whole, so a reader never sees half of one.
+            # A bucket pulled for the first time has no directory yet.
+            Path(output).parent.mkdir(parents=True, exist_ok=True)
+            _replace(Path(output), body)
+            if pulled.signature:
+                _replace(sig_path, (pulled.signature + "\n").encode("ascii"))
+                signed = (
+                    f" · signed ({pulled.signing_key or '?'}), wrote {sig_path.name}"
+                )
+            else:
+                sig_path.unlink(missing_ok=True)
+                signed = " · not signed"
+        except OSError as exc:
+            raise click.ClickException(f"could not write {output}: {exc}") from exc
+        click.echo(f"wrote {output} · {pulled.versions or '?'}{head}{signed}")
     else:
         if head:
             click.echo(f"# {pulled.versions or '?'}{head}", err=True)
         click.echo(pulled.yaml_text, nl=False)
+
+
+def _replace(path: Path, data: bytes) -> None:
+    import os
+    import tempfile
+
+    fd, tmp = tempfile.mkstemp(dir=path.parent or ".", prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def _require_signed(pulled, body: bytes, public_key: str) -> None:
+    """Refuse a pull that a daemon pinned to ``public_key`` would hold."""
+    import tempfile
+
+    from sponsio.daemon.signing import verify_file
+
+    if not pulled.signature:
+        raise click.ClickException(
+            "the cloud did not sign this book (only published books are signed, "
+            "and only when the account has signing configured)"
+        )
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "rules.yaml"
+        Path(str(path) + ".sig").write_text(pulled.signature, encoding="ascii")
+        problem = verify_file(path, public_key, content=body)
+    if problem is not None:
+        raise click.ClickException(f"signature check failed: {problem}")
+
+
+@cli.command(name="signing-key")
+@click.option("--url", "url", help="API base URL")
+def signing_key(url: str | None) -> None:
+    """Print the account's fleet signing key as daemon.yaml takes it.
+
+    Published books pulled from the cloud are signed with this key. Pin
+    it under ``signing:`` in daemon.yaml and the daemon runs only rule
+    files that carry its signature.
+    """
+    from sponsio.cloud.client import CloudError
+
+    client = _client(url=url)
+    if not client.configured:
+        raise click.ClickException(
+            "no API key: set SPONSIO_API_KEY or run `sponsio login`"
+        )
+    try:
+        info = client.signing_key()
+    except CloudError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"# key {info.get('key_id')} (version {info.get('version')})")
+    click.echo(info.get("daemon_yaml", "").rstrip("\n"))
 
 
 @cli.command()

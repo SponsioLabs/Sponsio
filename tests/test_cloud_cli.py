@@ -133,6 +133,14 @@ def test_pull_writes_to_a_file(runner, patched, tmp_path):
     assert "quant@v3" in result.output
 
 
+def test_pull_into_a_bucket_that_does_not_exist_yet(runner, patched, tmp_path):
+    patched["install"]()
+    out = tmp_path / "plugins" / "_host_claude_code" / "sponsio.yaml"
+    result = runner.invoke(cli, ["pull", "alpha", "-o", str(out)])
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+
+
 def test_pull_without_a_key_says_which_key(runner, patched):
     patched["install"](configured=False)
     result = runner.invoke(cli, ["pull", "alpha"])
@@ -248,3 +256,143 @@ def test_push_without_a_key_is_refused(runner, patched, tmp_path):
 
     assert result.exit_code != 0
     assert "sponsio login" in result.output
+
+
+# -- signed books ----------------------------------------------------------
+
+
+def _signed(body: bytes):
+    """A pull the cloud signed, and the public key a daemon would pin."""
+    import base64
+
+    ed25519 = pytest.importorskip("cryptography.hazmat.primitives.asymmetric.ed25519")
+    from cryptography.hazmat.primitives import serialization
+
+    private = ed25519.Ed25519PrivateKey.generate()
+    public = base64.b64encode(
+        private.public_key().public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw
+        )
+    ).decode()
+    pulled = PulledRulebook(
+        body.decode(),
+        versions="3",
+        channel="published",
+        body=body,
+        signature=base64.b64encode(private.sign(body)).decode(),
+        signing_key="k1",
+    )
+    return pulled, public
+
+
+# Not ASCII on purpose: the signature covers the bytes served, so the file
+# must be written from them and not re-encoded from text.
+SIGNED_BODY = "version: '1'\nagents:\n  quant:\n    contracts: []  # — v3\n".encode()
+
+
+def test_pull_writes_the_signature_a_daemon_checks(runner, patched, tmp_path):
+    from sponsio.daemon.signing import verify_file
+
+    pulled, public = _signed(SIGNED_BODY)
+    patched["install"](pulled=pulled)
+    out = tmp_path / "sponsio.yaml"
+
+    result = runner.invoke(cli, ["pull", "alpha", "-o", str(out)])
+
+    assert result.exit_code == 0, result.output
+    assert out.read_bytes() == SIGNED_BODY
+    assert verify_file(out, public) is None
+    assert "signed (k1)" in result.output
+
+
+def test_an_unsigned_pull_removes_a_stale_signature(runner, patched, tmp_path):
+    """A .sig left from an earlier pull no longer matches; leaving it would
+    only make the daemon's refusal harder to read."""
+    patched["install"](pulled=PulledRulebook(YAML, versions="1", channel="draft"))
+    out = tmp_path / "sponsio.yaml"
+    (tmp_path / "sponsio.yaml.sig").write_text("stale\n")
+
+    result = runner.invoke(cli, ["pull", "alpha", "-o", str(out)])
+
+    assert result.exit_code == 0, result.output
+    assert not (tmp_path / "sponsio.yaml.sig").exists()
+    assert "not signed" in result.output
+
+
+def test_pull_with_a_public_key_refuses_another_signer(runner, patched, tmp_path):
+    pulled, _ = _signed(SIGNED_BODY)
+    _, other = _signed(SIGNED_BODY)
+    patched["install"](pulled=pulled)
+    out = tmp_path / "sponsio.yaml"
+
+    result = runner.invoke(
+        cli, ["pull", "alpha", "-o", str(out), "--public-key", other]
+    )
+
+    assert result.exit_code != 0
+    assert "signature check failed" in result.output
+    assert not out.exists()
+
+
+def test_pull_with_a_public_key_refuses_an_unsigned_book(runner, patched, tmp_path):
+    _, public = _signed(SIGNED_BODY)
+    patched["install"](pulled=PulledRulebook(YAML, versions="1", channel="draft"))
+    out = tmp_path / "sponsio.yaml"
+
+    result = runner.invoke(
+        cli, ["pull", "alpha", "-o", str(out), "--public-key", public]
+    )
+
+    assert result.exit_code != 0
+    assert "did not sign" in result.output
+    assert not out.exists()
+
+
+def test_pull_with_the_right_key_writes(runner, patched, tmp_path):
+    pulled, public = _signed(SIGNED_BODY)
+    patched["install"](pulled=pulled)
+    out = tmp_path / "sponsio.yaml"
+
+    result = runner.invoke(
+        cli, ["pull", "alpha", "-o", str(out), "--public-key", public]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "sponsio.yaml.sig").exists()
+
+
+def test_signing_key_prints_what_daemon_yaml_takes(runner, patched):
+    client = patched["install"]()
+    client.signing_key = lambda: {
+        "key_id": "k1",
+        "version": 2,
+        "public_key": "AAAA",
+        "daemon_yaml": 'signing:\n  public_key: "AAAA"\n  buckets: ["*"]\n',
+    }
+
+    result = runner.invoke(cli, ["signing-key"])
+
+    assert result.exit_code == 0, result.output
+    assert 'public_key: "AAAA"' in result.output
+    assert "version 2" in result.output
+
+
+def test_a_failed_signature_write_is_an_error_not_a_traceback(
+    runner, patched, tmp_path, monkeypatch
+):
+    pulled, _ = _signed(SIGNED_BODY)
+    patched["install"](pulled=pulled)
+    out = tmp_path / "sponsio.yaml"
+    import sponsio.cli.commands.cloud as cloud_cmd
+
+    real = cloud_cmd._replace
+
+    def flaky(path, data):
+        if str(path).endswith(".sig"):
+            raise OSError("disk full")
+        return real(path, data)
+
+    monkeypatch.setattr(cloud_cmd, "_replace", flaky)
+    result = runner.invoke(cli, ["pull", "alpha", "-o", str(out)])
+    assert result.exit_code != 0
+    assert "could not write" in result.output

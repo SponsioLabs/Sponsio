@@ -417,3 +417,165 @@ def test_buckets_outside_the_list_need_no_signature(tmp):
         config.DaemonConfig(signing_public_key=public, signing_buckets=("other",)),
     )
     assert _service(tmp).check(host="claude-code", payload=_bash("ls"))["allowed"]
+
+
+def test_an_exported_record_says_which_daemon_wrote_it(tmp_path):
+    """Two daemons on one host write two chains; a receiver that keyed
+    them by host alone would read one as rewriting the other."""
+    from sponsio.daemon.audit_export import record_to_otlp, stream_id
+
+    a = stream_id("box", tmp_path / "user" / "state")
+    assert a == stream_id("box", tmp_path / "user" / "state")
+    assert a != stream_id("box", tmp_path / "system" / "state")
+    assert a != stream_id("other-box", tmp_path / "user" / "state")
+
+    env = record_to_otlp(
+        {"seq": 1, "hash": "a" * 64, "event": "x"}, host="box", stream=a
+    )
+    resource = env["resourceSpans"][0]["resource"]["attributes"]
+    assert {"key": "sponsio.audit.stream", "value": {"stringValue": a}} in resource
+
+
+def test_the_stream_id_outlives_a_hostname_change(tmp_path):
+    from sponsio.daemon.audit_export import STREAM_FILE, persistent_stream_id
+
+    state = tmp_path / "state"
+    state.mkdir()
+    first = persistent_stream_id(state, "laptop.local")
+    assert persistent_stream_id(state, "laptop-2.local") == first
+    assert (state / STREAM_FILE).stat().st_mode & 0o777 == 0o600
+    assert persistent_stream_id(tmp_path, "laptop.local") != first
+
+
+def test_a_stream_file_holding_something_else_does_not_loop(tmp_path):
+    from sponsio.daemon.audit_export import STREAM_FILE, persistent_stream_id, stream_id
+
+    (tmp_path / STREAM_FILE).write_text("not an id\n")
+    assert persistent_stream_id(tmp_path, "h") == stream_id("h", tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# A signed bucket and a change made on the machine (fleet runbook dry run,
+# 2026-10-25): an approved proposal was appended to the signed file, the
+# daemon kept the last signed rules, and every status said all was well.
+# ---------------------------------------------------------------------------
+
+
+def _signed_daemon(tmp: Path):
+    from sponsio.daemon.signing import sign_file
+
+    private, public = _keypair()
+    _require_signatures(tmp, public)
+    sign_file(tmp / "plugins" / BUCKET / "sponsio.yaml", private)
+    return private
+
+
+def _submit(server, tmp: Path) -> dict:
+    agent = DaemonClient(socket_path=server.socket_path, timeout_s=5.0)
+    return agent.call(
+        "proposal.submit",
+        {
+            "kind": "plugin.append",
+            "params": {"target": BUCKET, "staging_yaml": STAGING},
+        },
+    )
+
+
+def test_a_proposal_for_a_signed_bucket_is_refused_when_submitted(daemon, tmp):
+    from sponsio.daemon.client import DaemonError
+
+    server, _svc = daemon
+    _signed_daemon(tmp)
+    lib = tmp / "plugins" / BUCKET / "sponsio.yaml"
+    before = lib.read_text()
+    with pytest.raises(DaemonError) as refused:
+        _submit(server, tmp)
+    assert refused.value.code == "signed"
+    assert "publish it, and pull it again" in str(refused.value)
+    assert lib.read_text() == before
+    assert not list((tmp / "state" / "proposals").glob("*.json"))
+
+
+def test_an_admin_append_to_a_signed_bucket_is_refused(daemon, tmp):
+    from sponsio.daemon.client import DaemonError
+
+    server, _svc = daemon
+    _signed_daemon(tmp)
+    lib = tmp / "plugins" / BUCKET / "sponsio.yaml"
+    before = lib.read_text()
+    admin = DaemonClient(socket_path=server.admin_socket_path, timeout_s=5.0)
+    with pytest.raises(DaemonError) as refused:
+        admin.call("plugin.append", {"target": BUCKET, "staging_yaml": STAGING})
+    assert refused.value.code == "signed"
+    assert lib.read_text() == before
+
+
+def test_a_proposal_from_before_signing_is_refused_at_approval(daemon, tmp):
+    server, svc = daemon
+    p = _submit(server, tmp)
+    _signed_daemon(tmp)
+    lib = tmp / "plugins" / BUCKET / "sponsio.yaml"
+    before = lib.read_text()
+    done = CliRunner().invoke(
+        cli,
+        [
+            "admin",
+            "proposals",
+            "approve",
+            p["id"],
+            "--yes",
+            "--socket",
+            str(server.socket_path),
+        ],
+    )
+    assert done.exit_code != 0
+    assert "must be signed" in done.output
+    assert lib.read_text() == before
+    assert svc.proposals.get(p["id"])["status"] == "pending"
+    assert not audit.read(tmp / "state", "proposal_approved")
+
+
+def test_a_bucket_on_disk_that_is_not_what_runs_shows_in_status(daemon, tmp):
+    from sponsio.daemon.signing import sign_file
+
+    server, svc = daemon
+    private = _signed_daemon(tmp)
+    lib = tmp / "plugins" / BUCKET / "sponsio.yaml"
+    assert svc.check(host="claude-code", payload=_bash("ls"))["allowed"]
+
+    lib.write_text(
+        LIBRARY
+        + "      - desc: 'added on the machine'\n        G: { pattern: rate_limit, args: [Bash, 3] }\n"
+    )
+    assert not svc.check(host="claude-code", payload=_bash("rm -rf x"))["allowed"]
+    assert svc.rules_status()["loaded"][BUCKET]["unsigned"]
+
+    sock = ["--socket", str(server.socket_path)]
+    shown = CliRunner().invoke(cli, ["rules", "status", *sock])
+    assert shown.exit_code == 0, shown.output
+    assert "not signed on disk" in shown.output
+    assert "the last signed rules apply" in shown.output
+    assert "no held changes" not in shown.output
+
+    sign_file(lib, private)
+    assert svc.check(host="claude-code", payload=_bash("ls"))["allowed"]
+    assert svc.rules_status()["loaded"][BUCKET]["unsigned"] is None
+    shown = CliRunner().invoke(cli, ["rules", "status", *sock])
+    assert "not signed on disk" not in shown.output
+
+
+def test_status_reads_the_disk_now_not_as_of_the_last_call(daemon, tmp):
+    """An operator checking a machine has usually just changed something.
+    Status used to show each bucket as of the last hook call that loaded
+    it, and nothing at all for a bucket a reload had just emptied."""
+    server, svc = daemon
+    _signed_daemon(tmp)
+    lib = tmp / "plugins" / BUCKET / "sponsio.yaml"
+    assert svc.check(host="claude-code", payload=_bash("ls"))["allowed"]
+
+    lib.write_text(LIBRARY + "# edited by hand\n")
+    st = svc.rules_status()  # no call in between
+    assert st["loaded"][BUCKET]["unsigned"]
+
+    svc.rules_reload(None, None)
+    assert BUCKET in svc.rules_status()["loaded"]

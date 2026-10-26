@@ -91,6 +91,14 @@ class PulledRulebook:
     # used instead, "pinned" for an explicit @vN, "mixed" for a whole-
     # project pull whose agents differ.
     channel: str | None = None
+    # The exact bytes served. A signature covers these, so a file meant
+    # for a daemon that checks signatures is written from them.
+    body: bytes | None = None
+    # Base64 Ed25519 signature of ``body`` by the account's fleet key,
+    # when the cloud signed it (published books only): what ``<file>.sig``
+    # holds. ``signing_key`` is that key's short id.
+    signature: str | None = None
+    signing_key: str | None = None
 
 
 def read_api_key() -> str | None:
@@ -313,7 +321,50 @@ class CloudClient:
             sha=headers.get("x-rulebook-sha"),
             agent=headers.get("x-rulebook-agent"),
             channel=headers.get("x-rulebook-channel"),
+            body=payload,
+            signature=headers.get("x-rulebook-signature"),
+            signing_key=headers.get("x-rulebook-signing-key"),
         )
+
+    def sync_proposals(
+        self, project: str | None, *, machine: str, proposals: list[dict]
+    ) -> dict:
+        """Upload a daemon's proposals; returns ``{"decisions": [...],
+        "conflicts": [...]}``: what a person decided in the console that
+        this daemon has not applied yet."""
+        from urllib.parse import quote
+
+        path = "/v1/daemon/proposals/sync" + (
+            f"?project={quote(project)}" if project else ""
+        )
+        status, body, _ = self._request(
+            "POST",
+            path,
+            body=json.dumps({"machine": machine, "proposals": proposals}).encode(),
+            content_type="application/json",
+        )
+        if status != 200:
+            raise CloudError(
+                self._detail(body, f"proposal sync failed ({status})"), status=status
+            )
+        try:
+            return json.loads(body.decode())
+        except ValueError as exc:
+            raise CloudError("proposal sync returned a non-JSON body") from exc
+
+    def signing_key(self) -> dict:
+        """The account's fleet signing key: ``public_key`` (what
+        ``signing.public_key`` in daemon.yaml takes), ``key_id``,
+        ``version`` and a ``daemon_yaml`` snippet."""
+        status, body, _ = self._request("GET", "/v1/signing/key")
+        if status != 200:
+            raise CloudError(
+                self._detail(body, f"signing key failed ({status})"), status=status
+            )
+        try:
+            return json.loads(body.decode())
+        except ValueError as exc:
+            raise CloudError("signing key returned a non-JSON body") from exc
 
     # -- sessions ----------------------------------------------------------
 
