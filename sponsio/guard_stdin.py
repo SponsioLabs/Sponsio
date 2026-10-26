@@ -1062,8 +1062,12 @@ def _error_outcome(
     return GuardOutcome(
         allowed=False,
         reason=(
-            f"Sponsio could not evaluate this call ({exc}). Fix the contract "
-            "library, or set SPONSIO_HOOK_ON_ERROR=allow to fail open."
+            # The agent reads this, so it names no switch that would let
+            # the call through. Which one does depends on where Sponsio
+            # runs (on_error in daemon.yaml, or SPONSIO_HOOK_ON_ERROR for
+            # an in-process hook), and that is for the operator's docs.
+            f"Sponsio could not evaluate this call ({exc}), so it is denied "
+            "until the contract library is fixed."
         ),
         plugin_id=plugin_id,
         library_path=library_path,
