@@ -29,7 +29,7 @@ Sponsio 在 Agent 调用工具之前先检查这次调用。一条规则可以�
 
 > **Agent 合约**是一条运行时规则，在每一次 Agent 操作时检查，[由形式化方法支撑](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a20 alpha 已发布。** `pip install --pre sponsio`。Claude Code、Cursor 和 OpenClaw 的宿主 hook 现在由 Sponsio daemon 判定，所有路径都 fail closed；模式和策略来自 daemon 自己的配置，而不是 hook 的环境变量；会削弱执行的规则改动会被扣住，直到你用 `sponsio rules reload` 审核。`sponsio doctor --tier` 告诉你在这台机器上 agent 能对 Sponsio 做什么、不能做什么（[威胁模型](docs/concepts/threat-model.md)）。重新安装 hook 即可切换，行为变化见[发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a20)。TypeScript `@sponsio/sdk@0.2.0-alpha.10` 同步发布。
+> **v0.2.0a21 alpha 已发布。** `pip install --pre sponsio`。Sponsio 现在可以放在 agent 够不着的地方：`sudo sponsio install --system`（Tier 2）让 daemon 以独立用户运行，hook 归 root 所有；`sponsio run --sandbox`（Tier 3）把 agent 放进沙箱，唯一的出口是由 Sponsio 判定的出站代理，MCP server 都在 Sponsio 的网关后面。一组 daemon 可以和 Sponsio Cloud 配对：规则册带签名，规则改动由人在 console 里决定，审计链由云端核对。`sponsio doctor --tier` 告诉你这台机器处在哪一级（[威胁模型](docs/concepts/threat-model.md)）；详见[发布说明](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a21)。TypeScript `@sponsio/sdk` 没有变化，仍是 `0.2.0-alpha.10`。
 
 ---
 

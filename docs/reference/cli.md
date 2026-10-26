@@ -410,7 +410,7 @@ The `daemon.yaml` schema, both sockets' methods, proposals and every audit event
 What the daemon enforces, and rule changes waiting for review. These commands talk to the admin socket, so run them from your own terminal. The agent's hooks deny `sponsio rules reload`.
 
 ```bash
-sponsio rules status [--json]          # loaded libraries; HELD marks a change waiting for review
+sponsio rules status [--json]          # loaded libraries as on disk now; HELD marks a change waiting for review
 sponsio rules diff                     # what a reload would apply: - removed or changed, + added
 sponsio rules reload [--bucket B] [--yes]
 sponsio rules verify                   # compare with the book the cloud publishes, now
@@ -467,6 +467,19 @@ sponsio admin cloud-key status
 ```
 
 `audit verify` asks the running daemon, which also checks that the last record it wrote is still in the log. With `--state-dir`, or with no daemon, it checks the file's chain alone. The [daemon reference](daemon.md#audit-events) describes the chain.
+
+## sponsio login, push, pull, signing-key
+
+The commands that talk to Sponsio Cloud. A walkthrough: [the hosted console](../getting-started/hosted-console.md).
+
+```bash
+sponsio login [--key K] [--url URL]          # save a key after checking it works
+sponsio push sponsio.yaml [--project P]      # each agent's next version, as a draft
+sponsio pull [PROJECT] [--agent A] [--version N] [-o FILE] [--public-key KEY]
+sponsio signing-key                          # the daemon.yaml signing: block to pin
+```
+
+`pull -o` writes the bytes the service sent and, for a published book, the signature the service made over them to `FILE.sig`, which is what a daemon with `signing:` checks. A draft is never signed. With `--public-key`, nothing is written unless the book is signed by that key. See [signed rules](daemon.md#signed-rules).
 
 ## sponsio gateway
 

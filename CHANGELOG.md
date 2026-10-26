@@ -12,6 +12,8 @@ broke.
 
 ## [Unreleased]
 
+## [0.2.0a21]: 2026-10-25
+
 ### Added
 
 - **Tier 2: `sudo sponsio install --system`** (macOS and Linux). A
@@ -60,6 +62,16 @@ broke.
 
 - **Proposal review** on the admin socket (`sponsio admin proposals`),
   and the daemon's own cloud key (`sponsio admin cloud-key`).
+- **A fleet of daemons paired with Sponsio Cloud.** `sponsio pull -o
+  FILE` writes the signature the cloud made over a published book to
+  `FILE.sig`, and `--public-key` refuses to write anything that key did
+  not sign; `sponsio signing-key` prints the `signing:` block to pin.
+  With `cloud.proposals: true` a daemon uploads its proposals and applies
+  what a person decides in the console, only when its own copy matches
+  what that person saw. Exported audit records carry a stream id kept in
+  the state dir, so the cloud checks each daemon's chain on its own and
+  catches a log cut while the daemon was stopped. See the
+  [daemon reference](docs/reference/daemon.md).
 
 ### Changed
 
@@ -76,12 +88,22 @@ broke.
   and under the daemon that variable has no effect anyway (the switch is
   `on_error` in `daemon.yaml`). It now says the call is denied until the
   contract library is fixed.
+- **A bucket whose rules must be signed refuses changes made on the
+  machine.** `sponsio plugin append`, a proposal, or approving one from
+  before signing was turned on now fails with `signed`: an appended file
+  is no longer signed, so the daemon kept the last signed rules and the
+  change was never enforced, while the proposal read approved. Change a
+  signed bucket by publishing its book and pulling it.
+- **`sponsio rules status` reads the files as they are now**, not as the
+  last hook call saw them, and shows a signed bucket whose file on disk
+  is not what is enforced.
 
 ### Fixed
 
 - Fixes from a second review of the Tier 2 and Tier 3 work: the audit
   log, rule signing, the MCP gateway, the system install and doctor
   (27 issues, each with a regression test).
+- `sponsio pull -o` creates the bucket's directory on a first pull.
 
 ## [0.2.0a20]: 2026-10-24
 

@@ -41,7 +41,7 @@ Sponsio checks an agent's tool calls before they run. A rule can look at what al
 
 > An **agent contract** is a runtime rule that is checked at every agent action, [backed by formal methods](docs/concepts/formal-methods.md).
 
-> **v0.2.0a20 alpha is out.** `pip install --pre sponsio`. Host hooks for Claude Code, Cursor and OpenClaw are now decided by the Sponsio daemon and fail closed on every path; the mode and policy come from the daemon's own config, not the hook's environment; and a rule change that would weaken enforcement is held until you review it with `sponsio rules reload`. `sponsio doctor --tier` tells you what the agent can and cannot do to Sponsio on your machine ([threat model](docs/concepts/threat-model.md)). Reinstall your hooks to move to it, and see the [release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a20) for the behaviour changes. TypeScript `@sponsio/sdk@0.2.0-alpha.10` ships alongside.
+> **v0.2.0a21 alpha is out.** `pip install --pre sponsio`. Sponsio can now sit outside the agent's reach: `sudo sponsio install --system` (Tier 2) runs the daemon as its own user behind root-owned hooks, and `sponsio run --sandbox` (Tier 3) starts the agent in a sandbox whose only route out is an egress proxy Sponsio decides, with MCP servers behind Sponsio's gateway. A fleet of daemons can pair with Sponsio Cloud: signed rulebooks, rule changes decided by a person in the console, and an audit chain the cloud checks. `sponsio doctor --tier` says which tier your machine is at ([threat model](docs/concepts/threat-model.md)); see the [release notes](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a21). TypeScript `@sponsio/sdk` is unchanged at `0.2.0-alpha.10`.
 
 ---
 
@@ -2459,7 +2459,7 @@ The `daemon.yaml` schema, both sockets' methods, proposals and every audit event
 What the daemon enforces, and rule changes waiting for review. These commands talk to the admin socket, so run them from your own terminal. The agent's hooks deny `sponsio rules reload`.
 
 ```bash
-sponsio rules status [--json]          # loaded libraries; HELD marks a change waiting for review
+sponsio rules status [--json]          # loaded libraries as on disk now; HELD marks a change waiting for review
 sponsio rules diff                     # what a reload would apply: - removed or changed, + added
 sponsio rules reload [--bucket B] [--yes]
 sponsio rules verify                   # compare with the book the cloud publishes, now
@@ -2516,6 +2516,19 @@ sponsio admin cloud-key status
 ```
 
 `audit verify` asks the running daemon, which also checks that the last record it wrote is still in the log. With `--state-dir`, or with no daemon, it checks the file's chain alone. The [daemon reference](daemon.md#audit-events) describes the chain.
+
+## sponsio login, push, pull, signing-key
+
+The commands that talk to Sponsio Cloud. A walkthrough: [the hosted console](../getting-started/hosted-console.md).
+
+```bash
+sponsio login [--key K] [--url URL]          # save a key after checking it works
+sponsio push sponsio.yaml [--project P]      # each agent's next version, as a draft
+sponsio pull [PROJECT] [--agent A] [--version N] [-o FILE] [--public-key KEY]
+sponsio signing-key                          # the daemon.yaml signing: block to pin
+```
+
+`pull -o` writes the bytes the service sent and, for a published book, the signature the service made over them to `FILE.sig`, which is what a daemon with `signing:` checks. A draft is never signed. With `--public-key`, nothing is written unless the book is signed by that key. See [signed rules](daemon.md#signed-rules).
 
 ## sponsio gateway
 
@@ -2738,7 +2751,7 @@ With `signing:` in `daemon.yaml`, every rule file of a covered bucket needs a de
 
 Verifying needs `cryptography` (`pip install --pre 'sponsio[signing]'`). Without it, covered buckets are denied, not served unchecked. Signing itself happens where the rules are published; the daemon only verifies.
 
-**Signed by Sponsio Cloud.** The cloud signs every published book it serves with the account's fleet key; drafts are never signed. `sponsio signing-key` prints the `signing:` block to put in `daemon.yaml`. `sponsio pull <project> --agent <bucket> -o <file>` writes the file and `<file>.sig` from the exact bytes served, creating the bucket's directory if needed; add `--public-key <key>` to refuse anything not signed by that key. When an admin rotates the account's key, a daemon pinned to the old one holds its rules until the new key is pinned.
+**Signed by Sponsio Cloud.** The cloud signs every published book it serves with the account's fleet key; drafts are never signed. `sponsio signing-key` prints the `signing:` block to put in `daemon.yaml`. `sponsio pull <project> --agent <bucket> -o <file>` writes the file and `<file>.sig` from the exact bytes served, creating the bucket's directory if needed; add `--public-key <key>` to refuse anything not signed by that key. The cloud agent must carry the bucket's name (`_host_claude_code`): contract ids include the agent, and the bucket's file must define an agent of its own name. When an admin rotates the account's key, a daemon pinned to the old one holds its rules until the new key is pinned.
 
 ---
 
@@ -4274,6 +4287,8 @@ broke.
 
 ## [Unreleased]
 
+## [0.2.0a21]: 2026-10-25
+
 ### Added
 
 - **Tier 2: `sudo sponsio install --system`** (macOS and Linux). A
@@ -4322,6 +4337,16 @@ broke.
 
 - **Proposal review** on the admin socket (`sponsio admin proposals`),
   and the daemon's own cloud key (`sponsio admin cloud-key`).
+- **A fleet of daemons paired with Sponsio Cloud.** `sponsio pull -o
+  FILE` writes the signature the cloud made over a published book to
+  `FILE.sig`, and `--public-key` refuses to write anything that key did
+  not sign; `sponsio signing-key` prints the `signing:` block to pin.
+  With `cloud.proposals: true` a daemon uploads its proposals and applies
+  what a person decides in the console, only when its own copy matches
+  what that person saw. Exported audit records carry a stream id kept in
+  the state dir, so the cloud checks each daemon's chain on its own and
+  catches a log cut while the daemon was stopped. See the
+  [daemon reference](docs/reference/daemon.md).
 
 ### Changed
 
@@ -4332,12 +4357,28 @@ broke.
   every directory above the shim and engine root-owned and not writable
   by your user, no `disableAllHooks`, and a sandbox that covers this
   platform.
+- **A call denied because its library would not load no longer tells the
+  agent how to let it through.** The reason used to end "set
+  SPONSIO_HOOK_ON_ERROR=allow to fail open": the agent reads that reason,
+  and under the daemon that variable has no effect anyway (the switch is
+  `on_error` in `daemon.yaml`). It now says the call is denied until the
+  contract library is fixed.
+- **A bucket whose rules must be signed refuses changes made on the
+  machine.** `sponsio plugin append`, a proposal, or approving one from
+  before signing was turned on now fails with `signed`: an appended file
+  is no longer signed, so the daemon kept the last signed rules and the
+  change was never enforced, while the proposal read approved. Change a
+  signed bucket by publishing its book and pulling it.
+- **`sponsio rules status` reads the files as they are now**, not as the
+  last hook call saw them, and shows a signed bucket whose file on disk
+  is not what is enforced.
 
 ### Fixed
 
 - Fixes from a second review of the Tier 2 and Tier 3 work: the audit
   log, rule signing, the MCP gateway, the system install and doctor
   (27 issues, each with a regression test).
+- `sponsio pull -o` creates the bucket's directory on a first pull.
 
 ## [0.2.0a20]: 2026-10-24
 

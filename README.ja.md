@@ -29,7 +29,7 @@ Sponsio はエージェントがツールを呼ぶ前に、その呼び出しを
 
 > **エージェント契約** とは、エージェントのすべてのアクションでチェックされるランタイムルールであり、[形式手法に裏打ちされています](docs/concepts/formal-methods.md)。
 
-> **v0.2.0a20 alpha リリース。** `pip install --pre sponsio`。Claude Code、Cursor、OpenClaw のホストフックは Sponsio デーモンが判定するようになり、すべての経路でフェイルクローズします。モードとポリシーはフックの環境変数ではなくデーモン自身の設定から読まれ、執行を弱めるルール変更は `sponsio rules reload` でレビューするまで保留されます。`sponsio doctor --tier` で、そのマシン上でエージェントが Sponsio に何をできて何をできないかを確認できます（[脅威モデル](docs/concepts/threat-model.md)）。フックを再インストールすると切り替わります。挙動の変更は[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a20)を参照してください。TypeScript `@sponsio/sdk@0.2.0-alpha.10` も同時にリリースします。
+> **v0.2.0a21 alpha リリース。** `pip install --pre sponsio`。Sponsio をエージェントの手の届かない場所に置けるようになりました。`sudo sponsio install --system`（Tier 2）はデーモンを専用ユーザーで動かし、フックは root 所有になります。`sponsio run --sandbox`（Tier 3）はエージェントをサンドボックスで起動し、外への経路は Sponsio が判定するエグレスプロキシだけで、MCP サーバーは Sponsio のゲートウェイの背後に置かれます。デーモン群は Sponsio Cloud と連携でき、ルールブックの署名、コンソールで人が決めるルール変更、クラウドが検証する監査チェーンが使えます。`sponsio doctor --tier` でそのマシンがどの Tier にあるかを確認できます（[脅威モデル](docs/concepts/threat-model.md)）。詳細は[リリースノート](https://github.com/SponsioLabs/Sponsio/releases/tag/v0.2.0a21)を参照してください。TypeScript `@sponsio/sdk` は変更なしで `0.2.0-alpha.10` のままです。
 
 ---
 
