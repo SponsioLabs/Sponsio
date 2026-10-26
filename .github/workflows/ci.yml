@@ -113,7 +113,21 @@ jobs:
         run: |
           sudo -u agentuser env SPONSIO_TEST_TIER=2 HOME=/home/agentuser \
             /home/agentuser/venv/bin/python -m pytest -v -p no:cacheprovider \
-            tests/test_tier2_live.py tests/security/test_boundary_corpus.py
+            tests/test_tier2_live.py
+
+      # The corpus runs as the operator, who can prepare rules through the
+      # admin socket (sudo); every agent-side step runs as agentuser
+      # through `sudo -u`. A missing install or privilege fails, not skips.
+      - name: Boundary corpus, Tier 2 (agent is agentuser)
+        working-directory: /tmp/src
+        env:
+          SPONSIO_TEST_TIER: "2"
+          SPONSIO_TEST_AGENT_USER: agentuser
+          SPONSIO_TEST_REQUIRE_SYSTEM: "1"
+        run: |
+          /tmp/operator/bin/pip install --quiet pytest
+          /tmp/operator/bin/python -m pytest -v -rs -p no:cacheprovider \
+            tests/security/test_system_sandbox.py tests/security/test_boundary_corpus.py
 
       - name: Daemon log
         if: failure()
