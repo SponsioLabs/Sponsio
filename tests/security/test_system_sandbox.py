@@ -33,6 +33,8 @@ from tests.security.system_sandbox import (
     open_system_sandbox,
 )
 
+REPO = Path(__file__).resolve().parents[2]
+
 MARKER = "sponsio-tier2-smoke-marker"
 MARKER_CONTRACT = {
     "desc": "Tier 2 smoke: the marker command is refused",
@@ -65,7 +67,16 @@ def _fake_install(root: Path) -> Layout:
     lay = Layout(platform=sys.platform, root=root)
     python = lay.fs(lay.python)
     python.parent.mkdir(parents=True)
-    python.write_text(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} "$@"\n')
+    # The helpers run the engine with -I, which leaves this checkout off
+    # sys.path unless sponsio is installed into the interpreter (and picks
+    # another checkout's editable install if that is). So the fake engine
+    # drops -I and puts this checkout first.
+    python.write_text(
+        "#!/bin/sh\n"
+        '[ "$1" = "-I" ] && shift\n'
+        f"PYTHONPATH={shlex.quote(str(REPO))} "
+        f'exec {shlex.quote(sys.executable)} -s "$@"\n'
+    )
     python.chmod(0o755)
     shim = lay.fs(lay.shim)
     shim.parent.mkdir(parents=True)

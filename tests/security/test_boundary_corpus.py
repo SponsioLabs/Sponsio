@@ -44,7 +44,7 @@ def _param(vector: Vector, tier: int):
 
 
 @pytest.fixture
-def sandbox(monkeypatch):
+def sandbox(monkeypatch, sponsio_from_this_checkout):
     sb = make_sandbox(monkeypatch)
     yield sb
     sb.close()
