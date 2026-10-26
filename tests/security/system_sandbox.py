@@ -757,7 +757,7 @@ class SystemSandbox:
         res = self._root({"op": "write", "path": str(path), "text": text})
         if res.get("created_dir"):
             self._created_dirs.add(path.parent)
-        self.admin("rules.reload", {"bucket": bucket})
+        self._apply(bucket)
 
     def _restore(self, path: Path, bucket: str, original: str | None) -> None:
         if original is None:
@@ -766,7 +766,22 @@ class SystemSandbox:
                 self._root({"op": "rmdir", "path": str(path.parent)})
         else:
             self._root({"op": "write", "path": str(path), "text": original})
+        self._apply(bucket)
+
+    def _apply(self, bucket: str) -> None:
+        """Make the daemon enforce the bucket's file as it is now.
+
+        ``rules.reload`` applies only a change the daemon has already
+        seen, and it sees one when it next loads the bucket; a weaker
+        file it has not seen would deny the next call instead. So
+        ``rules.status`` first, which loads every bucket from disk.
+        """
+        self.admin("rules.status")
         self.admin("rules.reload", {"bucket": bucket})
+        held = self.admin("rules.status").get("held") or {}
+        assert bucket not in held, self._msg(
+            f"{bucket} is still held after rules.reload: {held[bucket]}"
+        )
 
     def install_default_library(self, *, bucket: str | None = None) -> None:
         """The bundled library, as the installer writes it."""

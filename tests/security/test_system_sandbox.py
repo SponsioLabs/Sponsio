@@ -223,6 +223,9 @@ def test_close_puts_the_rules_back(layout, daemon, sb):
     original = sb.library.read_bytes()
     sb.add_contracts([MARKER_CONTRACT])
     assert sb.library.read_bytes() != original
+    # The daemon has now loaded the stronger rules, so putting the
+    # original back is a weakening it must be told to accept.
+    assert sb.check(bash(f"echo {MARKER}")).denied
     sb.close()
     assert sb.library.read_bytes() == original
 
